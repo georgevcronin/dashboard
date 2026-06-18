@@ -229,6 +229,20 @@ function Train({ go, s, refresh }) {
           ))}
           {!(s.workouts || []).length && <div style={{ ...serif, color: T.dim, fontSize: 14 }}>Workouts appear here automatically once sync is connected.</div>}
         </div>
+        <div style={card}>
+          <div style={{ ...label, marginBottom: 8 }}>Strava</div>
+          {s.stravaConnected ? (
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <span style={{ fontSize: 13, color: T.green }}>Connected</span>
+              <button style={pill(true)} onClick={async () => { await api("strava/sync"); refresh(); }}>Sync now</button>
+            </div>
+          ) : (
+            <>
+              <div style={{ fontSize: 13, color: T.mid, marginBottom: 12 }}>Connect Strava to pull all your runs, rides and sessions directly into the dashboard.</div>
+              <a href="https://europe-west2-dashboard-79dbb.cloudfunctions.net/api/strava/auth" style={{ display: "inline-block", padding: "10px 18px", background: "#fc4c02", color: "#fff", borderRadius: 10, fontSize: 14, fontWeight: 600, textDecoration: "none" }}>Connect Strava</a>
+            </>
+          )}
+        </div>
       </div>
     </>
   );

@@ -28,6 +28,7 @@ let db = null;
 const DEFAULTS = {
   metrics: {}, workouts: [], water: {}, weight: {}, lifts: [], finance: [],
   thoughts: [], nutrition: {}, nutritionLog: [], waterEvents: [], nwHistory: [],
+  strava: null,
   profile: { name: "George", heightCm: null, sex: null, waterTarget: 7,
     macroTargets: { calories: 2400, protein: 160, carbs: 250, fat: 75 }, macroMode: "manual" },
 };
@@ -192,6 +193,105 @@ app.post("/import", async (req, res) => {
   res.json({ ok: true, addedLifts, addedWeights });
 });
 
+// ---------- Strava ----------
+const STRAVA_BASE = "https://europe-west2-dashboard-79dbb.cloudfunctions.net/api";
+
+function stravaCredentials() {
+  return {
+    clientId: process.env.STRAVA_CLIENT_ID || functions.config().strava?.client_id,
+    clientSecret: process.env.STRAVA_CLIENT_SECRET || functions.config().strava?.client_secret,
+  };
+}
+
+async function stravaAccessToken() {
+  const { clientId, clientSecret } = stravaCredentials();
+  if (!db.strava?.refresh_token) return null;
+  if (db.strava.expires_at > Date.now() / 1000 + 300) return db.strava.access_token;
+  const r = await fetch("https://www.strava.com/oauth/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ client_id: clientId, client_secret: clientSecret, refresh_token: db.strava.refresh_token, grant_type: "refresh_token" }),
+  });
+  if (!r.ok) return null;
+  const data = await r.json();
+  db.strava.access_token = data.access_token;
+  db.strava.refresh_token = data.refresh_token;
+  db.strava.expires_at = data.expires_at;
+  await save();
+  return data.access_token;
+}
+
+function ingestActivity(a) {
+  const date = (a.start_date || "").slice(0, 10);
+  if (!date) return;
+  const name = (a.sport_type || a.type || "workout").toLowerCase().replace(/_/g, " ");
+  const duration = Math.round((a.moving_time || a.elapsed_time || 0) / 60);
+  const kcal = a.kilojoules ? Math.round(a.kilojoules * 0.239) : null;
+  if (!db.workouts.find(w => w.source === "strava" && w.stravaId === a.id)) {
+    db.workouts.push({ date, name, duration, kcal, source: "strava", stravaId: a.id });
+  }
+}
+
+async function syncStrava() {
+  const token = await stravaAccessToken();
+  if (!token) return 0;
+  const after = db.strava.lastSyncAt ? Math.floor(new Date(db.strava.lastSyncAt).getTime() / 1000) : 0;
+  let page = 1, total = 0;
+  while (true) {
+    const r = await fetch(`https://www.strava.com/api/v3/athlete/activities?per_page=100&page=${page}${after ? `&after=${after}` : ""}`, {
+      headers: { "Authorization": "Bearer " + token },
+    });
+    if (!r.ok) break;
+    const activities = await r.json();
+    if (!activities.length) break;
+    for (const a of activities) ingestActivity(a);
+    total += activities.length;
+    if (activities.length < 100) break;
+    page++;
+  }
+  db.strava.lastSyncAt = new Date().toISOString();
+  await save();
+  return total;
+}
+
+app.get("/strava/auth", (req, res) => {
+  const { clientId } = stravaCredentials();
+  if (!clientId) return res.status(400).send("STRAVA_CLIENT_ID not configured");
+  const callbackUrl = `${STRAVA_BASE}/strava/callback`;
+  res.redirect(`https://www.strava.com/oauth/authorize?client_id=${clientId}&redirect_uri=${encodeURIComponent(callbackUrl)}&response_type=code&scope=activity:read_all&approval_prompt=auto`);
+});
+
+app.get("/strava/callback", async (req, res) => {
+  const { code, error } = req.query;
+  if (error || !code) return res.send("Strava auth failed: " + (error || "no code"));
+  const { clientId, clientSecret } = stravaCredentials();
+  try {
+    const r = await fetch("https://www.strava.com/oauth/token", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ client_id: clientId, client_secret: clientSecret, code, grant_type: "authorization_code" }),
+    });
+    if (!r.ok) return res.send("Token exchange failed: " + r.status);
+    const data = await r.json();
+    db.strava = { access_token: data.access_token, refresh_token: data.refresh_token, expires_at: data.expires_at };
+    await save();
+    syncStrava().catch(e => console.log("[strava] initial sync failed:", e.message));
+    res.send('<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><style>body{font-family:system-ui;background:#0a0d0b;color:#e8ece9;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;flex-direction:column;gap:12px}h2{color:#3ddc84}p{color:#8a948d}</style></head><body><h2>Strava connected</h2><p>Syncing your activities…</p><script>setTimeout(()=>window.location.href="https://georgevcronin.github.io/dashboard/",2500)</script></body></html>');
+  } catch (e) {
+    res.status(500).send("Error: " + e.message);
+  }
+});
+
+app.post("/strava/sync", async (req, res) => {
+  if (!db.strava?.refresh_token) return res.status(400).json({ error: "Strava not connected" });
+  try {
+    const synced = await syncStrava();
+    res.json({ ok: true, synced });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // ---------- Derived vitality (same adaptive logic) ----------
 function lastN(obj, n) {
   return Object.keys(obj).sort().slice(-n).map((k) => ({ date: k, ...((typeof obj[k] === "object") ? obj[k] : { value: obj[k] }) }));
@@ -277,6 +377,7 @@ app.get("/summary", async (req, res) => {
     macroTargets: db.profile.macroTargets || { calories: 2400, protein: 160, carbs: 250, fat: 75 },
     macroMode: db.profile.macroMode || "manual", macroGoal: db.profile.macroGoal || "recomp",
     lastSync: db.lastSyncAt ? (() => { const d = new Date(db.lastSyncAt); return d.toLocaleDateString("en-GB", { day:"numeric", month:"short" }) + " " + d.toLocaleTimeString("en-GB", { hour:"2-digit", minute:"2-digit" }); })() : (days.at(-1)?.date || null),
+    stravaConnected: !!db.strava?.refresh_token,
   });
 });
 
