@@ -47,7 +47,7 @@ const avg = (a) => (a.length ? a.reduce((x, y) => x + y, 0) / a.length : null);
 app.use(async (req, res, next) => { await load(); next(); });
 
 // ---------- Health Auto Export webhook ----------
-app.post("/api/health", async (req, res) => {
+app.post("/health", async (req, res) => {
   const d = req.body?.data || req.body || {};
   let saved = 0;
   for (const m of d.metrics || []) {
@@ -83,7 +83,7 @@ app.post("/api/health", async (req, res) => {
 });
 
 // ---------- iOS Shortcuts endpoint ----------
-app.post("/api/shortcut", async (req, res) => {
+app.post("/shortcut", async (req, res) => {
   const d = req.body || {};
   const k = day();
   db.metrics[k] = db.metrics[k] || {};
@@ -105,7 +105,7 @@ app.post("/api/shortcut", async (req, res) => {
 });
 
 // ---------- Hevy webhook ----------
-app.post("/api/hevy/webhook", async (req, res) => {
+app.post("/hevy/webhook", async (req, res) => {
   res.sendStatus(200);
   const workoutId = req.body.workoutId;
   const key = process.env.HEVY_API_KEY || functions.config().hevy?.key;
@@ -171,7 +171,7 @@ function compVerdict(weights, lifts) {
   return { word: "Maintaining", note: "Weight stable." };
 }
 
-app.get("/api/summary", async (req, res) => {
+app.get("/summary", async (req, res) => {
   const days = lastN(db.metrics, 30);
   const last14 = days.slice(-14);
   const today = days.at(-1) || {};
@@ -225,7 +225,7 @@ app.get("/api/summary", async (req, res) => {
 });
 
 // ---------- Manual log endpoints ----------
-app.post("/api/water", async (req, res) => {
+app.post("/water", async (req, res) => {
   const k = day(); const delta = req.body.delta ?? 1;
   db.water[k] = (db.water[k] || 0) + delta; if (db.water[k] < 0) db.water[k] = 0;
   db.waterEvents = db.waterEvents || [];
@@ -233,9 +233,9 @@ app.post("/api/water", async (req, res) => {
   db.waterEvents = db.waterEvents.slice(-200);
   await save(); res.json({ today: db.water[k] });
 });
-app.post("/api/weight", async (req, res) => { db.weight[day()] = req.body.kg; await save(); res.json({ ok: true }); });
-app.post("/api/lift", async (req, res) => { db.lifts.push({ date: day(), exercise: req.body.exercise, kg: req.body.kg, reps: req.body.reps }); await save(); res.json({ ok: true }); });
-app.post("/api/nutrition", async (req, res) => {
+app.post("/weight", async (req, res) => { db.weight[day()] = req.body.kg; await save(); res.json({ ok: true }); });
+app.post("/lift", async (req, res) => { db.lifts.push({ date: day(), exercise: req.body.exercise, kg: req.body.kg, reps: req.body.reps }); await save(); res.json({ ok: true }); });
+app.post("/nutrition", async (req, res) => {
   const k = day(); db.nutrition = db.nutrition || {};
   db.nutrition[k] = db.nutrition[k] || { protein: 0, carbs: 0, fat: 0, calories: 0 };
   for (const m of ["protein", "carbs", "fat", "calories"]) db.nutrition[k][m] = (db.nutrition[k][m] || 0) + (req.body[m] || 0);
@@ -243,12 +243,12 @@ app.post("/api/nutrition", async (req, res) => {
   if (req.body.label) db.nutritionLog.push({ date: k, time: new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }), label: req.body.label, protein: req.body.protein || 0, carbs: req.body.carbs || 0, fat: req.body.fat || 0, calories: req.body.calories || 0 });
   await save(); res.json(db.nutrition[k]);
 });
-app.post("/api/macro-targets", async (req, res) => {
+app.post("/macro-targets", async (req, res) => {
   db.profile.macroTargets = db.profile.macroTargets || { calories: 2400, protein: 160, carbs: 250, fat: 75 };
   for (const m of ["calories", "protein", "carbs", "fat"]) if (req.body[m] != null) db.profile.macroTargets[m] = +req.body[m];
   db.profile.macroMode = "manual"; await save(); res.json(db.profile.macroTargets);
 });
-app.post("/api/macro-auto", async (req, res) => {
+app.post("/macro-auto", async (req, res) => {
   const bw = Object.values(db.weight).at(-1) || 75;
   const goal = req.body.goal || "recomp"; db.profile.macroGoal = goal;
   const mult = { cut: 22, recomp: 26, bulk: 30 }, protMult = { cut: 2.2, recomp: 2.0, bulk: 1.8 };
@@ -257,7 +257,7 @@ app.post("/api/macro-auto", async (req, res) => {
   db.profile.macroTargets = { calories: cals, protein, carbs, fat }; db.profile.macroMode = "auto";
   await save(); res.json({ goal, targets: db.profile.macroTargets });
 });
-app.post("/api/finance", async (req, res) => {
+app.post("/finance", async (req, res) => {
   db.finance.push({ date: day(), name: req.body.name, type: req.body.type, amount: req.body.amount });
   const total = db.finance.reduce((a, e) => a + e.amount, 0);
   db.nwHistory = db.nwHistory || []; const k = day();
@@ -265,12 +265,12 @@ app.post("/api/finance", async (req, res) => {
   if (last && last.date === k) last.total = total; else db.nwHistory.push({ date: k, total });
   await save(); res.json({ ok: true });
 });
-app.delete("/api/finance/:i", async (req, res) => { db.finance.splice(+req.params.i, 1); await save(); res.json({ ok: true }); });
-app.post("/api/thought", async (req, res) => { db.thoughts.push({ date: day(), text: req.body.text }); await save(); res.json({ ok: true }); });
-app.post("/api/profile", async (req, res) => { db.profile = { ...db.profile, ...req.body }; await save(); res.json(db.profile); });
+app.delete("/finance/:i", async (req, res) => { db.finance.splice(+req.params.i, 1); await save(); res.json({ ok: true }); });
+app.post("/thought", async (req, res) => { db.thoughts.push({ date: day(), text: req.body.text }); await save(); res.json({ ok: true }); });
+app.post("/profile", async (req, res) => { db.profile = { ...db.profile, ...req.body }; await save(); res.json(db.profile); });
 
 // ---------- Mentor ----------
-app.post("/api/mentor", async (req, res) => {
+app.post("/mentor", async (req, res) => {
   const key = process.env.ANTHROPIC_API_KEY || functions.config().anthropic?.key;
   if (!key) return res.json({ reply: "Add ANTHROPIC_API_KEY to enable the mentor." });
   const s = db;
@@ -286,7 +286,7 @@ app.post("/api/mentor", async (req, res) => {
   } catch (e) { res.json({ reply: "mentor error: " + e.message }); }
 });
 
-app.get("/api/recommendation", async (req, res) => {
+app.get("/recommendation", async (req, res) => {
   const r = db.metrics[day()]?.recovery;
   if (r == null) return res.json({ text: "Connect health sync and recommendations will appear." });
   const text = r >= 80 ? "Push. Recovery " + r + "% — stack your hardest training today."
@@ -298,7 +298,7 @@ app.get("/api/recommendation", async (req, res) => {
 // ---------- Setup page ----------
 app.get("/setup", (req, res) => {
   const host = req.get("host") || "YOUR-PROJECT.web.app";
-  const url = "https://" + host + "/api/shortcut";
+  const url = "https://" + host + "/shortcut";
   res.send('<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Peak Setup</title><style>body{font-family:system-ui;background:#0a0d0b;color:#e8ece9;max-width:640px;margin:0 auto;padding:20px}h1{color:#3ddc84}h2{color:#8a948d;font-size:16px;margin-top:24px}code{background:#1c241f;padding:2px 8px;border-radius:4px;font-size:14px}.url{background:#1c241f;padding:12px;border-radius:8px;font-family:monospace;font-size:15px;color:#3ddc84;word-break:break-all;margin:8px 0;user-select:all}ol{line-height:1.8;padding-left:20px}li{margin-bottom:6px}</style></head><body><h1>Peak Setup</h1><h2>Your sync URL</h2><div class="url">' + url + '</div><h2>Shortcut steps</h2><ol><li>Open Shortcuts, tap +, name it Sync Health</li><li>Add Find Health Samples: Heart Rate Variability, limit 1. Set Variable: hrv</li><li>Repeat for: Resting Heart Rate (rhr), Step Count today (steps), Weight (weight)</li><li>Add Dictionary with keys: hrv, rhr, steps, weight</li><li>Add Get Contents of URL: POST to the URL above, body = JSON dictionary</li></ol><h2>Automate</h2><p>Automation tab, Time of Day, 8 AM + 9 PM, run Sync Health. One tap per notification.</p></body></html>');
 });
 
