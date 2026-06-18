@@ -28,6 +28,7 @@ let db = null;
 const DEFAULTS = {
   metrics: {}, workouts: [], water: {}, weight: {}, lifts: [], finance: [],
   thoughts: [], nutrition: {}, nutritionLog: [], waterEvents: [], nwHistory: [],
+  strava: null,
   profile: { name: "George", heightCm: null, sex: null, waterTarget: 7,
     macroTargets: { calories: 2400, protein: 160, carbs: 250, fat: 75 }, macroMode: "manual" },
 };
@@ -74,7 +75,10 @@ app.post("/health", async (req, res) => {
   for (const w of d.workouts || []) {
     const k = day(w.start || w.date);
     if (!db.workouts.find((x) => x.date === k && x.name === w.name && x.start === w.start)) {
-      db.workouts.push({ date: k, name: w.name, start: w.start, duration: w.duration, kcal: w.activeEnergyBurned?.qty ?? w.activeEnergy?.qty ?? null });
+      const rawKcal = w.activeEnergyBurned?.qty ?? w.activeEnergy?.qty ?? null;
+      const unit = w.activeEnergyBurned?.units ?? w.activeEnergy?.units ?? "kcal";
+      const kcal = rawKcal != null ? Math.round(unit === "kJ" ? rawKcal / 4.184 : rawKcal) : null;
+      db.workouts.push({ date: k, name: w.name, start: w.start, duration: w.duration, kcal });
       saved++;
     }
   }
@@ -85,7 +89,8 @@ app.post("/health", async (req, res) => {
 // ---------- iOS Shortcuts endpoint ----------
 app.post("/shortcut", async (req, res) => {
   const d = req.body || {};
-  const k = day();
+  // Allow an explicit date for historical syncs; default to today
+  const k = d.date ? d.date.slice(0, 10) : day();
   db.metrics[k] = db.metrics[k] || {};
   if (d.hrv) db.metrics[k].heart_rate_variability = d.hrv;
   if (d.rhr) db.metrics[k].resting_heart_rate = d.rhr;
@@ -94,9 +99,12 @@ app.post("/shortcut", async (req, res) => {
   if (d.weight) { db.metrics[k].body_mass = d.weight; db.weight[k] = d.weight; }
   if (Array.isArray(d.workouts)) {
     for (const w of d.workouts) {
+      // Each workout can carry its own date for bulk/historical uploads
+      const wDate = w.date ? w.date.slice(0, 10) : k;
       const name = (w.name || "workout").toLowerCase();
-      if (!db.workouts.find(x => x.date === k && x.name === name && x.duration === (w.minutes || 0))) {
-        db.workouts.push({ date: k, name, duration: w.minutes || 0, kcal: w.calories || null, source: "shortcut" });
+      const dur = w.minutes || 0;
+      if (!db.workouts.find(x => x.date === wDate && x.name === name && x.duration === dur)) {
+        db.workouts.push({ date: wDate, name, duration: dur, kcal: w.calories || null, source: "shortcut" });
       }
     }
   }
@@ -105,36 +113,190 @@ app.post("/shortcut", async (req, res) => {
   res.json({ ok: true, date: k });
 });
 
+// ---------- Hevy helpers ----------
+function hevyKey() {
+  return process.env.HEVY_API_KEY || functions.config().hevy?.key;
+}
+
+function ingestWorkout(w) {
+  const wDate = (w.start_time || w.created_at || "").slice(0, 10);
+  if (!wDate) return 0;
+  let added = 0;
+  for (const ex of (w.exercises || [])) {
+    const name = (ex.title || ex.name || "").toLowerCase();
+    if (!name) continue;
+    for (const set of (ex.sets || [])) {
+      if (set.set_type === "warmup") continue;
+      const kg = set.weight_kg ?? (set.weight_lbs ? set.weight_lbs / 2.20462 : 0);
+      const reps = set.reps || 0;
+      const isDupe = db.lifts.find(l => l.source === "hevy" && l.date === wDate && l.exercise === name && Math.abs(l.kg - kg) < 0.1 && l.reps === reps);
+      if (!isDupe && (kg > 0 || reps > 0)) {
+        db.lifts.push({ date: wDate, exercise: name, kg: Math.round(kg * 100) / 100, reps, source: "hevy" });
+        added++;
+      }
+    }
+  }
+  return added;
+}
+
 // ---------- Hevy webhook ----------
 app.post("/hevy/webhook", async (req, res) => {
   res.sendStatus(200);
   const workoutId = req.body.workoutId;
-  const key = process.env.HEVY_API_KEY || functions.config().hevy?.key;
+  const key = hevyKey();
   if (!workoutId || !key) return;
   try {
     const r = await fetch("https://api.hevyapp.com/v1/workouts/" + workoutId, {
       headers: { "api-key": key, "accept": "application/json" }
     });
+    if (!r.ok) { console.log("[hevy] fetch failed:", r.status); return; }
     const w = await r.json();
-    const wDate = (w.start_time || w.created_at || "").slice(0, 10);
-    if (!wDate) return;
-    let added = 0;
-    for (const ex of (w.exercises || [])) {
-      const name = (ex.title || ex.name || "").toLowerCase();
-      if (!name) continue;
-      for (const set of (ex.sets || [])) {
-        if (set.set_type === "warmup") continue;
-        const kg = set.weight_kg ?? (set.weight_lbs ? set.weight_lbs / 2.20462 : 0);
-        const reps = set.reps || 0;
-        const isDupe = db.lifts.find(l => l.source === "hevy" && l.date === wDate && l.exercise === name && Math.abs(l.kg - kg) < 0.1 && l.reps === reps);
-        if (!isDupe && (kg > 0 || reps > 0)) {
-          db.lifts.push({ date: wDate, exercise: name, kg: Math.round(kg * 100) / 100, reps, source: "hevy" });
-          added++;
-        }
-      }
-    }
+    const added = ingestWorkout(w);
     if (added) await save();
   } catch (e) { console.log("[hevy] webhook failed:", e.message); }
+});
+
+// ---------- Hevy backfill ----------
+app.post("/hevy/backfill", async (req, res) => {
+  const key = hevyKey();
+  if (!key) return res.status(400).json({ error: "HEVY_API_KEY not configured" });
+  const PAGE_SIZE = 10;
+  let page = 1, totalAdded = 0, totalWorkouts = 0;
+  try {
+    while (true) {
+      const r = await fetch(`https://api.hevyapp.com/v1/workouts?page=${page}&pageSize=${PAGE_SIZE}`, {
+        headers: { "api-key": key, "accept": "application/json" }
+      });
+      if (!r.ok) { console.log("[hevy] backfill page", page, "failed:", r.status); break; }
+      const data = await r.json();
+      const workouts = data.workouts || [];
+      if (!workouts.length) break;
+      for (const w of workouts) totalAdded += ingestWorkout(w);
+      totalWorkouts += workouts.length;
+      if (workouts.length < PAGE_SIZE) break;
+      page++;
+    }
+    if (totalAdded) await save();
+    res.json({ ok: true, workouts: totalWorkouts, added: totalAdded });
+  } catch (e) {
+    console.log("[hevy] backfill failed:", e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ---------- CSV import ----------
+app.post("/import", async (req, res) => {
+  const { lifts = [], weights = {} } = req.body;
+  let addedLifts = 0, addedWeights = 0;
+  for (const l of lifts) {
+    if (!l.date || !l.exercise) continue;
+    const isDupe = db.lifts.find(x => x.source === "hevy" && x.date === l.date && x.exercise === l.exercise && Math.abs((x.kg || 0) - (l.kg || 0)) < 0.1 && x.reps === l.reps);
+    if (!isDupe) { db.lifts.push({ date: l.date, exercise: l.exercise, kg: l.kg || 0, reps: l.reps || 0, source: "hevy" }); addedLifts++; }
+  }
+  for (const [date, kg] of Object.entries(weights)) {
+    if (kg && !db.weight[date]) { db.weight[date] = kg; addedWeights++; }
+  }
+  if (addedLifts || addedWeights) await save();
+  res.json({ ok: true, addedLifts, addedWeights });
+});
+
+// ---------- Strava ----------
+const STRAVA_BASE = "https://us-central1-dashboard-79dbb.cloudfunctions.net/api";
+
+function stravaCredentials() {
+  return {
+    clientId: process.env.STRAVA_CLIENT_ID || functions.config().strava?.client_id,
+    clientSecret: process.env.STRAVA_CLIENT_SECRET || functions.config().strava?.client_secret,
+  };
+}
+
+async function stravaAccessToken() {
+  const { clientId, clientSecret } = stravaCredentials();
+  if (!db.strava?.refresh_token) return null;
+  if (db.strava.expires_at > Date.now() / 1000 + 300) return db.strava.access_token;
+  const r = await fetch("https://www.strava.com/oauth/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ client_id: clientId, client_secret: clientSecret, refresh_token: db.strava.refresh_token, grant_type: "refresh_token" }),
+  });
+  if (!r.ok) return null;
+  const data = await r.json();
+  db.strava.access_token = data.access_token;
+  db.strava.refresh_token = data.refresh_token;
+  db.strava.expires_at = data.expires_at;
+  await save();
+  return data.access_token;
+}
+
+function ingestActivity(a) {
+  const date = (a.start_date || "").slice(0, 10);
+  if (!date) return;
+  const name = (a.sport_type || a.type || "workout").toLowerCase().replace(/_/g, " ");
+  const duration = Math.round((a.moving_time || a.elapsed_time || 0) / 60);
+  const kcal = a.kilojoules ? Math.round(a.kilojoules * 0.239) : null;
+  if (!db.workouts.find(w => w.source === "strava" && w.stravaId === a.id)) {
+    db.workouts.push({ date, name, duration, kcal, source: "strava", stravaId: a.id });
+  }
+}
+
+async function syncStrava() {
+  const token = await stravaAccessToken();
+  if (!token) return 0;
+  const after = db.strava.lastSyncAt ? Math.floor(new Date(db.strava.lastSyncAt).getTime() / 1000) : 0;
+  let page = 1, total = 0;
+  while (true) {
+    const r = await fetch(`https://www.strava.com/api/v3/athlete/activities?per_page=100&page=${page}${after ? `&after=${after}` : ""}`, {
+      headers: { "Authorization": "Bearer " + token },
+    });
+    if (!r.ok) break;
+    const activities = await r.json();
+    if (!activities.length) break;
+    for (const a of activities) ingestActivity(a);
+    total += activities.length;
+    if (activities.length < 100) break;
+    page++;
+  }
+  db.strava.lastSyncAt = new Date().toISOString();
+  await save();
+  return total;
+}
+
+app.get("/strava/auth", (req, res) => {
+  const { clientId } = stravaCredentials();
+  if (!clientId) return res.status(400).send("STRAVA_CLIENT_ID not configured");
+  const callbackUrl = `${STRAVA_BASE}/strava/callback`;
+  res.redirect(`https://www.strava.com/oauth/authorize?client_id=${clientId}&redirect_uri=${encodeURIComponent(callbackUrl)}&response_type=code&scope=activity:read_all&approval_prompt=auto`);
+});
+
+app.get("/strava/callback", async (req, res) => {
+  const { code, error } = req.query;
+  if (error || !code) return res.send("Strava auth failed: " + (error || "no code"));
+  const { clientId, clientSecret } = stravaCredentials();
+  try {
+    const r = await fetch("https://www.strava.com/oauth/token", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ client_id: clientId, client_secret: clientSecret, code, grant_type: "authorization_code" }),
+    });
+    if (!r.ok) return res.send("Token exchange failed: " + r.status);
+    const data = await r.json();
+    db.strava = { access_token: data.access_token, refresh_token: data.refresh_token, expires_at: data.expires_at };
+    await save();
+    syncStrava().catch(e => console.log("[strava] initial sync failed:", e.message));
+    res.send('<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><style>body{font-family:system-ui;background:#0a0d0b;color:#e8ece9;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;flex-direction:column;gap:12px}h2{color:#3ddc84}p{color:#8a948d}</style></head><body><h2>Strava connected</h2><p>Syncing your activities…</p><script>setTimeout(()=>window.location.href="https://georgevcronin.github.io/dashboard/",2500)</script></body></html>');
+  } catch (e) {
+    res.status(500).send("Error: " + e.message);
+  }
+});
+
+app.post("/strava/sync", async (req, res) => {
+  if (!db.strava?.refresh_token) return res.status(400).json({ error: "Strava not connected" });
+  try {
+    const synced = await syncStrava();
+    res.json({ ok: true, synced });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 // ---------- Derived vitality (same adaptive logic) ----------
@@ -222,6 +384,7 @@ app.get("/summary", async (req, res) => {
     macroTargets: db.profile.macroTargets || { calories: 2400, protein: 160, carbs: 250, fat: 75 },
     macroMode: db.profile.macroMode || "manual", macroGoal: db.profile.macroGoal || "recomp",
     lastSync: db.lastSyncAt ? (() => { const d = new Date(db.lastSyncAt); return d.toLocaleDateString("en-GB", { day:"numeric", month:"short" }) + " " + d.toLocaleTimeString("en-GB", { hour:"2-digit", minute:"2-digit" }); })() : (days.at(-1)?.date || null),
+    stravaConnected: !!db.strava?.refresh_token,
   });
 });
 
@@ -307,4 +470,4 @@ app.get("/setup", (req, res) => {
   res.send('<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Peak Setup</title><style>body{font-family:system-ui;background:#0a0d0b;color:#e8ece9;max-width:640px;margin:0 auto;padding:20px}h1{color:#3ddc84}h2{color:#8a948d;font-size:16px;margin-top:24px}code{background:#1c241f;padding:2px 8px;border-radius:4px;font-size:14px}.url{background:#1c241f;padding:12px;border-radius:8px;font-family:monospace;font-size:15px;color:#3ddc84;word-break:break-all;margin:8px 0;user-select:all}ol{line-height:1.8;padding-left:20px}li{margin-bottom:6px}</style></head><body><h1>Peak Setup</h1><h2>Your sync URL</h2><div class="url">' + url + '</div><h2>Shortcut steps</h2><ol><li>Open Shortcuts, tap +, name it Sync Health</li><li>Add Find Health Samples: Heart Rate Variability, limit 1. Set Variable: hrv</li><li>Repeat for: Resting Heart Rate (rhr), Step Count today (steps), Weight (weight)</li><li>Add Dictionary with keys: hrv, rhr, steps, weight</li><li>Add Get Contents of URL: POST to the URL above, body = JSON dictionary</li></ol><h2>Automate</h2><p>Automation tab, Time of Day, 8 AM + 9 PM, run Sync Health. One tap per notification.</p></body></html>');
 });
 
-exports.api = functions.https.onRequest(app);
+exports.api = functions.region("europe-west2").runWith({ timeoutSeconds: 300, memory: "256MB" }).https.onRequest(app);
