@@ -7,7 +7,7 @@ const label = { fontSize: 10, letterSpacing: "0.16em", textTransform: "uppercase
 const card = { background: T.panel, border: `1px solid ${T.line}`, borderRadius: 16, padding: 20 };
 const pill = (a) => ({ padding: "6px 14px", borderRadius: 999, cursor: "pointer", fontSize: 12, border: "1px solid", borderColor: a ? T.green : T.line, background: a ? "rgba(61,220,132,.1)" : "transparent", color: a ? T.green : T.mid });
 const input = { background: "#0c100e", border: `1px solid ${T.line}`, borderRadius: 10, padding: "10px 13px", color: T.fg, fontSize: 14 };
-const API_BASE = "https://us-central1-dashboard-79dbb.cloudfunctions.net/api";
+const API_BASE = "https://europe-west2-dashboard-79dbb.cloudfunctions.net/api";
 const api = (p, body, method = "POST") => fetch(`${API_BASE}/${p}`, body ? { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) } : undefined).then((r) => r.json());
 
 function Line({ data, w = 600, h = 140, color = T.green, fill = true }) {
