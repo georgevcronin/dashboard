@@ -7,7 +7,7 @@ const label = { fontSize: 10, letterSpacing: "0.16em", textTransform: "uppercase
 const card = { background: T.panel, border: `1px solid ${T.line}`, borderRadius: 16, padding: 20 };
 const pill = (a) => ({ padding: "6px 14px", borderRadius: 999, cursor: "pointer", fontSize: 12, border: "1px solid", borderColor: a ? T.green : T.line, background: a ? "rgba(61,220,132,.1)" : "transparent", color: a ? T.green : T.mid });
 const input = { background: "#0c100e", border: `1px solid ${T.line}`, borderRadius: 10, padding: "10px 13px", color: T.fg, fontSize: 14 };
-const API_BASE = "https://us-central1-dashboard-79dbb.cloudfunctions.net/api";
+const API_BASE = "https://europe-west2-dashboard-79dbb.cloudfunctions.net/api";
 const api = (p, body, method = "POST") => fetch(`${API_BASE}/${p}`, body ? { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) } : undefined).then((r) => r.json());
 
 function Line({ data, w = 600, h = 140, color = T.green, fill = true }) {
@@ -239,7 +239,7 @@ function Train({ go, s, refresh }) {
           ) : (
             <>
               <div style={{ fontSize: 13, color: T.mid, marginBottom: 12 }}>Connect Strava to pull all your runs, rides and sessions directly into the dashboard.</div>
-              <a href="https://us-central1-dashboard-79dbb.cloudfunctions.net/api/strava/auth" style={{ display: "inline-block", padding: "10px 18px", background: "#fc4c02", color: "#fff", borderRadius: 10, fontSize: 14, fontWeight: 600, textDecoration: "none" }}>Connect Strava</a>
+              <a href="https://europe-west2-dashboard-79dbb.cloudfunctions.net/api/strava/auth" style={{ display: "inline-block", padding: "10px 18px", background: "#fc4c02", color: "#fff", borderRadius: 10, fontSize: 14, fontWeight: 600, textDecoration: "none" }}>Connect Strava</a>
             </>
           )}
         </div>
