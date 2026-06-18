@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Import Hevy Data</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: system-ui, sans-serif; background: #0a0d0b; color: #e8ece9; max-width: 480px; margin: 0 auto; padding: 24px 20px; }
+    h1 { color: #3ddc84; font-size: 22px; margin-bottom: 6px; }
+    p { color: #8a948d; font-size: 14px; margin-bottom: 24px; }
+    .section { background: #101512; border: 1px solid #1c241f; border-radius: 16px; padding: 20px; margin-bottom: 16px; }
+    label { display: block; font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: #5d6b62; margin-bottom: 10px; }
+    input[type=file] { display: block; width: 100%; background: #0c100e; border: 1px solid #1c241f; border-radius: 10px; padding: 12px; color: #e8ece9; font-size: 14px; cursor: pointer; }
+    input[type=file]::file-selector-button { background: #1c241f; border: none; color: #e8ece9; padding: 6px 12px; border-radius: 6px; margin-right: 10px; font-size: 13px; cursor: pointer; }
+    button { display: block; width: 100%; margin-top: 20px; padding: 16px; background: #3ddc84; color: #0a0d0b; border: none; border-radius: 12px; font-size: 16px; font-weight: 600; cursor: pointer; }
+    button:disabled { background: #1c241f; color: #5d6b62; cursor: default; }
+    #status { margin-top: 16px; font-size: 14px; line-height: 1.6; color: #8a948d; }
+    #status.ok { color: #3ddc84; }
+    #status.err { color: #e07a6a; }
+  </style>
+</head>
+<body>
+  <h1>Import Hevy Data</h1>
+  <p>Export from Hevy → Profile → Settings → Export Workout Data, then pick both files below.</p>
+
+  <div class="section">
+    <label>Workout CSV (workout_data.csv)</label>
+    <input type="file" id="workoutFile" accept=".csv">
+  </div>
+
+  <div class="section">
+    <label>Measurements CSV (measurement_data.csv) — optional</label>
+    <input type="file" id="measureFile" accept=".csv">
+  </div>
+
+  <button id="btn" onclick="run()">Import</button>
+  <div id="status"></div>
+
+  <script>
+    const API = "https://europe-west2-dashboard-79dbb.cloudfunctions.net/api";
+
+    function parseCSVLine(line) {
+      const out = []; let cur = "", q = false;
+      for (let i = 0; i < line.length; i++) {
+        const c = line[i];
+        if (c === '"') { q = !q; }
+        else if (c === ',' && !q) { out.push(cur.trim()); cur = ""; }
+        else { cur += c; }
+      }
+      out.push(cur.trim());
+      return out;
+    }
+
+    function parseCSV(text) {
+      const lines = text.replace(/\r\n/g, "\n").replace(/\r/g, "\n").trim().split("\n");
+      const headers = parseCSVLine(lines[0]);
+      return lines.slice(1).filter(l => l.trim()).map(l => {
+        const vals = parseCSVLine(l);
+        const obj = {};
+        headers.forEach((h, i) => obj[h] = vals[i] ?? "");
+        return obj;
+      });
+    }
+
+    function hevyDate(str) {
+      // "6 Jun 2026, 15:21" → "2026-06-06"
+      const months = { Jan:0, Feb:1, Mar:2, Apr:3, May:4, Jun:5, Jul:6, Aug:7, Sep:8, Oct:9, Nov:10, Dec:11 };
+      const part = str.split(",")[0].trim();
+      const [d, m, y] = part.split(" ");
+      if (!d || !m || !y) return null;
+      const dt = new Date(+y, months[m], +d);
+      return isNaN(dt) ? null : dt.toISOString().slice(0, 10);
+    }
+
+    function readFile(input) {
+      return new Promise((res, rej) => {
+        if (!input.files[0]) return res(null);
+        const fr = new FileReader();
+        fr.onload = e => res(e.target.result);
+        fr.onerror = rej;
+        fr.readAsText(input.files[0]);
+      });
+    }
+
+    async function run() {
+      const btn = document.getElementById("btn");
+      const status = document.getElementById("status");
+      btn.disabled = true;
+      status.className = "";
+      status.textContent = "Parsing…";
+
+      try {
+        const [workoutText, measureText] = await Promise.all([
+          readFile(document.getElementById("workoutFile")),
+          readFile(document.getElementById("measureFile")),
+        ]);
+
+        if (!workoutText && !measureText) {
+          status.className = "err";
+          status.textContent = "Pick at least one file.";
+          btn.disabled = false;
+          return;
+        }
+
+        const lifts = [];
+        if (workoutText) {
+          const rows = parseCSV(workoutText);
+          for (const r of rows) {
+            if (r.set_type === "warmup") continue;
+            const date = hevyDate(r.start_time);
+            if (!date) continue;
+            const exercise = (r.exercise_title || "").toLowerCase().trim();
+            if (!exercise) continue;
+            const kg = parseFloat(r.weight_kg) || 0;
+            const reps = parseInt(r.reps) || 0;
+            if (kg === 0 && reps === 0) continue;
+            lifts.push({ date, exercise, kg: Math.round(kg * 100) / 100, reps });
+          }
+        }
+
+        const weights = {};
+        if (measureText) {
+          const rows = parseCSV(measureText);
+          for (const r of rows) {
+            const date = hevyDate(r.date);
+            const kg = parseFloat(r.weight_kg);
+            if (date && !isNaN(kg) && kg > 0) weights[date] = kg;
+          }
+        }
+
+        status.textContent = `Parsed ${lifts.length} sets, ${Object.keys(weights).length} weight entries. Uploading…`;
+
+        const resp = await fetch(`${API}/import`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ lifts, weights }),
+        });
+        const data = await resp.json();
+
+        status.className = "ok";
+        status.textContent = `Done! Added ${data.addedLifts} lift sets and ${data.addedWeights} weight entries.`;
+      } catch (e) {
+        status.className = "err";
+        status.textContent = "Error: " + e.message;
+      }
+
+      btn.disabled = false;
+    }
+  </script>
+</body>
+</html>

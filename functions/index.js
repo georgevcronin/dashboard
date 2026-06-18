@@ -176,6 +176,22 @@ app.post("/hevy/backfill", async (req, res) => {
   }
 });
 
+// ---------- CSV import ----------
+app.post("/import", async (req, res) => {
+  const { lifts = [], weights = {} } = req.body;
+  let addedLifts = 0, addedWeights = 0;
+  for (const l of lifts) {
+    if (!l.date || !l.exercise) continue;
+    const isDupe = db.lifts.find(x => x.source === "hevy" && x.date === l.date && x.exercise === l.exercise && Math.abs((x.kg || 0) - (l.kg || 0)) < 0.1 && x.reps === l.reps);
+    if (!isDupe) { db.lifts.push({ date: l.date, exercise: l.exercise, kg: l.kg || 0, reps: l.reps || 0, source: "hevy" }); addedLifts++; }
+  }
+  for (const [date, kg] of Object.entries(weights)) {
+    if (kg && !db.weight[date]) { db.weight[date] = kg; addedWeights++; }
+  }
+  if (addedLifts || addedWeights) await save();
+  res.json({ ok: true, addedLifts, addedWeights });
+});
+
 // ---------- Derived vitality (same adaptive logic) ----------
 function lastN(obj, n) {
   return Object.keys(obj).sort().slice(-n).map((k) => ({ date: k, ...((typeof obj[k] === "object") ? obj[k] : { value: obj[k] }) }));
