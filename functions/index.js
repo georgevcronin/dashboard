@@ -75,7 +75,10 @@ app.post("/health", async (req, res) => {
   for (const w of d.workouts || []) {
     const k = day(w.start || w.date);
     if (!db.workouts.find((x) => x.date === k && x.name === w.name && x.start === w.start)) {
-      db.workouts.push({ date: k, name: w.name, start: w.start, duration: w.duration, kcal: w.activeEnergyBurned?.qty ?? w.activeEnergy?.qty ?? null });
+      const rawKcal = w.activeEnergyBurned?.qty ?? w.activeEnergy?.qty ?? null;
+      const unit = w.activeEnergyBurned?.units ?? w.activeEnergy?.units ?? "kcal";
+      const kcal = rawKcal != null ? Math.round(unit === "kJ" ? rawKcal / 4.184 : rawKcal) : null;
+      db.workouts.push({ date: k, name: w.name, start: w.start, duration: w.duration, kcal });
       saved++;
     }
   }
