@@ -38,21 +38,3 @@ jobs:
       - id: deployment
         uses: actions/deploy-pages@v4
 
-  deploy-functions:
-    name: Firebase Functions
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-
-      - run: npm ci
-        working-directory: functions
-
-      - uses: w9jds/firebase-action@master
-        with:
-          args: deploy --only functions
-        env:
-          GCP_SA_KEY: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
