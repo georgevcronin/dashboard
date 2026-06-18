@@ -105,36 +105,75 @@ app.post("/shortcut", async (req, res) => {
   res.json({ ok: true, date: k });
 });
 
+// ---------- Hevy helpers ----------
+function hevyKey() {
+  return process.env.HEVY_API_KEY || functions.config().hevy?.key;
+}
+
+function ingestWorkout(w) {
+  const wDate = (w.start_time || w.created_at || "").slice(0, 10);
+  if (!wDate) return 0;
+  let added = 0;
+  for (const ex of (w.exercises || [])) {
+    const name = (ex.title || ex.name || "").toLowerCase();
+    if (!name) continue;
+    for (const set of (ex.sets || [])) {
+      if (set.set_type === "warmup") continue;
+      const kg = set.weight_kg ?? (set.weight_lbs ? set.weight_lbs / 2.20462 : 0);
+      const reps = set.reps || 0;
+      const isDupe = db.lifts.find(l => l.source === "hevy" && l.date === wDate && l.exercise === name && Math.abs(l.kg - kg) < 0.1 && l.reps === reps);
+      if (!isDupe && (kg > 0 || reps > 0)) {
+        db.lifts.push({ date: wDate, exercise: name, kg: Math.round(kg * 100) / 100, reps, source: "hevy" });
+        added++;
+      }
+    }
+  }
+  return added;
+}
+
 // ---------- Hevy webhook ----------
 app.post("/hevy/webhook", async (req, res) => {
   res.sendStatus(200);
   const workoutId = req.body.workoutId;
-  const key = process.env.HEVY_API_KEY || functions.config().hevy?.key;
+  const key = hevyKey();
   if (!workoutId || !key) return;
   try {
     const r = await fetch("https://api.hevyapp.com/v1/workouts/" + workoutId, {
       headers: { "api-key": key, "accept": "application/json" }
     });
+    if (!r.ok) { console.log("[hevy] fetch failed:", r.status); return; }
     const w = await r.json();
-    const wDate = (w.start_time || w.created_at || "").slice(0, 10);
-    if (!wDate) return;
-    let added = 0;
-    for (const ex of (w.exercises || [])) {
-      const name = (ex.title || ex.name || "").toLowerCase();
-      if (!name) continue;
-      for (const set of (ex.sets || [])) {
-        if (set.set_type === "warmup") continue;
-        const kg = set.weight_kg ?? (set.weight_lbs ? set.weight_lbs / 2.20462 : 0);
-        const reps = set.reps || 0;
-        const isDupe = db.lifts.find(l => l.source === "hevy" && l.date === wDate && l.exercise === name && Math.abs(l.kg - kg) < 0.1 && l.reps === reps);
-        if (!isDupe && (kg > 0 || reps > 0)) {
-          db.lifts.push({ date: wDate, exercise: name, kg: Math.round(kg * 100) / 100, reps, source: "hevy" });
-          added++;
-        }
-      }
-    }
+    const added = ingestWorkout(w);
     if (added) await save();
   } catch (e) { console.log("[hevy] webhook failed:", e.message); }
+});
+
+// ---------- Hevy backfill ----------
+app.post("/hevy/backfill", async (req, res) => {
+  const key = hevyKey();
+  if (!key) return res.status(400).json({ error: "HEVY_API_KEY not configured" });
+  const PAGE_SIZE = 10;
+  let page = 1, totalAdded = 0, totalWorkouts = 0;
+  try {
+    while (true) {
+      const r = await fetch(`https://api.hevyapp.com/v1/workouts?page=${page}&pageSize=${PAGE_SIZE}`, {
+        headers: { "api-key": key, "accept": "application/json" }
+      });
+      if (!r.ok) { console.log("[hevy] backfill page", page, "failed:", r.status); break; }
+      const data = await r.json();
+      const workouts = data.workouts || [];
+      if (!workouts.length) break;
+      for (const w of workouts) totalAdded += ingestWorkout(w);
+      totalWorkouts += workouts.length;
+      if (workouts.length < PAGE_SIZE) break;
+      page++;
+    }
+    if (totalAdded) await save();
+    res.json({ ok: true, workouts: totalWorkouts, added: totalAdded });
+  } catch (e) {
+    console.log("[hevy] backfill failed:", e.message);
+    res.status(500).json({ error: e.message });
+  }
 });
 
 // ---------- Derived vitality (same adaptive logic) ----------
