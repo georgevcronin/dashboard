@@ -86,7 +86,8 @@ app.post("/health", async (req, res) => {
 // ---------- iOS Shortcuts endpoint ----------
 app.post("/shortcut", async (req, res) => {
   const d = req.body || {};
-  const k = day();
+  // Allow an explicit date for historical syncs; default to today
+  const k = d.date ? d.date.slice(0, 10) : day();
   db.metrics[k] = db.metrics[k] || {};
   if (d.hrv) db.metrics[k].heart_rate_variability = d.hrv;
   if (d.rhr) db.metrics[k].resting_heart_rate = d.rhr;
@@ -95,9 +96,12 @@ app.post("/shortcut", async (req, res) => {
   if (d.weight) { db.metrics[k].body_mass = d.weight; db.weight[k] = d.weight; }
   if (Array.isArray(d.workouts)) {
     for (const w of d.workouts) {
+      // Each workout can carry its own date for bulk/historical uploads
+      const wDate = w.date ? w.date.slice(0, 10) : k;
       const name = (w.name || "workout").toLowerCase();
-      if (!db.workouts.find(x => x.date === k && x.name === name && x.duration === (w.minutes || 0))) {
-        db.workouts.push({ date: k, name, duration: w.minutes || 0, kcal: w.calories || null, source: "shortcut" });
+      const dur = w.minutes || 0;
+      if (!db.workouts.find(x => x.date === wDate && x.name === name && x.duration === dur)) {
+        db.workouts.push({ date: wDate, name, duration: dur, kcal: w.calories || null, source: "shortcut" });
       }
     }
   }
