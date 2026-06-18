@@ -201,7 +201,7 @@ app.post("/import", async (req, res) => {
 });
 
 // ---------- Strava ----------
-const STRAVA_BASE = "https://us-central1-dashboard-79dbb.cloudfunctions.net/api";
+const STRAVA_BASE = "https://europe-west2-dashboard-79dbb.cloudfunctions.net/api";
 
 function stravaCredentials() {
   return {
