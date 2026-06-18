@@ -9,6 +9,20 @@ const DOC = firestore.collection("peak").doc("state");
 const app = express();
 app.use(express.json({ limit: "10mb" }));
 
+const ALLOWED_ORIGINS = [
+  "https://georgevcronin.github.io",
+  "http://localhost:3000",
+  "http://localhost:4321",
+];
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  if (ALLOWED_ORIGINS.includes(origin)) res.setHeader("Access-Control-Allow-Origin", origin);
+  res.setHeader("Access-Control-Allow-Methods", "GET,POST,DELETE,OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type,Authorization");
+  if (req.method === "OPTIONS") return res.sendStatus(204);
+  next();
+});
+
 // ---------- Firestore-backed state (cached in memory) ----------
 let db = null;
 const DEFAULTS = {
