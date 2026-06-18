@@ -26,9 +26,7 @@ jobs:
       - run: npm ci
         working-directory: functions
       - run: echo "GROQ_API_KEY=${{ secrets.GROQ_API_KEY }}" >> functions/.env
-      - run: npx firebase-tools deploy --only functions --project dashboard-79dbb
-        env:
-          FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
+      - run: npx firebase-tools deploy --only functions --project dashboard-79dbb --token "${{ secrets.FIREBASE_TOKEN }}"
 
   deploy-frontend:
     name: GitHub Pages
