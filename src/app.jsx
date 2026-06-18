@@ -90,8 +90,7 @@ function Home({ go, s }) {
         {hub("vitality", "Vitality", `Recovery ${dash(s.today?.recovery, "%")} · Sleep ${dash(s.today?.sleepH, "h")}`, T.green)}
         {hub("train", "Train", `${s.workoutsMonth ?? 0} workouts this month`)}
         {hub("fuel", "Fuel", `${Math.round((s.nutritionToday?.protein || 0))}/${s.macroTargets?.protein || 160}g protein · Water ${s.waterToday ?? 0}/${s.profile?.waterTarget ?? 7}`)}
-        {hub("money", "Money", "Net worth · Activity", T.amber)}
-        {hub("mentor", "Mind", `Mentor · The void · ${s.thoughts?.length ?? 0} thoughts`, T.red)}
+        {hub("mentor", "Mentor", `${s.thoughts?.length ?? 0} thoughts · ask anything`, T.red)}
         {hub("settings", "Profile", "Name · Height · Targets")}
         {hub("fatigue", "Fatigue", "Muscle heat map · recovery status", "#a48ae0")}
         {hub("plan", "Plan", "16-week programme · 4 phases", "#6ab4e0")}
@@ -1089,8 +1088,7 @@ const NAV_PAGES = [
   { key: "vitality", icon: "◎", label: "Vitality" },
   { key: "train",    icon: "△", label: "Train" },
   { key: "fuel",     icon: "◈", label: "Fuel" },
-  { key: "money",    icon: "◇", label: "Money" },
-  { key: "mentor",   icon: "✦", label: "Mind" },
+  { key: "mentor",   icon: "✦", label: "Mentor" },
   { key: "fatigue",  icon: "◉", label: "Fatigue" },
   { key: "plan",     icon: "▦", label: "Plan" },
   { key: "settings", icon: "◌", label: "Profile" },
@@ -1167,7 +1165,7 @@ function App() {
   );
 
   const props = { go, s, refresh };
-  const pages = { home: <Home {...props} />, vitality: <Vitality {...props} />, train: <Train {...props} />, fuel: <Fuel {...props} />, money: <Money {...props} />, mentor: <Mentor {...props} />, settings: <Settings {...props} />, plan: <Plan {...props} />, fatigue: <Fatigue {...props} /> };
+  const pages = { home: <Home {...props} />, vitality: <Vitality {...props} />, train: <Train {...props} />, fuel: <Fuel {...props} />, mentor: <Mentor {...props} />, settings: <Settings {...props} />, plan: <Plan {...props} />, fatigue: <Fatigue {...props} /> };
   return (
     <div style={{ minHeight: "100vh", background: T.bg, color: T.fg, fontFamily: "'Inter', -apple-system, system-ui, sans-serif", padding: "24px clamp(14px,4vw,44px) 80px" }}>
       <div style={{ maxWidth: 1100, margin: "0 auto" }}>{pages[page]}</div>

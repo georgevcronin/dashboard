@@ -271,18 +271,22 @@ app.post("/profile", async (req, res) => { db.profile = { ...db.profile, ...req.
 
 // ---------- Mentor ----------
 app.post("/mentor", async (req, res) => {
-  const key = process.env.ANTHROPIC_API_KEY || functions.config().anthropic?.key;
-  if (!key) return res.json({ reply: "Add ANTHROPIC_API_KEY to enable the mentor." });
+  const key = process.env.GROQ_API_KEY;
+  if (!key) return res.json({ reply: "Add GROQ_API_KEY to functions/.env to enable the mentor." });
   const s = db;
-  const system = "You are Mentor, " + (s.profile?.name || "the user") + "'s personal peak-performance coach. Be direct, lowercase, concise (2-4 short sentences). Live data: " + JSON.stringify({ recovery: s.metrics, weights: s.weight, lifts: s.lifts?.slice(-20), water: s.water, workouts: s.workouts?.slice(-10), thoughts: s.thoughts });
+  const system = "You are Mentor, " + (s.profile?.name || "the user") + "'s personal peak-performance coach. Be direct, concise (2-4 short sentences). Live data: " + JSON.stringify({ recovery: s.metrics, weights: s.weight, lifts: s.lifts?.slice(-20), water: s.water, workouts: s.workouts?.slice(-10), thoughts: s.thoughts });
   try {
-    const r = await fetch("https://api.anthropic.com/v1/messages", {
+    const r = await fetch("https://api.groq.com/openai/v1/chat/completions", {
       method: "POST",
-      headers: { "Content-Type": "application/json", "x-api-key": key, "anthropic-version": "2023-06-01" },
-      body: JSON.stringify({ model: "claude-sonnet-4-20250514", max_tokens: 800, system, messages: req.body.messages }),
+      headers: { "Content-Type": "application/json", "Authorization": "Bearer " + key },
+      body: JSON.stringify({
+        model: "llama-3.3-70b-versatile",
+        max_tokens: 800,
+        messages: [{ role: "system", content: system }, ...req.body.messages],
+      }),
     });
     const data = await r.json();
-    res.json({ reply: (data.content || []).filter(b => b.type === "text").map(b => b.text).join("\n") || "no reply" });
+    res.json({ reply: data.choices?.[0]?.message?.content || "no reply" });
   } catch (e) { res.json({ reply: "mentor error: " + e.message }); }
 });
 
