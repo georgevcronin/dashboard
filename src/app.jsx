@@ -200,6 +200,9 @@ function Train({ go, s, refresh }) {
               </div>
             );
           })}
+          <div style={{ marginTop: 16, paddingTop: 12, borderTop: "1px solid #161c18", textAlign: "center" }}>
+            <a href="import.html" style={{ fontSize: 12, color: T.dim, textDecoration: "none", letterSpacing: "0.05em" }}>↑ Import Hevy CSV</a>
+          </div>
         </div>
         <div style={card}>
           <div style={{ ...label, marginBottom: 10 }}>Volume · last 4 weeks <span style={{ color: T.dim, textTransform: "none", letterSpacing: 0 }}>(kg × reps)</span></div>
