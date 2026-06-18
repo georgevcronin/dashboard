@@ -3,6 +3,7 @@ name: Deploy
 on:
   push:
     branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -14,6 +15,20 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  deploy-functions:
+    name: Firebase Functions
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm ci
+        working-directory: functions
+      - run: npx firebase-tools deploy --only functions --project dashboard-79dbb
+        env:
+          FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
+
   deploy-frontend:
     name: GitHub Pages
     runs-on: ubuntu-latest
