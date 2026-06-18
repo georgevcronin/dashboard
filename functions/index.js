@@ -100,6 +100,7 @@ app.post("/shortcut", async (req, res) => {
       }
     }
   }
+  db.lastSyncAt = new Date().toISOString();
   await save();
   res.json({ ok: true, date: k });
 });
@@ -220,7 +221,7 @@ app.get("/summary", async (req, res) => {
     nutritionLog: (db.nutritionLog || []).filter(l => l.date === day()),
     macroTargets: db.profile.macroTargets || { calories: 2400, protein: 160, carbs: 250, fat: 75 },
     macroMode: db.profile.macroMode || "manual", macroGoal: db.profile.macroGoal || "recomp",
-    lastSync: days.at(-1)?.date || null,
+    lastSync: db.lastSyncAt ? (() => { const d = new Date(db.lastSyncAt); return d.toLocaleDateString("en-GB", { day:"numeric", month:"short" }) + " " + d.toLocaleTimeString("en-GB", { hour:"2-digit", minute:"2-digit" }); })() : (days.at(-1)?.date || null),
   });
 });
 
