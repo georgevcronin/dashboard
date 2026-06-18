@@ -198,7 +198,7 @@ app.post("/import", async (req, res) => {
 });
 
 // ---------- Strava ----------
-const STRAVA_BASE = "https://europe-west2-dashboard-79dbb.cloudfunctions.net/api";
+const STRAVA_BASE = "https://us-central1-dashboard-79dbb.cloudfunctions.net/api";
 
 function stravaCredentials() {
   return {
@@ -467,4 +467,4 @@ app.get("/setup", (req, res) => {
   res.send('<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Peak Setup</title><style>body{font-family:system-ui;background:#0a0d0b;color:#e8ece9;max-width:640px;margin:0 auto;padding:20px}h1{color:#3ddc84}h2{color:#8a948d;font-size:16px;margin-top:24px}code{background:#1c241f;padding:2px 8px;border-radius:4px;font-size:14px}.url{background:#1c241f;padding:12px;border-radius:8px;font-family:monospace;font-size:15px;color:#3ddc84;word-break:break-all;margin:8px 0;user-select:all}ol{line-height:1.8;padding-left:20px}li{margin-bottom:6px}</style></head><body><h1>Peak Setup</h1><h2>Your sync URL</h2><div class="url">' + url + '</div><h2>Shortcut steps</h2><ol><li>Open Shortcuts, tap +, name it Sync Health</li><li>Add Find Health Samples: Heart Rate Variability, limit 1. Set Variable: hrv</li><li>Repeat for: Resting Heart Rate (rhr), Step Count today (steps), Weight (weight)</li><li>Add Dictionary with keys: hrv, rhr, steps, weight</li><li>Add Get Contents of URL: POST to the URL above, body = JSON dictionary</li></ol><h2>Automate</h2><p>Automation tab, Time of Day, 8 AM + 9 PM, run Sync Health. One tap per notification.</p></body></html>');
 });
 
-exports.api = functions.region("europe-west2").https.onRequest(app);
+exports.api = functions.region("europe-west2").runWith({ timeoutSeconds: 300, memory: "256MB" }).https.onRequest(app);
