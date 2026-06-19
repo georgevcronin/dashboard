@@ -153,7 +153,10 @@
         const kg = parseFloat(r.weight_kg) || 0;
         const reps = parseInt(r.reps) || 0;
         if (kg === 0 && reps === 0) continue;
-        lifts.push({ date, exercise, kg: Math.round(kg * 100) / 100, reps });
+        const lift = { date, exercise, kg: Math.round(kg * 100) / 100, reps };
+        const rpe = parseFloat(r.rpe);
+        if (!isNaN(rpe) && rpe > 0) lift.rir = Math.max(0, Math.round((10 - rpe) * 10) / 10);
+        lifts.push(lift);
       }
 
       const workouts = Array.from(workoutMap.values()).map(w => ({

@@ -145,7 +145,9 @@ function ingestWorkout(w) {
       // Deduplicate against all lifts regardless of source
       const isDupe = db.lifts.find(l => l.date === wDate && l.exercise === name && Math.abs((l.kg || 0) - kg) < 0.1 && l.reps === reps);
       if (!isDupe && (kg > 0 || reps > 0)) {
-        db.lifts.push({ date: wDate, exercise: name, kg: Math.round(kg * 100) / 100, reps, source: "hevy" });
+        const entry = { date: wDate, exercise: name, kg: Math.round(kg * 100) / 100, reps, source: "hevy" };
+        if (set.rpe != null) entry.rir = Math.max(0, Math.round((10 - set.rpe) * 10) / 10);
+        db.lifts.push(entry);
         added++;
       }
     }
@@ -210,7 +212,7 @@ app.post("/import", async (req, res) => {
   for (const l of lifts) {
     if (!l.date || !l.exercise) continue;
     const isDupe = db.lifts.find(x => x.date === l.date && x.exercise === l.exercise && Math.abs((x.kg || 0) - (l.kg || 0)) < 0.1 && x.reps === l.reps);
-    if (!isDupe) { db.lifts.push({ date: l.date, exercise: l.exercise, kg: l.kg || 0, reps: l.reps || 0, source: "hevy" }); addedLifts++; }
+    if (!isDupe) { const e = { date: l.date, exercise: l.exercise, kg: l.kg || 0, reps: l.reps || 0, source: "hevy" }; if (l.rir != null) e.rir = l.rir; db.lifts.push(e); addedLifts++; }
   }
   for (const [date, kg] of Object.entries(weights)) {
     if (kg && !db.weight[date]) { db.weight[date] = kg; addedWeights++; }

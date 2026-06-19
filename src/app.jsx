@@ -207,9 +207,9 @@ function Train({ go, s, refresh }) {
         .slice(-8)
         .map(([date, sets]) => {
           const numSets = sets.length;
-          const avgRIR = sets.reduce((acc, s) => {
-            const pct = (s.kg || 0) / erm;
-            return acc + Math.min(10, Math.max(0, (1 - pct) * 15));
+          const avgRIR = sets.reduce((acc, l) => {
+            const rir = l.rir != null ? l.rir : Math.min(10, Math.max(0, (1 - (l.kg || 0) / erm) * 15));
+            return acc + rir;
           }, 0) / numSets;
           const stimulus = volumeResponsePct(numSets) * rirEffectiveness(avgRIR);
           return { date, stimulus, numSets, avgRIR: Math.round(avgRIR * 10) / 10 };
@@ -367,7 +367,7 @@ function Train({ go, s, refresh }) {
                       const best = Math.max(...sets.map(x => x.kg || 0));
                       const erm = (() => { let m = 0; for (const l of (s.lifts || [])) { if (l.exercise === name && l.kg) { const e = l.kg * (1 + (l.reps || 1) / 30); if (e > m) m = e; } } return m || 1; })();
                       const numSets = sets.length;
-                      const avgRIR = sets.reduce((acc, l) => acc + Math.min(10, Math.max(0, (1 - (l.kg || 0) / erm) * 15)), 0) / numSets;
+                      const avgRIR = sets.reduce((acc, l) => acc + (l.rir != null ? l.rir : Math.min(10, Math.max(0, (1 - (l.kg || 0) / erm) * 15))), 0) / numSets;
                       const stim = volumeResponsePct(numSets) * rirEffectiveness(avgRIR);
                       const stimPct = Math.round(stim * 100);
                       const stimColor = stimPct >= 55 ? T.green : stimPct >= 32 ? T.amber : T.red;
