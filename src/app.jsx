@@ -1090,6 +1090,42 @@ function Fatigue({ go, s, refresh }) {
   const activeAdaptMuscle = adaptMuscle || adaptMuscles[0] || null;
   const activeSeries = activeAdaptMuscle ? (adaptationTimeline[activeAdaptMuscle] || []) : [];
 
+  // Estimate atrophy rate from observed est1RM drops across 5–21 day training gaps
+  const estimatedAtrophyRate = useMemo(() => {
+    const byEx = {};
+    for (const l of (s.lifts || [])) {
+      if (!l.kg || !l.exercise || !l.date) continue;
+      const e1rm = l.kg * (1 + (l.reps || 1) / 30);
+      if (!byEx[l.exercise]) byEx[l.exercise] = {};
+      if (!byEx[l.exercise][l.date] == null || e1rm > byEx[l.exercise][l.date]) byEx[l.exercise][l.date] = e1rm;
+    }
+    const rates = [];
+    for (const sessions of Object.values(byEx)) {
+      const dates = Object.keys(sessions).sort();
+      for (let i = 0; i < dates.length - 1; i++) {
+        const gapH = (new Date(dates[i + 1]) - new Date(dates[i])) / 3600000;
+        if (gapH < 120 || gapH > 500) continue; // 5–21 day gaps only
+        const e1 = sessions[dates[i]], e2 = sessions[dates[i + 1]];
+        if (e2 >= e1) continue; // performance held or improved — skip
+        const drop = (e1 - e2) / e1;
+        if (drop > 0.25) continue; // ignore outliers (>25% single-gap drop)
+        rates.push(drop / gapH);
+      }
+    }
+    if (rates.length < 3) return null;
+    rates.sort((a, b) => a - b);
+    return rates[Math.floor(rates.length / 2)]; // median
+  }, [s.lifts]);
+
+  // Auto-apply once enough data is available; ignore on subsequent lift changes
+  const [atrophyCalibrated, setAtrophyCalibrated] = useState(false);
+  useEffect(() => {
+    if (estimatedAtrophyRate != null && !atrophyCalibrated) {
+      setAtrophyRate(estimatedAtrophyRate);
+      setAtrophyCalibrated(true);
+    }
+  }, [estimatedAtrophyRate]);
+
   const handleLogSoreness = async () => {
     if (!sorenessTarget || sorenessScore == null) return;
     const calcFatigue = fatigue[sorenessTarget] || 0;
@@ -1234,11 +1270,18 @@ function Fatigue({ go, s, refresh }) {
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 10, flexWrap: "wrap", gap: 8 }}>
             <div style={label}>Adaptation timeline · supercompensation curve</div>
             <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 11, color: T.dim }}>
-              <span>Atrophy rate:</span>
-              <input type="range" min="0.0005" max="0.012" step="0.0005" value={atrophyRate}
-                onChange={e => setAtrophyRate(+e.target.value)}
+              {estimatedAtrophyRate != null && (
+                <button onClick={() => { setAtrophyRate(estimatedAtrophyRate); setAtrophyCalibrated(true); }}
+                  style={{ ...pill(atrophyCalibrated), fontSize: 10, padding: "3px 9px" }}
+                  title={`Estimated from observed 1RM drops: ${(estimatedAtrophyRate * 24).toFixed(4)}/day`}>
+                  {atrophyCalibrated ? "✓ auto" : "auto-calibrate"}
+                </button>
+              )}
+              {estimatedAtrophyRate == null && <span style={{ fontSize: 10, color: T.dim }}>needs 3+ gap pairs to calibrate</span>}
+              <input type="range" min="0.0005" max="0.015" step="0.0005" value={atrophyRate}
+                onChange={e => { setAtrophyRate(+e.target.value); setAtrophyCalibrated(false); }}
                 style={{ width: 80, accentColor: T.red }} />
-              <span style={{ fontVariantNumeric: "tabular-nums", minWidth: 60 }}>{(atrophyRate * 24).toFixed(3)}/day</span>
+              <span style={{ fontVariantNumeric: "tabular-nums", minWidth: 60 }}>{(atrophyRate * 24).toFixed(4)}/day</span>
             </div>
           </div>
           <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginBottom: 12 }}>
