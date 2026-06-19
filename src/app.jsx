@@ -181,6 +181,47 @@ function Train({ go, s, refresh }) {
   }, [s.lifts]);
   const muscleOptions = Object.keys(muscleWeeklyVol).sort();
   const activeMuscle = selectedMuscle || muscleOptions[0] || null;
+
+  const [stimExercise, setStimExercise] = useState(null);
+  const stimulusData = useMemo(() => {
+    // est1RM per exercise: best kg * (1 + reps/30) across all time
+    const est1RM = {};
+    for (const l of (s.lifts || [])) {
+      if (!l.exercise || !l.kg) continue;
+      const e = l.kg * (1 + (l.reps || 1) / 30);
+      if (!est1RM[l.exercise] || e > est1RM[l.exercise]) est1RM[l.exercise] = e;
+    }
+    // group lifts: exercise → date → [sets]
+    const byExDate = {};
+    for (const l of (s.lifts || [])) {
+      if (!l.exercise || !l.kg || !l.date) continue;
+      if (!byExDate[l.exercise]) byExDate[l.exercise] = {};
+      if (!byExDate[l.exercise][l.date]) byExDate[l.exercise][l.date] = [];
+      byExDate[l.exercise][l.date].push(l);
+    }
+    const result = {};
+    for (const [ex, dates] of Object.entries(byExDate)) {
+      const erm = est1RM[ex] || 1;
+      const sessions = Object.entries(dates)
+        .sort(([a], [b]) => a.localeCompare(b))
+        .slice(-8)
+        .map(([date, sets]) => {
+          const numSets = sets.length;
+          const avgRIR = sets.reduce((acc, s) => {
+            const pct = (s.kg || 0) / erm;
+            return acc + Math.min(10, Math.max(0, (1 - pct) * 15));
+          }, 0) / numSets;
+          const stimulus = volumeResponsePct(numSets) * rirEffectiveness(avgRIR);
+          return { date, stimulus, numSets, avgRIR: Math.round(avgRIR * 10) / 10 };
+        });
+      result[ex] = sessions;
+    }
+    return result;
+  }, [s.lifts]);
+  const stimExercises = Object.keys(stimulusData).sort();
+  const activeStimEx = stimExercise || stimExercises[0] || null;
+  const activeStimSessions = activeStimEx ? (stimulusData[activeStimEx] || []) : [];
+  const maxStimulus = Math.max(0.01, ...activeStimSessions.map(s => s.stimulus));
   return (
     <>
       <Back onClick={() => go("home")} title="Progress" />
@@ -256,6 +297,47 @@ function Train({ go, s, refresh }) {
             </div>
           </div>
         )}
+        {stimExercises.length > 0 && (
+          <div style={{ ...card, gridColumn: "1 / -1" }}>
+            <div style={{ ...label, marginBottom: 10 }}>Effective stimulus · per exercise <span style={{ textTransform: "none", letterSpacing: 0, color: T.dim }}>(last 8 sessions)</span></div>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 14 }}>
+              {stimExercises.map(ex => (
+                <button key={ex} style={pill(activeStimEx === ex)} onClick={() => setStimExercise(ex)}>
+                  {ex.length > 28 ? ex.slice(0, 26) + "…" : ex}
+                </button>
+              ))}
+            </div>
+            {activeStimSessions.length > 0 ? (
+              <>
+                <div style={{ display: "flex", alignItems: "flex-end", gap: 8, height: 100, marginBottom: 6 }}>
+                  {activeStimSessions.map((sess, i) => {
+                    const pct = sess.stimulus / maxStimulus;
+                    const color = pct >= 0.75 ? T.green : pct >= 0.45 ? T.amber : T.red;
+                    return (
+                      <div key={i} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center" }}>
+                        <div title={`Stimulus: ${(sess.stimulus * 100).toFixed(0)}%\n${sess.numSets} sets · ~RIR ${sess.avgRIR}`}
+                          style={{ width: "100%", height: Math.max(3, pct * 80) + "px", borderRadius: 4, background: color, transition: "height .4s" }} />
+                        <div style={{ fontSize: 9, color: T.dim, marginTop: 4, textAlign: "center", lineHeight: 1.3 }}>
+                          {sess.date.slice(5)}<br />{sess.numSets}s·R{sess.avgRIR}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+                <div style={{ display: "flex", gap: 16, fontSize: 11, color: T.dim, marginTop: 4 }}>
+                  <span><span style={{ color: T.green }}>■</span> High stimulus</span>
+                  <span><span style={{ color: T.amber }}>■</span> Moderate</span>
+                  <span><span style={{ color: T.red }}>■</span> Low</span>
+                </div>
+                <div style={{ fontSize: 10, color: T.dim, marginTop: 8 }}>
+                  Ogasawara et al. 2017 (volume response) · Niv Zinder RIR model (proximity to failure). Bar height = combined stimulus score.
+                </div>
+              </>
+            ) : (
+              <div style={{ ...serif, color: T.dim, fontSize: 14 }}>No lift data for this exercise yet.</div>
+            )}
+          </div>
+        )}
         <div style={{ ...card, gridColumn: "1 / -1" }}>
           <div style={{ ...label, marginBottom: 10 }}>Workouts</div>
           {(s.workouts || []).slice(-12).reverse().map((w, i) => {
@@ -283,10 +365,21 @@ function Train({ go, s, refresh }) {
                   <div style={{ marginTop: 8, paddingLeft: 12, borderLeft: `2px solid ${T.line}` }}>
                     {Object.entries(byExDay).map(([name, sets]) => {
                       const best = Math.max(...sets.map(x => x.kg || 0));
+                      const erm = (() => { let m = 0; for (const l of (s.lifts || [])) { if (l.exercise === name && l.kg) { const e = l.kg * (1 + (l.reps || 1) / 30); if (e > m) m = e; } } return m || 1; })();
+                      const numSets = sets.length;
+                      const avgRIR = sets.reduce((acc, l) => acc + Math.min(10, Math.max(0, (1 - (l.kg || 0) / erm) * 15)), 0) / numSets;
+                      const stim = volumeResponsePct(numSets) * rirEffectiveness(avgRIR);
+                      const stimPct = Math.round(stim * 100);
+                      const stimColor = stimPct >= 55 ? T.green : stimPct >= 32 ? T.amber : T.red;
                       return (
-                        <div key={name} style={{ display: "flex", justifyContent: "space-between", fontSize: 12, padding: "4px 0", color: T.mid }}>
+                        <div key={name} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 12, padding: "4px 0", color: T.mid }}>
                           <span style={{ color: T.fg, textTransform: "capitalize" }}>{name}</span>
-                          <span>{sets.length} set{sets.length !== 1 ? "s" : ""}{best > 0 ? " · " + best + " kg" : ""}</span>
+                          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                            <span>{sets.length} set{sets.length !== 1 ? "s" : ""}{best > 0 ? " · " + best + " kg" : ""}</span>
+                            <span style={{ fontSize: 10, color: stimColor, border: `1px solid ${stimColor}40`, borderRadius: 4, padding: "1px 5px" }} title={`~RIR ${Math.round(avgRIR * 10) / 10}`}>
+                              {stimPct}% stim
+                            </span>
+                          </div>
                         </div>
                       );
                     })}
@@ -692,6 +785,20 @@ const MUSCLE_MAP = {
   "_zone2":{quads:.3,calves:.3,glutes:.2},
   "_hiit":{quads:.6,calves:.5,glutes:.4,hamstrings:.3,core:.3},
 };
+
+// Ogasawara et al. 2017: volume response peaks at ~9 sets, normalized 0-1
+function volumeResponsePct(numSets) {
+  const rise = 1 - Math.exp(-numSets / 3);
+  const decay = Math.exp(-0.018 * Math.max(0, numSets - 9));
+  return rise * decay;
+}
+
+// Niv Zinder RIR effectiveness: sigmoid, high at RIR 0, dip around RIR 5-6, moderate at RIR 10
+function rirEffectiveness(rir) {
+  const r = Math.max(0, Math.min(10, rir));
+  if (r <= 5) return 0.18 + 0.82 * Math.pow(1 - r / 5, 1.5);
+  return 0.18 + 0.14 * (r - 5) / 5;
+}
 
 // Fuzzy match exercise name to muscle map key
 function matchExercise(name) {
