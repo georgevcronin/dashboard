@@ -188,7 +188,7 @@ function Train({ go, s, refresh }) {
     const est1RM = {};
     for (const l of (s.lifts || [])) {
       if (!l.exercise || !l.kg) continue;
-      const e = l.kg * (1 + (l.reps || 1) / 30);
+      const e = estOneRM(l.kg, l.reps || 1);
       if (!est1RM[l.exercise] || e > est1RM[l.exercise]) est1RM[l.exercise] = e;
     }
     // group lifts: exercise → date → [sets]
@@ -208,10 +208,11 @@ function Train({ go, s, refresh }) {
         .map(([date, sets]) => {
           const numSets = sets.length;
           const avgRIR = sets.reduce((acc, l) => {
-            const rir = l.rir != null ? l.rir : Math.min(10, Math.max(0, (1 - (l.kg || 0) / erm) * 15));
+            const rir = l.rir != null ? l.rir : estRIR(l.kg, l.reps || 1, erm);
             return acc + rir;
           }, 0) / numSets;
-          const stimulus = volumeResponsePct(numSets) * rirEffectiveness(avgRIR);
+          const avgReps = sets.reduce((acc, l) => acc + (l.reps || 1), 0) / numSets;
+          const stimulus = volumeResponsePct(numSets) * rirEffectiveness(avgRIR) * lowRepScale(avgReps);
           return { date, stimulus, numSets, avgRIR: Math.round(avgRIR * 10) / 10 };
         });
       result[ex] = sessions;
@@ -258,7 +259,7 @@ function Train({ go, s, refresh }) {
                   <span style={serif}>{name}</span>
                   <span>{last.kg} kg × {last.reps} {best > first && <span style={{ color: T.green, fontSize: 11 }}>+{best - first} kg since first</span>}</span>
                 </div>
-                <div style={{ fontSize: 11, color: T.dim, marginTop: 2 }}>{sets.length} session{sets.length > 1 ? "s" : ""} · best {best} kg · est 1RM {Math.round(last.kg * (1 + (last.reps || 1) / 30))} kg</div>
+                <div style={{ fontSize: 11, color: T.dim, marginTop: 2 }}>{sets.length} session{sets.length > 1 ? "s" : ""} · best {best} kg · est 1RM {Math.round(estOneRM(last.kg, last.reps || 1))} kg</div>
               </div>
             );
           })}
@@ -365,10 +366,11 @@ function Train({ go, s, refresh }) {
                   <div style={{ marginTop: 8, paddingLeft: 12, borderLeft: `2px solid ${T.line}` }}>
                     {Object.entries(byExDay).map(([name, sets]) => {
                       const best = Math.max(...sets.map(x => x.kg || 0));
-                      const erm = (() => { let m = 0; for (const l of (s.lifts || [])) { if (l.exercise === name && l.kg) { const e = l.kg * (1 + (l.reps || 1) / 30); if (e > m) m = e; } } return m || 1; })();
+                      const erm = (() => { let m = 0; for (const l of (s.lifts || [])) { if (l.exercise === name && l.kg) { const e = estOneRM(l.kg, l.reps || 1); if (e > m) m = e; } } return m || 1; })();
                       const numSets = sets.length;
-                      const avgRIR = sets.reduce((acc, l) => acc + (l.rir != null ? l.rir : Math.min(10, Math.max(0, (1 - (l.kg || 0) / erm) * 15))), 0) / numSets;
-                      const stim = volumeResponsePct(numSets) * rirEffectiveness(avgRIR);
+                      const avgReps = sets.reduce((acc, l) => acc + (l.reps || 1), 0) / numSets;
+                      const avgRIR = sets.reduce((acc, l) => acc + (l.rir != null ? l.rir : estRIR(l.kg, l.reps || 1, erm)), 0) / numSets;
+                      const stim = volumeResponsePct(numSets) * rirEffectiveness(avgRIR) * lowRepScale(avgReps);
                       const stimPct = Math.round(stim * 100);
                       const stimColor = stimPct >= 55 ? T.green : stimPct >= 32 ? T.amber : T.red;
                       return (
@@ -786,6 +788,29 @@ const MUSCLE_MAP = {
   "_hiit":{quads:.6,calves:.5,glutes:.4,hamstrings:.3,core:.3},
 };
 
+// 1RM: Brzycki for 6+ reps (more accurate mid-range), Epley for <6
+function estOneRM(kg, reps) {
+  if (!kg || !reps) return kg || 0;
+  if (reps >= 6) return kg / (1.0278 - 0.0278 * reps);
+  return kg * (1 + reps / 30);
+}
+
+// RIR via rep-to-failure inversion — reps is now a variable
+function estRIR(kg, reps, est1rm) {
+  if (!est1rm || est1rm <= 0 || !kg) return 5;
+  const intensity = kg / est1rm;
+  const repsToFail = reps >= 6
+    ? (1.0278 - intensity) / 0.0278   // Brzycki inverted
+    : 30 * (1 / intensity - 1);        // Epley inverted
+  return Math.max(0, Math.min(10, repsToFail - reps));
+}
+
+// Low-rep scale: inverse exponential, clear plateau at reps≥6 — heavy/neural work carries less hypertrophy stimulus
+function lowRepScale(reps) {
+  if (reps >= 6) return 1;
+  return 1 - Math.exp(-0.55 * reps);
+}
+
 // Ogasawara et al. 2017: volume response peaks at ~9 sets, normalized 0-1
 function volumeResponsePct(numSets) {
   const rise = 1 - Math.exp(-numSets / 3);
@@ -871,7 +896,7 @@ function matchExercise(name) {
 const RECOVERY_H = {
   quads:56, hamstrings:56, glutes:56, calves:36, adductors:48, hipFlexors:40,
   chest:52, lats:52, frontDelts:44, sideDelts:40, rearDelts:40,
-  triceps:36, biceps:36, forearms:32, fingers:72, core:36, lowerBack:56,
+  triceps:36, biceps:36, forearms:32, fingers:36, core:36, lowerBack:56,
 };
 
 // All displayable muscles with SVG coordinates (front and back body)
@@ -936,17 +961,28 @@ function Fatigue({ go, s, refresh }) {
       activeSoreness[e.muscle] = (activeSoreness[e.muscle] || 0) + decayed;
     }
 
+    // Pre-compute peak est1RM per exercise for intensity normalisation
+    const liftEst1RM = {};
+    for (const l of (s.lifts || [])) {
+      if (!l.kg || !l.exercise) continue;
+      const e = estOneRM(l.kg, l.reps || 1);
+      if (!liftEst1RM[l.exercise] || e > liftEst1RM[l.exercise]) liftEst1RM[l.exercise] = e;
+    }
+
     // From logged lifts
     for (const l of (s.lifts || [])) {
       const muscles = matchExercise(l.exercise || "");
       if (!muscles) continue;
       const hoursAgo = (now - new Date(l.date).getTime()) / 36e5;
       if (hoursAgo > 168) continue;
-      const baseStimulus = (l.kg || 0) * (1 - Math.exp(-(l.reps || 0)));
+      const intensity = liftEst1RM[l.exercise] ? (l.kg || 0) / liftEst1RM[l.exercise] : 0.75;
+      const baseStimulus = intensity * (1 - Math.exp(-(l.reps || 0)));
       for (const [m, w] of Object.entries(muscles)) {
         const sens = sensitivity[m] || 1.0;
-        const soreness = Math.min(1, activeSoreness[m] || 0);
-        const effectiveHL = (RECOVERY_H[m] || 48) * (1 + soreness * 2);
+        const rawSoreness = activeSoreness[m] || 0;
+        // Bidirectional: low soreness (score ~1-3) reduces HL, high soreness extends it. Neutral ~score 4.
+        const hlMult = rawSoreness === 0 ? 1 : Math.max(0.5, 1 + (Math.min(1, rawSoreness) - 0.4) * 2.5);
+        const effectiveHL = (RECOVERY_H[m] || 48) * hlMult;
         const decay = Math.pow(0.5, hoursAgo / effectiveHL);
         accum[m] = (accum[m] || 0) + baseStimulus * sens * w * decay;
       }
@@ -961,8 +997,9 @@ function Fatigue({ go, s, refresh }) {
       const effort = (w.kcal || 200) * (w.duration || 30) / 30;
       for (const [m, weight] of Object.entries(muscles)) {
         const sens = sensitivity[m] || 1.0;
-        const soreness = Math.min(1, activeSoreness[m] || 0);
-        const effectiveHL = (RECOVERY_H[m] || 48) * (1 + soreness * 2);
+        const rawSoreness = activeSoreness[m] || 0;
+        const hlMult = rawSoreness === 0 ? 1 : Math.max(0.5, 1 + (Math.min(1, rawSoreness) - 0.4) * 2.5);
+        const effectiveHL = (RECOVERY_H[m] || 48) * hlMult;
         const decay = Math.pow(0.5, hoursAgo / effectiveHL);
         accum[m] = (accum[m] || 0) + effort * sens * weight * decay;
       }
@@ -1041,7 +1078,7 @@ function Fatigue({ go, s, refresh }) {
     const est1RM = {};
     for (const l of (s.lifts || [])) {
       if (!l.kg || !l.exercise) continue;
-      const e = l.kg * (1 + (l.reps || 1) / 30);
+      const e = estOneRM(l.kg, l.reps || 1);
       if (!est1RM[l.exercise] || e > est1RM[l.exercise]) est1RM[l.exercise] = e;
     }
     const byExDate = {};
@@ -1061,8 +1098,9 @@ function Fatigue({ go, s, refresh }) {
       const erm = est1RM[ex] || 1;
       const numSets = sess.sets.length;
       const avgRIR = sess.sets.reduce((acc, l) =>
-        acc + (l.rir != null ? l.rir : Math.min(10, Math.max(0, (1 - (l.kg || 0) / erm) * 15))), 0) / numSets;
-      const stimulus = volumeResponsePct(numSets) * rirEffectiveness(avgRIR);
+        acc + (l.rir != null ? l.rir : estRIR(l.kg, l.reps || 1, erm)), 0) / numSets;
+      const avgReps = sess.sets.reduce((acc, l) => acc + (l.reps || 1), 0) / numSets;
+      const stimulus = volumeResponsePct(numSets) * rirEffectiveness(avgRIR) * lowRepScale(avgReps);
       for (const [m, w] of Object.entries(muscles)) {
         if (!muscleContribs[m]) muscleContribs[m] = [];
         muscleContribs[m].push({ ms: sess.ms, contrib: stimulus * w });
@@ -1097,7 +1135,7 @@ function Fatigue({ go, s, refresh }) {
     const byEx = {};
     for (const l of (s.lifts || [])) {
       if (!l.kg || !l.exercise || !l.date) continue;
-      const e1rm = l.kg * (1 + (l.reps || 1) / 30);
+      const e1rm = estOneRM(l.kg, l.reps || 1);
       if (!byEx[l.exercise]) byEx[l.exercise] = {};
       if (byEx[l.exercise][l.date] == null || e1rm > byEx[l.exercise][l.date]) byEx[l.exercise][l.date] = e1rm;
     }
