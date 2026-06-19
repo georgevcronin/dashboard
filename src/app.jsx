@@ -752,29 +752,45 @@ function fatigueColor(pct) {
   return `rgba(224,106,106,${0.4 + p * 0.5})`;
 }
 
-function Fatigue({ go, s }) {
+function Fatigue({ go, s, refresh }) {
   const [hover, setHover] = useState(null);
+  const [sorenessTarget, setSorenessTarget] = useState(null);
+  const [sorenessScore, setSorenessScore] = useState(null);
+  const [editingSens, setEditingSens] = useState(null);
 
-  // Compute fatigue from all sources
+  // Compute fatigue — applies personal sensitivity + soreness-extended recovery half-lives
   const fatigue = useMemo(() => {
     const accum = {};
     const now = Date.now();
+    const sensitivity = s.muscleSensitivity || {};
 
-    // From logged lifts (Peak's own data)
+    // Pre-compute active (decaying) soreness per muscle — 36h half-life
+    const SORENESS_HL = 36;
+    const activeSoreness = {};
+    for (const e of (s.soreness || [])) {
+      const hoursAgo = (now - e.ts) / 36e5;
+      if (hoursAgo > 168) continue;
+      const decayed = (e.score / 10) * Math.pow(0.5, hoursAgo / SORENESS_HL);
+      activeSoreness[e.muscle] = (activeSoreness[e.muscle] || 0) + decayed;
+    }
+
+    // From logged lifts
     for (const l of (s.lifts || [])) {
       const muscles = matchExercise(l.exercise || "");
       if (!muscles) continue;
       const hoursAgo = (now - new Date(l.date).getTime()) / 36e5;
-      if (hoursAgo > 168) continue; // ignore >7 days
-      const volume = (l.kg || 0) * (l.reps || 1);
+      if (hoursAgo > 168) continue;
+      const baseStimulus = (l.kg || 0) * (1 - Math.exp(-(l.reps || 0)));
       for (const [m, w] of Object.entries(muscles)) {
-        const hl = RECOVERY_H[m] || 48;
-        const decay = Math.pow(0.5, hoursAgo / hl);
-        accum[m] = (accum[m] || 0) + volume * w * decay;
+        const sens = sensitivity[m] || 1.0;
+        const soreness = Math.min(1, activeSoreness[m] || 0);
+        const effectiveHL = (RECOVERY_H[m] || 48) * (1 + soreness * 2);
+        const decay = Math.pow(0.5, hoursAgo / effectiveHL);
+        accum[m] = (accum[m] || 0) + baseStimulus * sens * w * decay;
       }
     }
 
-    // From synced workouts (via Health Auto Export)
+    // From synced workouts (cardio / HAE)
     for (const w of (s.workouts || [])) {
       const muscles = matchExercise(w.name || "");
       if (!muscles) continue;
@@ -782,23 +798,91 @@ function Fatigue({ go, s }) {
       if (hoursAgo > 168) continue;
       const effort = (w.kcal || 200) * (w.duration || 30) / 30;
       for (const [m, weight] of Object.entries(muscles)) {
-        const hl = RECOVERY_H[m] || 48;
-        const decay = Math.pow(0.5, hoursAgo / hl);
-        accum[m] = (accum[m] || 0) + effort * weight * decay;
+        const sens = sensitivity[m] || 1.0;
+        const soreness = Math.min(1, activeSoreness[m] || 0);
+        const effectiveHL = (RECOVERY_H[m] || 48) * (1 + soreness * 2);
+        const decay = Math.pow(0.5, hoursAgo / effectiveHL);
+        accum[m] = (accum[m] || 0) + effort * sens * weight * decay;
       }
     }
 
-    // Normalize to 0–1 range
+    // Normalize to 0–1
     const maxVal = Math.max(1, ...Object.values(accum));
     const result = {};
     for (const [m, v] of Object.entries(accum)) result[m] = v / maxVal;
     return result;
-  }, [s.lifts, s.workouts]);
+  }, [s.lifts, s.workouts, s.muscleSensitivity, s.soreness]);
 
   const getMuscleLevel = (key) => {
     const m = MUSCLES[key];
     const dataKey = m.link || key;
     return fatigue[dataKey] || 0;
+  };
+
+  const trainingLoad = useMemo(() => {
+    // Weighted avg fatigue across major muscles → training load %
+    // 50% avg fatigue = 100% (optimal), linear scale
+    const MW = { quads:3, hamstrings:2, glutes:3, lats:2.5, chest:1.5, core:2, frontDelts:1, sideDelts:1, rearDelts:1, triceps:1, biceps:1 };
+    let wSum = 0, wFat = 0;
+    for (const [m, w] of Object.entries(MW)) { if (fatigue[m] != null) { wFat += (fatigue[m] || 0) * w; wSum += w; } }
+    const avgFatigue = wSum > 0 ? wFat / wSum : 0;
+    const pct = Math.round(avgFatigue * 200); // 50% avg → 100%
+
+    // Lift trend: % of exercises improving (max kg now vs 4 weeks ago)
+    const cutoff = new Date(Date.now() - 28 * 864e5).toISOString().slice(0, 10);
+    const byEx = {};
+    for (const l of (s.lifts || [])) (byEx[l.exercise] = byEx[l.exercise] || []).push(l);
+    const deltas = Object.values(byEx).filter(sets => sets.length > 1).map(sets => {
+      const sorted = [...sets].sort((a, b) => a.date.localeCompare(b.date));
+      const old = sorted.filter(x => x.date <= cutoff);
+      const recent = sorted.filter(x => x.date > cutoff);
+      if (!old.length || !recent.length) return 0;
+      return Math.max(...recent.map(x => x.kg)) - Math.max(...old.map(x => x.kg));
+    });
+    const improving = deltas.length ? Math.round((deltas.filter(d => d > 0).length / deltas.length) * 100) : null;
+
+    // Recovery avg last 7 days
+    const recov = (s.recoveryTrend || []).slice(-7);
+    const avgRecov = recov.length ? Math.round(recov.reduce((a, b) => a + b, 0) / recov.length) : null;
+
+    // This-week training mix
+    const now = Date.now();
+    const dow = new Date().getDay();
+    const weekStartMs = now - ((dow === 0 ? 6 : dow - 1) * 864e5) - (now % 864e5);
+    let strengthSets = 0, zone2Mins = 0, hiitMins = 0;
+    for (const l of (s.lifts || [])) if (new Date(l.date).getTime() >= weekStartMs) strengthSets++;
+    for (const w of (s.workouts || [])) {
+      if (new Date(w.date).getTime() < weekStartMs) continue;
+      const n = (w.name || "").toLowerCase(); const d = w.duration || 0;
+      if (n.includes("hiit") || n.includes("4x4") || n.includes("interval")) hiitMins += d;
+      else if (n.includes("run") || n.includes("zone") || n.includes("walk") || n.includes("cycle") || n.includes("bike")) zone2Mins += d;
+    }
+    return { pct, improving, avgRecov, strengthSets, zone2Mins, hiitMins };
+  }, [fatigue, s.lifts, s.workouts, s.recoveryTrend]);
+
+  const activeSorenessDisplay = useMemo(() => {
+    const now = Date.now();
+    return (s.soreness || [])
+      .filter(e => now - e.ts < 5 * 24 * 3600000)
+      .sort((a, b) => b.ts - a.ts)
+      .map(e => {
+        const h = (now - e.ts) / 36e5;
+        const age = h < 1 ? "just now" : h < 24 ? `${Math.round(h)}h ago` : `${Math.floor(h / 24)}d ago`;
+        return { ...e, age };
+      });
+  }, [s.soreness]);
+
+  const handleLogSoreness = async () => {
+    if (!sorenessTarget || sorenessScore == null) return;
+    const calcFatigue = fatigue[sorenessTarget] || 0;
+    await api("soreness", { muscle: sorenessTarget, score: sorenessScore, calcFatigue });
+    setSorenessTarget(null); setSorenessScore(null);
+    refresh();
+  };
+
+  const handleSaveSens = async (muscle, value) => {
+    await api("muscle-sensitivity", { muscle, value }, "PUT");
+    refresh();
   };
 
   const hoverMuscle = hover ? MUSCLES[hover] : null;
@@ -809,7 +893,50 @@ function Fatigue({ go, s }) {
   return (
     <>
       <Back onClick={() => go("home")} title="Muscle fatigue" />
-      <div style={{ ...serif, color: T.mid, fontSize: 14, marginTop: -10, marginBottom: 14 }}>Accumulated stimulus from gym, running, and bouldering — decays with each muscle's recovery rate.</div>
+      <div style={{ ...serif, color: T.mid, fontSize: 14, marginTop: -10, marginBottom: 16 }}>Training load and muscle-by-muscle fatigue — decays with each muscle's recovery rate.</div>
+
+      {/* Training Load Gauge */}
+      <div style={{ ...card, marginBottom: 16, display: "flex", gap: 24, alignItems: "center", flexWrap: "wrap" }}>
+        {(() => {
+          const p = trainingLoad.pct;
+          const color = p == null ? T.dim : p < 70 ? "#6ab4e0" : p <= 130 ? T.green : p <= 170 ? T.amber : T.red;
+          const word = p == null ? "No data" : p < 70 ? "Undertraining" : p <= 130 ? "Optimal" : p <= 170 ? "High load" : "Overtraining";
+          return (
+            <>
+              <Ring pct={p != null ? Math.min(1, p / 150) : 0} size={130} stroke={10} color={color}>
+                <div style={{ fontSize: 28, fontWeight: 700, color }}>{p != null ? p : "—"}<span style={{ fontSize: 12, color: T.dim }}>%</span></div>
+                <div style={{ fontSize: 9, color: T.dim, letterSpacing: "0.08em", textTransform: "uppercase" }}>load</div>
+              </Ring>
+              <div style={{ flex: 1, minWidth: 180 }}>
+                <div style={{ ...serif, fontSize: 20, color, marginBottom: 6 }}>{word}</div>
+                <div style={{ fontSize: 11, color: T.dim, marginBottom: 14, lineHeight: 1.5 }}>
+                  {p == null ? "Log workouts and lifts to compute training load." :
+                   p < 70 ? "Fatigue is low — you're below the stimulus needed for adaptation. Add sessions or increase load." :
+                   p <= 130 ? "You're in the productive overload zone. Keep recovery high and load consistent." :
+                   p <= 170 ? "Approaching your recovery ceiling. Prioritise sleep and watch for stalling lifts." :
+                   "Accumulated fatigue exceeds recovery capacity. A deload this week will pay dividends."}
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10 }}>
+                  {[
+                    ["Lifts", trainingLoad.improving != null ? trainingLoad.improving + "% up" : "—", trainingLoad.improving != null ? trainingLoad.improving > 50 ? T.green : T.amber : T.dim],
+                    ["Recovery", trainingLoad.avgRecov != null ? trainingLoad.avgRecov + "%" : "—", trainingLoad.avgRecov != null ? trainingLoad.avgRecov > 65 ? T.green : T.amber : T.dim],
+                    ["Sets·wk", trainingLoad.strengthSets || "—", T.mid],
+                  ].map(([k, v, c]) => (
+                    <div key={k}><div style={{ ...label }}>{k}</div><div style={{ fontSize: 16, fontWeight: 600, color: c, marginTop: 2 }}>{v}</div></div>
+                  ))}
+                </div>
+                {(trainingLoad.zone2Mins > 0 || trainingLoad.hiitMins > 0) && (
+                  <div style={{ fontSize: 11, color: T.dim, marginTop: 10 }}>
+                    This week: {trainingLoad.zone2Mins > 0 ? `Zone 2 ${trainingLoad.zone2Mins} min` : ""}
+                    {trainingLoad.zone2Mins > 0 && trainingLoad.hiitMins > 0 ? " · " : ""}
+                    {trainingLoad.hiitMins > 0 ? `HIIT ${trainingLoad.hiitMins} min` : ""}
+                  </div>
+                )}
+              </div>
+            </>
+          );
+        })()}
+      </div>
 
       {/* Legend */}
       <div style={{ display: "flex", gap: 16, marginBottom: 16, fontSize: 11, color: T.dim }}>
@@ -883,6 +1010,75 @@ function Fatigue({ go, s }) {
         )}
       </div>
 
+      {/* Log Soreness */}
+      <div style={{ ...card, marginTop: 16 }}>
+        <div style={{ ...label, marginBottom: 8 }}>Log soreness</div>
+        <div style={{ fontSize: 12, color: T.dim, marginBottom: 12, lineHeight: 1.5 }}>Rate a muscle 1–10 right now. Soreness extends its recovery time and tunes your personal sensitivity constants over time.</div>
+        <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginBottom: 10 }}>
+          {Object.keys(RECOVERY_H).map(m => (
+            <button key={m} style={pill(sorenessTarget === m)} onClick={() => { setSorenessTarget(sorenessTarget === m ? null : m); setSorenessScore(null); }}>
+              {m.replace(/([A-Z])/g, " $1").toLowerCase()}
+            </button>
+          ))}
+        </div>
+        {sorenessTarget && (
+          <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap", padding: "10px 0" }}>
+            <span style={{ fontSize: 13, color: T.mid, minWidth: 80, textTransform: "capitalize" }}>{sorenessTarget.replace(/([A-Z])/g, " $1")}</span>
+            <div style={{ display: "flex", gap: 3 }}>
+              {[1,2,3,4,5,6,7,8,9,10].map(n => (
+                <button key={n} onClick={() => setSorenessScore(n)} style={{ width: 30, height: 30, borderRadius: 6, border: `1px solid ${sorenessScore === n ? (n <= 3 ? T.green : n <= 6 ? T.amber : T.red) : T.line}`, background: sorenessScore === n ? (n <= 3 ? "rgba(61,220,132,.15)" : n <= 6 ? "rgba(224,180,106,.15)" : "rgba(224,106,106,.15)") : "transparent", color: sorenessScore === n ? T.fg : T.dim, cursor: "pointer", fontSize: 12, fontWeight: sorenessScore === n ? 600 : 400 }}>{n}</button>
+              ))}
+            </div>
+            <button style={{ ...pill(true), opacity: sorenessScore ? 1 : 0.4 }} onClick={handleLogSoreness} disabled={!sorenessScore}>Log</button>
+          </div>
+        )}
+        {activeSorenessDisplay.length > 0 && (
+          <div style={{ marginTop: 10, paddingTop: 10, borderTop: `1px solid ${T.line}` }}>
+            <div style={{ ...label, marginBottom: 6 }}>Active soreness</div>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              {activeSorenessDisplay.map((e, i) => (
+                <span key={i} style={{ fontSize: 11, padding: "3px 9px", borderRadius: 999, border: `1px solid ${e.score > 6 ? T.red : e.score > 3 ? T.amber : T.green}22`, background: e.score > 6 ? "rgba(224,106,106,.08)" : e.score > 3 ? "rgba(224,180,106,.08)" : "rgba(61,220,132,.08)", color: T.mid }}>
+                  <span style={{ textTransform: "capitalize" }}>{e.muscle.replace(/([A-Z])/g, " $1")}</span> {e.score}/10 · {e.age}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Personal Sensitivity */}
+      <div style={{ ...card, marginTop: 16 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 8 }}>
+          <div style={label}>Personal sensitivity</div>
+          <div style={{ fontSize: 11, color: T.dim }}>auto-calibrated from soreness · editable</div>
+        </div>
+        <div style={{ fontSize: 12, color: T.dim, marginBottom: 12, lineHeight: 1.5 }}>How much fatigue you accumulate per unit of work vs average. 1.0× = average. Above 1 = more sensitive (accumulates fatigue faster). Click a value to override.</div>
+        <div style={{ display: "grid", gap: 1 }}>
+          {Object.keys(RECOVERY_H).map(m => {
+            const val = (s.muscleSensitivity || {})[m] || 1.0;
+            const isEditing = editingSens === m;
+            const color = val > 1.15 ? T.amber : val < 0.85 ? "#6ab4e0" : T.green;
+            return (
+              <div key={m} style={{ display: "flex", alignItems: "center", gap: 10, padding: "6px 0", borderBottom: `1px solid #161c18` }}>
+                <span style={{ flex: 1, fontSize: 13, textTransform: "capitalize" }}>{m.replace(/([A-Z])/g, " $1")}</span>
+                <div style={{ width: 80, height: 4, background: "#1d2420", borderRadius: 99 }}>
+                  <div style={{ height: "100%", width: `${Math.min(1, val / 2) * 100}%`, background: color, borderRadius: 99, transition: "width .3s" }} />
+                </div>
+                {isEditing ? (
+                  <input type="number" step="0.05" min="0.3" max="3.0" defaultValue={val}
+                    autoFocus
+                    onBlur={e => { handleSaveSens(m, +e.target.value); setEditingSens(null); }}
+                    onKeyDown={e => { if (e.key === "Enter") e.target.blur(); if (e.key === "Escape") setEditingSens(null); }}
+                    style={{ ...input, width: 64, padding: "3px 8px", fontSize: 12, textAlign: "center" }} />
+                ) : (
+                  <button onClick={() => setEditingSens(m)} title="Click to edit" style={{ fontSize: 13, color, background: "none", border: "none", cursor: "pointer", fontVariantNumeric: "tabular-nums", fontFamily: "inherit", width: 44, textAlign: "right" }}>{val.toFixed(2)}×</button>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
       {/* Data source info */}
       <div style={{ ...card, marginTop: 16, background: `linear-gradient(150deg, rgba(106,180,224,.06), ${T.panel} 60%)` }}>
         <div style={{ ...label, marginBottom: 8 }}>Data sources</div>
@@ -899,252 +1095,102 @@ function Fatigue({ go, s }) {
 }
 
 
-const PLAN_DAYS = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
-const PLAN_TYPES = {
-  zone2: { name:'Zone 2', color:'#3ddc84', bg:'rgba(61,220,132,.12)' },
-  hiit:  { name:'4×4 HIIT', color:'#e07a6a', bg:'rgba(224,122,106,.12)' },
-  lift:  { name:'Lifting', color:'#6ab4e0', bg:'rgba(106,180,224,.12)' },
-  climb: { name:'Bouldering', color:'#a48ae0', bg:'rgba(164,138,224,.12)' },
-  flex:  { name:'Flexibility', color:'#e0b46a', bg:'rgba(224,180,106,.12)' },
-};
-const PLAN_PHASES = [
-  { label:'Phase 1 · Foundation', weeks:'Weeks 1–4',
-    metrics:['Full body 3×/wk','4–6 reps','RPE 8','Zone 2 2×','HIIT 1×','Boulder 2×'],
-    week:[
-      [{type:'lift',label:'Full body A',s:'liftA'}],
-      [{type:'climb',label:'Bouldering',s:'climb'}],
-      [{type:'zone2',label:'Zone 2',s:'z2'}],
-      [{type:'hiit',label:'4×4 HIIT',s:'hiit'}],
-      [{type:'lift',label:'Full body B',s:'liftB'}],
-      [{type:'zone2',label:'Zone 2',s:'z2'},{type:'flex',label:'Flexibility',s:'flex'}],
-      [{type:'climb',label:'Bouldering',s:'climb'},{type:'lift',label:'Full body C',s:'liftC'}],
-    ]},
-  { label:'Phase 2 · Hypertrophy', weeks:'Weeks 5–8',
-    metrics:['Upper/Lower 4×/wk','4–8 reps','RPE 8–9','Zone 2 2×','HIIT 1×','Boulder 3×'],
-    week:[
-      [{type:'lift',label:'Upper A',s:'upperA'}],
-      [{type:'climb',label:'Bouldering',s:'climb'}],
-      [{type:'zone2',label:'Zone 2',s:'z2'},{type:'lift',label:'Lower A',s:'lowerA'}],
-      [{type:'climb',label:'Bouldering',s:'climb'}],
-      [{type:'lift',label:'Upper B',s:'upperB'}],
-      [{type:'zone2',label:'Zone 2',s:'z2'},{type:'flex',label:'Flexibility',s:'flex'}],
-      [{type:'climb',label:'Bouldering',s:'climb'},{type:'hiit',label:'4×4 HIIT',s:'hiit'}],
-    ]},
-  { label:'Phase 3 · Strength', weeks:'Weeks 9–12',
-    metrics:['Push/Pull/Legs','3–5 reps','RPE 9–10','Zone 2 2×','HIIT 2×','Boulder 2×'],
-    week:[
-      [{type:'lift',label:'Push',s:'push'}],
-      [{type:'climb',label:'Bouldering',s:'climb'}],
-      [{type:'zone2',label:'Zone 2',s:'z2'},{type:'hiit',label:'4×4 HIIT',s:'hiit'}],
-      [{type:'lift',label:'Pull',s:'pull'}],
-      [{type:'zone2',label:'Zone 2',s:'z2'}],
-      [{type:'lift',label:'Legs',s:'legs'}],
-      [{type:'climb',label:'Bouldering',s:'climb'},{type:'flex',label:'Flexibility',s:'flex'}],
-    ]},
-  { label:'Phase 4 · Peaking', weeks:'Weeks 13–16',
-    metrics:['Upper/Lower 3×/wk','2–4 reps','RPE 10 (W16: 7)','Zone 2 2×','HIIT 2×','Boulder 2×'],
-    week:[
-      [{type:'lift',label:'Upper heavy',s:'upperH'}],
-      [{type:'zone2',label:'Zone 2',s:'z2'},{type:'hiit',label:'4×4 HIIT',s:'hiit'}],
-      [{type:'lift',label:'Upper vol',s:'upperV'}],
-      [{type:'climb',label:'Bouldering',s:'climb'}],
-      [{type:'lift',label:'Lower heavy',s:'lowerH'}],
-      [{type:'climb',label:'Bouldering',s:'climb'},{type:'hiit',label:'4×4 HIIT',s:'hiit'}],
-      [{type:'zone2',label:'Zone 2',s:'z2'},{type:'flex',label:'Flexibility',s:'flex'}],
-    ]},
-];
-const PLAN_SESSIONS = {
-  liftA:{title:'Full body A',type:'lift',ex:[
-    {n:'Hack Squat',sets:'2',reps:'4–6',note:'Quad anchor. 3s eccentric. RPE 8.'},
-    {n:'Hip Thrust (Machine)',sets:'1–2',reps:'4–6',note:'Full hip lock-out.'},
-    {n:'Chest Fly (DB)',sets:'1–2',reps:'4–6',note:'Horizontal push. Deep stretch.'},
-    {n:'Rear Delt Row',sets:'1–2',reps:'4–6',note:'Horizontal pull. Lead elbows.'},
-    {n:'Shoulder Press (Machine)',sets:'1–2',reps:'4–5',note:'Vertical push. Full ROM.'},
-    {n:'Cable Crunch',sets:'1–2',reps:'5–8',note:'Core. Add weight each week.'},
-  ]},
-  liftB:{title:'Full body B',type:'lift',ex:[
-    {n:'Glute 45s',sets:'2',reps:'4–6',note:'Hip hinge anchor.'},
-    {n:'Seated Leg Curl',sets:'1–2',reps:'4–6',note:'Hamstring. 3s eccentric.'},
-    {n:'Iso-Lateral Row',sets:'1–2',reps:'4–6',note:'Horizontal pull. Unilateral.'},
-    {n:'Lat Pulldown',sets:'1–2',reps:'5–8',note:'Lat isolation.'},
-    {n:'Tricep Pushdown',sets:'1–2',reps:'5–8',note:'Tricep volume.'},
-    {n:'Bicep Curl (Cable)',sets:'1–2',reps:'5–8',note:'Arm volume.'},
-  ]},
-  liftC:{title:'Full body C',type:'lift',ex:[
-    {n:'Leg Extension (Single)',sets:'1–2',reps:'5–8',note:'Quad isolation. Unilateral.'},
-    {n:'Hip Adduction',sets:'1–2',reps:'5–8',note:'Adductor volume.'},
-    {n:'Pec Deck',sets:'1–2',reps:'5–8',note:'Chest isolation.'},
-    {n:'Shoulder Press (Seated)',sets:'1–2',reps:'4–6',note:'Vertical push variation.'},
-    {n:'Decline Curl',sets:'1–2',reps:'5–8',note:'Bicep peak.'},
-    {n:'Triceps Pushdown',sets:'1–2',reps:'5–8',note:'Tricep finisher.'},
-  ]},
-  upperA:{title:'Upper A — push focus',type:'lift',ex:[
-    {n:'Shoulder Press (Machine)',sets:'2',reps:'4–6',note:'Heavy. RPE 8–9. 2 min rest.'},
-    {n:'Chest Fly (DB)',sets:'2',reps:'4–6',note:'Load up vs Phase 1.'},
-    {n:'Pec Deck',sets:'1–2',reps:'4–6',note:'Chest accessory.'},
-    {n:'Tricep Pushdown (Single)',sets:'1–2',reps:'5–7',note:'Unilateral.'},
-    {n:'Triceps Pushdown',sets:'1–2',reps:'5–7',note:'Finisher.'},
-  ]},
-  lowerA:{title:'Lower A — quad focus',type:'lift',ex:[
-    {n:'Hack Squat',sets:'2',reps:'4–6',note:'Add load vs Phase 1. 2 min rest.'},
-    {n:'Leg Extension (Single)',sets:'1–2',reps:'4–6',note:'3s eccentric.'},
-    {n:'Hip Adduction',sets:'1–2',reps:'5–8',note:'Adductor volume.'},
-    {n:'Seated Leg Curl',sets:'1–2',reps:'4–6',note:'Hamstring balance.'},
-    {n:'Cable Crunch',sets:'1–2',reps:'5–8',note:'Weighted.'},
-  ]},
-  upperB:{title:'Upper B — pull focus',type:'lift',ex:[
-    {n:'Iso-Lateral Row',sets:'2',reps:'4–6',note:'Pull anchor. RPE 9.'},
-    {n:'Rear Delt Row',sets:'1–2',reps:'4–6',note:'Posterior shoulder.'},
-    {n:'Lat Pulldown',sets:'1–2',reps:'5–7',note:'Lat isolation.'},
-    {n:'Shoulder Press (Seated)',sets:'1–2',reps:'4–6',note:'Push to balance pull.'},
-    {n:'Bicep Curl (Cable)',sets:'1–2',reps:'5–7',note:'Bicep volume.'},
-    {n:'Decline Curl',sets:'1–2',reps:'5–7',note:'Peak contraction.'},
-  ]},
-  push:{title:'Push — anterior',type:'lift',ex:[
-    {n:'Shoulder Press (Machine)',sets:'2',reps:'3–5',note:'Heavy. 3 min rest. RPE 9–10.'},
-    {n:'Chest Fly (DB)',sets:'2',reps:'3–5',note:'Load up vs Phase 2.'},
-    {n:'Pec Deck',sets:'1–2',reps:'4–6',note:'Chest accessory.'},
-    {n:'Shoulder Press (Seated)',sets:'1–2',reps:'3–5',note:'Second OHP variation.'},
-    {n:'Tricep Pushdown (Single)',sets:'1–2',reps:'4–6',note:'Unilateral.'},
-    {n:'Triceps Pushdown',sets:'1–2',reps:'4–6',note:'Finisher.'},
-  ]},
-  pull:{title:'Pull — posterior',type:'lift',warn:'Pull preceded by bouldering (Tue) — back/biceps had stimulus. If fatigue lingers, drop iso-lateral row to 3 sets and skip decline curl.',ex:[
-    {n:'Iso-Lateral Row',sets:'2',reps:'3–5',note:'Heaviest of programme. RPE 9–10.'},
-    {n:'Rear Delt Row',sets:'2',reps:'3–5',note:'Heavier, fewer reps.'},
-    {n:'Lat Pulldown',sets:'1–2',reps:'4–6',note:'Lat isolation.'},
-    {n:'Bicep Curl (Cable)',sets:'1–2',reps:'4–6',note:'Heavier curl.'},
-    {n:'Decline Curl',sets:'1–2',reps:'4–6',note:'Superset option.'},
-  ]},
-  legs:{title:'Legs — full lower',type:'lift',ex:[
-    {n:'Hack Squat',sets:'2',reps:'3–5',note:'Heaviest of programme. 3 min rest.'},
-    {n:'Glute 45s',sets:'2',reps:'3–5',note:'Hip hinge, heavy load.'},
-    {n:'Hip Thrust (Machine)',sets:'1–2',reps:'3–5',note:'Glute strength.'},
-    {n:'Seated Leg Curl',sets:'1–2',reps:'4–6',note:'Hamstring accessory.'},
-    {n:'Leg Extension (Single)',sets:'1–2',reps:'4–6',note:'Quad finisher.'},
-    {n:'Hip Adduction',sets:'1–2',reps:'5–7',note:'Adductor volume.'},
-  ]},
-  upperH:{title:'Upper — peaking loads',type:'lift',ex:[
-    {n:'Iso-Lateral Row',sets:'2',reps:'2–4',note:'Heaviest of cycle. 3 min rest. W16: 60%.'},
-    {n:'Shoulder Press (Machine)',sets:'2',reps:'2–4',note:'Peak overhead. W16: deload.'},
-    {n:'Rear Delt Row',sets:'1–2',reps:'3–5',note:'Accessory reduced vs P3.'},
-    {n:'Lat Pulldown',sets:'1–2',reps:'4–6',note:'Lat maintained.'},
-    {n:'Bicep Curl (Cable)',sets:'1–2',reps:'4–6',note:'Arm maintenance.'},
-  ]},
-  upperV:{title:'Upper vol — push only',type:'lift',warn:'No pull exercises — bouldering is tomorrow which hits back/biceps. Push and chest only.',ex:[
-    {n:'Chest Fly (DB)',sets:'1–2',reps:'3–5',note:'Load maintained, volume cut.'},
-    {n:'Pec Deck',sets:'1–2',reps:'4–6',note:'Chest accessory.'},
-    {n:'Shoulder Press (Seated)',sets:'1–2',reps:'3–5',note:'Intensity high.'},
-    {n:'Tricep Pushdown (Single)',sets:'1–2',reps:'4–6',note:'Arm maintenance.'},
-    {n:'Triceps Pushdown',sets:'1–2',reps:'4–6',note:'No pull movements.'},
-  ]},
-  lowerH:{title:'Lower — peaking loads',type:'lift',ex:[
-    {n:'Hack Squat',sets:'2',reps:'2–4',note:'Peak quad. 3 min rest. W16: 60%.'},
-    {n:'Hip Thrust (Machine)',sets:'2',reps:'3–4',note:'Peak glute strength.'},
-    {n:'Glute 45s',sets:'1–2',reps:'3–5',note:'Hip hinge accessory.'},
-    {n:'Seated Leg Curl',sets:'1–2',reps:'3–5',note:'Volume trimmed.'},
-    {n:'Cable Crunch',sets:'1–2',reps:'4–6',note:'Core maintained.'},
-  ]},
-  z2:{title:'Zone 2 cardio',type:'zone2',info:'60–70% HRmax. Bike, row, or brisk walk. Nasal breathing throughout — if you need to open your mouth, slow down. 30–40 min. Builds mitochondrial density and cardiac output.'},
-  hiit:{title:'Norwegian 4×4',type:'hiit',info:'5 min warm-up → 4 × (4 min at 85–95% HRmax + 3 min active recovery) → 5 min cool-down. ~34 min total. If resting HR is 5+ bpm above baseline, swap for Zone 2.'},
-  climb:{title:'Bouldering',type:'climb',info:'1–2 hrs. Treat as pulling + grip + core training. 15 min warm-up on easier grades. 2–3 sets of wrist extension and external shoulder rotation after to balance flexion load.'},
-  flex:{title:'Flexibility & mobility',type:'flex',info:'25 min. Dynamic warm-up (5 min), static holds (20 min): hip flexors, hamstrings, thoracic spine, shoulder capsule, adductors. PNF contract-relax on restricted areas. Never before heavy lifting.'},
-};
-
 function Plan({ go }) {
-  const [phase, setPhase] = useState(0);
-  const [detail, setDetail] = useState(null);
-  const p = PLAN_PHASES[phase];
+  const [plan, setPlan] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [err, setErr] = useState(null);
+
+  useEffect(() => {
+    api("plan/week").then(p => { if (p && !p.error) setPlan(p); }).catch(() => {});
+  }, []);
+
+  const generate = async () => {
+    setLoading(true); setErr(null);
+    try {
+      const p = await api("plan/week", {});
+      if (p?.error) setErr(p.error);
+      else setPlan(p);
+    } catch (e) { setErr(e.message); }
+    finally { setLoading(false); }
+  };
+
+  const ST = {
+    lift:  { color: "#6ab4e0", bg: "rgba(106,180,224,.12)", icon: "△" },
+    zone2: { color: T.green,   bg: "rgba(61,220,132,.12)",  icon: "◎" },
+    hiit:  { color: T.red,     bg: "rgba(224,122,106,.12)", icon: "▲" },
+    climb: { color: "#a48ae0", bg: "rgba(164,138,224,.12)", icon: "◈" },
+    flex:  { color: T.amber,   bg: "rgba(224,180,106,.12)", icon: "〜" },
+    rest:  { color: T.dim,     bg: "rgba(255,255,255,.03)", icon: "◌" },
+  };
+
+  const genDate = plan?.generatedAt
+    ? new Date(plan.generatedAt).toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "short" })
+    : null;
 
   return (
     <>
-      <Back onClick={() => go("home")} title="Plan" />
-      <div style={{ ...serif, color: T.mid, fontSize: 14, marginTop: -10, marginBottom: 14 }}>16 weeks · 4 phases · Zone 2 & HIIT priority · no consecutive muscle group days</div>
-
-      {/* Phase tabs */}
-      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 16 }}>
-        {PLAN_PHASES.map((ph, i) => <button key={i} style={pill(phase === i)} onClick={() => { setPhase(i); setDetail(null); }}>{ph.label}</button>)}
+      <Back onClick={() => go("home")} title="This Week" />
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 16, flexWrap: "wrap", gap: 10 }}>
+        <div>
+          {plan?.focus && <div style={{ ...serif, fontSize: 15, color: T.mid, maxWidth: 520, lineHeight: 1.5 }}>{plan.focus}</div>}
+          {genDate && <div style={{ fontSize: 11, color: T.dim, marginTop: 4 }}>Mentor · {genDate}</div>}
+        </div>
+        <button style={pill(!plan)} onClick={generate} disabled={loading}>
+          {loading ? "Asking mentor…" : plan ? "Regenerate" : "Plan this week"}
+        </button>
       </div>
 
-      {/* Metrics */}
-      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 16 }}>
-        {p.metrics.map((m, i) => <span key={i} style={{ fontSize: 11, padding: "4px 10px", borderRadius: 8, background: "rgba(255,255,255,.04)", border: `1px solid ${T.line}`, color: T.mid }}>{m}</span>)}
-      </div>
+      {err && (
+        <div style={{ ...card, borderColor: "rgba(224,106,106,.3)", color: T.red, fontSize: 13, marginBottom: 14 }}>{err}</div>
+      )}
 
-      {/* Legend */}
-      <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginBottom: 14 }}>
-        {Object.entries(PLAN_TYPES).map(([k, v]) => (
-          <span key={k} style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11, color: T.dim }}>
-            <span style={{ width: 9, height: 9, borderRadius: 99, background: v.bg, border: `1.5px solid ${v.color}` }} />{v.name}
-          </span>
-        ))}
-      </div>
+      {!plan && !loading && !err && (
+        <div style={{ ...card, textAlign: "center", padding: "48px 24px" }}>
+          <div style={{ ...serif, fontSize: 24, marginBottom: 10 }}>No plan yet</div>
+          <div style={{ fontSize: 13, color: T.mid, maxWidth: 360, margin: "0 auto 24px", lineHeight: 1.6 }}>
+            Tap below and the mentor will review your recent training, recovery, and lift data to build a personalised week — strength, Zone 2, and HIIT balanced to your load.
+          </div>
+          <button style={{ ...pill(true), padding: "12px 28px", fontSize: 14 }} onClick={generate}>Plan this week</button>
+        </div>
+      )}
 
-      {/* Week grid */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 5, marginBottom: 16 }}>
-        {p.week.map((daySlots, di) => (
-          <div key={di} style={{ borderRadius: 10, overflow: "hidden", minWidth: 0 }}>
-            <div style={{ background: T.fg, color: T.bg, textAlign: "center", padding: "6px 2px", fontSize: 11, fontWeight: 600 }}>{PLAN_DAYS[di]}</div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 3, padding: "4px 3px", background: T.panel, border: `1px solid ${T.line}`, borderTop: "none", borderRadius: "0 0 10px 10px", minHeight: 100 }}>
-              {daySlots.length === 0 ? (
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: 36, borderRadius: 6, border: `1px dashed ${T.line}` }}>
-                  <span style={{ fontSize: 12, color: T.dim }}>Rest</span>
-                </div>
-              ) : daySlots.map((slot, si) => {
-                const st = PLAN_TYPES[slot.type];
+      {loading && (
+        <div style={{ ...card, textAlign: "center", padding: "48px 24px" }}>
+          <div style={{ ...serif, color: T.mid, fontSize: 16 }}>Mentor is analysing your training data…</div>
+        </div>
+      )}
+
+      {plan?.days && !loading && (
+        <div style={{ display: "grid", gap: 10, gridTemplateColumns: "repeat(auto-fill, minmax(270px, 1fr))" }}>
+          {plan.days.map((d, i) => (
+            <div key={i} style={card}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 10 }}>
+                <div style={{ ...serif, fontSize: 18 }}>{d.label}</div>
+                <div style={{ fontSize: 11, color: T.dim }}>{d.date}</div>
+              </div>
+              {(d.sessions || []).map((sess, j) => {
+                const st = ST[sess.type] || ST.rest;
                 return (
-                  <div key={si} onClick={() => setDetail(slot.s)} style={{ borderRadius: 6, padding: "5px 4px", textAlign: "center", fontSize: 9.5, fontWeight: 500, lineHeight: 1.3, cursor: "pointer", background: st.bg, color: st.color, transition: "opacity .1s" }}
-                    onMouseEnter={e => e.currentTarget.style.opacity = "0.8"} onMouseLeave={e => e.currentTarget.style.opacity = "1"}>
-                    {slot.label}
+                  <div key={j} style={{ borderRadius: 10, padding: "10px 12px", background: st.bg, border: `1px solid ${st.color}28`, marginBottom: j < d.sessions.length - 1 ? 8 : 0 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: sess.detail ? 5 : 0 }}>
+                      <span style={{ fontSize: 13, fontWeight: 600, color: st.color }}>{st.icon} {sess.title}</span>
+                      {sess.duration && <span style={{ fontSize: 11, color: T.dim }}>{sess.duration}</span>}
+                    </div>
+                    {sess.detail && <div style={{ fontSize: 12, color: T.mid, lineHeight: 1.55 }}>{sess.detail}</div>}
                   </div>
                 );
               })}
             </div>
-          </div>
-        ))}
-      </div>
-      <div style={{ fontSize: 11, color: T.dim, marginBottom: 20 }}>Click any session to view exercises</div>
+          ))}
+        </div>
+      )}
 
-      {/* Session detail */}
-      {detail && PLAN_SESSIONS[detail] && (() => {
-        const s = PLAN_SESSIONS[detail];
-        const st = PLAN_TYPES[s.type];
-        return (
-          <div style={{ ...card, marginBottom: 16 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-              <div style={{ ...serif, fontSize: 20 }}>{s.title}</div>
-              <span style={{ padding: "3px 10px", borderRadius: 6, fontSize: 11, fontWeight: 600, background: st.bg, color: st.color }}>{st.name}</span>
-            </div>
-            {s.warn && (
-              <div style={{ background: "rgba(224,180,106,.08)", border: "1px solid rgba(224,180,106,.3)", borderRadius: 10, padding: "10px 14px", fontSize: 12, color: T.amber, marginBottom: 14, lineHeight: 1.5 }}>
-                ⚠ {s.warn}
-              </div>
-            )}
-            {s.ex ? (
-              <div style={{ overflowX: "auto" }}>
-                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
-                  <thead><tr>
-                    {["Exercise", "Sets", "Reps", "Notes"].map(h => (
-                      <th key={h} style={{ textAlign: "left", fontSize: 10, fontWeight: 600, color: T.dim, padding: "0 8px 6px 0", textTransform: "uppercase", letterSpacing: ".06em" }}>{h}</th>
-                    ))}
-                  </tr></thead>
-                  <tbody>
-                    {s.ex.map((e, i) => (
-                      <tr key={i} style={{ borderTop: `1px solid ${T.line}` }}>
-                        <td style={{ padding: "7px 8px 7px 0", fontWeight: 500 }}>{e.n}</td>
-                        <td style={{ padding: "7px 8px 7px 0", color: T.mid }}>{e.sets}</td>
-                        <td style={{ padding: "7px 8px 7px 0", color: T.mid }}>{e.reps}</td>
-                        <td style={{ padding: "7px 8px 7px 0", fontSize: 11, color: T.dim }}>{e.note}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            ) : s.info ? (
-              <div style={{ fontSize: 13, color: T.mid, lineHeight: 1.7 }}>{s.info}</div>
-            ) : null}
-          </div>
-        );
-      })()}
+      {plan?.notes && !loading && (
+        <div style={{ ...card, marginTop: 14, background: `linear-gradient(150deg, rgba(61,220,132,.06), ${T.panel} 60%)` }}>
+          <div style={{ ...label, marginBottom: 6 }}>Mentor's note</div>
+          <div style={{ fontSize: 13, color: T.mid, lineHeight: 1.65 }}>{plan.notes}</div>
+        </div>
+      )}
     </>
   );
 }
