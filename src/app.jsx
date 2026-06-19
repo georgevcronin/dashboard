@@ -153,10 +153,34 @@ function Vitality({ go, s }) {
 
 function Train({ go, s, refresh }) {
   const [kg, setKg] = useState("");
+  const [expandedWorkout, setExpandedWorkout] = useState(null);
+  const [selectedMuscle, setSelectedMuscle] = useState(null);
   const weights = (s.weights || []).map((w) => w.value);
   const cur = weights.at(-1);
   const byEx = {};
   (s.lifts || []).forEach((l) => { (byEx[l.exercise] = byEx[l.exercise] || []).push(l); });
+  const liftsByDate = {};
+  (s.lifts || []).forEach((l) => { (liftsByDate[l.date] = liftsByDate[l.date] || []).push(l); });
+  const muscleWeeklyVol = useMemo(() => {
+    const now = Date.now(); const W = 8;
+    const result = {};
+    for (const l of (s.lifts || [])) {
+      const muscles = matchExercise(l.exercise || "");
+      if (!muscles) continue;
+      const vol = (l.kg || 0) * (l.reps || 0);
+      if (vol <= 0) continue;
+      const daysAgo = Math.floor((now - new Date(l.date).getTime()) / 864e5);
+      if (daysAgo < 0 || daysAgo >= W * 7) continue;
+      const wi = W - 1 - Math.floor(daysAgo / 7);
+      for (const [m, w] of Object.entries(muscles)) {
+        if (!result[m]) result[m] = Array(W).fill(0);
+        result[m][wi] += vol * w;
+      }
+    }
+    return result;
+  }, [s.lifts]);
+  const muscleOptions = Object.keys(muscleWeeklyVol).sort();
+  const activeMuscle = selectedMuscle || muscleOptions[0] || null;
   return (
     <>
       <Back onClick={() => go("home")} title="Progress" />
@@ -216,15 +240,62 @@ function Train({ go, s, refresh }) {
           </div>
           <div style={{ fontSize: 11, color: T.dim, marginTop: 8 }}>Tonnage trending up while recovery holds = productive overload.</div>
         </div>
-        <div style={card}>
-          <div style={{ ...label, marginBottom: 10 }}>Workouts · synced</div>
-          {(s.workouts || []).slice(-8).reverse().map((w, i) => (
-            <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "7px 0", borderBottom: "1px solid #161c18", fontSize: 13 }}>
-              <span>{w.name} <span style={{ color: T.dim, fontSize: 11 }}>· {w.date}</span></span>
-              <span style={{ color: T.mid }}>{w.kcal ? Math.round(w.kcal) + " kcal" : ""}</span>
+        {muscleOptions.length > 0 && (
+          <div style={{ ...card, gridColumn: "1 / -1" }}>
+            <div style={{ ...label, marginBottom: 10 }}>Muscle volume · 8-week trend <span style={{ textTransform: "none", letterSpacing: 0, color: T.dim }}>(kg × reps weighted by activation)</span></div>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 14 }}>
+              {muscleOptions.map(m => (
+                <button key={m} style={pill(activeMuscle === m)} onClick={() => setSelectedMuscle(m)}>
+                  {m.replace(/([A-Z])/g, " $1").toLowerCase()}
+                </button>
+              ))}
             </div>
-          ))}
-          {!(s.workouts || []).length && <div style={{ ...serif, color: T.dim, fontSize: 14 }}>Workouts appear here automatically once sync is connected.</div>}
+            {activeMuscle && <Line data={muscleWeeklyVol[activeMuscle]} h={100} />}
+            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, color: T.dim, marginTop: 4 }}>
+              <span>8 weeks ago</span><span>this week</span>
+            </div>
+          </div>
+        )}
+        <div style={{ ...card, gridColumn: "1 / -1" }}>
+          <div style={{ ...label, marginBottom: 10 }}>Workouts</div>
+          {(s.workouts || []).slice(-12).reverse().map((w, i) => {
+            const dayLifts = liftsByDate[w.date] || [];
+            const byExDay = {};
+            dayLifts.forEach(l => (byExDay[l.exercise] = byExDay[l.exercise] || []).push(l));
+            const hasLifts = Object.keys(byExDay).length > 0;
+            const isOpen = expandedWorkout === i;
+            return (
+              <div key={i} style={{ borderBottom: `1px solid ${T.line}`, padding: "10px 0" }}>
+                <div onClick={() => setExpandedWorkout(isOpen ? null : i)}
+                  style={{ display: "flex", justifyContent: "space-between", alignItems: "center", cursor: hasLifts ? "pointer" : "default", fontSize: 13 }}>
+                  <div>
+                    <span style={{ fontWeight: 500, textTransform: "capitalize" }}>{w.name}</span>
+                    <span style={{ color: T.dim, fontSize: 11 }}> · {w.date}</span>
+                    {w.source === "hevy" && <span style={{ marginLeft: 6, fontSize: 9, color: T.green, border: "1px solid rgba(61,220,132,.3)", borderRadius: 4, padding: "1px 5px" }}>Hevy</span>}
+                  </div>
+                  <div style={{ display: "flex", gap: 10, alignItems: "center", color: T.mid, fontSize: 12 }}>
+                    {w.duration && <span>{w.duration} min</span>}
+                    {w.kcal && <span>{Math.round(w.kcal)} kcal</span>}
+                    {hasLifts && <span style={{ color: T.dim, fontSize: 10 }}>{isOpen ? "▲" : "▼"}</span>}
+                  </div>
+                </div>
+                {isOpen && (
+                  <div style={{ marginTop: 8, paddingLeft: 12, borderLeft: `2px solid ${T.line}` }}>
+                    {Object.entries(byExDay).map(([name, sets]) => {
+                      const best = Math.max(...sets.map(x => x.kg || 0));
+                      return (
+                        <div key={name} style={{ display: "flex", justifyContent: "space-between", fontSize: 12, padding: "4px 0", color: T.mid }}>
+                          <span style={{ color: T.fg, textTransform: "capitalize" }}>{name}</span>
+                          <span>{sets.length} set{sets.length !== 1 ? "s" : ""}{best > 0 ? " · " + best + " kg" : ""}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+          {!(s.workouts || []).length && <div style={{ ...serif, color: T.dim, fontSize: 14 }}>Workouts appear here once sync is connected.</div>}
         </div>
         <div style={card}>
           <div style={{ ...label, marginBottom: 8 }}>Strava</div>
