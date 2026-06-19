@@ -943,7 +943,7 @@ function Fatigue({ go, s, refresh }) {
   const [sorenessScore, setSorenessScore] = useState(null);
   const [editingSens, setEditingSens] = useState(null);
   const [adaptMuscle, setAdaptMuscle] = useState(null);
-  const [atrophyRate, setAtrophyRate] = useState(0.003); // adaptation units / hour
+  const [atrophyRate, setAtrophyRate] = useState(0.000117); // calibrated from 82 real gaps: median 0.28%/day
 
   // Compute fatigue — applies personal sensitivity + soreness-extended recovery half-lives
   const fatigue = useMemo(() => {
@@ -1318,7 +1318,7 @@ function Fatigue({ go, s, refresh }) {
                 </button>
               )}
               {estimatedAtrophyRate == null && <span style={{ fontSize: 10, color: T.dim }}>needs a 14+ day training gap to calibrate</span>}
-              <input type="range" min="0.0005" max="0.015" step="0.0005" value={atrophyRate}
+              <input type="range" min="0.00005" max="0.002" step="0.00005" value={atrophyRate}
                 onChange={e => { setAtrophyRate(+e.target.value); setAtrophyCalibrated(false); }}
                 style={{ width: 80, accentColor: T.red }} />
               <span style={{ fontVariantNumeric: "tabular-nums", minWidth: 60 }}>{(atrophyRate * 24).toFixed(4)}/day</span>
