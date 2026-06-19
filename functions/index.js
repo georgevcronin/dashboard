@@ -398,7 +398,6 @@ app.post("/water", async (req, res) => {
   await save(); res.json({ today: db.water[k] });
 });
 app.post("/weight", async (req, res) => { db.weight[day()] = req.body.kg; await save(); res.json({ ok: true }); });
-app.post("/lift", async (req, res) => { db.lifts.push({ date: day(), exercise: req.body.exercise, kg: req.body.kg, reps: req.body.reps }); await save(); res.json({ ok: true }); });
 app.post("/nutrition", async (req, res) => {
   const k = day(); db.nutrition = db.nutrition || {};
   db.nutrition[k] = db.nutrition[k] || { protein: 0, carbs: 0, fat: 0, calories: 0 };

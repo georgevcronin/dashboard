@@ -152,7 +152,7 @@ function Vitality({ go, s }) {
 }
 
 function Train({ go, s, refresh }) {
-  const [kg, setKg] = useState(""), [ex, setEx] = useState(""), [lkg, setLkg] = useState(""), [reps, setReps] = useState("");
+  const [kg, setKg] = useState("");
   const weights = (s.weights || []).map((w) => w.value);
   const cur = weights.at(-1);
   const byEx = {};
@@ -165,7 +165,7 @@ function Train({ go, s, refresh }) {
           <div style={{ display: "flex", alignItems: "baseline", gap: 12 }}>
             <div style={{ fontSize: 42, fontWeight: 600 }}>{dash(cur)} <span style={{ fontSize: 15, color: T.mid }}>kg</span></div>
             {weights.length > 1 && <span style={{ background: "rgba(61,220,132,.12)", color: T.green, padding: "2px 8px", borderRadius: 6, fontSize: 12 }}>{(cur - weights[0]).toFixed(1)} kg / 30d</span>}
-            <span style={{ fontSize: 11, color: T.dim }}>auto-syncs from Apple Health, or log below</span>
+            <span style={{ fontSize: 11, color: T.dim }}>auto-syncs from Apple Health</span>
           </div>
           <Line data={weights} h={120} />
           {s.composition && (
@@ -181,13 +181,10 @@ function Train({ go, s, refresh }) {
           </div>
         </div>
         <div style={card}>
-          <div style={{ ...label, marginBottom: 10 }}>Log a lift</div>
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-            <input value={ex} onChange={(e) => setEx(e.target.value)} placeholder="barbell bench" style={{ ...input, flex: 1, minWidth: 130 }} />
-            <input value={lkg} onChange={(e) => setLkg(e.target.value)} placeholder="kg" inputMode="decimal" style={{ ...input, width: 70 }} />
-            <input value={reps} onChange={(e) => setReps(e.target.value)} placeholder="reps" inputMode="numeric" style={{ ...input, width: 70 }} />
-            <button style={pill(true)} onClick={async () => { if (ex && +lkg) { await api("lift", { exercise: ex.toLowerCase(), kg: +lkg, reps: +reps || 1 }); setEx(""); setLkg(""); setReps(""); refresh(); } }}>Add</button>
-          </div>
+          <div style={{ ...label, marginBottom: 10 }}>Lift log</div>
+          {Object.keys(byEx).length === 0 && (
+            <div style={{ ...serif, color: T.dim, fontSize: 14 }}>Import a Hevy CSV or let the webhook sync your next workout.</div>
+          )}
           {Object.entries(byEx).map(([name, sets]) => {
             const best = Math.max(...sets.map((x) => x.kg)), first = sets[0].kg, last = sets.at(-1);
             return (
@@ -822,8 +819,6 @@ function Fatigue({ go, s }) {
           <b>Hevy</b> — your API key auto-syncs every lift with exercise-level detail. Every exercise maps to primary and secondary muscles with volume weighting. Syncs on startup + every 4 hours.
           <br /><br />
           <b>Apple Health</b> — Health Auto Export sends runs, bouldering, cycling, and any other workout. Running maps to quads, calves, glutes, hamstrings. Bouldering maps to forearms, lats, biceps, core.
-          <br /><br />
-          <b>Manual lifts</b> — anything logged on the Train page is already included. The map updates in real time.
           <br /><br />
           <b>Recovery model:</b> each muscle has its own half-life (calves 36h, quads 56h, fingers 72h). Fatigue decays exponentially — a heavy squat session yesterday shows hot quads, but three days later they're green again.
         </div>
