@@ -800,6 +800,59 @@ function rirEffectiveness(rir) {
   return 0.18 + 0.14 * (r - 5) / 5;
 }
 
+// Supercompensation gamma curve — normalized so peak = stimulusScore at t = 48h (k=3, θ=24)
+function adaptationCurve(hoursAfter, stimulusScore) {
+  if (hoursAfter <= 0) return 0;
+  const PEAK_H = 48, THETA = 24;
+  const peakRaw = PEAK_H * PEAK_H * Math.exp(-PEAK_H / THETA); // 48^2 * e^-2
+  return stimulusScore * (hoursAfter * hoursAfter * Math.exp(-hoursAfter / THETA)) / peakRaw;
+}
+
+function AdaptationChart({ series, atrophyRate, w = 600, h = 100 }) {
+  if (!series || series.length < 2) return (
+    <div style={{ ...serif, color: T.dim, fontSize: 14, padding: "20px 0" }}>Log lifts to see adaptation curve.</div>
+  );
+  const startH = series[0].h, endH = series.at(-1).h, totalH = endH - startH;
+  const maxAdapt = Math.max(0.001, ...series.map(p => p.adapt));
+  const xOf = hv => ((hv - startH) / totalH) * w;
+  const yOf = v => h - (Math.max(0, v) / maxAdapt) * (h - 8) - 4;
+  const pts = series.map(p => [xOf(p.h), yOf(p.adapt)]);
+  const adaptPath = pts.map((p, i) => `${i ? "L" : "M"}${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(" ");
+  const nowIdx = series.findIndex(p => p.h >= 0);
+  const nowAdapt = nowIdx >= 0 ? series[nowIdx].adapt : 0;
+  const atFuture = series.filter(p => p.h >= 0).map(p => [xOf(p.h), yOf(Math.max(0, nowAdapt - atrophyRate * p.h))]);
+  const atPath = atFuture.length > 1 ? atFuture.map((p, i) => `${i ? "L" : "M"}${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(" ") : null;
+  const nowX = xOf(0), peakX = xOf(48);
+  const dayLabels = [];
+  for (let dh = startH; dh <= endH; dh += 3 * 24) {
+    const d = new Date(Date.now() + dh * 3600000);
+    dayLabels.push({ x: xOf(dh), label: d.toLocaleDateString("en-GB", { day: "numeric", month: "short" }) });
+  }
+  return (
+    <svg viewBox={`0 0 ${w} ${h + 24}`} style={{ width: "100%", display: "block" }}>
+      <defs>
+        <linearGradient id="adG" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor={T.green} stopOpacity=".22" />
+          <stop offset="100%" stopColor={T.green} stopOpacity="0" />
+        </linearGradient>
+      </defs>
+      <path d={`${adaptPath} L${pts.at(-1)[0]},${h} L${pts[0][0]},${h} Z`} fill="url(#adG)" />
+      <path d={adaptPath} fill="none" stroke={T.green} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+      <line x1={nowX} y1="0" x2={nowX} y2={h} stroke={T.dim} strokeWidth="1" strokeDasharray="3 3" />
+      <text x={nowX + 3} y="10" fontSize="8" fill={T.dim}>now</text>
+      {peakX > nowX && peakX < w && (
+        <>
+          <line x1={peakX} y1="0" x2={peakX} y2={h} stroke={T.amber} strokeWidth="1" strokeOpacity=".45" />
+          <text x={peakX} y="10" fontSize="8" fill={T.amber} textAnchor="middle">↑48h</text>
+        </>
+      )}
+      {atPath && <path d={atPath} fill="none" stroke={T.red} strokeWidth="1.5" strokeDasharray="5 3" strokeLinecap="round" />}
+      <line x1="0" y1={h - 3} x2={w} y2={h - 3} stroke={T.line} strokeWidth="0.5" />
+      {dayLabels.map((l, i) => <text key={i} x={l.x} y={h + 20} fontSize="8" fill={T.dim} textAnchor="middle">{l.label}</text>)}
+    </svg>
+  );
+}
+
 // Fuzzy match exercise name to muscle map key
 function matchExercise(name) {
   const n = name.toLowerCase();
@@ -864,6 +917,8 @@ function Fatigue({ go, s, refresh }) {
   const [sorenessTarget, setSorenessTarget] = useState(null);
   const [sorenessScore, setSorenessScore] = useState(null);
   const [editingSens, setEditingSens] = useState(null);
+  const [adaptMuscle, setAdaptMuscle] = useState(null);
+  const [atrophyRate, setAtrophyRate] = useState(0.003); // adaptation units / hour
 
   // Compute fatigue — applies personal sensitivity + soreness-extended recovery half-lives
   const fatigue = useMemo(() => {
@@ -978,6 +1033,62 @@ function Fatigue({ go, s, refresh }) {
         return { ...e, age };
       });
   }, [s.soreness]);
+
+  const adaptationTimeline = useMemo(() => {
+    const now = Date.now();
+    const WINDOW_START_H = -14 * 24, WINDOW_END_H = 3 * 24, STEP_H = 6;
+    const steps = Math.floor((WINDOW_END_H - WINDOW_START_H) / STEP_H) + 1;
+    const est1RM = {};
+    for (const l of (s.lifts || [])) {
+      if (!l.kg || !l.exercise) continue;
+      const e = l.kg * (1 + (l.reps || 1) / 30);
+      if (!est1RM[l.exercise] || e > est1RM[l.exercise]) est1RM[l.exercise] = e;
+    }
+    const byExDate = {};
+    for (const l of (s.lifts || [])) {
+      if (!l.exercise || !l.date || !l.kg) continue;
+      const liftMs = new Date(l.date).getTime();
+      if ((now - liftMs) / 3600000 > 500) continue; // gamma negligible beyond 500h
+      const key = `${l.exercise}|${l.date}`;
+      if (!byExDate[key]) byExDate[key] = { ms: liftMs, sets: [] };
+      byExDate[key].sets.push(l);
+    }
+    const muscleContribs = {};
+    for (const [key, sess] of Object.entries(byExDate)) {
+      const ex = key.split("|")[0];
+      const muscles = matchExercise(ex);
+      if (!muscles) continue;
+      const erm = est1RM[ex] || 1;
+      const numSets = sess.sets.length;
+      const avgRIR = sess.sets.reduce((acc, l) =>
+        acc + (l.rir != null ? l.rir : Math.min(10, Math.max(0, (1 - (l.kg || 0) / erm) * 15))), 0) / numSets;
+      const stimulus = volumeResponsePct(numSets) * rirEffectiveness(avgRIR);
+      for (const [m, w] of Object.entries(muscles)) {
+        if (!muscleContribs[m]) muscleContribs[m] = [];
+        muscleContribs[m].push({ ms: sess.ms, contrib: stimulus * w });
+      }
+    }
+    const result = {};
+    for (const [muscle, contribs] of Object.entries(muscleContribs)) {
+      const series = [];
+      for (let i = 0; i < steps; i++) {
+        const h = WINDOW_START_H + i * STEP_H;
+        const sampleMs = now + h * 3600000;
+        let adapt = 0;
+        for (const { ms, contrib } of contribs) {
+          const ha = (sampleMs - ms) / 3600000;
+          if (ha > 0 && ha < 400) adapt += adaptationCurve(ha, contrib);
+        }
+        series.push({ h, adapt });
+      }
+      result[muscle] = series;
+    }
+    return result;
+  }, [s.lifts]);
+
+  const adaptMuscles = Object.keys(adaptationTimeline).sort();
+  const activeAdaptMuscle = adaptMuscle || adaptMuscles[0] || null;
+  const activeSeries = activeAdaptMuscle ? (adaptationTimeline[activeAdaptMuscle] || []) : [];
 
   const handleLogSoreness = async () => {
     if (!sorenessTarget || sorenessScore == null) return;
@@ -1116,6 +1227,38 @@ function Fatigue({ go, s, refresh }) {
           <div style={{ ...serif, color: T.dim, fontSize: 14 }}>Log lifts or sync workouts and the map comes alive. Import a Hevy CSV or connect Strava below.</div>
         )}
       </div>
+
+      {/* Adaptation Timeline */}
+      {adaptMuscles.length > 0 && (
+        <div style={{ ...card, marginTop: 16 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 10, flexWrap: "wrap", gap: 8 }}>
+            <div style={label}>Adaptation timeline · supercompensation curve</div>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 11, color: T.dim }}>
+              <span>Atrophy rate:</span>
+              <input type="range" min="0.0005" max="0.012" step="0.0005" value={atrophyRate}
+                onChange={e => setAtrophyRate(+e.target.value)}
+                style={{ width: 80, accentColor: T.red }} />
+              <span style={{ fontVariantNumeric: "tabular-nums", minWidth: 60 }}>{(atrophyRate * 24).toFixed(3)}/day</span>
+            </div>
+          </div>
+          <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginBottom: 12 }}>
+            {adaptMuscles.map(m => (
+              <button key={m} style={pill(activeAdaptMuscle === m)} onClick={() => setAdaptMuscle(m)}>
+                {m.replace(/([A-Z])/g, " $1").toLowerCase()}
+              </button>
+            ))}
+          </div>
+          <AdaptationChart series={activeSeries} atrophyRate={atrophyRate} />
+          <div style={{ display: "flex", gap: 16, fontSize: 10, color: T.dim, marginTop: 8 }}>
+            <span><span style={{ color: T.green }}>—</span> Adaptation (gamma, k=3, θ=24h, peak 48h)</span>
+            <span><span style={{ color: T.red }}>- -</span> Atrophy projection</span>
+            <span><span style={{ color: T.amber }}>|</span> 48h peak window</span>
+          </div>
+          <div style={{ fontSize: 11, color: T.dim, marginTop: 6, lineHeight: 1.5 }}>
+            Each stimulus contributes a gamma response peaking 48h post-workout. The red dashed line shows muscle loss at the current atrophy rate without further training. Train again where the green curve is highest for maximum supercompensation.
+          </div>
+        </div>
+      )}
 
       {/* Log Soreness */}
       <div style={{ ...card, marginTop: 16 }}>
