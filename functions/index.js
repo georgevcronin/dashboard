@@ -121,6 +121,16 @@ function hevyKey() {
 function ingestWorkout(w) {
   const wDate = (w.start_time || w.created_at || "").slice(0, 10);
   if (!wDate) return 0;
+
+  // Add workout entry so it appears in workout history and fatigue model
+  const wTitle = (w.title || "gym").toLowerCase();
+  if (!db.workouts.find(x => x.source === "hevy" && x.date === wDate && x.name === wTitle)) {
+    const startMs = w.start_time ? new Date(w.start_time).getTime() : 0;
+    const endMs = w.end_time ? new Date(w.end_time).getTime() : 0;
+    const duration = startMs && endMs ? Math.round((endMs - startMs) / 60000) : null;
+    db.workouts.push({ date: wDate, name: wTitle, duration, kcal: null, source: "hevy" });
+  }
+
   let added = 0;
   for (const ex of (w.exercises || [])) {
     const name = (ex.title || ex.name || "").toLowerCase();
@@ -129,7 +139,8 @@ function ingestWorkout(w) {
       if (set.set_type === "warmup") continue;
       const kg = set.weight_kg ?? (set.weight_lbs ? set.weight_lbs / 2.20462 : 0);
       const reps = set.reps || 0;
-      const isDupe = db.lifts.find(l => l.source === "hevy" && l.date === wDate && l.exercise === name && Math.abs(l.kg - kg) < 0.1 && l.reps === reps);
+      // Deduplicate against all lifts regardless of source
+      const isDupe = db.lifts.find(l => l.date === wDate && l.exercise === name && Math.abs((l.kg || 0) - kg) < 0.1 && l.reps === reps);
       if (!isDupe && (kg > 0 || reps > 0)) {
         db.lifts.push({ date: wDate, exercise: name, kg: Math.round(kg * 100) / 100, reps, source: "hevy" });
         added++;
@@ -190,7 +201,7 @@ app.post("/import", async (req, res) => {
   let addedLifts = 0, addedWeights = 0;
   for (const l of lifts) {
     if (!l.date || !l.exercise) continue;
-    const isDupe = db.lifts.find(x => x.source === "hevy" && x.date === l.date && x.exercise === l.exercise && Math.abs((x.kg || 0) - (l.kg || 0)) < 0.1 && x.reps === l.reps);
+    const isDupe = db.lifts.find(x => x.date === l.date && x.exercise === l.exercise && Math.abs((x.kg || 0) - (l.kg || 0)) < 0.1 && x.reps === l.reps);
     if (!isDupe) { db.lifts.push({ date: l.date, exercise: l.exercise, kg: l.kg || 0, reps: l.reps || 0, source: "hevy" }); addedLifts++; }
   }
   for (const [date, kg] of Object.entries(weights)) {
@@ -386,6 +397,20 @@ app.get("/summary", async (req, res) => {
     lastSync: db.lastSyncAt ? (() => { const d = new Date(db.lastSyncAt); return d.toLocaleDateString("en-GB", { day:"numeric", month:"short" }) + " " + d.toLocaleTimeString("en-GB", { hour:"2-digit", minute:"2-digit" }); })() : (days.at(-1)?.date || null),
     stravaConnected: !!db.strava?.refresh_token,
   });
+});
+
+// ---------- kcal migration (one-time: fix kJ-stored-as-kcal from before the conversion fix) ----------
+app.post("/fix-kcal", async (req, res) => {
+  let fixed = 0;
+  for (const w of db.workouts) {
+    // Values >1500 with a non-hevy source are almost certainly raw kJ from HAE
+    if (w.kcal != null && w.kcal > 1500 && w.source !== "hevy") {
+      w.kcal = Math.round(w.kcal / 4.184);
+      fixed++;
+    }
+  }
+  if (fixed) await save();
+  res.json({ ok: true, fixed });
 });
 
 // ---------- Manual log endpoints ----------
