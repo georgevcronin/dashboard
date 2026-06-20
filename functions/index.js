@@ -135,13 +135,15 @@ function ingestWorkout(w) {
   const wDate = (w.start_time || w.created_at || "").slice(0, 10);
   if (!wDate) return 0;
 
-  // Add workout entry so it appears in workout history and fatigue model
+  // Add workout entry — keyed by start_time so two same-named workouts on one day stay separate
   const wTitle = (w.title || "gym").toLowerCase();
-  if (!db.workouts.find(x => x.source === "hevy" && x.date === wDate && x.name === wTitle)) {
-    const startMs = w.start_time ? new Date(w.start_time).getTime() : 0;
+  const wStart = w.start_time || null;
+  const dedupKey = wStart || `${wDate}|${wTitle}`;
+  if (!db.workouts.find(x => x.source === "hevy" && (x.start ? x.start === wStart : `${x.date}|${x.name}` === dedupKey))) {
+    const startMs = wStart ? new Date(wStart).getTime() : 0;
     const endMs = w.end_time ? new Date(w.end_time).getTime() : 0;
     const duration = startMs && endMs ? Math.round((endMs - startMs) / 60000) : null;
-    db.workouts.push({ date: wDate, name: wTitle, duration, kcal: null, source: "hevy" });
+    db.workouts.push({ date: wDate, name: wTitle, start: wStart, duration, kcal: null, source: "hevy" });
   }
 
   let added = 0;
@@ -216,13 +218,30 @@ app.post("/import", async (req, res) => {
   let addedLifts = 0, addedWeights = 0, addedWorkouts = 0;
   for (const w of workouts) {
     if (!w.date || !w.name) continue;
-    const isDupe = (db.workouts || []).find(x => x.date === w.date && x.name === w.name && x.source === "hevy");
-    if (!isDupe) { db.workouts = db.workouts || []; db.workouts.push({ date: w.date, name: w.name, duration: w.duration || null, kcal: w.kcal || null, source: "hevy" }); addedWorkouts++; }
+    // start_time is the canonical session key; fall back to date+name for older imports
+    const isDupe = (db.workouts || []).find(x => x.source === "hevy" &&
+      (w.start && x.start ? x.start === w.start : x.date === w.date && x.name === w.name));
+    if (!isDupe) {
+      db.workouts = db.workouts || [];
+      db.workouts.push({ date: w.date, name: w.name, start: w.start || null, duration: w.duration || null, kcal: w.kcal || null, source: "hevy" });
+      addedWorkouts++;
+    }
   }
   for (const l of lifts) {
     if (!l.date || !l.exercise) continue;
-    const isDupe = db.lifts.find(x => x.date === l.date && x.exercise === l.exercise && Math.abs((x.kg || 0) - (l.kg || 0)) < 0.1 && x.reps === l.reps);
-    if (!isDupe) { const e = { date: l.date, exercise: l.exercise, kg: l.kg || 0, reps: l.reps || 0, source: "hevy" }; if (l.rir != null) e.rir = l.rir; db.lifts.push(e); addedLifts++; }
+    // Deduplicate by session start + exercise + kg + reps; fall back to date-based if no start
+    const isDupe = db.lifts.find(x =>
+      x.exercise === l.exercise &&
+      Math.abs((x.kg || 0) - (l.kg || 0)) < 0.1 &&
+      x.reps === l.reps &&
+      (l.start && x.start ? x.start === l.start : x.date === l.date));
+    if (!isDupe) {
+      const e = { date: l.date, exercise: l.exercise, kg: l.kg || 0, reps: l.reps || 0, source: "hevy" };
+      if (l.start) e.start = l.start;
+      if (l.rir != null) e.rir = l.rir;
+      db.lifts.push(e);
+      addedLifts++;
+    }
   }
   for (const [date, kg] of Object.entries(weights)) {
     if (kg && !db.weight[date]) { db.weight[date] = kg; addedWeights++; }

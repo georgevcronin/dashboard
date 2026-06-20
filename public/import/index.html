@@ -128,14 +128,15 @@
         if (!date) continue;
         const exercise = (r.exercise_title || "").toLowerCase().trim();
 
-        // Workout-level grouping
-        const wktKey = (r.title || "Workout") + "|" + (r.start_time || date);
+        // Workout-level grouping — keyed by start_time (unique per session)
+        const wktKey = (r.start_time || date);
         if (!workoutMap.has(wktKey)) {
           const startT = hevyTime(r.start_time);
           const endT = hevyTime(r.end_time);
           const duration = (startT && endT) ? Math.round((endT - startT) / 60000) : null;
           workoutMap.set(wktKey, {
             date,
+            start: r.start_time || null,
             name: (r.title || "Workout").toLowerCase(),
             duration,
             exercises: new Map(),
@@ -153,7 +154,7 @@
         const kg = parseFloat(r.weight_kg) || 0;
         const reps = parseInt(r.reps) || 0;
         if (kg === 0 && reps === 0) continue;
-        const lift = { date, exercise, kg: Math.round(kg * 100) / 100, reps };
+        const lift = { date, start: r.start_time || null, exercise, kg: Math.round(kg * 100) / 100, reps };
         const rpe = parseFloat(r.rpe);
         if (!isNaN(rpe) && rpe > 0) lift.rir = Math.max(0, Math.round((10 - rpe) * 10) / 10);
         lifts.push(lift);
@@ -168,7 +169,7 @@
 
       parsedData = {
         lifts,
-        workouts: workouts.map(({ date, name, duration }) => ({ date, name, duration })),
+        workouts: workouts.map(({ date, start, name, duration }) => ({ date, start, name, duration })),
       };
 
       // Render preview
