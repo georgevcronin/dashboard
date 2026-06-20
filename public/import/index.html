@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Import Hevy Data</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: system-ui, sans-serif; background: #0a0d0b; color: #e8ece9; max-width: 560px; margin: 0 auto; padding: 24px 20px; }
+    .back { display: inline-flex; align-items: center; gap: 6px; color: #5d6b62; font-size: 13px; text-decoration: none; margin-bottom: 20px; }
+    .back:hover { color: #3ddc84; }
+    h1 { color: #3ddc84; font-size: 22px; margin-bottom: 6px; }
+    p { color: #8a948d; font-size: 14px; margin-bottom: 24px; line-height: 1.5; }
+    .section { background: #101512; border: 1px solid #1c241f; border-radius: 16px; padding: 20px; margin-bottom: 16px; }
+    label { display: block; font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: #5d6b62; margin-bottom: 10px; }
+    input[type=file] { display: block; width: 100%; background: #0c100e; border: 1px solid #1c241f; border-radius: 10px; padding: 12px; color: #e8ece9; font-size: 14px; cursor: pointer; }
+    input[type=file]::file-selector-button { background: #1c241f; border: none; color: #e8ece9; padding: 6px 12px; border-radius: 6px; margin-right: 10px; font-size: 13px; cursor: pointer; }
+    button#btn { display: block; width: 100%; margin-top: 20px; padding: 16px; background: #3ddc84; color: #0a0d0b; border: none; border-radius: 12px; font-size: 16px; font-weight: 600; cursor: pointer; }
+    button#btn:disabled { background: #1c241f; color: #5d6b62; cursor: default; }
+    #status { margin-top: 16px; font-size: 14px; line-height: 1.6; color: #8a948d; }
+    #status.ok { color: #3ddc84; }
+    #status.err { color: #e07a6a; }
+    #preview { display: none; margin-top: 16px; }
+    #preview h2 { font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: #5d6b62; margin-bottom: 10px; }
+    .wkt { background: #101512; border: 1px solid #1c241f; border-radius: 12px; padding: 14px 16px; margin-bottom: 10px; }
+    .wkt-header { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 8px; }
+    .wkt-name { font-size: 15px; font-weight: 600; color: #e8ece9; }
+    .wkt-meta { font-size: 12px; color: #5d6b62; }
+    .wkt-exercises { display: flex; flex-direction: column; gap: 3px; }
+    .wkt-ex { display: flex; justify-content: space-between; font-size: 13px; color: #8a948d; }
+    .wkt-ex span:first-child { color: #c8cec9; text-transform: capitalize; }
+    .overflow-note { font-size: 12px; color: #5d6b62; text-align: center; padding: 8px 0; }
+  </style>
+</head>
+<body>
+  <a class="back" href="../">← Back to dashboard</a>
+  <h1>Import Hevy Data</h1>
+  <p>Export from Hevy → Profile → Settings → Export Workout Data, then pick both files below.</p>
+
+  <div class="section">
+    <label>Workout CSV (workout_data.csv)</label>
+    <input type="file" id="workoutFile" accept=".csv" onchange="preview()">
+  </div>
+
+  <div class="section">
+    <label>Measurements CSV (measurement_data.csv) — optional</label>
+    <input type="file" id="measureFile" accept=".csv">
+  </div>
+
+  <div id="preview">
+    <h2 id="previewTitle"></h2>
+    <div id="previewList"></div>
+  </div>
+
+  <button id="btn" onclick="run()" disabled>Import</button>
+  <div id="status"></div>
+
+  <script>
+    const API = "https://europe-west2-dashboard-79dbb.cloudfunctions.net/api";
+    let parsedData = null;
+
+    function parseCSVLine(line) {
+      const out = []; let cur = "", q = false;
+      for (let i = 0; i < line.length; i++) {
+        const c = line[i];
+        if (c === '"') { q = !q; }
+        else if (c === ',' && !q) { out.push(cur.trim()); cur = ""; }
+        else { cur += c; }
+      }
+      out.push(cur.trim());
+      return out;
+    }
+
+    function parseCSV(text) {
+      const lines = text.replace(/\r\n/g, "\n").replace(/\r/g, "\n").trim().split("\n");
+      const headers = parseCSVLine(lines[0]);
+      return lines.slice(1).filter(l => l.trim()).map(l => {
+        const vals = parseCSVLine(l);
+        const obj = {};
+        headers.forEach((h, i) => obj[h] = vals[i] ?? "");
+        return obj;
+      });
+    }
+
+    const MONTHS = { Jan:0, Feb:1, Mar:2, Apr:3, May:4, Jun:5, Jul:6, Aug:7, Sep:8, Oct:9, Nov:10, Dec:11 };
+
+    function hevyDate(str) {
+      if (!str) return null;
+      const part = str.split(",")[0].trim();
+      const [d, m, y] = part.split(" ");
+      if (!d || !m || !y) return null;
+      const dt = new Date(+y, MONTHS[m], +d);
+      return isNaN(dt) ? null : dt.toISOString().slice(0, 10);
+    }
+
+    function hevyTime(str) {
+      if (!str) return null;
+      const cleaned = str.replace(",", "").trim();
+      const parts = cleaned.split(/\s+/);
+      if (parts.length < 4) return null;
+      const [d, m, y, t] = parts;
+      const [h, min] = (t || "0:0").split(":");
+      const dt = new Date(+y, MONTHS[m], +d, +h, +min);
+      return isNaN(dt) ? null : dt;
+    }
+
+    function readFile(input) {
+      return new Promise((res, rej) => {
+        if (!input.files[0]) return res(null);
+        const fr = new FileReader();
+        fr.onload = e => res(e.target.result);
+        fr.onerror = rej;
+        fr.readAsText(input.files[0]);
+      });
+    }
+
+    async function preview() {
+      const workoutText = await readFile(document.getElementById("workoutFile"));
+      if (!workoutText) return;
+
+      const rows = parseCSV(workoutText);
+      // Group by workout: key = title + "|" + start_time (unique per session)
+      const workoutMap = new Map();
+      const lifts = [];
+
+      for (const r of rows) {
+        const date = hevyDate(r.start_time);
+        if (!date) continue;
+        const exercise = (r.exercise_title || "").toLowerCase().trim();
+
+        // Workout-level grouping
+        const wktKey = (r.title || "Workout") + "|" + (r.start_time || date);
+        if (!workoutMap.has(wktKey)) {
+          const startT = hevyTime(r.start_time);
+          const endT = hevyTime(r.end_time);
+          const duration = (startT && endT) ? Math.round((endT - startT) / 60000) : null;
+          workoutMap.set(wktKey, {
+            date,
+            name: (r.title || "Workout").toLowerCase(),
+            duration,
+            exercises: new Map(),
+          });
+        }
+        const wkt = workoutMap.get(wktKey);
+        if (exercise) {
+          if (!wkt.exercises.has(exercise)) wkt.exercises.set(exercise, 0);
+          if (r.set_type !== "warmup") wkt.exercises.set(exercise, wkt.exercises.get(exercise) + 1);
+        }
+
+        // Lift entries (skip warmup)
+        if (r.set_type === "warmup") continue;
+        if (!exercise) continue;
+        const kg = parseFloat(r.weight_kg) || 0;
+        const reps = parseInt(r.reps) || 0;
+        if (kg === 0 && reps === 0) continue;
+        const lift = { date, exercise, kg: Math.round(kg * 100) / 100, reps };
+        const rpe = parseFloat(r.rpe);
+        if (!isNaN(rpe) && rpe > 0) lift.rir = Math.max(0, Math.round((10 - rpe) * 10) / 10);
+        lifts.push(lift);
+      }
+
+      const workouts = Array.from(workoutMap.values()).map(w => ({
+        date: w.date,
+        name: w.name,
+        duration: w.duration,
+        exercises: w.exercises,
+      }));
+
+      parsedData = {
+        lifts,
+        workouts: workouts.map(({ date, name, duration }) => ({ date, name, duration })),
+      };
+
+      // Render preview
+      const previewEl = document.getElementById("preview");
+      const titleEl = document.getElementById("previewTitle");
+      const listEl = document.getElementById("previewList");
+      const totalSets = lifts.length;
+      titleEl.textContent = `${workouts.length} workout${workouts.length !== 1 ? "s" : ""} · ${totalSets} sets found`;
+      listEl.innerHTML = "";
+
+      const sorted = workouts.slice().sort((a, b) => b.date.localeCompare(a.date));
+      const shown = sorted.slice(0, 20);
+
+      for (const w of shown) {
+        const exEntries = Array.from(w.exercises.entries()).filter(([, n]) => n > 0);
+        const totalWktSets = exEntries.reduce((a, [, n]) => a + n, 0);
+        const div = document.createElement("div");
+        div.className = "wkt";
+        const metaParts = [w.date];
+        if (w.duration) metaParts.push(w.duration + " min");
+        metaParts.push(`${exEntries.length} exercise${exEntries.length !== 1 ? "s" : ""} · ${totalWktSets} sets`);
+        div.innerHTML = `
+          <div class="wkt-header">
+            <div class="wkt-name">${w.name.charAt(0).toUpperCase() + w.name.slice(1)}</div>
+            <div class="wkt-meta">${metaParts.join(" · ")}</div>
+          </div>
+          <div class="wkt-exercises">
+            ${exEntries.map(([ex, n]) => `<div class="wkt-ex"><span>${ex}</span><span>${n} set${n !== 1 ? "s" : ""}</span></div>`).join("")}
+          </div>`;
+        listEl.appendChild(div);
+      }
+
+      if (sorted.length > 20) {
+        const note = document.createElement("div");
+        note.className = "overflow-note";
+        note.textContent = `… and ${sorted.length - 20} more workouts`;
+        listEl.appendChild(note);
+      }
+
+      previewEl.style.display = "block";
+      document.getElementById("btn").disabled = false;
+    }
+
+    async function run() {
+      const btn = document.getElementById("btn");
+      const status = document.getElementById("status");
+      btn.disabled = true;
+      status.className = "";
+      status.textContent = "Uploading…";
+
+      try {
+        const measureText = await readFile(document.getElementById("measureFile"));
+        const weights = {};
+        if (measureText) {
+          const rows = parseCSV(measureText);
+          for (const r of rows) {
+            const date = hevyDate(r.date);
+            const kg = parseFloat(r.weight_kg);
+            if (date && !isNaN(kg) && kg > 0) weights[date] = kg;
+          }
+        }
+
+        if (!parsedData && !measureText) {
+          status.className = "err";
+          status.textContent = "Pick at least one file.";
+          btn.disabled = false;
+          return;
+        }
+
+        const body = {
+          lifts: parsedData?.lifts || [],
+          workouts: parsedData?.workouts || [],
+          weights,
+        };
+
+        const resp = await fetch(`${API}/import`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        const data = await resp.json();
+
+        status.className = "ok";
+        status.textContent = `Done! Added ${data.addedWorkouts ?? 0} workout${data.addedWorkouts !== 1 ? "s" : ""}, ${data.addedLifts} sets, ${data.addedWeights} weight entries.`;
+      } catch (e) {
+        status.className = "err";
+        status.textContent = "Error: " + e.message;
+      }
+
+      btn.disabled = false;
+    }
+  </script>
+</body>
+</html>

@@ -1,0 +1,13 @@
+{
+  "name": "peak",
+  "version": "1.0.0",
+  "scripts": {
+    "build": "esbuild src/app.jsx --bundle --jsx=automatic --minify --outfile=public/app.js",
+    "deploy": "npm run build && firebase deploy"
+  },
+  "dependencies": {
+    "esbuild": "^0.28.0",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7"
+  }
+}
