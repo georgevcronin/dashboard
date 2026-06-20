@@ -814,17 +814,17 @@ const MUSCLE_MAP = {
   "bench press":{chest:1,frontDelts:.5,triceps:.5},"chest fly":{chest:1},
   "pec deck":{chest:1},"butterfly":{chest:1},
   "shoulder press":{frontDelts:1,triceps:.5},"overhead press":{frontDelts:1,triceps:.5,core:.3},
-  "lateral raise":{sideDelts:1},"rear delt":{rearDelts:1},
-  "barbell row":{lats:1,rearDelts:.5,biceps:.5,forearms:.3},
-  "iso-lateral row":{lats:1,rearDelts:.5,biceps:.5},
-  "lat pulldown":{lats:1,biceps:.5},"straight arm":{lats:1},
-  "pull-up":{lats:1,biceps:.7,forearms:.5,core:.3},"chin-up":{lats:.8,biceps:1,forearms:.5},
+  "lateral raise":{sideDelts:1},"rear delt":{rearDelts:1,rhomboids:.4},
+  "barbell row":{lats:1,rhomboids:.7,rearDelts:.5,biceps:.5,forearms:.3},
+  "iso-lateral row":{lats:1,rhomboids:.7,rearDelts:.5,biceps:.5},
+  "lat pulldown":{lats:1,rhomboids:.3,biceps:.5},"straight arm":{lats:1},
+  "pull-up":{lats:1,rhomboids:.5,biceps:.7,forearms:.5,core:.3},"chin-up":{lats:.8,rhomboids:.4,biceps:1,forearms:.5},
   "bicep curl":{biceps:1,forearms:.3},"decline curl":{biceps:1},
   "tricep pushdown":{triceps:1},"triceps pushdown":{triceps:1},
   "cable crunch":{core:1},"crunch":{core:1},"plank":{core:1},
   // Activities
   "_running":{quads:.8,calves:1,glutes:.6,hamstrings:.5,hipFlexors:.6,core:.3},
-  "_bouldering":{forearms:1,lats:.9,biceps:.8,core:.7,rearDelts:.5,fingers:1},
+  "_bouldering":{forearms:1,lats:.9,rhomboids:.7,biceps:.8,core:.7,rearDelts:.5,fingers:1},
   "_cycling":{quads:.9,calves:.5,glutes:.6,hamstrings:.4},
   "_zone2":{quads:.3,calves:.3,glutes:.2},
   "_hiit":{quads:.6,calves:.5,glutes:.4,hamstrings:.3,core:.3},
@@ -937,7 +937,7 @@ function matchExercise(name) {
 // Recovery half-life per muscle group (hours) — larger muscles recover slower
 const RECOVERY_H = {
   quads:56, hamstrings:56, glutes:56, calves:36, adductors:48, hipFlexors:40,
-  chest:52, lats:52, frontDelts:44, sideDelts:40, rearDelts:40,
+  chest:52, lats:52, frontDelts:44, sideDelts:40, rearDelts:40, rhomboids:44,
   triceps:36, biceps:36, forearms:32, fingers:36, core:36, lowerBack:56,
 };
 
@@ -963,6 +963,7 @@ const MUSCLES = {
   rearDeltsR:  { label:"Rear Delts",    x:466, y:88,  w:22, h:18, side:"back", link:"rearDelts" },
   lats:        { label:"Lats",          x:418, y:112, w:20, h:36, side:"back" },
   latsR:       { label:"Lats",          x:462, y:112, w:20, h:36, side:"back", link:"lats" },
+  rhomboids:   { label:"Rhomboids",     x:434, y:108, w:32, h:22, side:"back" },
   lowerBack:   { label:"Lower Back",    x:435, y:148, w:30, h:24, side:"back" },
   triceps:     { label:"Triceps",       x:400, y:118, w:16, h:26, side:"back" },
   tricepsR:    { label:"Triceps",       x:484, y:118, w:16, h:26, side:"back", link:"triceps" },
@@ -1449,6 +1450,15 @@ function Fatigue({ go, s, refresh }) {
         </div>
       </div>
 
+      {/* Muscle quiz */}
+      <div style={{ ...card, marginTop: 16, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
+        <div>
+          <div style={label}>Muscle quiz</div>
+          <div style={{ fontSize: 13, color: T.mid, marginTop: 3 }}>Test which muscles each exercise hits — primary and secondary. Drill until it's automatic.</div>
+        </div>
+        <button style={{ ...pill(true), padding: "10px 20px", flexShrink: 0 }} onClick={() => go("quiz")}>Start quiz →</button>
+      </div>
+
       {/* Data source info */}
       <div style={{ ...card, marginTop: 16, background: `linear-gradient(150deg, rgba(106,180,224,.06), ${T.panel} 60%)` }}>
         <div style={{ ...label, marginBottom: 8 }}>Data sources</div>
@@ -1464,6 +1474,146 @@ function Fatigue({ go, s, refresh }) {
   );
 }
 
+
+const ALL_MUSCLE_LABELS = Object.entries(RECOVERY_H).map(([k]) => ({
+  key: k, label: k.replace(/([A-Z])/g, " $1").replace(/^./, s => s.toUpperCase()),
+}));
+
+function Quiz({ go, s }) {
+  const exercises = useMemo(() => {
+    const seen = new Set();
+    const out = [];
+    // Exercises from lift history that map to muscles
+    for (const l of (s?.lifts || [])) {
+      const ex = (l.exercise || "").toLowerCase().trim();
+      if (!ex || seen.has(ex)) continue;
+      if (matchExercise(ex)) { out.push(ex); seen.add(ex); }
+    }
+    // Always include named MUSCLE_MAP keys as fallback
+    for (const k of Object.keys(MUSCLE_MAP)) {
+      if (!k.startsWith("_") && !seen.has(k)) { out.push(k); seen.add(k); }
+    }
+    // Shuffle
+    for (let i = out.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [out[i], out[j]] = [out[j], out[i]];
+    }
+    return out;
+  }, []);
+
+  const [idx, setIdx] = useState(0);
+  const [picked, setPicked] = useState({});
+  const [checked, setChecked] = useState(false);
+  const [score, setScore] = useState({ right: 0, total: 0 });
+  const [done, setDone] = useState(false);
+
+  const exercise = exercises[idx] || "";
+  const correctMap = matchExercise(exercise) || {};
+  const primary = Object.entries(correctMap).filter(([, w]) => w >= 0.8).map(([m]) => m);
+  const secondary = Object.entries(correctMap).filter(([, w]) => w < 0.8).map(([m]) => m);
+  const correctSet = new Set([...primary, ...secondary]);
+
+  const toggle = (m) => { if (!checked) setPicked(p => ({ ...p, [m]: !p[m] })); };
+
+  const check = () => {
+    const sel = new Set(Object.keys(picked).filter(k => picked[k]));
+    const allPrimaryHit = primary.every(m => sel.has(m));
+    const noWrong = [...sel].every(m => correctSet.has(m));
+    const isRight = allPrimaryHit && noWrong && sel.size > 0;
+    setScore(s => ({ right: s.right + (isRight ? 1 : 0), total: s.total + 1 }));
+    setChecked(true);
+  };
+
+  const next = () => {
+    if (idx + 1 >= exercises.length) { setDone(true); return; }
+    setIdx(i => i + 1);
+    setPicked({});
+    setChecked(false);
+  };
+
+  const restart = () => { setIdx(0); setPicked({}); setChecked(false); setScore({ right: 0, total: 0 }); setDone(false); };
+
+  const btnColor = (m) => {
+    const sel = picked[m];
+    if (!checked) return sel ? T.green : undefined;
+    const isPrimary = primary.includes(m);
+    const isSecondary = secondary.includes(m);
+    if (sel && isPrimary) return T.green;
+    if (sel && isSecondary) return T.amber;
+    if (sel && !correctSet.has(m)) return T.red;
+    if (!sel && isPrimary) return T.red;
+    if (!sel && isSecondary) return T.amber;
+    return undefined;
+  };
+
+  return (
+    <>
+      <Back onClick={() => go("fatigue")} title="Muscle quiz" />
+      <div style={{ ...serif, color: T.mid, fontSize: 14, marginTop: -10, marginBottom: 16 }}>
+        Identify primary and secondary muscles for each exercise. Score updates on primary hits.
+      </div>
+
+      {/* Score bar */}
+      <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 20 }}>
+        <div style={{ flex: 1, height: 6, background: T.line, borderRadius: 99, overflow: "hidden" }}>
+          <div style={{ height: "100%", width: `${exercises.length ? (idx / exercises.length) * 100 : 0}%`, background: T.green, borderRadius: 99, transition: "width .3s" }} />
+        </div>
+        <div style={{ fontSize: 13, color: T.mid, whiteSpace: "nowrap" }}>{score.right}/{score.total} correct · {idx + 1}/{exercises.length}</div>
+      </div>
+
+      {done ? (
+        <div style={{ ...card, textAlign: "center", padding: "48px 24px" }}>
+          <div style={{ fontSize: 56, fontWeight: 700, color: score.right / score.total >= 0.8 ? T.green : T.amber }}>{score.right}/{score.total}</div>
+          <div style={{ ...serif, fontSize: 22, marginTop: 8 }}>{score.right / score.total >= 0.8 ? "Strong knowledge" : score.right / score.total >= 0.6 ? "Getting there" : "Keep drilling"}</div>
+          <button style={{ ...pill(true), marginTop: 24, padding: "12px 28px", fontSize: 14 }} onClick={restart}>Restart quiz</button>
+        </div>
+      ) : (
+        <div style={{ ...card, maxWidth: 620 }}>
+          <div style={{ ...serif, fontSize: 28, marginBottom: 6, textTransform: "capitalize" }}>{exercise}</div>
+          {!checked && <div style={{ fontSize: 12, color: T.dim, marginBottom: 16 }}>Select all muscles this exercise hits (primary + secondary)</div>}
+          {checked && (
+            <div style={{ marginBottom: 16 }}>
+              <div style={{ fontSize: 12, color: T.dim, marginBottom: 6 }}>
+                <span style={{ color: T.green }}>■</span> Primary &nbsp;
+                <span style={{ color: T.amber }}>■</span> Secondary &nbsp;
+                <span style={{ color: T.red }}>■</span> Wrong / missed
+              </div>
+            </div>
+          )}
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 7, marginBottom: 20 }}>
+            {ALL_MUSCLE_LABELS.map(({ key, label }) => {
+              const c = btnColor(key);
+              const sel = picked[key];
+              return (
+                <button key={key} onClick={() => toggle(key)} style={{
+                  padding: "7px 14px", borderRadius: 999, cursor: checked ? "default" : "pointer",
+                  fontSize: 12, border: "1px solid",
+                  borderColor: c || (sel ? T.green : T.line),
+                  background: c ? `${c}22` : sel ? "rgba(61,220,132,.1)" : "transparent",
+                  color: c || (sel ? T.green : T.mid),
+                  fontWeight: checked && (primary.includes(key) || secondary.includes(key)) ? 600 : 400,
+                  transition: "all .15s",
+                }}>
+                  {label}
+                  {checked && primary.includes(key) && " ●"}
+                  {checked && secondary.includes(key) && " ○"}
+                </button>
+              );
+            })}
+          </div>
+          <div style={{ display: "flex", gap: 10 }}>
+            {!checked ? (
+              <button style={{ ...pill(true), padding: "10px 24px" }} onClick={check} disabled={!Object.values(picked).some(Boolean)}>Check</button>
+            ) : (
+              <button style={{ ...pill(true), padding: "10px 24px" }} onClick={next}>{idx + 1 >= exercises.length ? "See results" : "Next →"}</button>
+            )}
+            <button style={{ ...pill(false), padding: "10px 16px" }} onClick={restart}>Restart</button>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
 
 function Plan({ go }) {
   const [plan, setPlan] = useState(null);
@@ -1591,10 +1741,11 @@ const NAV_PAGES = [
   { key: "fatigue",  icon: "◉", label: "Fatigue" },
   { key: "plan",     icon: "▦", label: "Plan" },
   { key: "settings", icon: "◌", label: "Profile" },
+  { key: "quiz",     icon: "◇", label: "Quiz" },
 ];
 
 function BottomNav({ page, go }) {
-  const visible = NAV_PAGES.filter(p => p.key !== "settings");
+  const visible = NAV_PAGES.filter(p => p.key !== "settings" && p.key !== "quiz");
   return (
     <nav style={{
       position: "fixed", bottom: 0, left: 0, right: 0,
@@ -1664,7 +1815,7 @@ function App() {
   );
 
   const props = { go, s, refresh };
-  const pages = { home: <Home {...props} />, vitality: <Vitality {...props} />, train: <Train {...props} />, fuel: <Fuel {...props} />, mentor: <Mentor {...props} />, settings: <Settings {...props} />, plan: <Plan {...props} />, fatigue: <Fatigue {...props} /> };
+  const pages = { home: <Home {...props} />, vitality: <Vitality {...props} />, train: <Train {...props} />, fuel: <Fuel {...props} />, mentor: <Mentor {...props} />, settings: <Settings {...props} />, plan: <Plan {...props} />, fatigue: <Fatigue {...props} />, quiz: <Quiz {...props} /> };
   return (
     <div style={{ minHeight: "100vh", background: T.bg, color: T.fg, fontFamily: "'Inter', -apple-system, system-ui, sans-serif", padding: "24px clamp(14px,4vw,44px) 80px" }}>
       <div style={{ maxWidth: 1100, margin: "0 auto" }}>{pages[page]}</div>
