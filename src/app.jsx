@@ -822,6 +822,16 @@ const MUSCLE_MAP = {
   "bicep curl":{biceps:1,forearms:.3},"decline curl":{biceps:1},
   "tricep pushdown":{triceps:1},"triceps pushdown":{triceps:1},
   "cable crunch":{core:1},"crunch":{core:1},"plank":{core:1},
+  // Generic fallbacks — checked after specific entries above; catch Hevy "(Barbell)"/"(Machine)" variants
+  "squat":{quads:1,glutes:.7,hamstrings:.4,core:.3},
+  "deadlift":{hamstrings:.9,glutes:.8,lowerBack:1,core:.4},
+  "pull up":{lats:1,rhomboids:.5,biceps:.7,forearms:.5,core:.3},
+  "row":{lats:.8,rhomboids:.6,rearDelts:.4,biceps:.5},
+  "press":{chest:.7,frontDelts:.6,triceps:.6},
+  "curl":{biceps:1,forearms:.4},
+  "fly":{chest:1},
+  "extension":{triceps:1},
+  "raise":{sideDelts:1},
   // Activities
   "_running":{quads:.8,calves:1,glutes:.6,hamstrings:.5,hipFlexors:.6,core:.3},
   "_bouldering":{forearms:1,lats:.9,rhomboids:.7,biceps:.8,core:.7,rearDelts:.5,fingers:1},
@@ -921,8 +931,12 @@ function AdaptationChart({ series, atrophyRate, w = 600, h = 100 }) {
 }
 
 // Fuzzy match exercise name to muscle map key
-function matchExercise(name) {
-  const n = name.toLowerCase();
+function matchExercise(name, userMap) {
+  const n = (name || "").toLowerCase().trim();
+  if (!n) return null;
+  // User-defined exact mappings take priority
+  if (userMap && userMap[n]) return userMap[n];
+  // MUSCLE_MAP substring matching (specific keys checked before generic fallbacks)
   for (const [key, muscles] of Object.entries(MUSCLE_MAP)) {
     if (key.startsWith("_")) continue;
     if (n.includes(key)) return muscles;
@@ -944,8 +958,10 @@ const RECOVERY_H = {
 // All displayable muscles with SVG coordinates (front and back body)
 const MUSCLES = {
   // Front — { label, cx, cy, rx, ry, side [, link] }
-  frontDelts:  { label:"Front Delts",  cx:112, cy:88,  rx:10, ry:9,  side:"front" },
-  frontDeltsR: { label:"Front Delts",  cx:188, cy:88,  rx:10, ry:9,  side:"front", link:"frontDelts" },
+  frontDelts:  { label:"Front Delts",  cx:113, cy:87,  rx:9,  ry:8,  side:"front" },
+  frontDeltsR: { label:"Front Delts",  cx:187, cy:87,  rx:9,  ry:8,  side:"front", link:"frontDelts" },
+  sideDelts:   { label:"Side Delts",   cx:103, cy:91,  rx:9,  ry:8,  side:"front" },
+  sideDeltsR:  { label:"Side Delts",   cx:197, cy:91,  rx:9,  ry:8,  side:"front", link:"sideDelts" },
   chest:       { label:"Chest",        cx:150, cy:111, rx:27, ry:17, side:"front" },
   biceps:      { label:"Biceps",       cx:96,  cy:121, rx:8,  ry:14, side:"front" },
   bicepsR:     { label:"Biceps",       cx:204, cy:121, rx:8,  ry:14, side:"front", link:"biceps" },
@@ -1012,9 +1028,10 @@ function Fatigue({ go, s, refresh }) {
       if (!liftEst1RM[l.exercise] || e > liftEst1RM[l.exercise]) liftEst1RM[l.exercise] = e;
     }
 
+    const uMap = s.userMuscleMap || {};
     // From logged lifts
     for (const l of (s.lifts || [])) {
-      const muscles = matchExercise(l.exercise || "");
+      const muscles = matchExercise(l.exercise || "", uMap);
       if (!muscles) continue;
       const hoursAgo = (now - new Date(l.date).getTime()) / 36e5;
       if (hoursAgo > 168) continue;
@@ -1033,7 +1050,7 @@ function Fatigue({ go, s, refresh }) {
 
     // From synced workouts (cardio / HAE)
     for (const w of (s.workouts || [])) {
-      const muscles = matchExercise(w.name || "");
+      const muscles = matchExercise(w.name || "", uMap);
       if (!muscles) continue;
       const hoursAgo = (now - new Date(w.date || w.start).getTime()) / 36e5;
       if (hoursAgo > 168) continue;
@@ -1112,6 +1129,7 @@ function Fatigue({ go, s, refresh }) {
 
   const adaptationTimeline = useMemo(() => {
     const now = Date.now();
+    const uMap = s.userMuscleMap || {};
     const WINDOW_START_H = -14 * 24, WINDOW_END_H = 3 * 24, STEP_H = 6;
     const steps = Math.floor((WINDOW_END_H - WINDOW_START_H) / STEP_H) + 1;
     const est1RM = {};
@@ -1132,7 +1150,7 @@ function Fatigue({ go, s, refresh }) {
     const muscleContribs = {};
     for (const [key, sess] of Object.entries(byExDate)) {
       const ex = key.split("|")[0];
-      const muscles = matchExercise(ex);
+      const muscles = matchExercise(ex, uMap);
       if (!muscles) continue;
       const erm = est1RM[ex] || 1;
       const numSets = sess.sets.length;
@@ -1465,13 +1483,13 @@ function Fatigue({ go, s, refresh }) {
         </div>
       </div>
 
-      {/* Muscle quiz */}
+      {/* Exercise muscle map */}
       <div style={{ ...card, marginTop: 16, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
         <div>
-          <div style={label}>Muscle quiz</div>
-          <div style={{ fontSize: 13, color: T.mid, marginTop: 3 }}>Test which muscles each exercise hits — primary and secondary. Drill until it's automatic.</div>
+          <div style={label}>Exercise muscle map</div>
+          <div style={{ fontSize: 13, color: T.mid, marginTop: 3 }}>Define which muscles each of your exercises targets — overrides auto-detection for fatigue tracking.</div>
         </div>
-        <button style={{ ...pill(true), padding: "10px 20px", flexShrink: 0 }} onClick={() => go("quiz")}>Start quiz →</button>
+        <button style={{ ...pill(true), padding: "10px 20px", flexShrink: 0 }} onClick={() => go("quiz")}>Open editor →</button>
       </div>
 
       {/* Data source info */}
@@ -1494,138 +1512,192 @@ const ALL_MUSCLE_LABELS = Object.entries(RECOVERY_H).map(([k]) => ({
   key: k, label: k.replace(/([A-Z])/g, " $1").replace(/^./, s => s.toUpperCase()),
 }));
 
-function Quiz({ go, s }) {
-  const exercises = useMemo(() => {
-    const seen = new Set();
-    const out = [];
-    // Exercises from lift history that map to muscles
-    for (const l of (s?.lifts || [])) {
-      const ex = (l.exercise || "").toLowerCase().trim();
-      if (!ex || seen.has(ex)) continue;
-      if (matchExercise(ex)) { out.push(ex); seen.add(ex); }
-    }
-    // Always include named MUSCLE_MAP keys as fallback
-    for (const k of Object.keys(MUSCLE_MAP)) {
-      if (!k.startsWith("_") && !seen.has(k)) { out.push(k); seen.add(k); }
-    }
-    // Shuffle
-    for (let i = out.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [out[i], out[j]] = [out[j], out[i]];
-    }
-    return out;
-  }, []);
+// 0 = off, 1 = primary (1.0), 0.5 = secondary
+function cycleState(cur) { return cur === 0 ? 1 : cur === 1 ? 0.5 : 0; }
 
-  const [idx, setIdx] = useState(0);
-  const [picked, setPicked] = useState({});
-  const [checked, setChecked] = useState(false);
-  const [score, setScore] = useState({ right: 0, total: 0 });
-  const [done, setDone] = useState(false);
+function ExerciseRow({ exercise, userMap, onSave }) {
+  const autoMatch = matchExercise(exercise);
+  const customMap = userMap[exercise] || null;
+  const isCustom = !!customMap;
+  const isAuto = !isCustom && !!autoMatch;
 
-  const exercise = exercises[idx] || "";
-  const correctMap = matchExercise(exercise) || {};
-  const primary = Object.entries(correctMap).filter(([, w]) => w >= 0.8).map(([m]) => m);
-  const secondary = Object.entries(correctMap).filter(([, w]) => w < 0.8).map(([m]) => m);
-  const correctSet = new Set([...primary, ...secondary]);
+  const [open, setOpen] = useState(false);
+  const [muscles, setMuscles] = useState(() => customMap || autoMatch || {});
+  const [saving, setSaving] = useState(false);
 
-  const toggle = (m) => { if (!checked) setPicked(p => ({ ...p, [m]: !p[m] })); };
+  useEffect(() => {
+    setMuscles(customMap || autoMatch || {});
+  }, [customMap, autoMatch]);
 
-  const check = () => {
-    const sel = new Set(Object.keys(picked).filter(k => picked[k]));
-    const allPrimaryHit = primary.every(m => sel.has(m));
-    const noWrong = [...sel].every(m => correctSet.has(m));
-    const isRight = allPrimaryHit && noWrong && sel.size > 0;
-    setScore(s => ({ right: s.right + (isRight ? 1 : 0), total: s.total + 1 }));
-    setChecked(true);
+  const toggle = (key) => {
+    setMuscles(m => {
+      const cur = m[key] ?? 0;
+      const next = cycleState(cur);
+      const updated = { ...m };
+      if (next === 0) delete updated[key];
+      else updated[key] = next;
+      return updated;
+    });
   };
 
-  const next = () => {
-    if (idx + 1 >= exercises.length) { setDone(true); return; }
-    setIdx(i => i + 1);
-    setPicked({});
-    setChecked(false);
+  const save = async () => {
+    setSaving(true);
+    await onSave(exercise, muscles);
+    setSaving(false);
+    setOpen(false);
   };
 
-  const restart = () => { setIdx(0); setPicked({}); setChecked(false); setScore({ right: 0, total: 0 }); setDone(false); };
-
-  const btnColor = (m) => {
-    const sel = picked[m];
-    if (!checked) return sel ? T.green : undefined;
-    const isPrimary = primary.includes(m);
-    const isSecondary = secondary.includes(m);
-    if (sel && isPrimary) return T.green;
-    if (sel && isSecondary) return T.amber;
-    if (sel && !correctSet.has(m)) return T.red;
-    if (!sel && isPrimary) return T.red;
-    if (!sel && isSecondary) return T.amber;
-    return undefined;
+  const clear = async () => {
+    setSaving(true);
+    await onSave(exercise, {});
+    setSaving(false);
+    setOpen(false);
   };
+
+  const hasPrimary = Object.values(muscles).some(v => v >= 0.8);
+
+  const statusBadge = isCustom
+    ? { label: "custom", color: T.green, bg: "rgba(61,220,132,.12)" }
+    : isAuto
+    ? { label: "auto", color: T.amber, bg: "rgba(224,180,106,.12)" }
+    : { label: "unmapped", color: T.dim, bg: "rgba(255,255,255,.05)" };
 
   return (
-    <>
-      <Back onClick={() => go("fatigue")} title="Muscle quiz" />
-      <div style={{ ...serif, color: T.mid, fontSize: 14, marginTop: -10, marginBottom: 16 }}>
-        Identify primary and secondary muscles for each exercise. Score updates on primary hits.
+    <div style={{ borderBottom: `1px solid ${T.line}` }}>
+      <div
+        onClick={() => setOpen(o => !o)}
+        style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 0", cursor: "pointer" }}
+      >
+        <div style={{ flex: 1, fontSize: 14, color: T.fg, textTransform: "capitalize" }}>{exercise}</div>
+        {!open && Object.keys(muscles).length > 0 && (
+          <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+            {Object.entries(muscles).slice(0, 4).map(([m, w]) => (
+              <span key={m} style={{
+                fontSize: 10, padding: "2px 7px", borderRadius: 999,
+                background: w >= 0.8 ? "rgba(61,220,132,.15)" : "rgba(224,180,106,.15)",
+                color: w >= 0.8 ? T.green : T.amber,
+              }}>{m.replace(/([A-Z])/g, " $1").toLowerCase()}</span>
+            ))}
+            {Object.keys(muscles).length > 4 && <span style={{ fontSize: 10, color: T.dim }}>+{Object.keys(muscles).length - 4}</span>}
+          </div>
+        )}
+        <span style={{
+          fontSize: 10, padding: "2px 8px", borderRadius: 999,
+          background: statusBadge.bg, color: statusBadge.color, flexShrink: 0,
+        }}>{statusBadge.label}</span>
+        <span style={{ color: T.dim, fontSize: 12 }}>{open ? "▲" : "▼"}</span>
       </div>
-
-      {/* Score bar */}
-      <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 20 }}>
-        <div style={{ flex: 1, height: 6, background: T.line, borderRadius: 99, overflow: "hidden" }}>
-          <div style={{ height: "100%", width: `${exercises.length ? (idx / exercises.length) * 100 : 0}%`, background: T.green, borderRadius: 99, transition: "width .3s" }} />
-        </div>
-        <div style={{ fontSize: 13, color: T.mid, whiteSpace: "nowrap" }}>{score.right}/{score.total} correct · {idx + 1}/{exercises.length}</div>
-      </div>
-
-      {done ? (
-        <div style={{ ...card, textAlign: "center", padding: "48px 24px" }}>
-          <div style={{ fontSize: 56, fontWeight: 700, color: score.right / score.total >= 0.8 ? T.green : T.amber }}>{score.right}/{score.total}</div>
-          <div style={{ ...serif, fontSize: 22, marginTop: 8 }}>{score.right / score.total >= 0.8 ? "Strong knowledge" : score.right / score.total >= 0.6 ? "Getting there" : "Keep drilling"}</div>
-          <button style={{ ...pill(true), marginTop: 24, padding: "12px 28px", fontSize: 14 }} onClick={restart}>Restart quiz</button>
-        </div>
-      ) : (
-        <div style={{ ...card, maxWidth: 620 }}>
-          <div style={{ ...serif, fontSize: 28, marginBottom: 6, textTransform: "capitalize" }}>{exercise}</div>
-          {!checked && <div style={{ fontSize: 12, color: T.dim, marginBottom: 16 }}>Select all muscles this exercise hits (primary + secondary)</div>}
-          {checked && (
-            <div style={{ marginBottom: 16 }}>
-              <div style={{ fontSize: 12, color: T.dim, marginBottom: 6 }}>
-                <span style={{ color: T.green }}>■</span> Primary &nbsp;
-                <span style={{ color: T.amber }}>■</span> Secondary &nbsp;
-                <span style={{ color: T.red }}>■</span> Wrong / missed
-              </div>
-            </div>
-          )}
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 7, marginBottom: 20 }}>
+      {open && (
+        <div style={{ paddingBottom: 14 }}>
+          <div style={{ fontSize: 11, color: T.dim, marginBottom: 10 }}>
+            Click once = <span style={{ color: T.green }}>primary</span> · twice = <span style={{ color: T.amber }}>secondary</span> · three times = off
+          </div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 14 }}>
             {ALL_MUSCLE_LABELS.map(({ key, label }) => {
-              const c = btnColor(key);
-              const sel = picked[key];
+              const v = muscles[key] ?? 0;
+              const isPrimary = v >= 0.8;
+              const isSecondary = v > 0 && v < 0.8;
               return (
                 <button key={key} onClick={() => toggle(key)} style={{
-                  padding: "7px 14px", borderRadius: 999, cursor: checked ? "default" : "pointer",
-                  fontSize: 12, border: "1px solid",
-                  borderColor: c || (sel ? T.green : T.line),
-                  background: c ? `${c}22` : sel ? "rgba(61,220,132,.1)" : "transparent",
-                  color: c || (sel ? T.green : T.mid),
-                  fontWeight: checked && (primary.includes(key) || secondary.includes(key)) ? 600 : 400,
-                  transition: "all .15s",
+                  padding: "6px 13px", borderRadius: 999, cursor: "pointer", fontSize: 12,
+                  border: "1px solid",
+                  borderColor: isPrimary ? T.green : isSecondary ? T.amber : T.line,
+                  background: isPrimary ? "rgba(61,220,132,.15)" : isSecondary ? "rgba(224,180,106,.15)" : "transparent",
+                  color: isPrimary ? T.green : isSecondary ? T.amber : T.mid,
+                  fontWeight: isPrimary || isSecondary ? 600 : 400,
+                  transition: "all .12s",
                 }}>
-                  {label}
-                  {checked && primary.includes(key) && " ●"}
-                  {checked && secondary.includes(key) && " ○"}
+                  {label}{isPrimary ? " ●" : isSecondary ? " ○" : ""}
                 </button>
               );
             })}
           </div>
-          <div style={{ display: "flex", gap: 10 }}>
-            {!checked ? (
-              <button style={{ ...pill(true), padding: "10px 24px" }} onClick={check} disabled={!Object.values(picked).some(Boolean)}>Check</button>
-            ) : (
-              <button style={{ ...pill(true), padding: "10px 24px" }} onClick={next}>{idx + 1 >= exercises.length ? "See results" : "Next →"}</button>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button
+              style={{ ...pill(true), padding: "8px 20px", fontSize: 13 }}
+              onClick={save}
+              disabled={saving || !hasPrimary}
+            >{saving ? "Saving…" : "Save"}</button>
+            {isCustom && (
+              <button
+                style={{ ...pill(false), padding: "8px 16px", fontSize: 13, color: T.red, borderColor: T.red }}
+                onClick={clear}
+                disabled={saving}
+              >Clear custom</button>
             )}
-            <button style={{ ...pill(false), padding: "10px 16px" }} onClick={restart}>Restart</button>
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function Quiz({ go, s, refresh }) {
+  const uMap = s.userMuscleMap || {};
+
+  const exercises = useMemo(() => {
+    const seen = new Set();
+    const unmapped = [], custom = [], auto = [];
+    for (const l of (s?.lifts || [])) {
+      const ex = (l.exercise || "").toLowerCase().trim();
+      if (!ex || seen.has(ex)) continue;
+      seen.add(ex);
+      if (uMap[ex]) custom.push(ex);
+      else if (matchExercise(ex)) auto.push(ex);
+      else unmapped.push(ex);
+    }
+    // Also surface exercises only in MUSCLE_MAP but never done
+    // (skipped — only show exercises user has actually done)
+    return { unmapped, custom, auto, all: [...unmapped, ...custom, ...auto] };
+  }, [s.lifts, uMap]);
+
+  const [filter, setFilter] = useState("all");
+
+  const displayed = filter === "unmapped" ? exercises.unmapped
+    : filter === "custom" ? exercises.custom
+    : filter === "auto" ? exercises.auto
+    : exercises.all;
+
+  const tabs = [
+    { key: "all",      label: `All (${exercises.all.length})` },
+    { key: "unmapped", label: `Unmapped (${exercises.unmapped.length})` },
+    { key: "custom",   label: `Custom (${exercises.custom.length})` },
+    { key: "auto",     label: `Auto (${exercises.auto.length})` },
+  ];
+
+  const handleSave = async (exercise, muscles) => {
+    await api("user-muscle-map", { exercise, muscles });
+    if (refresh) refresh();
+  };
+
+  return (
+    <>
+      <Back onClick={() => go("fatigue")} title="Exercise muscle map" />
+      <div style={{ fontSize: 13, color: T.mid, marginTop: -10, marginBottom: 16, lineHeight: 1.5 }}>
+        Map each exercise to the muscles it targets. This overrides auto-detection for fatigue tracking.
+        Green = primary, amber = secondary.
+      </div>
+
+      {/* Filter tabs */}
+      <div style={{ display: "flex", gap: 6, marginBottom: 16, flexWrap: "wrap" }}>
+        {tabs.map(t => (
+          <button key={t.key} onClick={() => setFilter(t.key)} style={{
+            padding: "6px 14px", borderRadius: 999, fontSize: 12, cursor: "pointer",
+            border: `1px solid ${filter === t.key ? T.green : T.line}`,
+            background: filter === t.key ? "rgba(61,220,132,.12)" : "transparent",
+            color: filter === t.key ? T.green : T.mid,
+          }}>{t.label}</button>
+        ))}
+      </div>
+
+      <div style={{ ...card }}>
+        {displayed.length === 0 && (
+          <div style={{ fontSize: 13, color: T.dim, padding: "20px 0", textAlign: "center" }}>No exercises in this category.</div>
+        )}
+        {displayed.map(ex => (
+          <ExerciseRow key={ex} exercise={ex} userMap={uMap} onSave={handleSave} />
+        ))}
+      </div>
     </>
   );
 }
@@ -1777,7 +1849,7 @@ const NAV_PAGES = [
   { key: "fatigue",  icon: "◉", label: "Fatigue" },
   { key: "plan",     icon: "▦", label: "Plan" },
   { key: "settings", icon: "◌", label: "Profile" },
-  { key: "quiz",     icon: "◇", label: "Quiz" },
+  { key: "quiz",     icon: "◇", label: "Muscle Map" },
 ];
 
 function BottomNav({ page, go }) {
