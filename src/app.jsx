@@ -943,33 +943,33 @@ const RECOVERY_H = {
 
 // All displayable muscles with SVG coordinates (front and back body)
 const MUSCLES = {
-  // Front view
-  frontDelts:  { label:"Front Delts",   x:112, y:88,  w:22, h:18, side:"front" },
-  frontDeltsR: { label:"Front Delts",   x:166, y:88,  w:22, h:18, side:"front", link:"frontDelts" },
-  chest:       { label:"Chest",         x:122, y:108, w:56, h:30, side:"front" },
-  biceps:      { label:"Biceps",        x:100, y:120, w:18, h:28, side:"front" },
-  bicepsR:     { label:"Biceps",        x:182, y:120, w:18, h:28, side:"front", link:"biceps" },
-  core:        { label:"Core",          x:130, y:142, w:40, h:40, side:"front" },
-  forearms:    { label:"Forearms",      x:92,  y:152, w:16, h:32, side:"front" },
-  forearmsR:   { label:"Forearms",      x:192, y:152, w:16, h:32, side:"front", link:"forearms" },
-  hipFlexors:  { label:"Hip Flexors",   x:128, y:184, w:44, h:14, side:"front" },
-  quads:       { label:"Quads",         x:118, y:200, w:26, h:46, side:"front" },
-  quadsR:      { label:"Quads",         x:156, y:200, w:26, h:46, side:"front", link:"quads" },
-  adductors:   { label:"Adductors",     x:140, y:210, w:20, h:30, side:"front" },
-  calves:      { label:"Calves",        x:120, y:260, w:20, h:32, side:"front" },
-  calvesR:     { label:"Calves",        x:160, y:260, w:20, h:32, side:"front", link:"calves" },
-  // Back view (offset by 300px)
-  rearDelts:   { label:"Rear Delts",    x:412, y:88,  w:22, h:18, side:"back" },
-  rearDeltsR:  { label:"Rear Delts",    x:466, y:88,  w:22, h:18, side:"back", link:"rearDelts" },
-  lats:        { label:"Lats",          x:418, y:112, w:20, h:36, side:"back" },
-  latsR:       { label:"Lats",          x:462, y:112, w:20, h:36, side:"back", link:"lats" },
-  rhomboids:   { label:"Rhomboids",     x:434, y:108, w:32, h:22, side:"back" },
-  lowerBack:   { label:"Lower Back",    x:435, y:148, w:30, h:24, side:"back" },
-  triceps:     { label:"Triceps",       x:400, y:118, w:16, h:26, side:"back" },
-  tricepsR:    { label:"Triceps",       x:484, y:118, w:16, h:26, side:"back", link:"triceps" },
-  glutes:      { label:"Glutes",        x:425, y:175, w:50, h:28, side:"back" },
-  hamstrings:  { label:"Hamstrings",    x:420, y:206, w:24, h:42, side:"back" },
-  hamstringsR: { label:"Hamstrings",    x:456, y:206, w:24, h:42, side:"back", link:"hamstrings" },
+  // Front — { label, cx, cy, rx, ry, side [, link] }
+  frontDelts:  { label:"Front Delts",  cx:112, cy:88,  rx:10, ry:9,  side:"front" },
+  frontDeltsR: { label:"Front Delts",  cx:188, cy:88,  rx:10, ry:9,  side:"front", link:"frontDelts" },
+  chest:       { label:"Chest",        cx:150, cy:111, rx:27, ry:17, side:"front" },
+  biceps:      { label:"Biceps",       cx:96,  cy:121, rx:8,  ry:14, side:"front" },
+  bicepsR:     { label:"Biceps",       cx:204, cy:121, rx:8,  ry:14, side:"front", link:"biceps" },
+  core:        { label:"Core",         cx:150, cy:150, rx:17, ry:20, side:"front" },
+  forearms:    { label:"Forearms",     cx:91,  cy:166, rx:7,  ry:14, side:"front" },
+  forearmsR:   { label:"Forearms",     cx:209, cy:166, rx:7,  ry:14, side:"front", link:"forearms" },
+  hipFlexors:  { label:"Hip Flexors",  cx:150, cy:186, rx:21, ry:8,  side:"front" },
+  quads:       { label:"Quads",        cx:121, cy:226, rx:12, ry:22, side:"front" },
+  quadsR:      { label:"Quads",        cx:179, cy:226, rx:12, ry:22, side:"front", link:"quads" },
+  adductors:   { label:"Adductors",    cx:150, cy:219, rx:9,  ry:18, side:"front" },
+  calves:      { label:"Calves",       cx:124, cy:282, rx:8,  ry:12, side:"front" },
+  calvesR:     { label:"Calves",       cx:176, cy:282, rx:8,  ry:12, side:"front", link:"calves" },
+  // Back (x = front_x + 300)
+  rearDelts:   { label:"Rear Delts",   cx:412, cy:88,  rx:10, ry:9,  side:"back" },
+  rearDeltsR:  { label:"Rear Delts",   cx:488, cy:88,  rx:10, ry:9,  side:"back",  link:"rearDelts" },
+  lats:        { label:"Lats",         cx:421, cy:126, rx:12, ry:22, side:"back" },
+  latsR:       { label:"Lats",         cx:479, cy:126, rx:12, ry:22, side:"back",  link:"lats" },
+  rhomboids:   { label:"Rhomboids",    cx:450, cy:112, rx:16, ry:11, side:"back" },
+  lowerBack:   { label:"Lower Back",   cx:450, cy:156, rx:13, ry:11, side:"back" },
+  triceps:     { label:"Triceps",      cx:402, cy:121, rx:7,  ry:14, side:"back" },
+  tricepsR:    { label:"Triceps",      cx:498, cy:121, rx:7,  ry:14, side:"back",  link:"triceps" },
+  glutes:      { label:"Glutes",       cx:450, cy:183, rx:25, ry:15, side:"back" },
+  hamstrings:  { label:"Hamstrings",   cx:430, cy:227, rx:12, ry:22, side:"back" },
+  hamstringsR: { label:"Hamstrings",   cx:470, cy:227, rx:12, ry:22, side:"back",  link:"hamstrings" },
 };
 
 function fatigueColor(pct) {
@@ -1286,23 +1286,38 @@ function Fatigue({ go, s, refresh }) {
             <div key={side} style={{ textAlign: "center" }}>
               <div style={label}>{side}</div>
               <svg viewBox={side === "front" ? "80 30 140 280" : "380 30 140 280"} style={{ width: 160, height: 320 }}>
-                {/* Body silhouette */}
-                <ellipse cx={side === "front" ? 150 : 450} cy={52} rx={18} ry={20} fill="#1a2420" stroke={T.line} strokeWidth="1" />
-                <rect x={side === "front" ? 120 : 420} y={72} width={60} height={110} rx={12} fill="#1a2420" stroke={T.line} strokeWidth="1" />
-                <rect x={side === "front" ? 95 : 395} y={82} width={20} height={70} rx={8} fill="#1a2420" stroke={T.line} strokeWidth="1" />
-                <rect x={side === "front" ? 185 : 485} y={82} width={20} height={70} rx={8} fill="#1a2420" stroke={T.line} strokeWidth="1" />
-                <rect x={side === "front" ? 88 : 388} y={148} width={16} height={44} rx={6} fill="#1a2420" stroke={T.line} strokeWidth="1" />
-                <rect x={side === "front" ? 196 : 496} y={148} width={16} height={44} rx={6} fill="#1a2420" stroke={T.line} strokeWidth="1" />
-                <rect x={side === "front" ? 122 : 422} y={184} width={24} height={70} rx={8} fill="#1a2420" stroke={T.line} strokeWidth="1" />
-                <rect x={side === "front" ? 154 : 454} y={184} width={24} height={70} rx={8} fill="#1a2420" stroke={T.line} strokeWidth="1" />
-                <rect x={side === "front" ? 120 : 420} y={256} width={22} height={38} rx={6} fill="#1a2420" stroke={T.line} strokeWidth="1" />
-                <rect x={side === "front" ? 158 : 458} y={256} width={22} height={38} rx={6} fill="#1a2420" stroke={T.line} strokeWidth="1" />
-
-                {/* Muscle overlays */}
+                {/* Body silhouette — paths in front coords, translated +300 for back */}
+                <g transform={side === "back" ? "translate(300,0)" : undefined} fill="#1a2420" stroke={T.line} strokeWidth="1" strokeLinejoin="round">
+                  {/* Head */}
+                  <ellipse cx="150" cy="50" rx="17" ry="20"/>
+                  {/* Neck */}
+                  <path d="M 143,69 L 157,69 L 157.5,80 L 142.5,80 Z" strokeWidth="0.5"/>
+                  {/* Torso — shoulders wide → waist narrow → hips flare */}
+                  <path d="M 144,77 L 117,83 C 107,91 104,113 106,133 C 107,144 119,154 127,158 C 121,165 118,176 120,184 L 180,184 C 182,176 179,165 173,158 C 181,154 193,144 194,133 C 196,113 193,91 183,83 L 156,77 Z"/>
+                  {/* Left upper arm — tapers from shoulder to elbow */}
+                  <path d="M 103,83 C 93,90 88,110 88,129 C 88,141 92,151 99,156 L 111,152 C 115,142 116,124 114,107 C 113,93 118,84 117,83 Z"/>
+                  {/* Left forearm */}
+                  <path d="M 99,157 C 92,166 88,182 88,196 C 88,204 91,210 96,211 L 107,207 C 109,198 109,182 109,169 C 109,162 106,156 99,157 Z"/>
+                  {/* Right upper arm */}
+                  <path d="M 197,83 C 207,90 212,110 212,129 C 212,141 208,151 201,156 L 189,152 C 185,142 184,124 186,107 C 187,93 182,84 183,83 Z"/>
+                  {/* Right forearm */}
+                  <path d="M 201,157 C 208,166 212,182 212,196 C 212,204 209,210 204,211 L 193,207 C 191,198 191,182 191,169 C 191,162 194,156 201,157 Z"/>
+                  {/* Left thigh */}
+                  <path d="M 118,185 C 110,198 107,220 108,241 C 109,256 115,267 124,271 L 135,267 C 138,251 139,232 137,211 C 135,196 131,187 122,185 Z"/>
+                  {/* Right thigh */}
+                  <path d="M 182,185 C 190,198 193,220 192,241 C 191,256 185,267 176,271 L 165,267 C 162,251 161,232 163,211 C 165,196 169,187 178,185 Z"/>
+                  {/* Left calf */}
+                  <path d="M 124,272 C 117,282 115,296 116,307 C 117,309 121,310 126,309 L 133,308 C 134,297 133,285 133,274 C 132,273 128,272 124,272 Z"/>
+                  {/* Right calf */}
+                  <path d="M 176,272 C 183,282 185,296 184,307 C 183,309 179,310 174,309 L 167,308 C 166,297 167,285 167,274 C 168,273 172,272 176,272 Z"/>
+                </g>
+                {/* Spine crease for back view */}
+                {side === "back" && <line x1="450" y1="85" x2="450" y2="165" stroke={T.line} strokeWidth="0.75" strokeDasharray="2,3"/>}
+                {/* Muscle overlays — ellipses use absolute coordinates */}
                 {Object.entries(MUSCLES).filter(([, m]) => m.side === side).map(([key, m]) => {
                   const level = getMuscleLevel(key);
                   return (
-                    <rect key={key} x={m.x} y={m.y} width={m.w} height={m.h} rx={4}
+                    <ellipse key={key} cx={m.cx} cy={m.cy} rx={m.rx} ry={m.ry}
                       fill={fatigueColor(level)}
                       stroke={hover === key ? T.fg : "transparent"} strokeWidth={hover === key ? 1.5 : 0}
                       style={{ cursor: "pointer", transition: "fill .3s" }}
