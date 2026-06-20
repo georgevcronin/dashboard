@@ -32,7 +32,7 @@ const DEFAULTS = {
   weeklyPlan: null,
   soreness: [],
   muscleSensitivity: {},
-  profile: { name: "George", heightCm: null, sex: null, waterTarget: 7,
+  profile: { name: "George", heightCm: null, sex: null, age: null, activityLevel: 1.55, waterTarget: 7,
     macroTargets: { calories: 2400, protein: 160, carbs: 250, fat: 75 }, macroMode: "manual" },
 };
 
@@ -471,13 +471,34 @@ app.post("/macro-targets", async (req, res) => {
   db.profile.macroMode = "manual"; await save(); res.json(db.profile.macroTargets);
 });
 app.post("/macro-auto", async (req, res) => {
-  const bw = Object.values(db.weight).at(-1) || 75;
-  const goal = req.body.goal || "recomp"; db.profile.macroGoal = goal;
-  const mult = { cut: 22, recomp: 26, bulk: 30 }, protMult = { cut: 2.2, recomp: 2.0, bulk: 1.8 };
-  const cals = Math.round(bw * (mult[goal] || 26)), protein = Math.round(bw * (protMult[goal] || 2.0));
-  const fat = Math.round(bw * 1), carbs = Math.round(Math.max(0, (cals - fat * 9 - protein * 4) / 4));
-  db.profile.macroTargets = { calories: cals, protein, carbs, fat }; db.profile.macroMode = "auto";
-  await save(); res.json({ goal, targets: db.profile.macroTargets });
+  const goal = req.body.goal || "recomp";
+  db.profile.macroGoal = goal;
+
+  const bw = parseFloat(Object.values(db.weight || {}).at(-1)) || 75;
+  const h = db.profile.heightCm || 175;
+  const age = db.profile.age || 25;
+  const sex = (db.profile.sex || "m").toLowerCase().slice(0, 1); // "m" or "f"
+  const activity = db.profile.activityLevel || 1.55;
+
+  // Mifflin-St Jeor BMR
+  const bmr = sex === "f"
+    ? 10 * bw + 6.25 * h - 5 * age - 161
+    : 10 * bw + 6.25 * h - 5 * age + 5;
+  const tdee = Math.round(bmr * activity);
+
+  // Cut: -500 kcal deficit; recomp: maintenance; bulk: +300 surplus
+  const adj = { cut: -500, recomp: 0, bulk: 300 };
+  const cals = tdee + (adj[goal] ?? 0);
+
+  // Protein: 1 g/kg; fat: 0.9 g/kg; carbs: fill remainder
+  const protein = Math.round(bw);
+  const fat = Math.round(bw * 0.9);
+  const carbs = Math.max(0, Math.round((cals - protein * 4 - fat * 9) / 4));
+
+  db.profile.macroTargets = { calories: Math.round(cals), protein, carbs, fat };
+  db.profile.macroMode = "auto";
+  await save();
+  res.json({ goal, tdee, targets: db.profile.macroTargets });
 });
 app.post("/finance", async (req, res) => {
   db.finance.push({ date: day(), name: req.body.name, type: req.body.type, amount: req.body.amount });

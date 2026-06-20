@@ -598,7 +598,7 @@ function Fuel({ go, s, refresh }) {
           <div style={card}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
               <div style={label}>Daily targets</div>
-              <div style={{ fontSize: 11, color: T.mid }}>{s.macroMode === "auto" ? "auto · " + s.macroGoal : "manual"}</div>
+              <div style={{ fontSize: 11, color: T.mid }}>{s.macroMode === "auto" ? `auto · ${s.macroGoal} · Mifflin-St Jeor` : "manual"}</div>
             </div>
             <div style={{ display: "flex", gap: 8, marginTop: 12, marginBottom: 14 }}>
               {["cut", "recomp", "bulk"].map((g) => (
@@ -1731,17 +1731,38 @@ function Plan({ go }) {
 }
 
 
+const ACTIVITY_LEVELS = [
+  [1.2,   "Sedentary",   "desk job, no exercise"],
+  [1.375, "Light",       "exercise 1–3 days/wk"],
+  [1.55,  "Moderate",    "exercise 3–5 days/wk"],
+  [1.725, "Active",      "hard exercise 6–7 days/wk"],
+  [1.9,   "Very active", "physical job + training"],
+];
+
 function Settings({ go, s, refresh }) {
   const [p, setP] = useState(s.profile || {});
+  const al = p.activityLevel || 1.55;
   return (
     <>
       <Back onClick={() => go("home")} title="Profile" />
-      <div style={{ ...card, maxWidth: 420, display: "grid", gap: 10 }}>
-        {[["name", "Name", "text"], ["heightCm", "Height (cm)", "number"], ["sex", "Sex", "text"], ["waterTarget", "Water target (bottles/day)", "number"]].map(([k, l, t]) => (
+      <div style={{ ...card, maxWidth: 420, display: "grid", gap: 12 }}>
+        {[["name", "Name", "text"], ["heightCm", "Height (cm)", "number"], ["sex", "Sex (m/f)", "text"], ["age", "Age", "number"], ["waterTarget", "Water target (bottles/day)", "number"]].map(([k, l, t]) => (
           <div key={k}><div style={{ ...label, marginBottom: 4 }}>{l}</div>
             <input value={p[k] ?? ""} type={t} onChange={(e) => setP({ ...p, [k]: t === "number" ? +e.target.value : e.target.value })} style={{ ...input, width: "100%" }} /></div>
         ))}
-        <button style={{ ...pill(true), marginTop: 6 }} onClick={async () => { await api("profile", p); refresh(); go("home"); }}>Save</button>
+        <div>
+          <div style={{ ...label, marginBottom: 8 }}>Activity level</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {ACTIVITY_LEVELS.map(([val, name, desc]) => (
+              <button key={val} style={{ ...pill(al === val), textAlign: "left", padding: "8px 14px" }}
+                onClick={() => setP({ ...p, activityLevel: val })}>
+                <span style={{ fontWeight: al === val ? 600 : 400 }}>{name}</span>
+                <span style={{ fontSize: 11, color: al === val ? T.green : T.dim, marginLeft: 8 }}>{desc}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+        <button style={{ ...pill(true), marginTop: 4 }} onClick={async () => { await api("profile", p); refresh(); go("home"); }}>Save</button>
       </div>
     </>
   );
