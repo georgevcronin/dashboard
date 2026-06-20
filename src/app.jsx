@@ -48,49 +48,215 @@ const Back = ({ onClick, title }) => (
 const dash = (v, unit = "") => (v == null ? "—" : `${typeof v === "number" ? Math.round(v * 10) / 10 : v}${unit}`);
 
 function Home({ go, s }) {
-  const [reco, setReco] = useState(null);
-  useEffect(() => { api("recommendation").then((r) => setReco(r.text)).catch(() => {}); }, []);
   const hr = new Date().getHours();
   const greet = hr < 12 ? "Good morning" : hr < 18 ? "Good afternoon" : "Good evening";
-  const hub = (key, title, eyebrow, accent) => (
-    <div key={key} onClick={() => go(key)}
-      style={{ ...card, cursor: "pointer", minHeight: 130, display: "flex", flexDirection: "column", justifyContent: "flex-end", background: accent ? `linear-gradient(150deg, ${accent}16, ${T.panel} 70%)` : T.panel, transition: "border-color .15s, transform .1s", userSelect: "none" }}
-      onMouseEnter={e => { e.currentTarget.style.borderColor = accent || T.green; e.currentTarget.style.transform = "translateY(-1px)"; }}
-      onMouseLeave={e => { e.currentTarget.style.borderColor = T.line; e.currentTarget.style.transform = ""; }}
-      onMouseDown={e => e.currentTarget.style.transform = "scale(.99)"}
-      onMouseUp={e => e.currentTarget.style.transform = "translateY(-1px)"}
-    >
-      <div style={label}>{eyebrow}</div>
-      <div style={{ ...serif, fontSize: 24, marginTop: 4 }}>{title} <span style={{ color: T.dim }}>→</span></div>
-    </div>
-  );
-  return (
-    <>
-      <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 22 }}>
-        <div style={{ width: 44, height: 44, background: `linear-gradient(135deg, ${T.green}, #1a6b40)`, clipPath: "polygon(50% 0,100% 25%,100% 75%,50% 100%,0 75%,0 25%)" }} />
-        <div>
-          <div style={{ ...serif, fontSize: 25 }}>{greet}, <span style={{ color: T.green }}>{s.profile?.name || "friend"}</span></div>
-          <div style={label}>{new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" }).toUpperCase()}
-            {s.lastSync && <span style={{ color: T.green }}> · synced {s.lastSync}</span>}</div>
-        </div>
-      </div>
-      {reco && (
-        <div style={{ ...card, marginBottom: 14, background: `linear-gradient(150deg, rgba(61,220,132,.07), ${T.panel} 60%)` }}>
-          <div style={label}>Today's recommendation</div>
-          <div style={{ ...serif, fontSize: 19, marginTop: 4, lineHeight: 1.4 }}>{reco}</div>
-        </div>
-      )}
+  const t = s.today || {};
 
-      <div style={{ display: "grid", gap: 14, gridTemplateColumns: "repeat(auto-fit, minmax(230px, 1fr))" }}>
-        {hub("vitality", "Vitality", `Recovery ${dash(s.today?.recovery, "%")} · Sleep ${dash(s.today?.sleepH, "h")}`, T.green)}
-        {hub("train", "Train", `${s.workoutsMonth ?? 0} workouts this month`)}
-        {hub("fuel", "Fuel", `${Math.round((s.nutritionToday?.protein || 0))}/${s.macroTargets?.protein || 160}g protein · Water ${s.waterToday ?? 0}/${s.profile?.waterTarget ?? 7}`)}
-        {hub("mentor", "Mentor", `${s.thoughts?.length ?? 0} thoughts · ask anything`, T.red)}
-        {hub("settings", "Profile", "Name · Height · Targets")}
-        {hub("fatigue", "Fatigue", "Muscle heat map · recovery status", "#a48ae0")}
-        {hub("plan", "Plan", "16-week programme · 4 phases", "#6ab4e0")}
+  // Derived values
+  const sleepTarget = s.sleepTarget || 8;
+  const sleepSeries = (s.sleepSeries || []).slice(-7).map(d => d.h || 0);
+  const rec = t.recovery;
+  const recColor = rec == null ? T.dim : rec >= 70 ? T.green : rec >= 40 ? T.amber : T.red;
+
+  const recentWorkouts = (s.workouts || []).slice().sort((a, b) => b.date.localeCompare(a.date));
+  const lastWkt = recentWorkouts[0];
+  const daysAgo = lastWkt ? Math.floor((Date.now() - new Date(lastWkt.date + "T12:00:00")) / 864e5) : null;
+
+  const now = Date.now();
+  const dow = new Date().getDay();
+  const weekStartMs = now - ((dow === 0 ? 6 : dow - 1) * 864e5) - (now % 864e5);
+  const setsThisWeek = (s.lifts || []).filter(l => new Date(l.date).getTime() >= weekStartMs).length;
+
+  const protein = s.nutritionToday?.protein || 0;
+  const proteinTarget = s.macroTargets?.protein || 160;
+  const calories = s.nutritionToday?.calories || 0;
+  const calTarget = s.macroTargets?.calories || 2400;
+  const water = s.waterToday || 0;
+  const waterTarget = s.profile?.waterTarget || 7;
+
+  const lastThought = s.thoughts?.at(-1);
+
+  const hover = (accentColor) => ({
+    onMouseEnter: e => { e.currentTarget.style.borderColor = accentColor; e.currentTarget.style.transform = "translateY(-1px)"; },
+    onMouseLeave: e => { e.currentTarget.style.borderColor = T.line; e.currentTarget.style.transform = ""; },
+    onMouseDown: e => e.currentTarget.style.transform = "scale(.987)",
+    onMouseUp: e => e.currentTarget.style.transform = "translateY(-1px)",
+  });
+
+  const tile = (accentColor, gradColor) => ({
+    ...card,
+    cursor: "pointer",
+    display: "flex",
+    flexDirection: "column",
+    overflow: "hidden",
+    userSelect: "none",
+    transition: "border-color .15s, transform .1s",
+    background: `linear-gradient(155deg, ${gradColor}, ${T.panel} 65%)`,
+  });
+
+  const cap = (str) => str ? str.charAt(0).toUpperCase() + str.slice(1) : "";
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", height: "calc(100dvh - 104px)" }}>
+      {/* Compact header */}
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12, flexShrink: 0 }}>
+        <div style={{ width: 32, height: 32, background: `linear-gradient(135deg, ${T.green}, #1a6b40)`, clipPath: "polygon(50% 0,100% 25%,100% 75%,50% 100%,0 75%,0 25%)", flexShrink: 0 }} />
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <span style={{ ...serif, fontSize: 20 }}>{greet}, <span style={{ color: T.green }}>{s.profile?.name || "friend"}</span></span>
+          <span style={{ ...label, marginLeft: 12 }}>{new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" }).toUpperCase()}</span>
+        </div>
+        {s.lastSync && <div style={{ fontSize: 11, color: T.dim, flexShrink: 0 }}>synced {s.lastSync}</div>}
       </div>
-    </>
+
+      {/* Bento grid */}
+      <div style={{
+        flex: 1,
+        display: "grid",
+        gridTemplateColumns: "1.55fr 1fr 1fr",
+        gridTemplateRows: "1fr 1fr 0.72fr",
+        gap: 10,
+        minHeight: 0,
+      }}>
+
+        {/* VITALITY — col 1, rows 1-2 */}
+        <div style={{ ...tile(T.green, "rgba(61,220,132,.1)"), gridRow: "1 / 3" }} onClick={() => go("vitality")} {...hover(T.green)}>
+          <div style={{ ...label, color: T.green }}>Vitality</div>
+          <div style={{ display: "flex", alignItems: "center", gap: 16, marginTop: 14 }}>
+            <Ring pct={(rec || 0) / 100} size={86} stroke={8} color={recColor}>
+              <div style={{ fontSize: 20, fontWeight: 700, color: recColor, lineHeight: 1 }}>{rec != null ? rec : "—"}</div>
+              <div style={{ fontSize: 8, color: T.dim, letterSpacing: "0.1em", marginTop: 1 }}>RECOVERY</div>
+            </Ring>
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              <div>
+                <div style={label}>Sleep</div>
+                <div style={{ fontSize: 20, fontWeight: 600, marginTop: 1, color: !t.sleepH ? T.dim : t.sleepH >= sleepTarget ? T.green : t.sleepH >= sleepTarget * 0.82 ? T.amber : T.red }}>
+                  {t.sleepH ? fmtHM(t.sleepH) : "—"}
+                </div>
+              </div>
+              <div>
+                <div style={label}>HRV</div>
+                <div style={{ fontSize: 20, fontWeight: 600, marginTop: 1, color: T.fg }}>{t.hrv != null ? t.hrv : "—"}</div>
+              </div>
+              {t.rhr && <div>
+                <div style={label}>Resting HR</div>
+                <div style={{ fontSize: 14, color: T.fg, marginTop: 1 }}>{t.rhr} <span style={{ color: T.dim, fontSize: 11 }}>bpm</span></div>
+              </div>}
+            </div>
+          </div>
+          {sleepSeries.length > 2 && (
+            <div style={{ marginTop: "auto", paddingTop: 12 }}>
+              <div style={{ ...label, marginBottom: 6 }}>Sleep · last {sleepSeries.length} nights</div>
+              <div style={{ display: "flex", alignItems: "flex-end", gap: 3, height: 36 }}>
+                {sleepSeries.map((h, i) => {
+                  const pct = Math.min(1, h / (sleepTarget * 1.15));
+                  const c = h >= sleepTarget ? T.green : h >= sleepTarget * 0.82 ? T.amber : T.red;
+                  return <div key={i} style={{ flex: 1, background: `${c}55`, borderRadius: "3px 3px 0 0", height: `${Math.max(10, pct * 100)}%`, transition: "height .3s" }} />;
+                })}
+              </div>
+            </div>
+          )}
+          <div style={{ fontSize: 11, color: T.dim, marginTop: 10 }}>Open vitality →</div>
+        </div>
+
+        {/* TRAIN — col 2, row 1 */}
+        <div style={{ ...tile("#6ab4e0", "rgba(106,180,224,.09)") }} onClick={() => go("train")} {...hover("#6ab4e0")}>
+          <div style={{ ...label, color: "#6ab4e0" }}>Train</div>
+          <div style={{ marginTop: 8 }}>
+            <div style={{ fontSize: 38, fontWeight: 700, color: T.fg, lineHeight: 1 }}>{s.workoutsMonth ?? 0}</div>
+            <div style={{ fontSize: 11, color: T.dim, marginTop: 2 }}>workouts this month</div>
+          </div>
+          <div style={{ marginTop: "auto", paddingTop: 10, display: "flex", flexDirection: "column", gap: 5 }}>
+            {lastWkt && (
+              <div>
+                <div style={label}>Last</div>
+                <div style={{ fontSize: 13, color: T.fg, marginTop: 2, textTransform: "capitalize", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{lastWkt.name}</div>
+                <div style={{ fontSize: 11, color: T.dim }}>{daysAgo === 0 ? "Today" : daysAgo === 1 ? "Yesterday" : `${daysAgo}d ago`}{lastWkt.duration ? ` · ${lastWkt.duration}min` : ""}</div>
+              </div>
+            )}
+            <div style={{ fontSize: 11, color: T.dim }}>{setsThisWeek} sets this week</div>
+          </div>
+        </div>
+
+        {/* MENTOR — col 3, row 1 */}
+        <div style={{ ...tile(T.red, "rgba(224,106,106,.08)") }} onClick={() => go("mentor")} {...hover(T.red)}>
+          <div style={{ ...label, color: T.red }}>Mentor</div>
+          <div style={{ flex: 1, marginTop: 8, overflow: "hidden" }}>
+            {lastThought?.text ? (
+              <div style={{ fontSize: 12, color: T.mid, lineHeight: 1.55, display: "-webkit-box", WebkitLineClamp: 5, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
+                {lastThought.text}
+              </div>
+            ) : (
+              <div style={{ ...serif, fontSize: 13, color: T.dim, lineHeight: 1.5 }}>Your AI coach — training, recovery, and nutrition analysis.</div>
+            )}
+          </div>
+          <div style={{ fontSize: 11, color: T.dim, marginTop: 8 }}>Ask anything →</div>
+        </div>
+
+        {/* FATIGUE — col 2, row 2 */}
+        <div style={{ ...tile("#a48ae0", "rgba(164,138,224,.08)") }} onClick={() => go("fatigue")} {...hover("#a48ae0")}>
+          <div style={{ ...label, color: "#a48ae0" }}>Fatigue</div>
+          <div style={{ flex: 1, marginTop: 8 }}>
+            {lastWkt ? (
+              <>
+                <div style={{ fontSize: 13, color: T.fg, textTransform: "capitalize", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{lastWkt.name}</div>
+                <div style={{ fontSize: 11, color: T.dim, marginTop: 2 }}>
+                  {daysAgo === 0 ? "Active today" : daysAgo === 1 ? "1 day recovery" : `${daysAgo}d recovery`}
+                </div>
+              </>
+            ) : (
+              <div style={{ ...serif, fontSize: 12, color: T.dim }}>Log workouts to see muscle fatigue.</div>
+            )}
+          </div>
+          <div style={{ fontSize: 11, color: T.dim, marginTop: 6 }}>Muscle heat map →</div>
+        </div>
+
+        {/* FUEL — col 3, row 2 */}
+        <div style={{ ...tile(T.amber, "rgba(224,180,106,.08)") }} onClick={() => go("fuel")} {...hover(T.amber)}>
+          <div style={{ ...label, color: T.amber }}>Fuel</div>
+          <div style={{ flex: 1, marginTop: 10, display: "flex", flexDirection: "column", justifyContent: "center", gap: 9 }}>
+            {[
+              { lbl: "Protein", val: Math.round(protein), max: proteinTarget, unit: "g", color: T.green },
+              { lbl: "Calories", val: Math.round(calories), max: calTarget, unit: "kcal", color: T.amber },
+              { lbl: "Water", val: water, max: waterTarget, unit: "", color: "#6ab4e0" },
+            ].map(({ lbl, val, max, unit, color }) => (
+              <div key={lbl}>
+                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                  <div style={{ fontSize: 10, letterSpacing: "0.14em", textTransform: "uppercase", color: T.dim }}>{lbl}</div>
+                  <div style={{ fontSize: 11, color: T.fg }}>{val}<span style={{ color: T.dim }}>/{max}{unit}</span></div>
+                </div>
+                <div style={{ height: 3, background: T.line, borderRadius: 99 }}>
+                  <div style={{ height: "100%", width: `${Math.min(100, (val / max) * 100)}%`, background: color, borderRadius: 99, transition: "width .5s" }} />
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* PLAN — cols 1-2, row 3 */}
+        <div style={{ ...tile("#6ab4e0", "rgba(106,180,224,.06)"), gridColumn: "1 / 3" }} onClick={() => go("plan")} {...hover("#6ab4e0")}>
+          <div style={{ ...label, color: "#6ab4e0" }}>This Week</div>
+          <div style={{ flex: 1, marginTop: 6, display: "flex", alignItems: "center" }}>
+            {s.weeklyPlan?.focus ? (
+              <div style={{ ...serif, fontSize: 15, color: T.mid, lineHeight: 1.5, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{s.weeklyPlan.focus}</div>
+            ) : (
+              <div style={{ ...serif, fontSize: 14, color: T.dim }}>No plan yet — generate your week →</div>
+            )}
+          </div>
+        </div>
+
+        {/* PROFILE — col 3, row 3 */}
+        <div style={{ ...tile(T.mid, "rgba(255,255,255,.02)") }} onClick={() => go("settings")} {...hover(T.mid)}>
+          <div style={label}>Profile</div>
+          <div style={{ flex: 1, marginTop: 6, display: "flex", flexDirection: "column", justifyContent: "center" }}>
+            <div style={{ fontSize: 16, fontWeight: 600, color: T.fg }}>{s.profile?.name || "—"}</div>
+            {s.macroGoal && <div style={{ fontSize: 11, color: T.dim, marginTop: 3, textTransform: "capitalize" }}>Goal: {cap(s.macroGoal)}</div>}
+            {s.profile?.heightCm && <div style={{ fontSize: 11, color: T.dim }}>Height: {s.profile.heightCm} cm</div>}
+          </div>
+          <div style={{ fontSize: 11, color: T.dim }}>Edit profile →</div>
+        </div>
+
+      </div>
+    </div>
   );
 }
 
