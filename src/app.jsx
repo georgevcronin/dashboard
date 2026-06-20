@@ -80,12 +80,7 @@ function Home({ go, s }) {
           <div style={{ ...serif, fontSize: 19, marginTop: 4, lineHeight: 1.4 }}>{reco}</div>
         </div>
       )}
-      {!s.lastSync && (
-        <div style={{ ...card, marginBottom: 14, borderColor: "rgba(224,180,106,.4)" }}>
-          <div style={{ ...label, color: T.amber }}>Autosync not connected yet</div>
-          <div style={{ fontSize: 13, color: T.mid, marginTop: 4, lineHeight: 1.5 }}>Point Health Auto Export on your iPhone at this server (see README) and your sleep, HRV, weight and workouts will flow in automatically.</div>
-        </div>
-      )}
+
       <div style={{ display: "grid", gap: 14, gridTemplateColumns: "repeat(auto-fit, minmax(230px, 1fr))" }}>
         {hub("vitality", "Vitality", `Recovery ${dash(s.today?.recovery, "%")} · Sleep ${dash(s.today?.sleepH, "h")}`, T.green)}
         {hub("train", "Train", `${s.workoutsMonth ?? 0} workouts this month`)}
@@ -186,21 +181,6 @@ function Vitality({ go, s }) {
           </div>
         </div>
 
-        {/* Recovery trend */}
-        <div style={card}>
-          <div style={{ ...label, marginBottom: 8 }}>Recovery · last 14 days</div>
-          <Line data={s.recoveryTrend} h={120} />
-          <div style={{ fontSize: 11, color: T.dim, marginTop: 8 }}>
-            Baselines: HRV {dash(s.baselines?.hrv, " ms")} · RHR {dash(s.baselines?.rhr, " bpm")} · sleep target {sleepTarget}h {s.sleepTargetLearned ? "(learned from best-HRV nights)" : "(default until 7 nights synced)"}
-          </div>
-        </div>
-
-        {/* RHR trend */}
-        <div style={card}>
-          <div style={{ ...label, marginBottom: 8 }}>Resting HR · last 14 days</div>
-          <Line data={s.rhrSeries} h={100} color="#6ab4e0" />
-          <div style={{ fontSize: 11, color: T.dim, marginTop: 6 }}>Falling RHR over weeks = improving fitness. A sudden spike often precedes illness or under-recovery.</div>
-        </div>
 
         {/* Sleep history — labelled bar chart */}
         <div style={{ ...card, gridColumn: "1 / -1" }}>
@@ -324,35 +304,13 @@ function Vitality({ go, s }) {
 }
 
 function Train({ go, s, refresh }) {
-  const [kg, setKg] = useState("");
   const [expandedWorkout, setExpandedWorkout] = useState(null);
-  const [selectedMuscle, setSelectedMuscle] = useState(null);
   const weights = (s.weights || []).map((w) => w.value);
   const cur = weights.at(-1);
   const byEx = {};
   (s.lifts || []).forEach((l) => { (byEx[l.exercise] = byEx[l.exercise] || []).push(l); });
   const liftsByDate = {};
   (s.lifts || []).forEach((l) => { (liftsByDate[l.date] = liftsByDate[l.date] || []).push(l); });
-  const muscleWeeklyVol = useMemo(() => {
-    const now = Date.now(); const W = 8;
-    const result = {};
-    for (const l of (s.lifts || [])) {
-      const muscles = matchExercise(l.exercise || "");
-      if (!muscles) continue;
-      const vol = (l.kg || 0) * (l.reps || 0);
-      if (vol <= 0) continue;
-      const daysAgo = Math.floor((now - new Date(l.date).getTime()) / 864e5);
-      if (daysAgo < 0 || daysAgo >= W * 7) continue;
-      const wi = W - 1 - Math.floor(daysAgo / 7);
-      for (const [m, w] of Object.entries(muscles)) {
-        if (!result[m]) result[m] = Array(W).fill(0);
-        result[m][wi] += vol * w;
-      }
-    }
-    return result;
-  }, [s.lifts]);
-  const muscleOptions = Object.keys(muscleWeeklyVol).sort();
-  const activeMuscle = selectedMuscle || muscleOptions[0] || null;
 
   const [stimExercise, setStimExercise] = useState(null);
   const stimulusData = useMemo(() => {
@@ -413,10 +371,6 @@ function Train({ go, s, refresh }) {
               <div style={{ fontSize: 12, color: T.mid, lineHeight: 1.5 }}>{s.composition.note}</div>
             </div>
           )}
-          <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
-            <input value={kg} onChange={(e) => setKg(e.target.value)} placeholder="kg" inputMode="decimal" style={{ ...input, width: 90 }} />
-            <button style={pill(true)} onClick={async () => { if (+kg) { await api("weight", { kg: +kg }); setKg(""); refresh(); } }}>Log weigh-in</button>
-          </div>
         </div>
         <div style={card}>
           <div style={{ ...label, marginBottom: 10 }}>Lift log</div>
@@ -439,37 +393,6 @@ function Train({ go, s, refresh }) {
             <a href="import" style={{ fontSize: 12, color: T.dim, textDecoration: "none", letterSpacing: "0.05em" }}>↑ Import Hevy CSV</a>
           </div>
         </div>
-        <div style={card}>
-          <div style={{ ...label, marginBottom: 10 }}>Volume · last 4 weeks <span style={{ color: T.dim, textTransform: "none", letterSpacing: 0 }}>(kg × reps)</span></div>
-          <div style={{ display: "flex", alignItems: "flex-end", gap: 10, height: 90 }}>
-            {(s.liftVolume || []).map((v, i) => {
-              const max = Math.max(...(s.liftVolume || [1]), 1);
-              return (
-                <div key={i} style={{ flex: 1, textAlign: "center" }}>
-                  <div style={{ height: `${(v / max) * 70}px`, minHeight: 3, borderRadius: 4, background: i === 3 ? T.green : "#23332a" }} />
-                  <div style={{ fontSize: 10, color: T.dim, marginTop: 4 }}>{v ? (v / 1000).toFixed(1) + "t" : "—"}</div>
-                </div>
-              );
-            })}
-          </div>
-          <div style={{ fontSize: 11, color: T.dim, marginTop: 8 }}>Tonnage trending up while recovery holds = productive overload.</div>
-        </div>
-        {muscleOptions.length > 0 && (
-          <div style={{ ...card, gridColumn: "1 / -1" }}>
-            <div style={{ ...label, marginBottom: 10 }}>Muscle volume · 8-week trend <span style={{ textTransform: "none", letterSpacing: 0, color: T.dim }}>(kg × reps weighted by activation)</span></div>
-            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 14 }}>
-              {muscleOptions.map(m => (
-                <button key={m} style={pill(activeMuscle === m)} onClick={() => setSelectedMuscle(m)}>
-                  {m.replace(/([A-Z])/g, " $1").toLowerCase()}
-                </button>
-              ))}
-            </div>
-            {activeMuscle && <Line data={muscleWeeklyVol[activeMuscle]} h={100} />}
-            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, color: T.dim, marginTop: 4 }}>
-              <span>8 weeks ago</span><span>this week</span>
-            </div>
-          </div>
-        )}
         {stimExercises.length > 0 && (
           <div style={{ ...card, gridColumn: "1 / -1" }}>
             <div style={{ ...label, marginBottom: 10 }}>Effective stimulus · per exercise <span style={{ textTransform: "none", letterSpacing: 0, color: T.dim }}>(last 8 sessions)</span></div>
@@ -563,20 +486,6 @@ function Train({ go, s, refresh }) {
             );
           })}
           {!(s.workouts || []).length && <div style={{ ...serif, color: T.dim, fontSize: 14 }}>Workouts appear here once sync is connected.</div>}
-        </div>
-        <div style={card}>
-          <div style={{ ...label, marginBottom: 8 }}>Strava</div>
-          {s.stravaConnected ? (
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-              <span style={{ fontSize: 13, color: T.green }}>Connected</span>
-              <button style={pill(true)} onClick={async () => { await api("strava/sync"); refresh(); }}>Sync now</button>
-            </div>
-          ) : (
-            <>
-              <div style={{ fontSize: 13, color: T.mid, marginBottom: 12 }}>Connect Strava to pull all your runs, rides and sessions directly into the dashboard.</div>
-              <a href="https://europe-west2-dashboard-79dbb.cloudfunctions.net/api/strava/auth" style={{ display: "inline-block", padding: "10px 18px", background: "#fc4c02", color: "#fff", borderRadius: 10, fontSize: 14, fontWeight: 600, textDecoration: "none" }}>Connect Strava</a>
-            </>
-          )}
         </div>
       </div>
     </>
@@ -724,32 +633,6 @@ function Fuel({ go, s, refresh }) {
             </div>
           </div>
 
-          {/* 14-day protein history */}
-          <div style={{ ...card, gridColumn: "1 / -1" }}>
-            <div style={{ ...label, marginBottom: 10 }}>Protein · last 14 days</div>
-            {(s.nutrition14 || []).length > 1 ? (
-              <>
-                <div style={{ display: "flex", alignItems: "flex-end", gap: 5, height: 100 }}>
-                  {s.nutrition14.map((d, i) => {
-                    const p = d.protein || 0;
-                    return <div key={i} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center" }}>
-                      <div style={{ width: "100%", height: Math.max(3, (p / (mt.protein * 1.3)) * 80) + "px", borderRadius: 4, background: p >= mt.protein ? T.green : "#23332a" }} />
-                    </div>;
-                  })}
-                </div>
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 14, marginTop: 14, paddingTop: 12, borderTop: "1px solid " + T.line }}>
-                  {(() => {
-                    const ps = s.nutrition14.map((d) => d.protein || 0).filter(Boolean);
-                    const a = ps.length ? Math.round(ps.reduce((a, b) => a + b, 0) / ps.length) : 0;
-                    const hit = ps.filter((p) => p >= mt.protein).length;
-                    return [["Daily avg", a + "g"], ["Hit target", hit + "/" + ps.length + " days"], ["Best day", (ps.length ? Math.round(Math.max(...ps)) : 0) + "g"]].map(([k, v]) => (
-                      <div key={k}><div style={label}>{k}</div><div style={{ fontSize: 16, fontWeight: 600, marginTop: 2 }}>{v}</div></div>
-                    ));
-                  })()}
-                </div>
-              </>
-            ) : <div style={{ ...serif, color: T.dim, fontSize: 14 }}>Log meals or connect Bevel and the chart builds itself.</div>}
-          </div>
         </div>
       )}
 
@@ -774,19 +657,6 @@ function Fuel({ go, s, refresh }) {
           <Line data={s.hydrationCurve} h={110} color={(s.hydrationNow ?? 0) >= 70 ? T.green : T.amber} />
           <div style={{ fontSize: 11, color: T.dim, marginTop: 6, lineHeight: 1.5 }}>
             Each bottle lifts the level ~12%, then decays with a 4-hour half-life — so a bottle at 8 AM is half gone by noon. Keep the curve above 70% and you never play catch-up.
-          </div>
-        </div>
-        <div style={card}>
-          <div style={{ ...label, marginBottom: 8 }}>Last 14 days</div>
-          {hist.length ? (
-            <div style={{ display: "flex", alignItems: "flex-end", gap: 5, height: 110, marginTop: 10 }}>
-              {hist.map((v, i) => <div key={i} style={{ flex: 1, height: `${Math.min(v / target, 1) * 100}%`, minHeight: 3, borderRadius: 4, background: v >= target ? T.green : "#23332a" }} />)}
-            </div>
-          ) : <div style={{ ...serif, color: T.dim, fontSize: 14, marginTop: 16 }}>Log a few days and the chart fills in.</div>}
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10, marginTop: 16, paddingTop: 12, borderTop: `1px solid ${T.line}` }}>
-            {[["Streak", `${s.waterStats?.streak ?? 0}d`], ["Best run", `${s.waterStats?.best ?? 0}d`], ["Hit rate", `${s.waterStats?.hitRate ?? 0}%`], ["Daily avg", s.waterStats?.avg ?? 0]].map(([k, v]) => (
-              <div key={k}><div style={label}>{k}</div><div style={{ fontSize: 18, fontWeight: 600, marginTop: 2 }}>{v}</div></div>
-            ))}
           </div>
         </div>
       </div>
@@ -1212,10 +1082,6 @@ function Fatigue({ go, s, refresh }) {
     });
     const improving = deltas.length ? Math.round((deltas.filter(d => d > 0).length / deltas.length) * 100) : null;
 
-    // Recovery avg last 7 days
-    const recov = (s.recoveryTrend || []).slice(-7);
-    const avgRecov = recov.length ? Math.round(recov.reduce((a, b) => a + b, 0) / recov.length) : null;
-
     // This-week training mix
     const now = Date.now();
     const dow = new Date().getDay();
@@ -1228,7 +1094,7 @@ function Fatigue({ go, s, refresh }) {
       if (n.includes("hiit") || n.includes("4x4") || n.includes("interval")) hiitMins += d;
       else if (n.includes("run") || n.includes("zone") || n.includes("walk") || n.includes("cycle") || n.includes("bike")) zone2Mins += d;
     }
-    return { pct, improving, avgRecov, strengthSets, zone2Mins, hiitMins };
+    return { pct, improving, strengthSets, zone2Mins, hiitMins };
   }, [fatigue, s.lifts, s.workouts, s.recoveryTrend]);
 
   const activeSorenessDisplay = useMemo(() => {
@@ -1382,10 +1248,9 @@ function Fatigue({ go, s, refresh }) {
                    p <= 170 ? "Approaching your recovery ceiling. Prioritise sleep and watch for stalling lifts." :
                    "Accumulated fatigue exceeds recovery capacity. A deload this week will pay dividends."}
                 </div>
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10 }}>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 10 }}>
                   {[
                     ["Lifts", trainingLoad.improving != null ? trainingLoad.improving + "% up" : "—", trainingLoad.improving != null ? trainingLoad.improving > 50 ? T.green : T.amber : T.dim],
-                    ["Recovery", trainingLoad.avgRecov != null ? trainingLoad.avgRecov + "%" : "—", trainingLoad.avgRecov != null ? trainingLoad.avgRecov > 65 ? T.green : T.amber : T.dim],
                     ["Sets·wk", trainingLoad.strengthSets || "—", T.mid],
                   ].map(([k, v, c]) => (
                     <div key={k}><div style={{ ...label }}>{k}</div><div style={{ fontSize: 16, fontWeight: 600, color: c, marginTop: 2 }}>{v}</div></div>
