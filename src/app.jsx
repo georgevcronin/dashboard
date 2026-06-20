@@ -99,12 +99,59 @@ function Home({ go, s }) {
   );
 }
 
+// Bevel-style sleep quality: duration^1.5 × efficiency × HRV ratio
+function sleepQuality(sleepH, sleepEff, hrv, baselineHrv, target) {
+  if (!sleepH || !target) return null;
+  const duration = Math.min(1, sleepH / target);
+  const eff = sleepEff ? sleepEff / 100 : 0.85;
+  const hrvMult = (hrv && baselineHrv) ? Math.min(1.1, Math.max(0.3, hrv / baselineHrv)) : 1.0;
+  return Math.round(Math.min(99, Math.pow(duration, 1.5) * eff * hrvMult * 100));
+}
+
+function fmtHM(h) {
+  if (h == null || isNaN(h)) return "—";
+  const hrs = Math.floor(Math.abs(h));
+  const mins = Math.round((Math.abs(h) - hrs) * 60);
+  return `${hrs}h ${String(mins).padStart(2, "0")}m`;
+}
+
 function Vitality({ go, s }) {
   const t = s.today || {};
+  const sleepTarget = s.sleepTarget || 8;
+  const qual = sleepQuality(t.sleepH, t.sleepEff, t.hrv, s.baselines?.hrv, sleepTarget);
+  const qualColor = qual == null ? T.dim : qual >= 75 ? T.green : qual >= 50 ? T.amber : T.red;
+  const qualWord = qual == null ? null : qual >= 75 ? "Great" : qual >= 50 ? "Decent" : qual >= 30 ? "Poor" : "Very poor";
+  const coach = qual == null
+    ? "Connect Health Auto Export to track sleep quality."
+    : qual >= 75 ? "Well rested. Sleep is supporting your recovery and training."
+    : qual >= 50 ? "Decent sleep. Consistent timing and hitting your duration target will push this higher."
+    : qual >= 30 ? "Below average. Avoid alcohol and heavy meals in the evening, and aim for a consistent wind-down time."
+    : "Poor sleep. Your body didn't get the rest it needed — take it easy today and prioritise tonight.";
+
+  const todayISO = new Date().toISOString().slice(0, 10);
+  const yesterdayISO = new Date(Date.now() - 864e5).toISOString().slice(0, 10);
+  const fmtDay = (dateStr) => {
+    if (!dateStr) return ["", ""];
+    if (dateStr === todayISO) return ["Today", ""];
+    if (dateStr === yesterdayISO) return ["Yest", ""];
+    const d = new Date(dateStr + "T12:00:00");
+    return [d.toLocaleDateString("en-GB", { weekday: "short" }), String(d.getDate())];
+  };
+
+  const sleepSeries = s.sleepSeries || [];
+  const maxH = Math.max(sleepTarget * 1.15, ...sleepSeries.map(d => d.h || 0), 0.1);
+
+  // Sleep Bank: per-night surplus/deficit vs target
+  const bankEntries = sleepSeries.map(d => ({ date: d.date, h: d.h, delta: d.h != null ? d.h - sleepTarget : null }));
+  const totalBank = bankEntries.reduce((acc, e) => acc + (e.delta ?? 0), 0);
+  const absMaxDelta = Math.max(1, ...bankEntries.map(e => Math.abs(e.delta || 0)));
+
   return (
     <>
       <Back onClick={() => go("home")} title="Vitality" />
       <div style={{ display: "grid", gap: 16, gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))" }}>
+
+        {/* Recovery ring */}
         <div style={{ ...card, display: "flex", gap: 20, alignItems: "center" }}>
           <Ring pct={(t.recovery ?? 0) / 100} size={150}>
             <div style={{ fontSize: 36, fontWeight: 600 }}>{dash(t.recovery)}<span style={{ fontSize: 15 }}>%</span></div>
@@ -113,36 +160,161 @@ function Vitality({ go, s }) {
           <div>
             <div style={{ ...serif, fontSize: 19 }}>{t.recovery == null ? "Waiting for data" : t.recovery >= 80 ? "Primed" : t.recovery >= 55 ? "Solid" : "Run down"}</div>
             <p style={{ fontSize: 13, color: T.mid, lineHeight: 1.5, margin: "4px 0 0" }}>
-              {t.recovery == null ? "Recovery appears after a couple of synced nights — it's computed from your HRV vs baseline and sleep." :
+              {t.recovery == null ? "Recovery appears after a couple of synced nights — computed from HRV vs baseline and sleep." :
                 t.recovery >= 80 ? "Fully bounced back. Good day to push intensity." : t.recovery >= 55 ? "Train, but keep something in the tank." : "Walk, hydrate, no important decisions."}
             </p>
           </div>
         </div>
+
+        {/* Sleep Quality ring (Bevel-style) */}
+        <div style={{ ...card, display: "flex", gap: 20, alignItems: "center" }}>
+          <Ring pct={(qual ?? 0) / 100} size={150} color={qualColor}>
+            <div style={{ fontSize: 36, fontWeight: 600, color: qualColor }}>{qual ?? "—"}{qual != null && <span style={{ fontSize: 15 }}>%</span>}</div>
+            <div style={{ ...label, color: qualColor }}>Quality</div>
+          </Ring>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ ...serif, fontSize: 19, color: qualColor, marginBottom: 8 }}>{qualWord ?? "No data"}</div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginBottom: 10 }}>
+              {[["Time Asleep", fmtHM(t.sleepH)], ["Time in Bed", fmtHM(t.sleepInBed ?? (t.sleepH && t.sleepEff ? t.sleepH / (t.sleepEff / 100) : null))]].map(([k, v]) => (
+                <div key={k} style={{ background: "#0c100e", borderRadius: 10, padding: "8px 10px" }}>
+                  <div style={{ fontSize: 9, color: T.dim, letterSpacing: "0.12em", textTransform: "uppercase", marginBottom: 3 }}>{k}</div>
+                  <div style={{ fontSize: 16, fontWeight: 600 }}>{v}</div>
+                </div>
+              ))}
+            </div>
+            <p style={{ fontSize: 12, color: T.mid, lineHeight: 1.5, margin: 0 }}>{coach}</p>
+          </div>
+        </div>
+
+        {/* Recovery trend */}
         <div style={card}>
           <div style={{ ...label, marginBottom: 8 }}>Recovery · last 14 days</div>
           <Line data={s.recoveryTrend} h={120} />
-          {s.sleepDebtH > 0.5 && <div style={{ marginTop: 10, fontSize: 13, color: T.amber }}>Sleep debt −{s.sleepDebtH}h vs your {s.sleepTarget}h target</div>}
           <div style={{ fontSize: 11, color: T.dim, marginTop: 8 }}>
-            Baselines: HRV {dash(s.baselines?.hrv, " ms")} · RHR {dash(s.baselines?.rhr, " bpm")} · sleep target {s.sleepTarget}h {s.sleepTargetLearned ? "(learned from your best-HRV nights)" : "(default until 7 nights synced)"}
+            Baselines: HRV {dash(s.baselines?.hrv, " ms")} · RHR {dash(s.baselines?.rhr, " bpm")} · sleep target {sleepTarget}h {s.sleepTargetLearned ? "(learned from best-HRV nights)" : "(default until 7 nights synced)"}
           </div>
         </div>
-        <div style={card}>
-          <div style={{ ...label, marginBottom: 8 }}>Sleep · last 14 nights</div>
-          <div style={{ display: "flex", alignItems: "flex-end", gap: 5, height: 100, marginTop: 8 }}>
-            {(s.sleepSeries || []).map((d, i) => {
-              const h = typeof d === "object" ? d.h : d;
-              return h == null ? null : <div key={i} style={{ flex: 1, height: `${Math.min(h / 9.5, 1) * 100}%`, minHeight: 3, borderRadius: 4, background: h >= s.sleepTarget ? T.green : "#23332a" }} title={`${h}h`} />;
-            })}
-          </div>
-          <div style={{ fontSize: 11, color: T.dim, marginTop: 8 }}>Green = hit your {s.sleepTarget}h target</div>
-        </div>
+
+        {/* RHR trend */}
         <div style={card}>
           <div style={{ ...label, marginBottom: 8 }}>Resting HR · last 14 days</div>
           <Line data={s.rhrSeries} h={100} color="#6ab4e0" />
           <div style={{ fontSize: 11, color: T.dim, marginTop: 6 }}>Falling RHR over weeks = improving fitness. A sudden spike often precedes illness or under-recovery.</div>
         </div>
+
+        {/* Sleep history — labelled bar chart */}
+        <div style={{ ...card, gridColumn: "1 / -1" }}>
+          <div style={{ ...label, marginBottom: 14 }}>Sleep · last 14 nights</div>
+          {sleepSeries.every(d => !d.h) ? (
+            <div style={{ ...serif, color: T.dim, fontSize: 14 }}>No sleep data yet — connect Health Auto Export.</div>
+          ) : (
+            <>
+              <div style={{ position: "relative", height: 120 }}>
+                {/* Dotted target line */}
+                <div style={{ position: "absolute", left: 0, right: 0, top: `${(1 - sleepTarget / maxH) * 100}%`, borderTop: `1px dashed ${T.dim}`, zIndex: 1, pointerEvents: "none" }}>
+                  <span style={{ position: "absolute", right: 0, top: -13, fontSize: 9, color: T.dim }}>{sleepTarget}h</span>
+                </div>
+                <div style={{ display: "flex", alignItems: "flex-end", gap: 3, height: "100%" }}>
+                  {sleepSeries.map((d, i) => {
+                    const isToday = d.date === todayISO;
+                    const pct = d.h ? Math.min(d.h / maxH, 1) : 0;
+                    const barColor = !d.h ? "transparent" : d.h >= sleepTarget ? T.green : d.h >= sleepTarget * 0.8 ? T.amber : T.red;
+                    return (
+                      <div key={i} style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "flex-end", height: "100%" }}>
+                        {d.h && <div style={{ fontSize: 8, color: T.dim, textAlign: "center", marginBottom: 2 }}>{fmtHM(d.h)}</div>}
+                        <div style={{ height: `${pct * 88}%`, minHeight: d.h ? 3 : 0, background: barColor, borderRadius: "3px 3px 0 0", outline: isToday ? `2px solid ${T.fg}` : "none", outlineOffset: 1 }} title={d.h ? `${fmtHM(d.h)}${d.eff ? ` · ${d.eff}% eff` : ""}` : "No data"} />
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+              {/* Day labels */}
+              <div style={{ display: "flex", gap: 3, marginTop: 5 }}>
+                {sleepSeries.map((d, i) => {
+                  const isToday = d.date === todayISO;
+                  const [line1, line2] = fmtDay(d.date);
+                  return (
+                    <div key={i} style={{ flex: 1, textAlign: "center", lineHeight: 1.25 }}>
+                      <div style={{ fontSize: 8, color: isToday ? T.green : T.dim, fontWeight: isToday ? 700 : 400 }}>{line1}</div>
+                      {line2 && <div style={{ fontSize: 8, color: isToday ? T.green : T.dim }}>{line2}</div>}
+                    </div>
+                  );
+                })}
+              </div>
+              <div style={{ display: "flex", gap: 14, fontSize: 10, color: T.dim, marginTop: 10 }}>
+                <span><span style={{ color: T.green }}>■</span> Hit target</span>
+                <span><span style={{ color: T.amber }}>■</span> 80–99%</span>
+                <span><span style={{ color: T.red }}>■</span> Below 80%</span>
+                <span style={{ marginLeft: "auto" }}><span style={{ outline: `1.5px solid ${T.fg}`, padding: "0 3px", borderRadius: 2 }}>&nbsp;</span> Today</span>
+              </div>
+            </>
+          )}
+        </div>
+
+        {/* Sleep Bank */}
+        <div style={{ ...card, gridColumn: "1 / -1" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 14, flexWrap: "wrap", gap: 10 }}>
+            <div>
+              <div style={label}>Sleep Bank · last 14 nights</div>
+              <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginTop: 4 }}>
+                <div style={{ fontSize: 40, fontWeight: 700, color: totalBank >= 0 ? T.green : T.red, lineHeight: 1 }}>
+                  {totalBank >= 0 ? "+" : "−"}{fmtHM(Math.abs(totalBank))}
+                </div>
+                <div style={{ fontSize: 13, color: totalBank >= 0 ? T.green : T.red }}>{totalBank >= 0 ? "Surplus" : "Debt"}</div>
+              </div>
+            </div>
+            <div style={{ fontSize: 12, color: T.dim, lineHeight: 1.6, textAlign: "right" }}>
+              Target {sleepTarget}h/night<br />
+              {totalBank < 0 ? `${fmtHM(Math.abs(totalBank))} owed` : `${fmtHM(totalBank)} banked`}
+            </div>
+          </div>
+          {/* Per-night surplus/deficit bars, centred on a zero line */}
+          <div style={{ display: "flex", alignItems: "stretch", gap: 3, height: 70 }}>
+            {bankEntries.map((e, i) => {
+              const isToday = e.date === todayISO;
+              const surplus = e.delta != null && e.delta > 0;
+              const deficit = e.delta != null && e.delta < 0;
+              const pct = e.delta != null ? Math.abs(e.delta) / absMaxDelta : 0;
+              return (
+                <div key={i} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center" }}>
+                  <div style={{ flex: 1, display: "flex", alignItems: "flex-end", width: "100%" }}>
+                    {surplus ? <div style={{ width: "100%", height: `${pct * 100}%`, background: T.green, borderRadius: "3px 3px 0 0", minHeight: 3, outline: isToday ? `1.5px solid ${T.fg}` : "none" }} title={`+${fmtHM(e.delta)}`} /> : <div style={{ width: "100%" }} />}
+                  </div>
+                  <div style={{ height: 1, width: "100%", background: T.line }} />
+                  <div style={{ flex: 1, display: "flex", alignItems: "flex-start", width: "100%" }}>
+                    {deficit ? <div style={{ width: "100%", height: `${pct * 100}%`, background: T.red, borderRadius: "0 0 3px 3px", minHeight: 3, outline: isToday ? `1.5px solid ${T.fg}` : "none" }} title={`-${fmtHM(Math.abs(e.delta))}`} /> : <div style={{ width: "100%" }} />}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          {/* Day labels */}
+          <div style={{ display: "flex", gap: 3, marginTop: 5 }}>
+            {bankEntries.map((e, i) => {
+              const isToday = e.date === todayISO;
+              const [line1, line2] = fmtDay(e.date);
+              return (
+                <div key={i} style={{ flex: 1, textAlign: "center", lineHeight: 1.25 }}>
+                  <div style={{ fontSize: 8, color: isToday ? T.green : T.dim, fontWeight: isToday ? 700 : 400 }}>{line1}</div>
+                  {line2 && <div style={{ fontSize: 8, color: isToday ? T.green : T.dim }}>{line2}</div>}
+                </div>
+              );
+            })}
+          </div>
+          <div style={{ fontSize: 11, color: T.dim, marginTop: 10, lineHeight: 1.5 }}>
+            Each bar shows surplus (green, above line) or deficit (red, below) vs your {sleepTarget}h target per night. The total is your 14-night balance.
+          </div>
+        </div>
+
+        {/* Stats grid */}
         <div style={{ ...card, gridColumn: "1 / -1", display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: 18 }}>
-          {[["Sleep", dash(t.sleepH, "h"), t.sleepEff ? `${Math.round(t.sleepEff)}% efficiency` : ""], ["Strain", dash(t.strain), `wk avg ${dash(s.strainWkAvg)}`], ["HRV", dash(t.hrv, " ms"), s.baselines?.hrv ? `baseline ${s.baselines.hrv}` : ""], ["Resting HR", dash(t.rhr, " bpm"), s.baselines?.rhr ? `baseline ${s.baselines.rhr}` : ""], ["Steps", t.steps ? Math.round(t.steps).toLocaleString() : "—", "today"]].map(([k, v, sub]) => (
+          {[
+            ["Sleep", fmtHM(t.sleepH), t.sleepEff ? `${Math.round(t.sleepEff)}% efficiency` : ""],
+            ["Quality", qual != null ? qual + "%" : "—", qualWord ?? ""],
+            ["HRV", dash(t.hrv, " ms"), s.baselines?.hrv ? `baseline ${s.baselines.hrv} ms` : ""],
+            ["Resting HR", dash(t.rhr, " bpm"), s.baselines?.rhr ? `baseline ${s.baselines.rhr}` : ""],
+            ["Steps", t.steps ? Math.round(t.steps).toLocaleString() : "—", "today"],
+          ].map(([k, v, sub]) => (
             <div key={k}><div style={label}>{k}</div><div style={{ fontSize: 23, fontWeight: 600, margin: "4px 0 2px" }}>{v}</div><div style={{ fontSize: 11, color: T.dim }}>{sub}</div></div>
           ))}
         </div>

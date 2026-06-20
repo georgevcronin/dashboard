@@ -366,7 +366,7 @@ app.get("/summary", async (req, res) => {
   const recoveryTrend = last14.map(d => computeDay(d, baseHRV, baseRHR, sleep.target)).filter(x => x != null);
   const weights = lastN(db.weight, 30);
   const monthWk = db.workouts.filter(w => w.date >= day(new Date(Date.now() - 30 * 864e5)));
-  const sleepDebtH = last14.slice(-2).reduce((s, d) => s + (d.sleep_hours ? Math.max(0, sleep.target - d.sleep_hours) : 0), 0);
+  const sleepDebtH = last14.reduce((s, d) => s + (d.sleep_hours ? Math.max(0, sleep.target - d.sleep_hours) : 0), 0);
   const target = db.profile.waterTarget || 7;
   const waterDays = lastN(db.water, 30).map(w => w.value);
   let streak = 0; for (let i = waterDays.length - 1 - (waterDays.at(-1) < target ? 1 : 0); i >= 0 && waterDays[i] >= target; i--) streak++;
@@ -388,10 +388,10 @@ app.get("/summary", async (req, res) => {
   res.json({
     profile: db.profile, hydrationCurve, hydrationNow: hydrationCurve.at(-1) ?? null,
     liftVolume, nwHistory: db.nwHistory || [],
-    today: { recovery, hrv: today.heart_rate_variability ?? null, rhr: today.resting_heart_rate ?? null, sleepH: today.sleep_hours ?? null, sleepEff: today.sleep_eff ?? null, steps: today.step_count ?? null },
+    today: { recovery, hrv: today.heart_rate_variability ?? null, rhr: today.resting_heart_rate ?? null, sleepH: today.sleep_hours ?? null, sleepEff: today.sleep_eff ?? null, sleepInBed: (today.sleep_eff && today.sleep_hours) ? Math.round((today.sleep_hours / (today.sleep_eff / 100)) * 10) / 10 : null, steps: today.step_count ?? null },
     sleepTarget: sleep.target, sleepTargetLearned: sleep.learned,
     sleepDebtH: Math.round(sleepDebtH * 10) / 10,
-    recoveryTrend, sleepSeries: last14.map(d => d.sleep_hours).filter(Boolean),
+    recoveryTrend, sleepSeries: last14.map(d => ({ date: d.date, h: d.sleep_hours || null, eff: d.sleep_eff || null })),
     rhrSeries: last14.map(d => d.resting_heart_rate).filter(Boolean),
     baselines: { hrv: baseHRV && Math.round(baseHRV), rhr: baseRHR && Math.round(baseRHR) },
     composition: compVerdict(weights, db.lifts),
