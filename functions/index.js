@@ -47,6 +47,14 @@ async function save() { if (db) await DOC.set(db); }
 const day = (d) => (d ? new Date(d) : new Date()).toISOString().slice(0, 10);
 const avg = (a) => (a.length ? a.reduce((x, y) => x + y, 0) / a.length : null);
 
+// If burn rate exceeds 10 kcal/min the value is almost certainly in kJ — convert it.
+// (Real human max is ~20 kcal/min for elite athletes; kJ values are 4.184× larger.)
+function kjGuard(kcal, durationMin) {
+  if (kcal == null) return null;
+  if (durationMin > 0 && kcal / durationMin > 10) return Math.round(kcal / 4.184);
+  return kcal;
+}
+
 // ---------- Middleware: load state before every request ----------
 app.use(async (req, res, next) => { await load(); next(); });
 
@@ -80,8 +88,9 @@ app.post("/health", async (req, res) => {
     if (!db.workouts.find((x) => x.date === k && x.name === w.name && x.start === w.start)) {
       const rawKcal = w.activeEnergyBurned?.qty ?? w.activeEnergy?.qty ?? null;
       const unit = w.activeEnergyBurned?.units ?? w.activeEnergy?.units ?? "kcal";
-      const kcal = rawKcal != null ? Math.round(unit === "kJ" ? rawKcal / 4.184 : rawKcal) : null;
       const durationMin = w.duration ? Math.round(w.duration / 60) : null;
+      const kcalFromUnit = rawKcal != null ? Math.round(unit === "kJ" ? rawKcal / 4.184 : rawKcal) : null;
+      const kcal = kjGuard(kcalFromUnit, durationMin);
       db.workouts.push({ date: k, name: w.name, start: w.start, duration: durationMin, kcal });
       saved++;
     }
@@ -108,7 +117,7 @@ app.post("/shortcut", async (req, res) => {
       const name = (w.name || "workout").toLowerCase();
       const dur = w.minutes || 0;
       if (!db.workouts.find(x => x.date === wDate && x.name === name && x.duration === dur)) {
-        db.workouts.push({ date: wDate, name, duration: dur, kcal: w.calories || null, source: "shortcut" });
+        db.workouts.push({ date: wDate, name, duration: dur, kcal: kjGuard(w.calories || null, dur), source: "shortcut" });
       }
     }
   }
@@ -426,15 +435,13 @@ app.post("/fix-duration", async (req, res) => {
   res.json({ ok: true, fixed });
 });
 
-// ---------- kcal migration (one-time: fix kJ-stored-as-kcal from before the conversion fix) ----------
+// ---------- kcal migration: fix kJ-stored-as-kcal (rate-based heuristic) ----------
 app.post("/fix-kcal", async (req, res) => {
   let fixed = 0;
   for (const w of db.workouts) {
-    // Values >1500 with a non-hevy source are almost certainly raw kJ from HAE
-    if (w.kcal != null && w.kcal > 1500 && w.source !== "hevy") {
-      w.kcal = Math.round(w.kcal / 4.184);
-      fixed++;
-    }
+    if (w.kcal == null || w.source === "hevy" || w.source === "strava") continue;
+    const corrected = kjGuard(w.kcal, w.duration);
+    if (corrected !== w.kcal) { w.kcal = corrected; fixed++; }
   }
   if (fixed) await save();
   res.json({ ok: true, fixed });
