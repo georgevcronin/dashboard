@@ -529,7 +529,7 @@ function Train({ go, s, refresh }) {
                     {w.source === "hevy" && <span style={{ marginLeft: 6, fontSize: 9, color: T.green, border: "1px solid rgba(61,220,132,.3)", borderRadius: 4, padding: "1px 5px" }}>Hevy</span>}
                   </div>
                   <div style={{ display: "flex", gap: 10, alignItems: "center", color: T.mid, fontSize: 12 }}>
-                    {w.duration && <span>{w.duration} min</span>}
+                    {w.duration && <span>{Math.round(w.duration > 300 ? w.duration / 60 : w.duration)} min</span>}
                     {w.kcal && <span>{Math.round(w.kcal)} kcal</span>}
                     {hasLifts && <span style={{ color: T.dim, fontSize: 10 }}>{isOpen ? "▲" : "▼"}</span>}
                   </div>

@@ -81,7 +81,8 @@ app.post("/health", async (req, res) => {
       const rawKcal = w.activeEnergyBurned?.qty ?? w.activeEnergy?.qty ?? null;
       const unit = w.activeEnergyBurned?.units ?? w.activeEnergy?.units ?? "kcal";
       const kcal = rawKcal != null ? Math.round(unit === "kJ" ? rawKcal / 4.184 : rawKcal) : null;
-      db.workouts.push({ date: k, name: w.name, start: w.start, duration: w.duration, kcal });
+      const durationMin = w.duration ? Math.round(w.duration / 60) : null;
+      db.workouts.push({ date: k, name: w.name, start: w.start, duration: durationMin, kcal });
       saved++;
     }
   }
@@ -409,6 +410,20 @@ app.get("/summary", async (req, res) => {
     soreness: (db.soreness || []).filter(e => Date.now() - e.ts < 5 * 24 * 3600000),
     muscleSensitivity: db.muscleSensitivity || {},
   });
+});
+
+// ---------- duration migration (one-time: fix seconds-stored-as-minutes from HAE webhook) ----------
+app.post("/fix-duration", async (req, res) => {
+  let fixed = 0;
+  for (const w of db.workouts) {
+    // HAE stores duration in seconds (fractional). Values >300 (5h in minutes) or with decimal = seconds.
+    if (w.duration != null && (w.duration % 1 !== 0 || w.duration > 300)) {
+      w.duration = Math.round(w.duration / 60);
+      fixed++;
+    }
+  }
+  if (fixed) await save();
+  res.json({ ok: true, fixed });
 });
 
 // ---------- kcal migration (one-time: fix kJ-stored-as-kcal from before the conversion fix) ----------
