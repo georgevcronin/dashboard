@@ -32,6 +32,7 @@ const DEFAULTS = {
   weeklyPlan: null,
   soreness: [],
   muscleSensitivity: {},
+  userMuscleMap: {},
   profile: { name: "George", heightCm: null, sex: null, age: null, activityLevel: 1.55, waterTarget: 7,
     macroTargets: { calories: 2400, protein: 160, carbs: 250, fat: 75 }, macroMode: "manual" },
 };
@@ -437,6 +438,7 @@ app.get("/summary", async (req, res) => {
     stravaConnected: !!db.strava?.refresh_token,
     soreness: (db.soreness || []).filter(e => Date.now() - e.ts < 5 * 24 * 3600000),
     muscleSensitivity: db.muscleSensitivity || {},
+    userMuscleMap: db.userMuscleMap || {},
   });
 });
 
@@ -658,6 +660,21 @@ app.post("/soreness", async (req, res) => {
   }
   await save();
   res.json({ ok: true, muscleSensitivity: db.muscleSensitivity });
+});
+
+// ---------- User-defined exercise → muscle mappings ----------
+app.post("/user-muscle-map", async (req, res) => {
+  const { exercise, muscles } = req.body;
+  if (!exercise) return res.status(400).json({ error: "exercise required" });
+  db.userMuscleMap = db.userMuscleMap || {};
+  const key = exercise.toLowerCase().trim();
+  if (!muscles || Object.keys(muscles).length === 0) {
+    delete db.userMuscleMap[key];
+  } else {
+    db.userMuscleMap[key] = muscles;
+  }
+  await save();
+  res.json({ ok: true, key });
 });
 
 app.put("/muscle-sensitivity", async (req, res) => {
