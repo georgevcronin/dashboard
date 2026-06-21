@@ -474,9 +474,17 @@ function Train({ go, s, refresh }) {
   const weights = (s.weights || []).map((w) => w.value);
   const cur = weights.at(-1);
   const byEx = {};
-  (s.lifts || []).forEach((l) => { (byEx[l.exercise] = byEx[l.exercise] || []).push(l); });
-  const liftsByDate = {};
-  (s.lifts || []).forEach((l) => { (liftsByDate[l.date] = liftsByDate[l.date] || []).push(l); });
+  (s.lifts || []).forEach((l) => {
+    if (!l.exercise || (!l.kg && !l.reps)) return;
+    (byEx[l.exercise] = byEx[l.exercise] || []).push(l);
+  });
+  // Group lifts by session key (start time or date) for workout expansion
+  const liftsByKey = {};
+  (s.lifts || []).forEach((l) => {
+    const key = l.start || l.date;
+    if (!key) return;
+    (liftsByKey[key] = liftsByKey[key] || []).push(l);
+  });
 
   const [stimExercise, setStimExercise] = useState(null);
   const stimulusData = useMemo(() => {
@@ -544,14 +552,31 @@ function Train({ go, s, refresh }) {
             <div style={{ ...serif, color: T.dim, fontSize: 14 }}>Import a Hevy CSV or let the webhook sync your next workout.</div>
           )}
           {Object.entries(byEx).map(([name, sets]) => {
-            const best = Math.max(...sets.map((x) => x.kg)), first = sets[0].kg, last = sets.at(-1);
+            // Group sets into sessions by start_time or date
+            const sessMap = {};
+            sets.forEach(l => { const k = l.start || l.date; (sessMap[k] = sessMap[k] || []).push(l); });
+            const sessKeys = Object.keys(sessMap).sort();
+            const numSessions = sessKeys.length;
+            // Per-session top weight (heaviest working set)
+            const tops = sessKeys.map(k => Math.max(...sessMap[k].map(l => l.kg || 0)));
+            const firstTopKg = tops[0] || 0;
+            const lastTopKg = tops.at(-1) || 0;
+            const best = Math.max(...tops);
+            const lastSet = sessMap[sessKeys.at(-1)].reduce((a, b) => (b.kg || 0) >= (a.kg || 0) ? b : a);
+            const progress = Math.round((lastTopKg - firstTopKg) * 10) / 10;
             return (
               <div key={name} style={{ marginTop: 14, paddingTop: 10, borderTop: `1px solid #161c18` }}>
-                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 14 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 14, flexWrap: "wrap", gap: 4 }}>
                   <span style={serif}>{name}</span>
-                  <span>{last.kg} kg × {last.reps} {best > first && <span style={{ color: T.green, fontSize: 11 }}>+{best - first} kg since first</span>}</span>
+                  <span style={{ color: T.mid }}>
+                    {lastTopKg > 0 ? `${lastTopKg} kg × ${lastSet.reps || "?"}` : `${lastSet.reps || "?"} reps`}
+                    {progress > 0 && numSessions > 1 && <span style={{ color: T.green, fontSize: 11 }}> +{progress} kg</span>}
+                  </span>
                 </div>
-                <div style={{ fontSize: 11, color: T.dim, marginTop: 2 }}>{sets.length} session{sets.length > 1 ? "s" : ""} · best {best} kg · est 1RM {Math.round(estOneRM(last.kg, last.reps || 1))} kg</div>
+                <div style={{ fontSize: 11, color: T.dim, marginTop: 2 }}>
+                  {numSessions} session{numSessions !== 1 ? "s" : ""}
+                  {best > 0 && ` · best ${best} kg · est 1RM ${Math.round(estOneRM(best, lastSet.reps || 1))} kg`}
+                </div>
               </div>
             );
           })}
@@ -603,7 +628,8 @@ function Train({ go, s, refresh }) {
         <div style={{ ...card, gridColumn: "1 / -1" }}>
           <div style={{ ...label, marginBottom: 10 }}>Workouts</div>
           {(s.workouts || []).slice(-12).reverse().map((w, i) => {
-            const dayLifts = liftsByDate[w.date] || [];
+            const wktKey = w.start || w.date;
+            const dayLifts = liftsByKey[wktKey] || [];
             const byExDay = {};
             dayLifts.forEach(l => (byExDay[l.exercise] = byExDay[l.exercise] || []).push(l));
             const hasLifts = Object.keys(byExDay).length > 0;
