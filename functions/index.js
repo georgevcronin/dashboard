@@ -147,6 +147,9 @@ function ingestWorkout(w) {
     db.workouts.push({ date: wDate, name: wTitle, start: wStart, duration, kcal: null, source: "hevy" });
   }
 
+  // Workout-level dedup: if any lift already has this start_time the whole session is already stored
+  if (wStart && db.lifts.find(l => l.start === wStart)) return 0;
+
   let added = 0;
   for (const ex of (w.exercises || [])) {
     const name = (ex.title || ex.name || "").toLowerCase();
@@ -155,14 +158,16 @@ function ingestWorkout(w) {
       if (set.set_type === "warmup") continue;
       const kg = set.weight_kg ?? (set.weight_lbs ? set.weight_lbs / 2.20462 : 0);
       const reps = set.reps || 0;
-      // Deduplicate against all lifts regardless of source
-      const isDupe = db.lifts.find(l => l.date === wDate && l.exercise === name && Math.abs((l.kg || 0) - kg) < 0.1 && l.reps === reps);
-      if (!isDupe && (kg > 0 || reps > 0)) {
-        const entry = { date: wDate, exercise: name, kg: Math.round(kg * 100) / 100, reps, source: "hevy" };
-        if (set.rpe != null) entry.rir = Math.max(0, Math.round((10 - set.rpe) * 10) / 10);
-        db.lifts.push(entry);
-        added++;
+      if (kg === 0 && reps === 0) continue;
+      // Fallback per-set dedup only when no start_time (edge case — all Hevy workouts have one)
+      if (!wStart) {
+        const isDupe = db.lifts.find(l => l.date === wDate && l.exercise === name && Math.abs((l.kg || 0) - kg) < 0.1 && l.reps === reps);
+        if (isDupe) continue;
       }
+      const entry = { date: wDate, start: wStart, exercise: name, kg: Math.round(kg * 100) / 100, reps, source: "hevy" };
+      if (set.rpe != null) entry.rir = Math.max(0, Math.round((10 - set.rpe) * 10) / 10);
+      db.lifts.push(entry);
+      added++;
     }
   }
   return added;
@@ -228,15 +233,22 @@ app.post("/import", async (req, res) => {
       addedWorkouts++;
     }
   }
+  // Group incoming lifts by session key for session-level dedup
+  // (per-set dedup incorrectly rejects multiple sets at the same weight×reps)
+  const liftsBySession = {};
   for (const l of lifts) {
     if (!l.date || !l.exercise) continue;
-    // Deduplicate by session start + exercise + kg + reps; fall back to date-based if no start
-    const isDupe = db.lifts.find(x =>
-      x.exercise === l.exercise &&
-      Math.abs((x.kg || 0) - (l.kg || 0)) < 0.1 &&
-      x.reps === l.reps &&
-      (l.start && x.start ? x.start === l.start : x.date === l.date));
-    if (!isDupe) {
+    const k = l.start || l.date;
+    (liftsBySession[k] = liftsBySession[k] || []).push(l);
+  }
+  for (const [sessKey, sessLifts] of Object.entries(liftsBySession)) {
+    // Skip entire session if we already have lifts from it
+    const hasSession = db.lifts.find(x => {
+      const xk = x.start || x.date;
+      return xk === sessKey && sessLifts.some(l => l.exercise === x.exercise);
+    });
+    if (hasSession) continue;
+    for (const l of sessLifts) {
       const e = { date: l.date, exercise: l.exercise, kg: l.kg || 0, reps: l.reps || 0, source: "hevy" };
       if (l.start) e.start = l.start;
       if (l.rir != null) e.rir = l.rir;
@@ -426,9 +438,9 @@ app.get("/summary", async (req, res) => {
     baselines: { hrv: baseHRV && Math.round(baseHRV), rhr: baseRHR && Math.round(baseRHR) },
     composition: compVerdict(weights, db.lifts),
     waterStats: { streak, avg: waterDays.length ? Math.round(avg(waterDays) * 10) / 10 : 0, hitRate: waterDays.length ? Math.round((waterDays.filter(v => v >= target).length / waterDays.length) * 100) : 0, best: waterDays.length ? Math.max(...waterDays) : 0 },
-    weights, workouts: db.workouts.slice(-20), workoutsMonth: monthWk.length,
+    weights, workouts: db.workouts.slice(-100), workoutsMonth: monthWk.length,
     water: lastN(db.water, 14), waterToday: db.water[day()] || 0,
-    lifts: db.lifts.slice(-50), finance: db.finance, thoughts: db.thoughts,
+    lifts: db.lifts.slice(-500), finance: db.finance, thoughts: db.thoughts,
     nutritionToday: (db.nutrition || {})[day()] || { protein: 0, carbs: 0, fat: 0, calories: 0 },
     nutrition14: Object.keys(db.nutrition || {}).sort().slice(-14).map(k => ({ date: k, ...(db.nutrition[k]) })),
     nutritionLog: (db.nutritionLog || []).filter(l => l.date === day()),
