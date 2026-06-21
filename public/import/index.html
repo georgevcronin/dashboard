@@ -136,7 +136,7 @@
           const duration = (startT && endT) ? Math.round((endT - startT) / 60000) : null;
           workoutMap.set(wktKey, {
             date,
-            start: r.start_time || null,
+            start: startT ? startT.toISOString() : null,
             name: (r.title || "Workout").toLowerCase(),
             duration,
             exercises: new Map(),
@@ -154,18 +154,14 @@
         const kg = parseFloat(r.weight_kg) || 0;
         const reps = parseInt(r.reps) || 0;
         if (kg === 0 && reps === 0) continue;
-        const lift = { date, start: r.start_time || null, exercise, kg: Math.round(kg * 100) / 100, reps };
+        const startISO = hevyTime(r.start_time)?.toISOString() || null;
+        const lift = { date, start: startISO, exercise, kg: Math.round(kg * 100) / 100, reps };
         const rpe = parseFloat(r.rpe);
         if (!isNaN(rpe) && rpe > 0) lift.rir = Math.max(0, Math.round((10 - rpe) * 10) / 10);
         lifts.push(lift);
       }
 
-      const workouts = Array.from(workoutMap.values()).map(w => ({
-        date: w.date,
-        name: w.name,
-        duration: w.duration,
-        exercises: w.exercises,
-      }));
+      const workouts = Array.from(workoutMap.values());
 
       parsedData = {
         lifts,

@@ -460,6 +460,17 @@ app.get("/summary", async (req, res) => {
   });
 });
 
+// ---------- Remove lifts with raw CSV start_time format (non-ISO, contains spaces/commas) ----------
+app.post("/fix-csv-lifts", async (req, res) => {
+  const before = db.lifts.length;
+  // Raw CSV format looks like "15 Jan 2024, 09:00:00" — ISO format is "2024-..." or null/undefined
+  const isRawCSV = s => s && !/^\d{4}-/.test(s);
+  db.lifts = db.lifts.filter(l => !isRawCSV(l.start));
+  const removed = before - db.lifts.length;
+  if (removed) await save();
+  res.json({ ok: true, removed, remaining: db.lifts.length });
+});
+
 // ---------- duration migration (one-time: fix seconds-stored-as-minutes from HAE webhook) ----------
 app.post("/fix-duration", async (req, res) => {
   let fixed = 0;
