@@ -76,16 +76,17 @@ app.post("/health", async (req, res) => {
       if (name === "sleep_analysis") {
         db.metrics[k].sleep_hours = pt.totalSleep ?? pt.asleep ?? db.metrics[k].sleep_hours;
         if (pt.inBed != null && pt.totalSleep != null && pt.inBed > 0) db.metrics[k].sleep_eff = Math.round((pt.totalSleep / pt.inBed) * 100);
-      } else if (pt.qty != null) {
-        db.metrics[k][name] = pt.qty;
-        if (name === "body_mass") db.weight[k] = pt.qty;
+      } else if (pt.qty != null || pt.avg != null) {
+        const val = pt.qty ?? pt.avg;
+        db.metrics[k][name] = val;
+        if (name === "body_mass") db.weight[k] = val;
         if (name.startsWith("dietary_")) {
           db.nutrition = db.nutrition || {};
           db.nutrition[k] = db.nutrition[k] || {};
           const nmap = { dietary_protein: "protein", dietary_carbohydrates: "carbs", dietary_fat_total: "fat", dietary_energy_consumed: "calories" };
-          if (nmap[name]) db.nutrition[k][nmap[name]] = parseFloat(pt.qty) || 0;
+          if (nmap[name]) db.nutrition[k][nmap[name]] = parseFloat(val) || 0;
         }
-      } else if (pt.avg != null) db.metrics[k][name] = pt.avg;
+      }
       saved++;
     }
   }
