@@ -78,7 +78,7 @@ app.post("/health", async (req, res) => {
           db.nutrition = db.nutrition || {};
           db.nutrition[k] = db.nutrition[k] || {};
           const nmap = { dietary_protein: "protein", dietary_carbohydrates: "carbs", dietary_fat_total: "fat", dietary_energy_consumed: "calories" };
-          if (nmap[name]) db.nutrition[k][nmap[name]] = pt.qty;
+          if (nmap[name]) db.nutrition[k][nmap[name]] = parseFloat(pt.qty) || 0;
         }
       } else if (pt.avg != null) db.metrics[k][name] = pt.avg;
       saved++;
@@ -493,9 +493,9 @@ app.post("/weight", async (req, res) => { db.weight[day()] = req.body.kg; await 
 app.post("/nutrition", async (req, res) => {
   const k = day(); db.nutrition = db.nutrition || {};
   db.nutrition[k] = db.nutrition[k] || { protein: 0, carbs: 0, fat: 0, calories: 0 };
-  for (const m of ["protein", "carbs", "fat", "calories"]) db.nutrition[k][m] = (db.nutrition[k][m] || 0) + (req.body[m] || 0);
+  for (const m of ["protein", "carbs", "fat", "calories"]) db.nutrition[k][m] = (parseFloat(db.nutrition[k][m]) || 0) + (parseFloat(req.body[m]) || 0);
   db.nutritionLog = db.nutritionLog || [];
-  if (req.body.label) db.nutritionLog.push({ date: k, time: new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }), label: req.body.label, protein: req.body.protein || 0, carbs: req.body.carbs || 0, fat: req.body.fat || 0, calories: req.body.calories || 0 });
+  if (req.body.label) db.nutritionLog.push({ date: k, time: new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }), label: req.body.label, protein: parseFloat(req.body.protein) || 0, carbs: parseFloat(req.body.carbs) || 0, fat: parseFloat(req.body.fat) || 0, calories: parseFloat(req.body.calories) || 0 });
   await save(); res.json(db.nutrition[k]);
 });
 app.post("/macro-targets", async (req, res) => {
