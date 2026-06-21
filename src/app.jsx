@@ -719,49 +719,54 @@ function Train({ go, s, refresh }) {
       {trainTab === "strength" && (
         <div style={{ ...card }}>
           <div style={{ ...label, marginBottom: 14 }}>Strength progress · top set per session</div>
-          {Object.keys(byEx).length === 0 && (
-            <div style={{ ...serif, color: T.dim, fontSize: 14 }}>No lift data yet. Import a Hevy CSV to get started.</div>
-          )}
-          {Object.entries(byEx).map(([name, sets]) => {
-            const sessMap = {};
-            sets.forEach(l => { const k = l.start || l.date; (sessMap[k] = sessMap[k] || []).push(l); });
-            const sessKeys = Object.keys(sessMap).sort();
-            const numSessions = sessKeys.length;
-            const tops = sessKeys.map(k => Math.max(...sessMap[k].map(l => l.kg || 0)));
-            const firstTopKg = tops[0] || 0;
-            const lastTopKg = tops.at(-1) || 0;
-            const best = Math.max(...tops);
-            const lastSet = sessMap[sessKeys.at(-1)].reduce((a, b) => (b.kg || 0) >= (a.kg || 0) ? b : a);
-            const progress = Math.round((lastTopKg - firstTopKg) * 10) / 10;
-            const maxTop = best || 1;
-
-            return (
-              <div key={name} style={{ marginBottom: 18, paddingBottom: 16, borderBottom: `1px solid ${T.line}` }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", flexWrap: "wrap", gap: 4, marginBottom: 6 }}>
-                  <span style={{ fontSize: 14, fontWeight: 500, textTransform: "capitalize" }}>{name}</span>
-                  <span style={{ fontSize: 12, color: T.mid }}>
-                    {lastTopKg > 0 ? `${lastTopKg} kg × ${lastSet.reps || "?"}` : `${lastSet.reps || "?"} reps`}
-                    {progress > 0 && numSessions > 1 && <span style={{ color: T.green }}> ▲{progress} kg</span>}
-                    {progress < 0 && numSessions > 1 && <span style={{ color: T.red }}> ▼{Math.abs(progress)} kg</span>}
-                  </span>
-                </div>
-                {/* Mini sparkline bars */}
-                {tops.length > 1 && (
-                  <div style={{ display: "flex", alignItems: "flex-end", gap: 3, height: 28, marginBottom: 4 }}>
-                    {tops.map((kg, i) => {
-                      const pct = kg / maxTop;
-                      const isLast = i === tops.length - 1;
-                      return <div key={i} style={{ flex: 1, height: `${Math.max(15, pct * 100)}%`, background: isLast ? T.green : `${T.green}44`, borderRadius: "2px 2px 0 0" }} />;
-                    })}
-                  </div>
-                )}
-                <div style={{ fontSize: 11, color: T.dim }}>
-                  {numSessions} session{numSessions !== 1 ? "s" : ""}
-                  {best > 0 && ` · best ${best} kg · est 1RM ${Math.round(estOneRM(best, lastSet.reps || 1))} kg`}
-                </div>
-              </div>
+          {(() => {
+            const twoMonthsAgo = new Date(Date.now() - 61 * 864e5).toISOString().slice(0, 10);
+            const entries = Object.entries(byEx).filter(([, sets]) => {
+              const hasWeight = sets.some(l => (l.kg || 0) > 0);
+              const recentlyDone = sets.some(l => (l.date || "") >= twoMonthsAgo);
+              return hasWeight && recentlyDone;
+            });
+            if (entries.length === 0) return (
+              <div style={{ ...serif, color: T.dim, fontSize: 14 }}>No weighted exercises in the last 2 months. Import a Hevy CSV to get started.</div>
             );
-          })}
+            return entries.map(([name, sets]) => {
+              const sessMap = {};
+              sets.forEach(l => { const k = l.start || l.date; (sessMap[k] = sessMap[k] || []).push(l); });
+              const sessKeys = Object.keys(sessMap).sort();
+              const numSessions = sessKeys.length;
+              const tops = sessKeys.map(k => Math.max(...sessMap[k].map(l => l.kg || 0)));
+              const firstTopKg = tops[0] || 0;
+              const lastTopKg = tops.at(-1) || 0;
+              const best = Math.max(...tops);
+              const lastSet = sessMap[sessKeys.at(-1)].reduce((a, b) => (b.kg || 0) >= (a.kg || 0) ? b : a);
+              const progress = Math.round((lastTopKg - firstTopKg) * 10) / 10;
+              const maxTop = best || 1;
+              return (
+                <div key={name} style={{ marginBottom: 18, paddingBottom: 16, borderBottom: `1px solid ${T.line}` }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", flexWrap: "wrap", gap: 4, marginBottom: 6 }}>
+                    <span style={{ fontSize: 14, fontWeight: 500, textTransform: "capitalize" }}>{name}</span>
+                    <span style={{ fontSize: 12, color: T.mid }}>
+                      {`${lastTopKg} kg × ${lastSet.reps || "?"}`}
+                      {progress > 0 && numSessions > 1 && <span style={{ color: T.green }}> ▲{progress} kg</span>}
+                      {progress < 0 && numSessions > 1 && <span style={{ color: T.red }}> ▼{Math.abs(progress)} kg</span>}
+                    </span>
+                  </div>
+                  {tops.length > 1 && (
+                    <div style={{ display: "flex", alignItems: "flex-end", gap: 3, height: 28, marginBottom: 4 }}>
+                      {tops.map((kg, i) => {
+                        const pct = kg / maxTop;
+                        const isLast = i === tops.length - 1;
+                        return <div key={i} style={{ flex: 1, height: `${Math.max(15, pct * 100)}%`, background: isLast ? T.green : `${T.green}44`, borderRadius: "2px 2px 0 0" }} />;
+                      })}
+                    </div>
+                  )}
+                  <div style={{ fontSize: 11, color: T.dim }}>
+                    {numSessions} session{numSessions !== 1 ? "s" : ""} · best {best} kg · est 1RM {Math.round(estOneRM(best, lastSet.reps || 1))} kg
+                  </div>
+                </div>
+              );
+            });
+          })()}
         </div>
       )}
 
