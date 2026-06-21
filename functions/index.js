@@ -23,6 +23,11 @@ app.use((req, res, next) => {
   next();
 });
 
+function sanitizeNutrition(obj) {
+  if (!obj) return { protein: 0, carbs: 0, fat: 0, calories: 0 };
+  return { protein: parseFloat(obj.protein) || 0, carbs: parseFloat(obj.carbs) || 0, fat: parseFloat(obj.fat) || 0, calories: parseFloat(obj.calories) || 0 };
+}
+
 // ---------- Firestore-backed state (cached in memory) ----------
 let db = null;
 const DEFAULTS = {
@@ -441,9 +446,9 @@ app.get("/summary", async (req, res) => {
     weights, workouts: db.workouts.slice(-100), workoutsMonth: monthWk.length,
     water: lastN(db.water, 14), waterToday: db.water[day()] || 0,
     lifts: db.lifts.slice(-500), finance: db.finance, thoughts: db.thoughts,
-    nutritionToday: (db.nutrition || {})[day()] || { protein: 0, carbs: 0, fat: 0, calories: 0 },
-    nutrition14: Object.keys(db.nutrition || {}).sort().slice(-14).map(k => ({ date: k, ...(db.nutrition[k]) })),
-    nutritionLog: (db.nutritionLog || []).filter(l => l.date === day()),
+    nutritionToday: sanitizeNutrition((db.nutrition || {})[day()]),
+    nutrition14: Object.keys(db.nutrition || {}).sort().slice(-14).map(k => ({ date: k, ...sanitizeNutrition(db.nutrition[k]) })),
+    nutritionLog: (db.nutritionLog || []).filter(l => l.date === day()).map(l => ({ ...l, protein: parseFloat(l.protein) || 0, carbs: parseFloat(l.carbs) || 0, fat: parseFloat(l.fat) || 0, calories: parseFloat(l.calories) || 0 })),
     macroTargets: db.profile.macroTargets || { calories: 2400, protein: 160, carbs: 250, fat: 75 },
     macroMode: db.profile.macroMode || "manual", macroGoal: db.profile.macroGoal || "recomp",
     lastSync: db.lastSyncAt ? (() => { const d = new Date(db.lastSyncAt); return d.toLocaleDateString("en-GB", { day:"numeric", month:"short" }) + " " + d.toLocaleTimeString("en-GB", { hour:"2-digit", minute:"2-digit" }); })() : (days.at(-1)?.date || null),
