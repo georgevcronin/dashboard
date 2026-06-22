@@ -73,8 +73,14 @@ function kjGuard(kcal, durationMin) {
 app.use(async (req, res, next) => { await load(); next(); });
 
 // ---------- Health Auto Export webhook ----------
+// Keep last 3 raw payloads in memory for /health-debug inspection
+const _healthLog = [];
 app.post("/health", async (req, res) => {
-  const d = req.body?.data || req.body || {};
+  const raw = req.body;
+  _healthLog.push({ ts: new Date().toISOString(), body: JSON.stringify(raw).slice(0, 4000) });
+  if (_healthLog.length > 3) _healthLog.shift();
+
+  const d = raw?.data || raw || {};
   let saved = 0;
   for (const m of d.metrics || []) {
     const name = m.name;
@@ -82,8 +88,13 @@ app.post("/health", async (req, res) => {
       const k = day(pt.date);
       db.metrics[k] = db.metrics[k] || {};
       if (name === "sleep_analysis") {
-        db.metrics[k].sleep_hours = pt.totalSleep ?? pt.asleep ?? db.metrics[k].sleep_hours;
-        if (pt.inBed != null && pt.totalSleep != null && pt.inBed > 0) db.metrics[k].sleep_eff = Math.round((pt.totalSleep / pt.inBed) * 100);
+        // HAE sends totalSleep/asleep in some versions, qty in others
+        const sleepH = pt.totalSleep ?? pt.asleep ?? pt.qty ?? null;
+        if (sleepH != null) db.metrics[k].sleep_hours = sleepH;
+        const inBedH = pt.inBed ?? null;
+        const resolvedSleep = db.metrics[k].sleep_hours;
+        if (inBedH != null && resolvedSleep != null && inBedH > 0)
+          db.metrics[k].sleep_eff = Math.round((resolvedSleep / inBedH) * 100);
       } else if (pt.qty != null || pt.avg != null) {
         const val = pt.qty ?? pt.avg;
         db.metrics[k][name] = val;
@@ -112,6 +123,14 @@ app.post("/health", async (req, res) => {
   }
   await save();
   res.json({ ok: true, saved });
+});
+
+// ---------- Health debug: inspect last 3 raw payloads ----------
+app.get("/health-debug", (req, res) => {
+  const today = Object.keys(db.metrics || {}).sort().slice(-7).map(k => ({
+    date: k, sleep_hours: db.metrics[k].sleep_hours ?? null, sleep_eff: db.metrics[k].sleep_eff ?? null,
+  }));
+  res.json({ recentMetrics: today, lastPayloads: _healthLog });
 });
 
 // ---------- iOS Shortcuts endpoint ----------
