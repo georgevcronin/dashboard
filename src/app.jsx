@@ -367,17 +367,17 @@ function Vitality({ go, s }) {
   const maxH = Math.max(sleepTarget * 1.15, ...sleepSeries.map(d => d.h || 0), 0.1);
 
   // Two-process sleep pressure model (ΔS = α(1−S)·t_wake − β·S·t_sleep, baseline 7.5 h)
-  const pressureSeries = s.sleepPressureSeries || [];
-  const currentPressure = s.sleepPressure ?? pressureSeries.at(-1)?.pressure ?? null;
+  const pressureSeries = Array.isArray(s.sleepPressureSeries) ? s.sleepPressureSeries : [];
+  const currentPressure = typeof s.sleepPressure === "number" ? s.sleepPressure : (pressureSeries.at(-1)?.pressure ?? null);
   const SP_REST_UI = 0.15;
   const pressureEntries = pressureSeries.map((p, i) => ({
     date: p.date,
-    pressure: p.pressure,
-    debtH: p.debtH,
-    delta: i > 0 ? p.pressure - pressureSeries[i - 1].pressure : 0,
+    pressure: p.pressure ?? SP_REST_UI,
+    debtH: p.debtH ?? 0,
+    delta: i > 0 ? (p.pressure ?? SP_REST_UI) - (pressureSeries[i - 1].pressure ?? SP_REST_UI) : 0,
   }));
-  const absMaxDelta = Math.max(0.02, ...pressureEntries.map(e => Math.abs(e.delta)));
-  const debtH = s.sleepDebtH ?? 0;
+  const absMaxDelta = pressureEntries.length > 0 ? Math.max(0.02, ...pressureEntries.map(e => Math.abs(e.delta))) : 0.02;
+  const debtH = typeof s.sleepDebtH === "number" ? s.sleepDebtH : 0;
   const pressureColor = currentPressure == null ? T.dim : currentPressure <= SP_REST_UI * 1.3 ? T.green : currentPressure <= SP_REST_UI * 2.2 ? T.amber : T.red;
 
   return (
