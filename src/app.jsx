@@ -366,10 +366,19 @@ function Vitality({ go, s }) {
   const sleepSeries = s.sleepSeries || [];
   const maxH = Math.max(sleepTarget * 1.15, ...sleepSeries.map(d => d.h || 0), 0.1);
 
-  // Sleep Bank: per-night surplus/deficit vs target
-  const bankEntries = sleepSeries.map(d => ({ date: d.date, h: d.h, delta: d.h != null ? d.h - sleepTarget : null }));
-  const totalBank = bankEntries.reduce((acc, e) => acc + (e.delta ?? 0), 0);
-  const absMaxDelta = Math.max(1, ...bankEntries.map(e => Math.abs(e.delta || 0)));
+  // Two-process sleep pressure model (ΔS = α(1−S)·t_wake − β·S·t_sleep, baseline 7.5 h)
+  const pressureSeries = s.sleepPressureSeries || [];
+  const currentPressure = s.sleepPressure ?? pressureSeries.at(-1)?.pressure ?? null;
+  const SP_REST_UI = 0.15;
+  const pressureEntries = pressureSeries.map((p, i) => ({
+    date: p.date,
+    pressure: p.pressure,
+    debtH: p.debtH,
+    delta: i > 0 ? p.pressure - pressureSeries[i - 1].pressure : 0,
+  }));
+  const absMaxDelta = Math.max(0.02, ...pressureEntries.map(e => Math.abs(e.delta)));
+  const debtH = s.sleepDebtH ?? 0;
+  const pressureColor = currentPressure == null ? T.dim : currentPressure <= SP_REST_UI * 1.3 ? T.green : currentPressure <= SP_REST_UI * 2.2 ? T.amber : T.red;
 
   return (
     <>
@@ -461,38 +470,40 @@ function Vitality({ go, s }) {
           )}
         </div>
 
-        {/* Sleep Bank */}
+        {/* Sleep Pressure */}
         <div style={{ ...card, gridColumn: "1 / -1" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 14, flexWrap: "wrap", gap: 10 }}>
             <div>
-              <div style={label}>Sleep Bank · last 14 nights</div>
+              <div style={label}>Sleep Pressure · last 14 nights</div>
               <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginTop: 4 }}>
-                <div style={{ fontSize: 40, fontWeight: 700, color: totalBank >= 0 ? T.green : T.red, lineHeight: 1 }}>
-                  {totalBank >= 0 ? "+" : "−"}{fmtHM(Math.abs(totalBank))}
+                <div style={{ fontSize: 40, fontWeight: 700, color: pressureColor, lineHeight: 1 }}>
+                  {currentPressure != null ? Math.round(currentPressure * 100) : "—"}{currentPressure != null && <span style={{ fontSize: 20 }}>%</span>}
                 </div>
-                <div style={{ fontSize: 13, color: totalBank >= 0 ? T.green : T.red }}>{totalBank >= 0 ? "Surplus" : "Debt"}</div>
+                <div style={{ fontSize: 13, color: pressureColor }}>
+                  {currentPressure == null ? "" : currentPressure <= SP_REST_UI * 1.3 ? "Recovered" : currentPressure <= SP_REST_UI * 2.2 ? "Mild debt" : "High debt"}
+                </div>
               </div>
             </div>
             <div style={{ fontSize: 12, color: T.dim, lineHeight: 1.6, textAlign: "right" }}>
-              Target {sleepTarget}h/night<br />
-              {totalBank < 0 ? `${fmtHM(Math.abs(totalBank))} owed` : `${fmtHM(totalBank)} banked`}
+              Baseline 7h 30m/night<br />
+              {debtH > 0 ? `${fmtHM(debtH)} to clear` : "Fully cleared"}
             </div>
           </div>
-          {/* Per-night surplus/deficit bars, centred on a zero line */}
+          {/* Per-night pressure change bars, centred on a zero line */}
           <div style={{ display: "flex", alignItems: "stretch", gap: 3, height: 70 }}>
-            {bankEntries.map((e, i) => {
+            {pressureEntries.map((e, i) => {
               const isToday = e.date === todayISO;
-              const surplus = e.delta != null && e.delta > 0;
-              const deficit = e.delta != null && e.delta < 0;
-              const pct = e.delta != null ? Math.abs(e.delta) / absMaxDelta : 0;
+              const recovered = e.delta < 0;
+              const accumulated = e.delta > 0;
+              const pct = Math.abs(e.delta) / absMaxDelta;
               return (
                 <div key={i} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center" }}>
                   <div style={{ flex: 1, display: "flex", alignItems: "flex-end", width: "100%" }}>
-                    {surplus ? <div style={{ width: "100%", height: `${pct * 100}%`, background: T.green, borderRadius: "3px 3px 0 0", minHeight: 3, outline: isToday ? `1.5px solid ${T.fg}` : "none" }} title={`+${fmtHM(e.delta)}`} /> : <div style={{ width: "100%" }} />}
+                    {recovered ? <div style={{ width: "100%", height: `${pct * 100}%`, background: T.green, borderRadius: "3px 3px 0 0", minHeight: 3, outline: isToday ? `1.5px solid ${T.fg}` : "none" }} title={`Pressure −${(Math.abs(e.delta) * 100).toFixed(1)}%`} /> : <div style={{ width: "100%" }} />}
                   </div>
                   <div style={{ height: 1, width: "100%", background: T.line }} />
                   <div style={{ flex: 1, display: "flex", alignItems: "flex-start", width: "100%" }}>
-                    {deficit ? <div style={{ width: "100%", height: `${pct * 100}%`, background: T.red, borderRadius: "0 0 3px 3px", minHeight: 3, outline: isToday ? `1.5px solid ${T.fg}` : "none" }} title={`-${fmtHM(Math.abs(e.delta))}`} /> : <div style={{ width: "100%" }} />}
+                    {accumulated ? <div style={{ width: "100%", height: `${pct * 100}%`, background: T.red, borderRadius: "0 0 3px 3px", minHeight: 3, outline: isToday ? `1.5px solid ${T.fg}` : "none" }} title={`Pressure +${(e.delta * 100).toFixed(1)}%`} /> : <div style={{ width: "100%" }} />}
                   </div>
                 </div>
               );
@@ -500,7 +511,7 @@ function Vitality({ go, s }) {
           </div>
           {/* Day labels */}
           <div style={{ display: "flex", gap: 3, marginTop: 5 }}>
-            {bankEntries.map((e, i) => {
+            {pressureEntries.map((e, i) => {
               const isToday = e.date === todayISO;
               const [line1, line2] = fmtDay(e.date);
               return (
@@ -512,7 +523,7 @@ function Vitality({ go, s }) {
             })}
           </div>
           <div style={{ fontSize: 11, color: T.dim, marginTop: 10, lineHeight: 1.5 }}>
-            Each bar shows surplus (green, above line) or deficit (red, below) vs your {sleepTarget}h target per night. The total is your 14-night balance.
+            Green bars = pressure fell (good sleep). Red bars = pressure rose (short sleep). Current pressure {currentPressure != null ? Math.round(currentPressure * 100) + "%" : "—"}; baseline is ~15% after a full 7h 30m night.
           </div>
         </div>
 

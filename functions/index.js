@@ -388,6 +388,27 @@ function computeDay(d, baseHRV, baseRHR, sleepTarget) {
   const sleepScore = sleepH ? Math.min(1, sleepH / sleepTarget) : 0.8;
   return Math.round(Math.min(99, (hrvScore * 0.5 + rhrScore * 0.2 + sleepScore * 0.3) * 100));
 }
+// Two-process sleep pressure model: ΔS = α(1−S)·t_wake − β·S·t_sleep
+// α and β calibrated for a 7.5 h sleep / 16.5 h wake steady-state cycle
+const SLEEP_REQUIRED = 7.5;
+const SP_ALPHA = 0.0631;  // pressure build rate per awake hour
+const SP_BETA  = 0.2054;  // pressure clearance rate per sleep hour
+const SP_REST  = 0.15;    // resting pressure after adequate sleep
+
+function computeSleepPressure(allDays) {
+  let S = SP_REST;
+  const out = [];
+  for (const d of allDays) {
+    const sleepH = d.sleep_hours || SLEEP_REQUIRED;
+    const wakeH  = Math.max(0, 24 - sleepH);
+    S = 1 - (1 - S) * Math.exp(-SP_ALPHA * wakeH);
+    S = Math.max(0, Math.min(1, S * Math.exp(-SP_BETA * sleepH)));
+    const debtH = S > SP_REST ? Math.log(S / SP_REST) / SP_BETA : 0;
+    out.push({ date: d.date, pressure: Math.round(S * 1000) / 1000, debtH: Math.round(debtH * 10) / 10 });
+  }
+  return out;
+}
+
 function compVerdict(weights, lifts) {
   if (weights.length < 5) return null;
   const wTrend = weights.at(-1).value - weights[0].value;
@@ -414,7 +435,11 @@ app.get("/summary", async (req, res) => {
   const recoveryTrend = last14.map(d => computeDay(d, baseHRV, baseRHR, sleep.target)).filter(x => x != null);
   const weights = lastN(db.weight, 30);
   const monthWk = db.workouts.filter(w => w.date >= day(new Date(Date.now() - 30 * 864e5)));
-  const sleepDebtH = last14.reduce((s, d) => s + (d.sleep_hours ? Math.max(0, sleep.target - d.sleep_hours) : 0), 0);
+  const allMetricDays = lastN(db.metrics, 60);
+  const pressureFull = computeSleepPressure(allMetricDays);
+  const pressureSeries14 = pressureFull.slice(-14);
+  const currentPressure = pressureFull.at(-1)?.pressure ?? SP_REST;
+  const sleepDebtH = pressureFull.at(-1)?.debtH ?? 0;
   const target = db.profile.waterTarget || 7;
   const waterDays = lastN(db.water, 30).map(w => w.value);
   let streak = 0; for (let i = waterDays.length - 1 - (waterDays.at(-1) < target ? 1 : 0); i >= 0 && waterDays[i] >= target; i--) streak++;
@@ -439,6 +464,9 @@ app.get("/summary", async (req, res) => {
     today: { recovery, hrv: today.heart_rate_variability ?? null, rhr: today.resting_heart_rate ?? null, sleepH: today.sleep_hours ?? null, sleepEff: today.sleep_eff ?? null, sleepInBed: (today.sleep_eff && today.sleep_hours) ? Math.round((today.sleep_hours / (today.sleep_eff / 100)) * 10) / 10 : null, steps: today.step_count ?? null },
     sleepTarget: sleep.target, sleepTargetLearned: sleep.learned,
     sleepDebtH: Math.round(sleepDebtH * 10) / 10,
+    sleepPressure: Math.round(currentPressure * 1000) / 1000,
+    sleepPressureSeries: pressureSeries14,
+    sleepRequired: SLEEP_REQUIRED,
     recoveryTrend, sleepSeries: last14.map(d => ({ date: d.date, h: d.sleep_hours || null, eff: d.sleep_eff || null })),
     rhrSeries: last14.map(d => d.resting_heart_rate).filter(Boolean),
     baselines: { hrv: baseHRV && Math.round(baseHRV), rhr: baseRHR && Math.round(baseRHR) },
@@ -499,14 +527,21 @@ app.post("/fix-kcal", async (req, res) => {
 
 // ---------- Manual log endpoints ----------
 app.post("/water", async (req, res) => {
-  const k = day(); const delta = req.body.delta ?? 1;
+  const delta = parseFloat(req.body.delta ?? 1);
+  if (!isFinite(delta) || Math.abs(delta) > 20) return res.status(400).json({ error: "invalid delta" });
+  const k = day();
   db.water[k] = (db.water[k] || 0) + delta; if (db.water[k] < 0) db.water[k] = 0;
   db.waterEvents = db.waterEvents || [];
   if (delta > 0) db.waterEvents.push(Date.now()); else db.waterEvents.pop();
   db.waterEvents = db.waterEvents.slice(-200);
   await save(); res.json({ today: db.water[k] });
 });
-app.post("/weight", async (req, res) => { db.weight[day()] = req.body.kg; await save(); res.json({ ok: true }); });
+app.post("/weight", async (req, res) => {
+  const kg = parseFloat(req.body.kg);
+  if (!isFinite(kg) || kg <= 0 || kg > 500) return res.status(400).json({ error: "invalid kg" });
+  db.weight[day()] = Math.round(kg * 100) / 100;
+  await save(); res.json({ ok: true });
+});
 app.post("/nutrition", async (req, res) => {
   const k = day(); db.nutrition = db.nutrition || {};
   db.nutrition[k] = db.nutrition[k] || { protein: 0, carbs: 0, fat: 0, calories: 0 };
@@ -517,7 +552,12 @@ app.post("/nutrition", async (req, res) => {
 });
 app.post("/macro-targets", async (req, res) => {
   db.profile.macroTargets = db.profile.macroTargets || { calories: 2400, protein: 160, carbs: 250, fat: 75 };
-  for (const m of ["calories", "protein", "carbs", "fat"]) if (req.body[m] != null) db.profile.macroTargets[m] = +req.body[m];
+  for (const m of ["calories", "protein", "carbs", "fat"]) {
+    if (req.body[m] != null) {
+      const val = parseFloat(req.body[m]);
+      if (isFinite(val) && val >= 0) db.profile.macroTargets[m] = Math.round(val);
+    }
+  }
   db.profile.macroMode = "manual"; await save(); res.json(db.profile.macroTargets);
 });
 app.post("/macro-auto", async (req, res) => {
@@ -551,23 +591,48 @@ app.post("/macro-auto", async (req, res) => {
   res.json({ goal, tdee, targets: db.profile.macroTargets });
 });
 app.post("/finance", async (req, res) => {
-  db.finance.push({ date: day(), name: req.body.name, type: req.body.type, amount: req.body.amount });
-  const total = db.finance.reduce((a, e) => a + e.amount, 0);
+  const amount = parseFloat(req.body.amount);
+  if (!isFinite(amount)) return res.status(400).json({ error: "invalid amount" });
+  const name = typeof req.body.name === "string" ? req.body.name.slice(0, 200) : "";
+  const type = typeof req.body.type === "string" ? req.body.type.slice(0, 50) : "";
+  db.finance.push({ date: day(), name, type, amount });
+  const total = db.finance.reduce((a, e) => a + (parseFloat(e.amount) || 0), 0);
   db.nwHistory = db.nwHistory || []; const k = day();
   const last = db.nwHistory.at(-1);
   if (last && last.date === k) last.total = total; else db.nwHistory.push({ date: k, total });
   await save(); res.json({ ok: true });
 });
-app.delete("/finance/:i", async (req, res) => { db.finance.splice(+req.params.i, 1); await save(); res.json({ ok: true }); });
+app.delete("/finance/:i", async (req, res) => {
+  const i = parseInt(req.params.i, 10);
+  if (!Number.isInteger(i) || i < 0 || i >= db.finance.length) return res.status(400).json({ error: "invalid index" });
+  db.finance.splice(i, 1);
+  await save(); res.json({ ok: true });
+});
 app.post("/thought", async (req, res) => { db.thoughts.push({ date: day(), text: req.body.text }); await save(); res.json({ ok: true }); });
-app.post("/profile", async (req, res) => { db.profile = { ...db.profile, ...req.body }; await save(); res.json(db.profile); });
+app.post("/profile", async (req, res) => {
+  const allowed = ["name", "heightCm", "sex", "age", "activityLevel", "waterTarget", "macroMode", "macroGoal"];
+  const update = {};
+  for (const key of allowed) if (req.body[key] !== undefined) update[key] = req.body[key];
+  db.profile = { ...db.profile, ...update };
+  await save(); res.json(db.profile);
+});
 
 // ---------- Mentor ----------
 app.post("/mentor", async (req, res) => {
   const key = process.env.GROQ_API_KEY;
   if (!key) return res.json({ reply: "Add GROQ_API_KEY to functions/.env to enable the mentor." });
-  const s = db;
-  const system = "You are Mentor, " + (s.profile?.name || "the user") + "'s personal peak-performance coach. Be direct, concise (2-4 short sentences). Live data: " + JSON.stringify({ recovery: s.metrics, weights: s.weight, lifts: s.lifts?.slice(-20), water: s.water, workouts: s.workouts?.slice(-10), thoughts: s.thoughts });
+  const days7 = lastN(db.metrics, 7);
+  const todayM = days7.at(-1) || {};
+  const weekAvgHRV = avg(days7.map(d => d.heart_rate_variability).filter(Boolean));
+  const recentLifts = (db.lifts || []).slice(-10).map(l => `${l.exercise} ${l.kg}kg×${l.reps}`).join(", ");
+  const system = "You are Mentor, " + (db.profile?.name || "the user") + "'s personal peak-performance coach. Be direct, concise (2-4 short sentences). Live data: " + JSON.stringify({
+    todayHRV: todayM.heart_rate_variability, todaySleepH: todayM.sleep_hours, todayRHR: todayM.resting_heart_rate,
+    weekAvgHRV: weekAvgHRV && Math.round(weekAvgHRV),
+    weightKg: Object.values(db.weight || {}).at(-1),
+    recentLifts, waterToday: db.water?.[day()],
+    recentWorkouts: (db.workouts || []).slice(-5).map(w => `${w.date} ${w.name}`),
+    recentThoughts: (db.thoughts || []).slice(-3).map(t => t.text),
+  });
   try {
     const r = await fetch("https://api.groq.com/openai/v1/chat/completions", {
       method: "POST",
