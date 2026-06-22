@@ -576,12 +576,7 @@ function Train({ go, s, refresh }) {
   // Per-exercise stimulus data for last 8 sessions
   const [stimExercise, setStimExercise] = useState(null);
   const stimulusData = useMemo(() => {
-    const est1RM = {};
-    for (const l of (s.lifts || [])) {
-      if (!l.exercise || !l.kg) continue;
-      const e = estOneRM(l.kg, l.reps || 1);
-      if (!est1RM[l.exercise] || e > est1RM[l.exercise]) est1RM[l.exercise] = e;
-    }
+    const est1RM = s.liftPRs || {};
     const byExKey = {};
     for (const l of (s.lifts || [])) {
       if (!l.exercise || !l.kg || !l.date) continue;
@@ -607,7 +602,7 @@ function Train({ go, s, refresh }) {
         });
     }
     return result;
-  }, [s.lifts]);
+  }, [s.lifts, s.liftPRs]);
 
   const stimExercises = Object.keys(stimulusData).sort();
   const activeStimEx = stimExercise || stimExercises[0] || null;
@@ -689,7 +684,7 @@ function Train({ go, s, refresh }) {
                   <div style={{ marginTop: 12, paddingTop: 10, borderTop: `1px solid ${T.line}` }}>
                     {Object.entries(byExDay).map(([name, sets]) => {
                       const best = Math.max(...sets.map(x => x.kg || 0));
-                      const erm = (() => { let m = 0; for (const l of (s.lifts || [])) { if (l.exercise === name && l.kg) { const e = estOneRM(l.kg, l.reps || 1); if (e > m) m = e; } } return m || 1; })();
+                      const erm = (s.liftPRs || {})[name] || 1;
                       const numSets = sets.length;
                       const avgReps = sets.reduce((acc, l) => acc + (l.reps || 1), 0) / numSets;
                       const avgRIR = sets.reduce((acc, l) => acc + (l.rir != null ? l.rir : estRIR(l.kg, l.reps || 1, erm)), 0) / numSets;
@@ -1375,14 +1370,7 @@ function Fatigue({ go, s, refresh }) {
       activeSoreness[e.muscle] = (activeSoreness[e.muscle] || 0) + decayed;
     }
 
-    // Pre-compute peak est1RM per exercise for intensity normalisation
-    const liftEst1RM = {};
-    for (const l of (s.lifts || [])) {
-      if (!l.kg || !l.exercise) continue;
-      const e = estOneRM(l.kg, l.reps || 1);
-      if (!liftEst1RM[l.exercise] || e > liftEst1RM[l.exercise]) liftEst1RM[l.exercise] = e;
-    }
-
+    const liftEst1RM = s.liftPRs || {};
     const uMap = s.userMuscleMap || {};
     // From logged lifts
     for (const l of (s.lifts || [])) {
@@ -1425,7 +1413,7 @@ function Fatigue({ go, s, refresh }) {
     const result = {};
     for (const [m, v] of Object.entries(accum)) result[m] = v / maxVal;
     return result;
-  }, [s.lifts, s.workouts, s.muscleSensitivity, s.soreness]);
+  }, [s.lifts, s.liftPRs, s.workouts, s.muscleSensitivity, s.soreness]);
 
   const getMuscleLevel = (key) => {
     const m = MUSCLES[key];
@@ -1487,12 +1475,7 @@ function Fatigue({ go, s, refresh }) {
     const uMap = s.userMuscleMap || {};
     const WINDOW_START_H = -14 * 24, WINDOW_END_H = 3 * 24, STEP_H = 6;
     const steps = Math.floor((WINDOW_END_H - WINDOW_START_H) / STEP_H) + 1;
-    const est1RM = {};
-    for (const l of (s.lifts || [])) {
-      if (!l.kg || !l.exercise) continue;
-      const e = estOneRM(l.kg, l.reps || 1);
-      if (!est1RM[l.exercise] || e > est1RM[l.exercise]) est1RM[l.exercise] = e;
-    }
+    const est1RM = s.liftPRs || {};
     const byExDate = {};
     for (const l of (s.lifts || [])) {
       if (!l.exercise || !l.date || !l.kg) continue;
@@ -1534,40 +1517,13 @@ function Fatigue({ go, s, refresh }) {
       result[muscle] = series;
     }
     return result;
-  }, [s.lifts]);
+  }, [s.lifts, s.liftPRs]);
 
   const adaptMuscles = Object.keys(adaptationTimeline).sort();
   const activeAdaptMuscle = adaptMuscle || adaptMuscles[0] || null;
   const activeSeries = activeAdaptMuscle ? (adaptationTimeline[activeAdaptMuscle] || []) : [];
 
-  // Estimate atrophy rate from large training gaps (14+ days).
-  // By 14 days the gamma curve is negligible (<0.03%), so the entire 1RM
-  // drop is attributable to atrophy rather than supercompensation fading.
-  const estimatedAtrophyRate = useMemo(() => {
-    const byEx = {};
-    for (const l of (s.lifts || [])) {
-      if (!l.kg || !l.exercise || !l.date) continue;
-      const e1rm = estOneRM(l.kg, l.reps || 1);
-      if (!byEx[l.exercise]) byEx[l.exercise] = {};
-      if (byEx[l.exercise][l.date] == null || e1rm > byEx[l.exercise][l.date]) byEx[l.exercise][l.date] = e1rm;
-    }
-    const rates = [];
-    for (const sessions of Object.values(byEx)) {
-      const dates = Object.keys(sessions).sort();
-      for (let i = 0; i < dates.length - 1; i++) {
-        const gapH = (new Date(dates[i + 1]) - new Date(dates[i])) / 3600000;
-        if (gapH < 336 || gapH > 2160) continue; // 14 days – 90 days: gamma gone, not extreme
-        const e1 = sessions[dates[i]], e2 = sessions[dates[i + 1]];
-        if (e2 >= e1) continue; // held or improved — detraining didn't show here
-        const drop = (e1 - e2) / e1;
-        if (drop > 0.5) continue; // >50% drop in a gap is likely a form/data change
-        rates.push(drop / gapH);
-      }
-    }
-    if (rates.length < 2) return null;
-    rates.sort((a, b) => a - b);
-    return rates[Math.floor(rates.length / 2)];
-  }, [s.lifts]);
+  const estimatedAtrophyRate = s.estimatedAtrophyRate ?? null;
 
   // Auto-apply once enough data is available; ignore on subsequent lift changes
   const [atrophyCalibrated, setAtrophyCalibrated] = useState(false);
@@ -2266,7 +2222,9 @@ function App() {
     return () => window.removeEventListener("keydown", onKey);
   }, [page, go]);
 
-  const refresh = useCallback(() => api("summary").then(setS), []);
+  const refresh = useCallback(() => api("summary").then(data => {
+    setS(prev => (prev && prev._v === data._v) ? prev : data);
+  }), []);
   useEffect(() => { refresh(); const t = setInterval(refresh, 60000); return () => clearInterval(t); }, [refresh]);
 
   if (!s) return (

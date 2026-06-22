@@ -28,8 +28,16 @@ function sanitizeNutrition(obj) {
   return { protein: parseFloat(obj.protein) || 0, carbs: parseFloat(obj.carbs) || 0, fat: parseFloat(obj.fat) || 0, calories: parseFloat(obj.calories) || 0 };
 }
 
+function estOneRM(kg, reps) {
+  if (!kg || !reps) return kg || 0;
+  if (reps >= 6) return kg / (1.0278 - 0.0278 * reps);
+  return kg * (1 + reps / 30);
+}
+
 // ---------- Firestore-backed state (cached in memory) ----------
 let db = null;
+let saveCounter = 0;
+const STARTUP_TS = Date.now();
 const DEFAULTS = {
   metrics: {}, workouts: [], water: {}, weight: {}, lifts: [], finance: [],
   thoughts: [], nutrition: {}, nutritionLog: [], waterEvents: [], nwHistory: [],
@@ -48,7 +56,7 @@ async function load() {
   db = snap.exists ? { ...DEFAULTS, ...snap.data() } : { ...DEFAULTS };
   return db;
 }
-async function save() { if (db) await DOC.set(db); }
+async function save() { if (db) { saveCounter++; await DOC.set(db); } }
 
 const day = (d) => (d ? new Date(d) : new Date()).toISOString().slice(0, 10);
 const avg = (a) => (a.length ? a.reduce((x, y) => x + y, 0) / a.length : null);
@@ -440,6 +448,40 @@ app.get("/summary", async (req, res) => {
   const pressureSeries14 = pressureFull.slice(-14);
   const currentPressure = pressureFull.at(-1)?.pressure ?? SP_REST;
   const sleepDebtH = pressureFull.at(-1)?.debtH ?? 0;
+  // Pre-compute all-time best est1RM per exercise (used by frontend for normalization)
+  const liftPRs = {};
+  for (const l of db.lifts) {
+    if (!l.kg || !l.exercise) continue;
+    const e = estOneRM(l.kg, l.reps || 1);
+    if (!liftPRs[l.exercise] || e > liftPRs[l.exercise]) liftPRs[l.exercise] = Math.round(e * 100) / 100;
+  }
+  // Estimate atrophy rate from training gaps (14–90 days) on the full lift history
+  const _byExDate = {};
+  for (const l of db.lifts) {
+    if (!l.kg || !l.exercise || !l.date) continue;
+    const e1rm = estOneRM(l.kg, l.reps || 1);
+    if (!_byExDate[l.exercise]) _byExDate[l.exercise] = {};
+    if (_byExDate[l.exercise][l.date] == null || e1rm > _byExDate[l.exercise][l.date]) _byExDate[l.exercise][l.date] = e1rm;
+  }
+  const _atrophyRates = [];
+  for (const sessions of Object.values(_byExDate)) {
+    const dates = Object.keys(sessions).sort();
+    for (let i = 0; i < dates.length - 1; i++) {
+      const gapH = (new Date(dates[i + 1]) - new Date(dates[i])) / 3600000;
+      if (gapH < 336 || gapH > 2160) continue;
+      const e1 = sessions[dates[i]], e2 = sessions[dates[i + 1]];
+      if (e2 >= e1) continue;
+      const drop = (e1 - e2) / e1;
+      if (drop > 0.5) continue;
+      _atrophyRates.push(drop / gapH);
+    }
+  }
+  _atrophyRates.sort((a, b) => a - b);
+  const estimatedAtrophyRate = _atrophyRates.length >= 2 ? _atrophyRates[Math.floor(_atrophyRates.length / 2)] : null;
+  // Trim lifts to last 90 days for payload (liftPRs carries all-time bests separately)
+  const _ninetyDaysAgo = new Date(Date.now() - 90 * 864e5).toISOString().slice(0, 10);
+  const recentLifts = db.lifts.filter(l => l.date >= _ninetyDaysAgo);
+
   const target = db.profile.waterTarget || 7;
   const waterDays = lastN(db.water, 30).map(w => w.value);
   let streak = 0; for (let i = waterDays.length - 1 - (waterDays.at(-1) < target ? 1 : 0); i >= 0 && waterDays[i] >= target; i--) streak++;
@@ -472,9 +514,11 @@ app.get("/summary", async (req, res) => {
     baselines: { hrv: baseHRV && Math.round(baseHRV), rhr: baseRHR && Math.round(baseRHR) },
     composition: compVerdict(weights, db.lifts),
     waterStats: { streak, avg: waterDays.length ? Math.round(avg(waterDays) * 10) / 10 : 0, hitRate: waterDays.length ? Math.round((waterDays.filter(v => v >= target).length / waterDays.length) * 100) : 0, best: waterDays.length ? Math.max(...waterDays) : 0 },
-    weights, workouts: db.workouts.slice(-100), workoutsMonth: monthWk.length,
+    liftPRs, estimatedAtrophyRate,
+    _v: `${STARTUP_TS}-${saveCounter}`,
+    weights, workouts: db.workouts.slice(-30), workoutsMonth: monthWk.length,
     water: lastN(db.water, 14), waterToday: db.water[day()] || 0,
-    lifts: db.lifts.slice(-500), finance: db.finance, thoughts: db.thoughts,
+    lifts: recentLifts, finance: db.finance, thoughts: db.thoughts,
     nutritionToday: sanitizeNutrition((db.nutrition || {})[day()]),
     nutrition14: Object.keys(db.nutrition || {}).sort().slice(-14).map(k => ({ date: k, ...sanitizeNutrition(db.nutrition[k]) })),
     nutritionLog: (db.nutritionLog || []).filter(l => l.date === day()).map(l => ({ ...l, protein: parseFloat(l.protein) || 0, carbs: parseFloat(l.carbs) || 0, fat: parseFloat(l.fat) || 0, calories: parseFloat(l.calories) || 0 })),
