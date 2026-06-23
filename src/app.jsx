@@ -366,10 +366,19 @@ function Vitality({ go, s }) {
   const sleepSeries = s.sleepSeries || [];
   const maxH = Math.max(sleepTarget * 1.15, ...sleepSeries.map(d => d.h || 0), 0.1);
 
-  // Sleep Bank: per-night surplus/deficit vs target
-  const bankEntries = sleepSeries.map(d => ({ date: d.date, h: d.h, delta: d.h != null ? d.h - sleepTarget : null }));
-  const totalBank = bankEntries.reduce((acc, e) => acc + (e.delta ?? 0), 0);
-  const absMaxDelta = Math.max(1, ...bankEntries.map(e => Math.abs(e.delta || 0)));
+  // Two-process sleep pressure model (ΔS = α(1−S)·t_wake − β·S·t_sleep, baseline 7.5 h)
+  const pressureSeries = Array.isArray(s.sleepPressureSeries) ? s.sleepPressureSeries : [];
+  const currentPressure = typeof s.sleepPressure === "number" ? s.sleepPressure : (pressureSeries.at(-1)?.pressure ?? null);
+  const SP_REST_UI = 0.15;
+  const pressureEntries = pressureSeries.map((p, i) => ({
+    date: p.date,
+    pressure: p.pressure ?? SP_REST_UI,
+    debtH: p.debtH ?? 0,
+    delta: i > 0 ? (p.pressure ?? SP_REST_UI) - (pressureSeries[i - 1].pressure ?? SP_REST_UI) : 0,
+  }));
+  const absMaxDelta = pressureEntries.length > 0 ? Math.max(0.02, ...pressureEntries.map(e => Math.abs(e.delta))) : 0.02;
+  const debtH = typeof s.sleepDebtH === "number" ? s.sleepDebtH : 0;
+  const pressureColor = currentPressure == null ? T.dim : currentPressure <= SP_REST_UI * 1.3 ? T.green : currentPressure <= SP_REST_UI * 2.2 ? T.amber : T.red;
 
   return (
     <>
@@ -461,38 +470,40 @@ function Vitality({ go, s }) {
           )}
         </div>
 
-        {/* Sleep Bank */}
+        {/* Sleep Pressure */}
         <div style={{ ...card, gridColumn: "1 / -1" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 14, flexWrap: "wrap", gap: 10 }}>
             <div>
-              <div style={label}>Sleep Bank · last 14 nights</div>
+              <div style={label}>Sleep Pressure · last 14 nights</div>
               <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginTop: 4 }}>
-                <div style={{ fontSize: 40, fontWeight: 700, color: totalBank >= 0 ? T.green : T.red, lineHeight: 1 }}>
-                  {totalBank >= 0 ? "+" : "−"}{fmtHM(Math.abs(totalBank))}
+                <div style={{ fontSize: 40, fontWeight: 700, color: pressureColor, lineHeight: 1 }}>
+                  {currentPressure != null ? Math.round(currentPressure * 100) : "—"}{currentPressure != null && <span style={{ fontSize: 20 }}>%</span>}
                 </div>
-                <div style={{ fontSize: 13, color: totalBank >= 0 ? T.green : T.red }}>{totalBank >= 0 ? "Surplus" : "Debt"}</div>
+                <div style={{ fontSize: 13, color: pressureColor }}>
+                  {currentPressure == null ? "" : currentPressure <= SP_REST_UI * 1.3 ? "Recovered" : currentPressure <= SP_REST_UI * 2.2 ? "Mild debt" : "High debt"}
+                </div>
               </div>
             </div>
             <div style={{ fontSize: 12, color: T.dim, lineHeight: 1.6, textAlign: "right" }}>
-              Target {sleepTarget}h/night<br />
-              {totalBank < 0 ? `${fmtHM(Math.abs(totalBank))} owed` : `${fmtHM(totalBank)} banked`}
+              Baseline 7h 30m/night<br />
+              {debtH > 0 ? `${fmtHM(debtH)} to clear` : "Fully cleared"}
             </div>
           </div>
-          {/* Per-night surplus/deficit bars, centred on a zero line */}
+          {/* Per-night pressure change bars, centred on a zero line */}
           <div style={{ display: "flex", alignItems: "stretch", gap: 3, height: 70 }}>
-            {bankEntries.map((e, i) => {
+            {pressureEntries.map((e, i) => {
               const isToday = e.date === todayISO;
-              const surplus = e.delta != null && e.delta > 0;
-              const deficit = e.delta != null && e.delta < 0;
-              const pct = e.delta != null ? Math.abs(e.delta) / absMaxDelta : 0;
+              const recovered = e.delta < 0;
+              const accumulated = e.delta > 0;
+              const pct = Math.abs(e.delta) / absMaxDelta;
               return (
                 <div key={i} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center" }}>
                   <div style={{ flex: 1, display: "flex", alignItems: "flex-end", width: "100%" }}>
-                    {surplus ? <div style={{ width: "100%", height: `${pct * 100}%`, background: T.green, borderRadius: "3px 3px 0 0", minHeight: 3, outline: isToday ? `1.5px solid ${T.fg}` : "none" }} title={`+${fmtHM(e.delta)}`} /> : <div style={{ width: "100%" }} />}
+                    {recovered ? <div style={{ width: "100%", height: `${pct * 100}%`, background: T.green, borderRadius: "3px 3px 0 0", minHeight: 3, outline: isToday ? `1.5px solid ${T.fg}` : "none" }} title={`Pressure −${(Math.abs(e.delta) * 100).toFixed(1)}%`} /> : <div style={{ width: "100%" }} />}
                   </div>
                   <div style={{ height: 1, width: "100%", background: T.line }} />
                   <div style={{ flex: 1, display: "flex", alignItems: "flex-start", width: "100%" }}>
-                    {deficit ? <div style={{ width: "100%", height: `${pct * 100}%`, background: T.red, borderRadius: "0 0 3px 3px", minHeight: 3, outline: isToday ? `1.5px solid ${T.fg}` : "none" }} title={`-${fmtHM(Math.abs(e.delta))}`} /> : <div style={{ width: "100%" }} />}
+                    {accumulated ? <div style={{ width: "100%", height: `${pct * 100}%`, background: T.red, borderRadius: "0 0 3px 3px", minHeight: 3, outline: isToday ? `1.5px solid ${T.fg}` : "none" }} title={`Pressure +${(e.delta * 100).toFixed(1)}%`} /> : <div style={{ width: "100%" }} />}
                   </div>
                 </div>
               );
@@ -500,7 +511,7 @@ function Vitality({ go, s }) {
           </div>
           {/* Day labels */}
           <div style={{ display: "flex", gap: 3, marginTop: 5 }}>
-            {bankEntries.map((e, i) => {
+            {pressureEntries.map((e, i) => {
               const isToday = e.date === todayISO;
               const [line1, line2] = fmtDay(e.date);
               return (
@@ -512,7 +523,7 @@ function Vitality({ go, s }) {
             })}
           </div>
           <div style={{ fontSize: 11, color: T.dim, marginTop: 10, lineHeight: 1.5 }}>
-            Each bar shows surplus (green, above line) or deficit (red, below) vs your {sleepTarget}h target per night. The total is your 14-night balance.
+            Green bars = pressure fell (good sleep). Red bars = pressure rose (short sleep). Current pressure {currentPressure != null ? Math.round(currentPressure * 100) + "%" : "—"}; baseline is ~15% after a full 7h 30m night.
           </div>
         </div>
 
@@ -565,12 +576,7 @@ function Train({ go, s, refresh }) {
   // Per-exercise stimulus data for last 8 sessions
   const [stimExercise, setStimExercise] = useState(null);
   const stimulusData = useMemo(() => {
-    const est1RM = {};
-    for (const l of (s.lifts || [])) {
-      if (!l.exercise || !l.kg) continue;
-      const e = estOneRM(l.kg, l.reps || 1);
-      if (!est1RM[l.exercise] || e > est1RM[l.exercise]) est1RM[l.exercise] = e;
-    }
+    const est1RM = s.liftPRs || {};
     const byExKey = {};
     for (const l of (s.lifts || [])) {
       if (!l.exercise || !l.kg || !l.date) continue;
@@ -596,7 +602,7 @@ function Train({ go, s, refresh }) {
         });
     }
     return result;
-  }, [s.lifts]);
+  }, [s.lifts, s.liftPRs]);
 
   const stimExercises = Object.keys(stimulusData).sort();
   const activeStimEx = stimExercise || stimExercises[0] || null;
@@ -678,7 +684,7 @@ function Train({ go, s, refresh }) {
                   <div style={{ marginTop: 12, paddingTop: 10, borderTop: `1px solid ${T.line}` }}>
                     {Object.entries(byExDay).map(([name, sets]) => {
                       const best = Math.max(...sets.map(x => x.kg || 0));
-                      const erm = (() => { let m = 0; for (const l of (s.lifts || [])) { if (l.exercise === name && l.kg) { const e = estOneRM(l.kg, l.reps || 1); if (e > m) m = e; } } return m || 1; })();
+                      const erm = (s.liftPRs || {})[name] || 1;
                       const numSets = sets.length;
                       const avgReps = sets.reduce((acc, l) => acc + (l.reps || 1), 0) / numSets;
                       const avgRIR = sets.reduce((acc, l) => acc + (l.rir != null ? l.rir : estRIR(l.kg, l.reps || 1, erm)), 0) / numSets;
@@ -1364,14 +1370,7 @@ function Fatigue({ go, s, refresh }) {
       activeSoreness[e.muscle] = (activeSoreness[e.muscle] || 0) + decayed;
     }
 
-    // Pre-compute peak est1RM per exercise for intensity normalisation
-    const liftEst1RM = {};
-    for (const l of (s.lifts || [])) {
-      if (!l.kg || !l.exercise) continue;
-      const e = estOneRM(l.kg, l.reps || 1);
-      if (!liftEst1RM[l.exercise] || e > liftEst1RM[l.exercise]) liftEst1RM[l.exercise] = e;
-    }
-
+    const liftEst1RM = s.liftPRs || {};
     const uMap = s.userMuscleMap || {};
     // From logged lifts
     for (const l of (s.lifts || [])) {
@@ -1414,7 +1413,7 @@ function Fatigue({ go, s, refresh }) {
     const result = {};
     for (const [m, v] of Object.entries(accum)) result[m] = v / maxVal;
     return result;
-  }, [s.lifts, s.workouts, s.muscleSensitivity, s.soreness]);
+  }, [s.lifts, s.liftPRs, s.workouts, s.muscleSensitivity, s.soreness]);
 
   const getMuscleLevel = (key) => {
     const m = MUSCLES[key];
@@ -1476,12 +1475,7 @@ function Fatigue({ go, s, refresh }) {
     const uMap = s.userMuscleMap || {};
     const WINDOW_START_H = -14 * 24, WINDOW_END_H = 3 * 24, STEP_H = 6;
     const steps = Math.floor((WINDOW_END_H - WINDOW_START_H) / STEP_H) + 1;
-    const est1RM = {};
-    for (const l of (s.lifts || [])) {
-      if (!l.kg || !l.exercise) continue;
-      const e = estOneRM(l.kg, l.reps || 1);
-      if (!est1RM[l.exercise] || e > est1RM[l.exercise]) est1RM[l.exercise] = e;
-    }
+    const est1RM = s.liftPRs || {};
     const byExDate = {};
     for (const l of (s.lifts || [])) {
       if (!l.exercise || !l.date || !l.kg) continue;
@@ -1523,40 +1517,13 @@ function Fatigue({ go, s, refresh }) {
       result[muscle] = series;
     }
     return result;
-  }, [s.lifts]);
+  }, [s.lifts, s.liftPRs]);
 
   const adaptMuscles = Object.keys(adaptationTimeline).sort();
   const activeAdaptMuscle = adaptMuscle || adaptMuscles[0] || null;
   const activeSeries = activeAdaptMuscle ? (adaptationTimeline[activeAdaptMuscle] || []) : [];
 
-  // Estimate atrophy rate from large training gaps (14+ days).
-  // By 14 days the gamma curve is negligible (<0.03%), so the entire 1RM
-  // drop is attributable to atrophy rather than supercompensation fading.
-  const estimatedAtrophyRate = useMemo(() => {
-    const byEx = {};
-    for (const l of (s.lifts || [])) {
-      if (!l.kg || !l.exercise || !l.date) continue;
-      const e1rm = estOneRM(l.kg, l.reps || 1);
-      if (!byEx[l.exercise]) byEx[l.exercise] = {};
-      if (byEx[l.exercise][l.date] == null || e1rm > byEx[l.exercise][l.date]) byEx[l.exercise][l.date] = e1rm;
-    }
-    const rates = [];
-    for (const sessions of Object.values(byEx)) {
-      const dates = Object.keys(sessions).sort();
-      for (let i = 0; i < dates.length - 1; i++) {
-        const gapH = (new Date(dates[i + 1]) - new Date(dates[i])) / 3600000;
-        if (gapH < 336 || gapH > 2160) continue; // 14 days – 90 days: gamma gone, not extreme
-        const e1 = sessions[dates[i]], e2 = sessions[dates[i + 1]];
-        if (e2 >= e1) continue; // held or improved — detraining didn't show here
-        const drop = (e1 - e2) / e1;
-        if (drop > 0.5) continue; // >50% drop in a gap is likely a form/data change
-        rates.push(drop / gapH);
-      }
-    }
-    if (rates.length < 2) return null;
-    rates.sort((a, b) => a - b);
-    return rates[Math.floor(rates.length / 2)];
-  }, [s.lifts]);
+  const estimatedAtrophyRate = s.estimatedAtrophyRate ?? null;
 
   // Auto-apply once enough data is available; ignore on subsequent lift changes
   const [atrophyCalibrated, setAtrophyCalibrated] = useState(false);
@@ -2255,7 +2222,9 @@ function App() {
     return () => window.removeEventListener("keydown", onKey);
   }, [page, go]);
 
-  const refresh = useCallback(() => api("summary").then(setS), []);
+  const refresh = useCallback(() => api("summary").then(data => {
+    setS(prev => (prev && prev._v === data._v) ? prev : data);
+  }), []);
   useEffect(() => { refresh(); const t = setInterval(refresh, 60000); return () => clearInterval(t); }, [refresh]);
 
   if (!s) return (
