@@ -537,7 +537,7 @@ app.get("/summary", async (req, res) => {
     _v: `${STARTUP_TS}-${saveCounter}`,
     weights, workouts: db.workouts.slice(-30), workoutsMonth: monthWk.length,
     water: lastN(db.water, 14), waterToday: db.water[day()] || 0,
-    lifts: recentLifts, finance: db.finance, thoughts: db.thoughts,
+    lifts: recentLifts, finance: db.finance, thoughts: (db.thoughts || []).slice(-200),
     nutritionToday: sanitizeNutrition((db.nutrition || {})[day()]),
     nutrition14: Object.keys(db.nutrition || {}).sort().slice(-14).map(k => ({ date: k, ...sanitizeNutrition(db.nutrition[k]) })),
     nutritionLog: (db.nutritionLog || []).filter(l => l.date === day()).map(l => ({ ...l, protein: parseFloat(l.protein) || 0, carbs: parseFloat(l.carbs) || 0, fat: parseFloat(l.fat) || 0, calories: parseFloat(l.calories) || 0 })),
@@ -611,6 +611,9 @@ app.post("/nutrition", async (req, res) => {
   for (const m of ["protein", "carbs", "fat", "calories"]) db.nutrition[k][m] = (parseFloat(db.nutrition[k][m]) || 0) + (parseFloat(req.body[m]) || 0);
   db.nutritionLog = db.nutritionLog || [];
   if (req.body.label) db.nutritionLog.push({ date: k, time: new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }), label: req.body.label, protein: parseFloat(req.body.protein) || 0, carbs: parseFloat(req.body.carbs) || 0, fat: parseFloat(req.body.fat) || 0, calories: parseFloat(req.body.calories) || 0 });
+  // Keep only last 90 days of meal logs
+  const cutoff90 = new Date(Date.now() - 90 * 864e5).toISOString().slice(0, 10);
+  db.nutritionLog = (db.nutritionLog || []).filter(l => l.date >= cutoff90);
   await save(); res.json(db.nutrition[k]);
 });
 app.post("/macro-targets", async (req, res) => {
@@ -663,6 +666,7 @@ app.post("/finance", async (req, res) => {
   db.nwHistory = db.nwHistory || []; const k = day();
   const last = db.nwHistory.at(-1);
   if (last && last.date === k) last.total = total; else db.nwHistory.push({ date: k, total });
+  db.nwHistory = db.nwHistory.slice(-365);
   await save(); res.json({ ok: true });
 });
 app.delete("/finance/:i", async (req, res) => {
@@ -671,7 +675,7 @@ app.delete("/finance/:i", async (req, res) => {
   db.finance.splice(i, 1);
   await save(); res.json({ ok: true });
 });
-app.post("/thought", async (req, res) => { db.thoughts.push({ date: day(), text: req.body.text }); await save(); res.json({ ok: true }); });
+app.post("/thought", async (req, res) => { db.thoughts.push({ date: day(), text: req.body.text }); db.thoughts = db.thoughts.slice(-200); await save(); res.json({ ok: true }); });
 app.post("/profile", async (req, res) => {
   const allowed = ["name", "heightCm", "sex", "age", "activityLevel", "waterTarget", "macroMode", "macroGoal"];
   const update = {};

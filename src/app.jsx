@@ -571,7 +571,7 @@ function Train({ go, s, refresh }) {
     const ka = a.start || a.date || "";
     const kb = b.start || b.date || "";
     return kb.localeCompare(ka);
-  }).slice(0, 20);
+  }).slice(0, 50);
 
   // Per-exercise stimulus data for last 8 sessions
   const [stimExercise, setStimExercise] = useState(null);
@@ -669,7 +669,7 @@ function Train({ go, s, refresh }) {
                     </div>
                     <div style={{ fontSize: 12, color: T.dim, marginTop: 3 }}>
                       {w.date}
-                      {w.duration && ` · ${Math.round(w.duration > 300 ? w.duration / 60 : w.duration)} min`}
+                      {w.duration && ` · ${Math.round(w.duration)} min`}
                       {hasLifts && ` · ${Object.keys(byExDay).length} exercises · ${totalSets} sets`}
                       {totalVol > 0 && ` · ${Math.round(totalVol / 1000 * 10) / 10}t vol`}
                     </div>
