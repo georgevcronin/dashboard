@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from "react";
+import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { createRoot } from "react-dom/client";
 
 // ── DESIGN SYSTEM ─────────────────────────────────────────────────────────
@@ -117,6 +117,84 @@ const Back = ({ onClick, title }) => (
 );
 const dash = (v, unit = "") => (v == null ? "—" : `${typeof v === "number" ? Math.round(v * 10) / 10 : v}${unit}`);
 
+const ARIA_COLOR = "#3dd8dc";
+
+function Aria({ s }) {
+  const [briefing, setBriefing] = useState(null);
+  const [msgs, setMsgs] = useState([]);
+  const [inp, setInp] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [open, setOpen] = useState(true);
+  const [fetched, setFetched] = useState(false);
+  const inputRef = useRef(null);
+
+  useEffect(() => {
+    if (fetched) return;
+    setFetched(true);
+    setBusy(true);
+    const hr = new Date().getHours();
+    const timeOfDay = hr < 12 ? "morning" : hr < 18 ? "afternoon" : "evening";
+    api("mentor", { messages: [{ role: "user", content: `Good ${timeOfDay}. Brief me on my status in exactly 2 sentences. Be direct, specific, and personal.` }] })
+      .then(({ reply }) => setBriefing(reply))
+      .catch(() => setBriefing("Hey! I'm ARIA — ask me anything about your data."))
+      .finally(() => setBusy(false));
+  }, []);
+
+  async function send(text) {
+    const q = (text ?? inp).trim();
+    if (!q || busy) return;
+    const seed = briefing ? [{ role: "assistant", content: briefing }] : [];
+    const history = [...seed, ...msgs];
+    const next = [...history, { role: "user", content: q }];
+    setInp(""); setBusy(true);
+    try {
+      const { reply } = await api("mentor", { messages: next });
+      setMsgs([...msgs, { role: "user", content: q }, { role: "assistant", content: reply }]);
+    } finally { setBusy(false); }
+  }
+
+  const displayMsg = msgs.filter(m => m.role === "assistant").at(-1)?.content ?? briefing;
+  const dot = busy ? T.amber : T.green;
+
+  return (
+    <div style={{ borderRadius: 16, border: `1px solid ${ARIA_COLOR}20`, background: `linear-gradient(150deg, rgba(61,216,220,.05), ${T.panel} 55%)`, padding: "13px 16px", marginBottom: 12 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }} onClick={() => setOpen(o => !o)}>
+        <div style={{ width: 28, height: 28, borderRadius: 999, background: `linear-gradient(135deg, ${ARIA_COLOR}cc, #0e4b4c)`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, color: "#fff", flexShrink: 0, boxShadow: `0 0 10px ${ARIA_COLOR}30` }}>✦</div>
+        <div>
+          <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.14em", color: ARIA_COLOR }}>ARIA</span>
+          <span style={{ fontSize: 9, color: T.dim, letterSpacing: "0.1em", marginLeft: 8 }}>PERSONAL ASSISTANT</span>
+        </div>
+        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10 }}>
+          <div style={{ width: 6, height: 6, borderRadius: 999, background: dot, boxShadow: `0 0 5px ${dot}88`, transition: "background .3s" }} />
+          <span style={{ color: T.dim, fontSize: 11 }}>{open ? "▲" : "▼"}</span>
+        </div>
+      </div>
+
+      {open && (
+        <div style={{ marginTop: 10 }}>
+          <div style={{ minHeight: 38, marginBottom: 10 }}>
+            {busy && !displayMsg
+              ? <div style={{ ...serif, color: T.dim, fontSize: 13, opacity: 0.7 }}>briefing…</div>
+              : displayMsg
+                ? <div style={{ fontSize: 13, color: T.mid, lineHeight: 1.6 }}>{displayMsg}</div>
+                : null}
+          </div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <input ref={inputRef} value={inp} onChange={e => setInp(e.target.value)}
+              onKeyDown={e => e.key === "Enter" && send()}
+              placeholder="ask ARIA anything…"
+              style={{ ...input, flex: 1, borderRadius: 999, fontSize: 13, padding: "8px 14px", borderColor: `${ARIA_COLOR}28` }} />
+            <button onClick={() => send()} disabled={busy || !inp.trim()}
+              style={{ padding: "8px 15px", borderRadius: 999, background: `${ARIA_COLOR}18`, border: `1px solid ${ARIA_COLOR}40`, color: ARIA_COLOR, fontSize: 13, cursor: busy || !inp.trim() ? "default" : "pointer", opacity: busy || !inp.trim() ? 0.4 : 1, transition: "opacity .2s" }}>
+              →
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function Home({ go, s }) {
   const hr = new Date().getHours();
   const greet = hr < 12 ? "Good morning" : hr < 18 ? "Good afternoon" : "Good evening";
@@ -163,21 +241,147 @@ function Home({ go, s }) {
   const arrow = <span style={{ position: "absolute", top: 18, right: 20, color: T.dim, fontSize: 13 }}>↗</span>;
   const cellLabel = (txt, color) => <div style={{ ...label, color: color || T.dim }}>{txt}</div>;
 
-  return (
-    <div>
-      {/* MASTHEAD — editorial */}
-      <header style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", gap: 16, marginBottom: 22, paddingBottom: 18, borderBottom: `1px solid ${T.line}` }}>
-        <div style={{ minWidth: 0 }}>
-          <div style={{ ...label, color: T.dim, marginBottom: 12 }}>{dateStr}{s.lastSync && <span>{" · "}SYNCED {s.lastSync}</span>}</div>
-          <h1 style={{ ...titleFont, fontSize: "clamp(30px,6.5vw,52px)", margin: 0, lineHeight: 0.92, color: T.fg }}>
-            {greet},<br /><span style={{ color: T.accent }}>{name}.</span>
-          </h1>
+  // ── Vitality content (shared between mobile + desktop) ──────────────────
+  const vitalityContent = (
+    <>
+      <div style={{ ...label, color: T.green }}>Vitality</div>
+      <div style={{ display: "flex", alignItems: "center", gap: 16, marginTop: 12 }}>
+        <Ring pct={(rec || 0) / 100} size={isMobile ? 72 : 86} stroke={8} color={recColor}>
+          <div style={{ fontSize: isMobile ? 17 : 20, fontWeight: 700, color: recColor, lineHeight: 1 }}>{rec != null ? rec : "—"}</div>
+          <div style={{ fontSize: 8, color: T.dim, letterSpacing: "0.1em", marginTop: 1 }}>REC</div>
+        </Ring>
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          <div>
+            <div style={label}>Sleep</div>
+            <div style={{ fontSize: isMobile ? 16 : 20, fontWeight: 600, marginTop: 1, color: !t.sleepH ? T.dim : t.sleepH >= sleepTarget ? T.green : t.sleepH >= sleepTarget * 0.82 ? T.amber : T.red }}>
+              {t.sleepH ? fmtHM(t.sleepH) : "—"}
+            </div>
+          </div>
+          <div style={{ display: "flex", gap: 16 }}>
+            <div><div style={label}>HRV</div><div style={{ fontSize: 14, fontWeight: 600, marginTop: 1, color: T.fg }}>{t.hrv != null ? t.hrv : "—"}</div></div>
+            {t.rhr && <div><div style={label}>HR</div><div style={{ fontSize: 14, color: T.fg, marginTop: 1 }}>{t.rhr}</div></div>}
+          </div>
         </div>
-        <div style={{ width: 34, height: 34, background: T.bright, clipPath: "polygon(50% 0,100% 25%,100% 75%,50% 100%,0 75%,0 25%)", flexShrink: 0 }} />
-      </header>
+      </div>
+      {sleepSeries.length > 2 && (
+        <div style={{ marginTop: "auto", paddingTop: 10 }}>
+          <div style={{ ...label, marginBottom: 5 }}>7-night sleep</div>
+          <div style={{ display: "flex", alignItems: "flex-end", gap: 3, height: 30 }}>
+            {sleepSeries.map((h, i) => {
+              const pct = Math.min(1, h / (sleepTarget * 1.15));
+              const c = h >= sleepTarget ? T.green : h >= sleepTarget * 0.82 ? T.amber : T.red;
+              return <div key={i} style={{ flex: 1, background: `${c}55`, borderRadius: "3px 3px 0 0", height: `${Math.max(10, pct * 100)}%` }} />;
+            })}
+          </div>
+        </div>
+      )}
+      <div style={{ fontSize: 11, color: T.dim, marginTop: 8 }}>Open →</div>
+    </>
+  );
 
-      {/* LEDGER GRID — hairline rules via 1px gap over a line-coloured frame */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(232px, 1fr))", gap: 1, background: T.line, border: `1px solid ${T.line}`, borderRadius: 3, overflow: "hidden" }}>
+  // ── Fuel bars ──────────────────────────────────────────────────────────
+  const fuelBars = [
+    { lbl: "Protein", val: Math.round(protein), max: proteinTarget, unit: "g", color: T.green },
+    { lbl: "Calories", val: Math.round(calories), max: calTarget, unit: "kcal", color: T.amber },
+    { lbl: "Water", val: water, max: waterTarget, unit: "", color: "#6ab4e0" },
+  ].map(({ lbl, val, max, unit, color }) => (
+    <div key={lbl}>
+      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
+        <div style={{ fontSize: 10, letterSpacing: "0.12em", textTransform: "uppercase", color: T.dim }}>{lbl}</div>
+        <div style={{ fontSize: 11, color: T.fg }}>{val}<span style={{ color: T.dim }}>/{max}{unit}</span></div>
+      </div>
+      <div style={{ height: 3, background: T.line, borderRadius: 99, marginBottom: 7 }}>
+        <div style={{ height: "100%", width: `${Math.min(100, (val / max) * 100)}%`, background: color, borderRadius: 99, transition: "width .5s" }} />
+      </div>
+    </div>
+  ));
+
+  // ── MOBILE LAYOUT ──────────────────────────────────────────────────────
+  if (isMobile) {
+    return (
+      <div>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
+          <div style={{ width: 28, height: 28, background: `linear-gradient(135deg, ${T.green}, #1a6b40)`, clipPath: "polygon(50% 0,100% 25%,100% 75%,50% 100%,0 75%,0 25%)", flexShrink: 0 }} />
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ ...serif, fontSize: 17 }}>{greet}, <span style={{ color: T.green }}>{s.profile?.name || "friend"}</span></div>
+            <div style={{ ...label, fontSize: 9 }}>{new Date().toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" }).toUpperCase()}{s.lastSync && <span style={{ color: T.dim }}> · {s.lastSync}</span>}</div>
+          </div>
+        </div>
+
+        <Aria s={s} />
+
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+          {/* Vitality — full width */}
+          <div style={{ ...tile("rgba(61,220,132,.1)"), gridColumn: "1 / 3", minHeight: 160 }} onClick={() => go("vitality")} {...hover(T.green)}>
+            {vitalityContent}
+          </div>
+
+          {/* Train */}
+          <div style={{ ...tile("rgba(106,180,224,.09)"), minHeight: 130 }} onClick={() => go("train")} {...hover("#6ab4e0")}>
+            <div style={{ ...label, color: "#6ab4e0" }}>Train</div>
+            <div style={{ fontSize: 30, fontWeight: 700, color: T.fg, lineHeight: 1, marginTop: 6 }}>{s.workoutsMonth ?? 0}</div>
+            <div style={{ fontSize: 10, color: T.dim }}>this month</div>
+            <div style={{ marginTop: "auto", paddingTop: 8 }}>
+              {lastWkt && <div style={{ fontSize: 11, color: T.fg, textTransform: "capitalize", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{lastWkt.name}</div>}
+              <div style={{ fontSize: 10, color: T.dim }}>{daysAgo === 0 ? "Today" : daysAgo === 1 ? "Yesterday" : `${daysAgo}d ago`}</div>
+            </div>
+          </div>
+
+          {/* Fuel */}
+          <div style={{ ...tile("rgba(224,180,106,.08)"), minHeight: 130 }} onClick={() => go("fuel")} {...hover(T.amber)}>
+            <div style={{ ...label, color: T.amber }}>Fuel</div>
+            <div style={{ flex: 1, marginTop: 8 }}>{fuelBars}</div>
+          </div>
+
+          {/* Mentor */}
+          <div style={{ ...tile("rgba(224,106,106,.08)"), minHeight: 110 }} onClick={() => go("mentor")} {...hover(T.red)}>
+            <div style={{ ...label, color: T.red }}>Mentor</div>
+            <div style={{ flex: 1, marginTop: 6, overflow: "hidden" }}>
+              {lastThought?.text
+                ? <div style={{ fontSize: 11, color: T.mid, lineHeight: 1.5, display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{lastThought.text}</div>
+                : <div style={{ ...serif, fontSize: 11, color: T.dim }}>Your AI coach.</div>}
+            </div>
+            <div style={{ fontSize: 10, color: T.dim, marginTop: 6 }}>Ask →</div>
+          </div>
+
+          {/* Fatigue */}
+          <div style={{ ...tile("rgba(164,138,224,.08)"), minHeight: 110 }} onClick={() => go("fatigue")} {...hover("#a48ae0")}>
+            <div style={{ ...label, color: "#a48ae0" }}>Fatigue</div>
+            <div style={{ flex: 1, marginTop: 6 }}>
+              {lastWkt
+                ? <><div style={{ fontSize: 12, color: T.fg, textTransform: "capitalize", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{lastWkt.name}</div>
+                    <div style={{ fontSize: 10, color: T.dim, marginTop: 2 }}>{daysAgo === 0 ? "Active today" : `${daysAgo}d recovery`}</div></>
+                : <div style={{ fontSize: 11, color: T.dim }}>Log workouts →</div>}
+            </div>
+            <div style={{ fontSize: 10, color: T.dim, marginTop: 6 }}>Heat map →</div>
+          </div>
+
+          {/* Plan — full width */}
+          <div style={{ ...tile("rgba(106,180,224,.06)"), gridColumn: "1 / 3", minHeight: 80 }} onClick={() => go("plan")} {...hover("#6ab4e0")}>
+            <div style={{ ...label, color: "#6ab4e0" }}>This Week</div>
+            <div style={{ flex: 1, marginTop: 6 }}>
+              {s.weeklyPlan?.focus
+                ? <div style={{ ...serif, fontSize: 13, color: T.mid, lineHeight: 1.5, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{s.weeklyPlan.focus}</div>
+                : <div style={{ ...serif, fontSize: 12, color: T.dim }}>Generate your week →</div>}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ── DESKTOP LAYOUT ─────────────────────────────────────────────────────
+  return (
+    <div style={{ display: "flex", flexDirection: "column" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 10, flexShrink: 0 }}>
+        <div style={{ width: 32, height: 32, background: `linear-gradient(135deg, ${T.green}, #1a6b40)`, clipPath: "polygon(50% 0,100% 25%,100% 75%,50% 100%,0 75%,0 25%)", flexShrink: 0 }} />
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <span style={{ ...serif, fontSize: 20 }}>{greet}, <span style={{ color: T.green }}>{s.profile?.name || "friend"}</span></span>
+          <span style={{ ...label, marginLeft: 12 }}>{new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" }).toUpperCase()}</span>
+
+      <div style={{ flexShrink: 0 }}><Aria s={s} /></div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "1.55fr 1fr 1fr", gridTemplateRows: "minmax(160px, 1fr) minmax(160px, 1fr) minmax(110px, .72fr)", gap: 10, minHeight: "calc(100dvh - 260px)" }}>
 
         {/* HERO — RECOVERY, full width */}
         <div style={{ ...cell, gridColumn: "1 / -1", minHeight: 0, padding: "26px 24px" }} onClick={() => go("vitality")} {...cellHover}>
