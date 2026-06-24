@@ -46,6 +46,8 @@ const DEFAULTS = {
   soreness: [],
   muscleSensitivity: {},
   userMuscleMap: {},
+  exerciseLibrary: [],
+  workoutTemplates: [],
   profile: { name: "George", heightCm: null, sex: null, age: null, activityLevel: 1.55, waterTarget: 7,
     macroTargets: { calories: 2400, protein: 160, carbs: 250, fat: 75 }, macroMode: "manual" },
 };
@@ -563,7 +565,97 @@ app.get("/summary", async (req, res) => {
     soreness: (db.soreness || []).filter(e => Date.now() - e.ts < 5 * 24 * 3600000),
     muscleSensitivity: db.muscleSensitivity || {},
     userMuscleMap: db.userMuscleMap || {},
+    exerciseLibrary: db.exerciseLibrary || [],
+    workoutTemplates: db.workoutTemplates || [],
   });
+});
+
+// ---------- Manual workout logger ----------
+
+app.post("/exercises/custom", async (req, res) => {
+  const { name, category, equipment, primaryMuscles, secondaryMuscles, notes } = req.body;
+  if (!name || typeof name !== "string") return res.status(400).json({ error: "name required" });
+  db.exerciseLibrary = db.exerciseLibrary || [];
+  const slug = name.trim().toLowerCase().slice(0, 80);
+  if (db.exerciseLibrary.find(e => e.name === slug)) return res.json({ ok: true, existing: true });
+  const ex = {
+    id: Date.now(),
+    name: slug,
+    category: (["chest","back","shoulders","arms","legs","core","cardio","other"].includes(category) ? category : "other"),
+    equipment: (["barbell","dumbbell","cable","machine","bodyweight","kettlebell","bands","other"].includes(equipment) ? equipment : "other"),
+    primaryMuscles: Array.isArray(primaryMuscles) ? primaryMuscles.slice(0, 6) : [],
+    secondaryMuscles: Array.isArray(secondaryMuscles) ? secondaryMuscles.slice(0, 8) : [],
+    notes: typeof notes === "string" ? notes.slice(0, 300) : "",
+    custom: true,
+  };
+  db.exerciseLibrary.push(ex);
+  await save();
+  res.json({ ok: true, exercise: ex });
+});
+
+app.delete("/exercises/custom/:id", async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!Number.isFinite(id)) return res.status(400).json({ error: "invalid id" });
+  const before = (db.exerciseLibrary || []).length;
+  db.exerciseLibrary = (db.exerciseLibrary || []).filter(e => e.id !== id);
+  if (db.exerciseLibrary.length !== before) await save();
+  res.json({ ok: true });
+});
+
+app.post("/workouts/log", async (req, res) => {
+  const { name, startTime, endTime, exercises } = req.body;
+  if (!name || typeof name !== "string" || !Array.isArray(exercises)) return res.status(400).json({ error: "name and exercises required" });
+  let wStart;
+  try { wStart = startTime ? new Date(startTime).toISOString() : new Date().toISOString(); } catch(e) { wStart = new Date().toISOString(); }
+  const wDate = wStart.slice(0, 10);
+  const durationMin = (startTime && endTime) ? Math.round((new Date(endTime) - new Date(startTime)) / 60000) : null;
+  db.workouts = db.workouts || [];
+  if (!db.workouts.find(w => w.start === wStart)) {
+    db.workouts.push({ date: wDate, name: name.trim().toLowerCase().slice(0, 80), start: wStart, duration: durationMin, kcal: null, source: "manual" });
+  }
+  db.lifts = db.lifts || [];
+  let added = 0;
+  for (const ex of exercises) {
+    const exName = typeof ex.name === "string" ? ex.name.trim().toLowerCase().slice(0, 80) : "";
+    if (!exName) continue;
+    for (const set of (ex.sets || [])) {
+      if (set.type === "warmup") continue;
+      const kg = Math.round((parseFloat(set.kg) || 0) * 100) / 100;
+      const reps = Math.max(0, parseInt(set.reps, 10) || 0);
+      if (kg === 0 && reps === 0) continue;
+      const entry = { date: wDate, start: wStart, exercise: exName, kg, reps, source: "manual" };
+      if (set.rir !== "" && set.rir != null) entry.rir = Math.max(0, parseFloat(set.rir) || 0);
+      db.lifts.push(entry);
+      added++;
+    }
+  }
+  await save();
+  res.json({ ok: true, added, date: wDate });
+});
+
+app.post("/templates", async (req, res) => {
+  const { name, exercises } = req.body;
+  if (!name || typeof name !== "string" || !Array.isArray(exercises)) return res.status(400).json({ error: "name and exercises required" });
+  db.workoutTemplates = db.workoutTemplates || [];
+  const template = {
+    id: Date.now(),
+    name: name.trim().slice(0, 60),
+    exercises: exercises.slice(0, 30).map(e => ({ name: (e.name || "").toLowerCase().slice(0, 80), sets: Math.min(20, Math.max(1, parseInt(e.sets, 10) || 3)) })),
+    createdAt: new Date().toISOString(),
+  };
+  db.workoutTemplates.push(template);
+  if (db.workoutTemplates.length > 50) db.workoutTemplates = db.workoutTemplates.slice(-50);
+  await save();
+  res.json({ ok: true, template });
+});
+
+app.delete("/templates/:id", async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!Number.isFinite(id)) return res.status(400).json({ error: "invalid id" });
+  const before = (db.workoutTemplates || []).length;
+  db.workoutTemplates = (db.workoutTemplates || []).filter(t => t.id !== id);
+  if (db.workoutTemplates.length !== before) await save();
+  res.json({ ok: true });
 });
 
 // ---------- Remove lifts with raw CSV start_time format (non-ISO, contains spaces/commas) ----------

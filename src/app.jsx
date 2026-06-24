@@ -722,6 +722,504 @@ function Vitality({ go, s }) {
   );
 }
 
+// ─── Exercise library ────────────────────────────────────────────────────────
+const MUSCLES = [
+  { key: "chest", label: "Chest" }, { key: "lats", label: "Lats" }, { key: "rhomboids", label: "Rhomboids" },
+  { key: "frontDelts", label: "Front Delts" }, { key: "sideDelts", label: "Side Delts" }, { key: "rearDelts", label: "Rear Delts" },
+  { key: "traps", label: "Traps" }, { key: "biceps", label: "Biceps" }, { key: "triceps", label: "Triceps" },
+  { key: "forearms", label: "Forearms" }, { key: "quads", label: "Quads" }, { key: "hamstrings", label: "Hamstrings" },
+  { key: "glutes", label: "Glutes" }, { key: "adductors", label: "Adductors" }, { key: "calves", label: "Calves" },
+  { key: "lowerBack", label: "Lower Back" }, { key: "core", label: "Core" },
+];
+const CATEGORIES = ["chest","back","shoulders","arms","legs","core","cardio","other"];
+const EQUIPMENT_TYPES = ["barbell","dumbbell","cable","machine","bodyweight","kettlebell","bands","other"];
+
+const BUILTIN_EXERCISES = [
+  // Chest
+  { name:"barbell bench press", category:"chest", equipment:"barbell", primaryMuscles:["chest"], secondaryMuscles:["frontDelts","triceps"] },
+  { name:"incline barbell bench press", category:"chest", equipment:"barbell", primaryMuscles:["chest"], secondaryMuscles:["frontDelts","triceps"] },
+  { name:"decline barbell bench press", category:"chest", equipment:"barbell", primaryMuscles:["chest"], secondaryMuscles:["triceps"] },
+  { name:"dumbbell bench press", category:"chest", equipment:"dumbbell", primaryMuscles:["chest"], secondaryMuscles:["frontDelts","triceps"] },
+  { name:"incline dumbbell press", category:"chest", equipment:"dumbbell", primaryMuscles:["chest"], secondaryMuscles:["frontDelts","triceps"] },
+  { name:"dumbbell fly", category:"chest", equipment:"dumbbell", primaryMuscles:["chest"], secondaryMuscles:[] },
+  { name:"incline dumbbell fly", category:"chest", equipment:"dumbbell", primaryMuscles:["chest"], secondaryMuscles:[] },
+  { name:"cable fly", category:"chest", equipment:"cable", primaryMuscles:["chest"], secondaryMuscles:[] },
+  { name:"cable crossover", category:"chest", equipment:"cable", primaryMuscles:["chest"], secondaryMuscles:[] },
+  { name:"pec deck", category:"chest", equipment:"machine", primaryMuscles:["chest"], secondaryMuscles:[] },
+  { name:"push-up", category:"chest", equipment:"bodyweight", primaryMuscles:["chest"], secondaryMuscles:["triceps","frontDelts"] },
+  { name:"dips", category:"chest", equipment:"bodyweight", primaryMuscles:["chest"], secondaryMuscles:["triceps","frontDelts"] },
+  // Back
+  { name:"pull-up", category:"back", equipment:"bodyweight", primaryMuscles:["lats"], secondaryMuscles:["rhomboids","biceps","forearms"] },
+  { name:"chin-up", category:"back", equipment:"bodyweight", primaryMuscles:["lats"], secondaryMuscles:["biceps","rhomboids"] },
+  { name:"lat pulldown", category:"back", equipment:"cable", primaryMuscles:["lats"], secondaryMuscles:["rhomboids","biceps"] },
+  { name:"seated cable row", category:"back", equipment:"cable", primaryMuscles:["lats"], secondaryMuscles:["rhomboids","rearDelts","biceps"] },
+  { name:"barbell row", category:"back", equipment:"barbell", primaryMuscles:["lats"], secondaryMuscles:["rhomboids","rearDelts","biceps","forearms"] },
+  { name:"dumbbell row", category:"back", equipment:"dumbbell", primaryMuscles:["lats"], secondaryMuscles:["rhomboids","rearDelts","biceps"] },
+  { name:"t-bar row", category:"back", equipment:"barbell", primaryMuscles:["lats"], secondaryMuscles:["rhomboids","rearDelts","biceps"] },
+  { name:"straight arm pulldown", category:"back", equipment:"cable", primaryMuscles:["lats"], secondaryMuscles:[] },
+  { name:"face pull", category:"back", equipment:"cable", primaryMuscles:["rearDelts"], secondaryMuscles:["rhomboids"] },
+  { name:"deadlift", category:"back", equipment:"barbell", primaryMuscles:["lats"], secondaryMuscles:["glutes","hamstrings","lowerBack","traps","forearms"] },
+  { name:"romanian deadlift", category:"legs", equipment:"barbell", primaryMuscles:["hamstrings"], secondaryMuscles:["glutes","lowerBack"] },
+  { name:"sumo deadlift", category:"legs", equipment:"barbell", primaryMuscles:["glutes"], secondaryMuscles:["hamstrings","adductors","lats"] },
+  { name:"good morning", category:"back", equipment:"barbell", primaryMuscles:["hamstrings"], secondaryMuscles:["lowerBack","glutes"] },
+  // Shoulders
+  { name:"barbell overhead press", category:"shoulders", equipment:"barbell", primaryMuscles:["frontDelts"], secondaryMuscles:["triceps","sideDelts"] },
+  { name:"dumbbell shoulder press", category:"shoulders", equipment:"dumbbell", primaryMuscles:["frontDelts"], secondaryMuscles:["triceps","sideDelts"] },
+  { name:"seated dumbbell press", category:"shoulders", equipment:"dumbbell", primaryMuscles:["frontDelts"], secondaryMuscles:["triceps","sideDelts"] },
+  { name:"arnold press", category:"shoulders", equipment:"dumbbell", primaryMuscles:["frontDelts"], secondaryMuscles:["sideDelts","triceps"] },
+  { name:"lateral raise", category:"shoulders", equipment:"dumbbell", primaryMuscles:["sideDelts"], secondaryMuscles:[] },
+  { name:"cable lateral raise", category:"shoulders", equipment:"cable", primaryMuscles:["sideDelts"], secondaryMuscles:[] },
+  { name:"front raise", category:"shoulders", equipment:"dumbbell", primaryMuscles:["frontDelts"], secondaryMuscles:[] },
+  { name:"rear delt fly", category:"shoulders", equipment:"dumbbell", primaryMuscles:["rearDelts"], secondaryMuscles:["rhomboids"] },
+  { name:"upright row", category:"shoulders", equipment:"barbell", primaryMuscles:["sideDelts"], secondaryMuscles:["traps","biceps"] },
+  { name:"shrug", category:"shoulders", equipment:"barbell", primaryMuscles:["traps"], secondaryMuscles:[] },
+  // Arms
+  { name:"barbell curl", category:"arms", equipment:"barbell", primaryMuscles:["biceps"], secondaryMuscles:["forearms"] },
+  { name:"dumbbell curl", category:"arms", equipment:"dumbbell", primaryMuscles:["biceps"], secondaryMuscles:["forearms"] },
+  { name:"hammer curl", category:"arms", equipment:"dumbbell", primaryMuscles:["biceps"], secondaryMuscles:["forearms"] },
+  { name:"incline dumbbell curl", category:"arms", equipment:"dumbbell", primaryMuscles:["biceps"], secondaryMuscles:[] },
+  { name:"cable curl", category:"arms", equipment:"cable", primaryMuscles:["biceps"], secondaryMuscles:["forearms"] },
+  { name:"preacher curl", category:"arms", equipment:"machine", primaryMuscles:["biceps"], secondaryMuscles:[] },
+  { name:"concentration curl", category:"arms", equipment:"dumbbell", primaryMuscles:["biceps"], secondaryMuscles:[] },
+  { name:"tricep pushdown", category:"arms", equipment:"cable", primaryMuscles:["triceps"], secondaryMuscles:[] },
+  { name:"overhead tricep extension", category:"arms", equipment:"cable", primaryMuscles:["triceps"], secondaryMuscles:[] },
+  { name:"skull crusher", category:"arms", equipment:"barbell", primaryMuscles:["triceps"], secondaryMuscles:[] },
+  { name:"close-grip bench press", category:"arms", equipment:"barbell", primaryMuscles:["triceps"], secondaryMuscles:["chest"] },
+  { name:"tricep kickback", category:"arms", equipment:"dumbbell", primaryMuscles:["triceps"], secondaryMuscles:[] },
+  // Legs
+  { name:"back squat", category:"legs", equipment:"barbell", primaryMuscles:["quads"], secondaryMuscles:["glutes","hamstrings","core"] },
+  { name:"front squat", category:"legs", equipment:"barbell", primaryMuscles:["quads"], secondaryMuscles:["core","glutes"] },
+  { name:"hack squat", category:"legs", equipment:"machine", primaryMuscles:["quads"], secondaryMuscles:["glutes"] },
+  { name:"leg press", category:"legs", equipment:"machine", primaryMuscles:["quads"], secondaryMuscles:["glutes","hamstrings"] },
+  { name:"leg extension", category:"legs", equipment:"machine", primaryMuscles:["quads"], secondaryMuscles:[] },
+  { name:"leg curl", category:"legs", equipment:"machine", primaryMuscles:["hamstrings"], secondaryMuscles:[] },
+  { name:"seated leg curl", category:"legs", equipment:"machine", primaryMuscles:["hamstrings"], secondaryMuscles:[] },
+  { name:"nordic hamstring curl", category:"legs", equipment:"bodyweight", primaryMuscles:["hamstrings"], secondaryMuscles:[] },
+  { name:"hip thrust", category:"legs", equipment:"barbell", primaryMuscles:["glutes"], secondaryMuscles:["hamstrings"] },
+  { name:"glute bridge", category:"legs", equipment:"bodyweight", primaryMuscles:["glutes"], secondaryMuscles:["hamstrings"] },
+  { name:"bulgarian split squat", category:"legs", equipment:"dumbbell", primaryMuscles:["quads"], secondaryMuscles:["glutes","hamstrings"] },
+  { name:"lunges", category:"legs", equipment:"bodyweight", primaryMuscles:["quads"], secondaryMuscles:["glutes","hamstrings"] },
+  { name:"walking lunges", category:"legs", equipment:"dumbbell", primaryMuscles:["quads"], secondaryMuscles:["glutes","hamstrings"] },
+  { name:"reverse lunge", category:"legs", equipment:"bodyweight", primaryMuscles:["quads"], secondaryMuscles:["glutes","hamstrings"] },
+  { name:"step-up", category:"legs", equipment:"dumbbell", primaryMuscles:["quads"], secondaryMuscles:["glutes"] },
+  { name:"hip adduction", category:"legs", equipment:"machine", primaryMuscles:["adductors"], secondaryMuscles:[] },
+  { name:"glute 45", category:"legs", equipment:"machine", primaryMuscles:["glutes"], secondaryMuscles:["hamstrings"] },
+  { name:"calf raise", category:"legs", equipment:"machine", primaryMuscles:["calves"], secondaryMuscles:[] },
+  { name:"seated calf raise", category:"legs", equipment:"machine", primaryMuscles:["calves"], secondaryMuscles:[] },
+  // Core
+  { name:"plank", category:"core", equipment:"bodyweight", primaryMuscles:["core"], secondaryMuscles:[] },
+  { name:"crunch", category:"core", equipment:"bodyweight", primaryMuscles:["core"], secondaryMuscles:[] },
+  { name:"cable crunch", category:"core", equipment:"cable", primaryMuscles:["core"], secondaryMuscles:[] },
+  { name:"leg raise", category:"core", equipment:"bodyweight", primaryMuscles:["core"], secondaryMuscles:[] },
+  { name:"hanging leg raise", category:"core", equipment:"bodyweight", primaryMuscles:["core"], secondaryMuscles:[] },
+  { name:"russian twist", category:"core", equipment:"bodyweight", primaryMuscles:["core"], secondaryMuscles:[] },
+  { name:"ab wheel rollout", category:"core", equipment:"other", primaryMuscles:["core"], secondaryMuscles:["lats"] },
+  // Cardio
+  { name:"treadmill running", category:"cardio", equipment:"machine", primaryMuscles:[], secondaryMuscles:[] },
+  { name:"cycling", category:"cardio", equipment:"machine", primaryMuscles:[], secondaryMuscles:[] },
+  { name:"rowing machine", category:"cardio", equipment:"machine", primaryMuscles:[], secondaryMuscles:[] },
+  { name:"elliptical", category:"cardio", equipment:"machine", primaryMuscles:[], secondaryMuscles:[] },
+  { name:"jump rope", category:"cardio", equipment:"bodyweight", primaryMuscles:[], secondaryMuscles:[] },
+  { name:"stair climber", category:"cardio", equipment:"machine", primaryMuscles:[], secondaryMuscles:["quads","glutes"] },
+];
+
+const SET_TYPES = [
+  { key: "warmup", label: "W", title: "Warm-up" },
+  { key: "working", label: "●", title: "Working" },
+  { key: "drop", label: "D", title: "Drop set" },
+  { key: "failure", label: "F", title: "To failure" },
+];
+
+function mkSet(prev = null) {
+  return { type: prev?.type || "working", kg: prev?.kg || "", reps: prev?.reps || "", rir: prev?.rir || "" };
+}
+
+// ─── Custom exercise form ────────────────────────────────────────────────────
+function AddExerciseForm({ onSave, onCancel, refresh }) {
+  const [exName, setExName] = useState("");
+  const [cat, setCat] = useState("other");
+  const [equip, setEquip] = useState("other");
+  const [primary, setPrimary] = useState([]);
+  const [secondary, setSecondary] = useState([]);
+  const [notes, setNotes] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  const toggleMuscle = (key, list, setList) => {
+    setList(prev => prev.includes(key) ? prev.filter(k => k !== key) : [...prev, key]);
+  };
+
+  async function save() {
+    if (!exName.trim()) return;
+    setSaving(true);
+    try {
+      const res = await api("exercises/custom", { name: exName.trim(), category: cat, equipment: equip, primaryMuscles: primary, secondaryMuscles: secondary, notes });
+      refresh();
+      onSave(res.exercise?.name || exName.trim().toLowerCase());
+    } finally { setSaving(false); }
+  }
+
+  const selectSt = { ...input, fontSize: 13, padding: "8px 12px", cursor: "pointer", appearance: "none", backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%234d6080'/%3E%3C/svg%3E")`, backgroundRepeat: "no-repeat", backgroundPosition: "right 12px center" };
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      <div style={{ ...label, color: T.green }}>New exercise</div>
+
+      <div>
+        <div style={{ ...label, marginBottom: 5 }}>Name *</div>
+        <input value={exName} onChange={e => setExName(e.target.value)} placeholder="e.g. cable crunch" style={{ ...input, width: "100%", boxSizing: "border-box" }} />
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+        <div>
+          <div style={{ ...label, marginBottom: 5 }}>Category</div>
+          <select value={cat} onChange={e => setCat(e.target.value)} style={{ ...selectSt, width: "100%" }}>
+            {CATEGORIES.map(c => <option key={c} value={c}>{c.charAt(0).toUpperCase() + c.slice(1)}</option>)}
+          </select>
+        </div>
+        <div>
+          <div style={{ ...label, marginBottom: 5 }}>Equipment</div>
+          <select value={equip} onChange={e => setEquip(e.target.value)} style={{ ...selectSt, width: "100%" }}>
+            {EQUIPMENT_TYPES.map(e => <option key={e} value={e}>{e.charAt(0).toUpperCase() + e.slice(1)}</option>)}
+          </select>
+        </div>
+      </div>
+
+      <div>
+        <div style={{ ...label, marginBottom: 7 }}>Primary muscles</div>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+          {MUSCLES.map(m => (
+            <button key={m.key} onClick={() => toggleMuscle(m.key, primary, setPrimary)}
+              style={{ ...pill(primary.includes(m.key)), fontSize: 11, padding: "4px 10px", borderColor: primary.includes(m.key) ? T.green : T.line }}>
+              {m.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div>
+        <div style={{ ...label, marginBottom: 7 }}>Secondary muscles</div>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+          {MUSCLES.map(m => (
+            <button key={m.key} onClick={() => toggleMuscle(m.key, secondary, setSecondary)}
+              style={{ ...pill(secondary.includes(m.key)), fontSize: 11, padding: "4px 10px", borderColor: secondary.includes(m.key) ? T.mid : T.line, color: secondary.includes(m.key) ? T.mid : T.dim }}>
+              {m.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div>
+        <div style={{ ...label, marginBottom: 5 }}>Notes (optional)</div>
+        <input value={notes} onChange={e => setNotes(e.target.value)} placeholder="form cues, links…" style={{ ...input, width: "100%", boxSizing: "border-box" }} />
+      </div>
+
+      <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
+        <button onClick={save} disabled={!exName.trim() || saving}
+          style={{ ...pill(true), flex: 1, opacity: !exName.trim() || saving ? 0.5 : 1 }}>
+          {saving ? "Saving…" : "Add exercise"}
+        </button>
+        <button onClick={onCancel} style={{ ...pill(false) }}>Cancel</button>
+      </div>
+    </div>
+  );
+}
+
+// ─── Exercise search overlay ─────────────────────────────────────────────────
+function ExercisePicker({ customExercises, onPick, onCreateNew, onClose }) {
+  const [q, setQ] = useState("");
+  const [catFilter, setCatFilter] = useState("all");
+  const inputRef = useRef(null);
+  useEffect(() => { inputRef.current?.focus(); }, []);
+
+  const allExercises = [...BUILTIN_EXERCISES, ...(customExercises || [])];
+  const filtered = allExercises.filter(e => {
+    const matchQ = !q || e.name.includes(q.toLowerCase());
+    const matchCat = catFilter === "all" || e.category === catFilter;
+    return matchQ && matchCat;
+  });
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.85)", zIndex: 200, display: "flex", flexDirection: "column", padding: "24px clamp(14px,4vw,44px)" }}>
+      <div style={{ ...card, flex: 1, display: "flex", flexDirection: "column", maxWidth: 600, width: "100%", margin: "0 auto", maxHeight: "90dvh" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
+          <input ref={inputRef} value={q} onChange={e => setQ(e.target.value)}
+            placeholder="Search exercises…"
+            style={{ ...input, flex: 1, borderRadius: 999, padding: "9px 14px" }} />
+          <button onClick={onClose} style={{ color: T.dim, background: "none", border: "none", fontSize: 18, cursor: "pointer", padding: "4px 8px" }}>✕</button>
+        </div>
+
+        <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginBottom: 12 }}>
+          {["all", ...CATEGORIES].map(c => (
+            <button key={c} onClick={() => setCatFilter(c)} style={{ ...pill(catFilter === c), fontSize: 10, padding: "3px 9px" }}>
+              {c === "all" ? "All" : c.charAt(0).toUpperCase() + c.slice(1)}
+            </button>
+          ))}
+        </div>
+
+        <div style={{ flex: 1, overflowY: "auto", display: "flex", flexDirection: "column", gap: 2 }}>
+          {filtered.slice(0, 80).map(ex => (
+            <button key={ex.name} onClick={() => onPick(ex.name)}
+              style={{ textAlign: "left", background: "transparent", border: "none", borderBottom: `1px solid ${T.line}`, padding: "10px 4px", cursor: "pointer", borderRadius: 0 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{ fontSize: 14, color: T.fg, textTransform: "capitalize" }}>{ex.name}</span>
+                {ex.custom && <span style={{ fontSize: 9, color: T.green, border: `1px solid ${T.green}44`, borderRadius: 4, padding: "1px 5px" }}>Custom</span>}
+              </div>
+              <div style={{ fontSize: 11, color: T.dim, marginTop: 2 }}>
+                {ex.category} · {ex.equipment}
+                {ex.primaryMuscles?.length > 0 && ` · ${ex.primaryMuscles.join(", ")}`}
+              </div>
+            </button>
+          ))}
+          {filtered.length === 0 && <div style={{ ...serif, color: T.dim, fontSize: 13, padding: "20px 0" }}>No exercises match — create a new one below.</div>}
+        </div>
+
+        <button onClick={onCreateNew}
+          style={{ ...pill(false), marginTop: 12, textAlign: "center", borderColor: T.green, color: T.green }}>
+          + Create new exercise
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ─── Active workout logger ───────────────────────────────────────────────────
+function LogWorkout({ s, refresh }) {
+  const [phase, setPhase] = useState("idle"); // idle | active
+  const [wName, setWName] = useState("My Workout");
+  const [startTs, setStartTs] = useState(null);
+  const [exercises, setExercises] = useState([]); // [{name, sets:[{type,kg,reps,rir}]}]
+  const [showPicker, setShowPicker] = useState(false);
+  const [showAddEx, setShowAddEx] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [elapsed, setElapsed] = useState(0);
+  const [showTemplateSave, setShowTemplateSave] = useState(false);
+  const [tplName, setTplName] = useState("");
+  const [tplSaving, setTplSaving] = useState(false);
+  const [finishMsg, setFinishMsg] = useState(null);
+
+  useEffect(() => {
+    if (phase !== "active") return;
+    const t = setInterval(() => setElapsed(Math.floor((Date.now() - startTs) / 1000)), 1000);
+    return () => clearInterval(t);
+  }, [phase, startTs]);
+
+  function fmtElapsed(s) {
+    const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
+    return h > 0 ? `${h}:${String(m).padStart(2,"0")}:${String(sec).padStart(2,"0")}` : `${m}:${String(sec).padStart(2,"0")}`;
+  }
+
+  function startFresh() { setStartTs(Date.now()); setExercises([]); setWName("My Workout"); setPhase("active"); }
+
+  function startTemplate(tpl) {
+    setStartTs(Date.now());
+    setWName(tpl.name);
+    setExercises(tpl.exercises.map(e => ({ name: e.name, sets: Array.from({ length: e.sets }, () => mkSet()) })));
+    setPhase("active");
+  }
+
+  function addExercise(name) { setExercises(prev => [...prev, { name, sets: [mkSet()] }]); setShowPicker(false); }
+
+  function removeExercise(i) { setExercises(prev => prev.filter((_, idx) => idx !== i)); }
+
+  function addSet(i) { setExercises(prev => { const n=[...prev]; const ex={...n[i]}; ex.sets=[...ex.sets, mkSet(ex.sets.at(-1))]; n[i]=ex; return n; }); }
+
+  function removeSet(ei, si) {
+    setExercises(prev => {
+      const n = [...prev]; const ex = {...n[ei]}; ex.sets = ex.sets.filter((_,i) => i !== si);
+      if (ex.sets.length === 0) return n.filter((_,i) => i !== ei);
+      n[ei] = ex; return n;
+    });
+  }
+
+  function updSet(ei, si, field, val) {
+    setExercises(prev => {
+      const n=[...prev]; const ex={...n[ei]}; const sets=[...ex.sets];
+      sets[si]={...sets[si],[field]:val}; ex.sets=sets; n[ei]=ex; return n;
+    });
+  }
+
+  async function finish() {
+    if (saving) return;
+    setSaving(true);
+    try {
+      const endTs = Date.now();
+      const r = await api("workouts/log", { name: wName, startTime: new Date(startTs).toISOString(), endTime: new Date(endTs).toISOString(), exercises });
+      setFinishMsg(`Saved — ${r.added} sets logged.`);
+      setTimeout(() => { setPhase("idle"); setFinishMsg(null); refresh(); }, 1800);
+    } catch(e) { setSaving(false); }
+  }
+
+  async function saveTemplate() {
+    if (!tplName.trim()) return;
+    setTplSaving(true);
+    await api("templates", { name: tplName.trim(), exercises: exercises.map(e => ({ name: e.name, sets: e.sets.filter(s => s.type !== "warmup").length || e.sets.length })) });
+    setTplSaving(false); setShowTemplateSave(false); setTplName("");
+    refresh();
+  }
+
+  async function deleteTemplate(id) { await api(`templates/${id}`, {}, "DELETE"); refresh(); }
+
+  const templates = s.workoutTemplates || [];
+  const customExercises = s.exerciseLibrary || [];
+
+  const totalSets = exercises.reduce((acc, ex) => acc + ex.sets.filter(s => s.type !== "warmup" && (s.kg !== "" || s.reps !== "")).length, 0);
+  const totalVol = exercises.reduce((acc, ex) => acc + ex.sets.filter(s => s.type !== "warmup").reduce((a, s) => a + (parseFloat(s.kg)||0) * (parseInt(s.reps)||0), 0), 0);
+
+  // ── IDLE SCREEN ──────────────────────────────────────────────────────────
+  if (phase === "idle") return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      {finishMsg && <div style={{ ...card, background: "rgba(252,163,17,.1)", border: `1px solid ${T.green}44`, color: T.green, fontSize: 14, textAlign: "center" }}>{finishMsg}</div>}
+
+      <button onClick={startFresh}
+        style={{ ...card, background: `linear-gradient(135deg, rgba(252,163,17,.15), ${T.panel} 70%)`, border: `1px solid ${T.green}44`, cursor: "pointer", display: "flex", alignItems: "center", gap: 14, padding: "18px 20px" }}>
+        <div style={{ width: 40, height: 40, borderRadius: 999, background: `rgba(252,163,17,.18)`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20, flexShrink: 0 }}>＋</div>
+        <div style={{ textAlign: "left" }}>
+          <div style={{ fontSize: 15, fontWeight: 600, color: T.fg }}>Start empty workout</div>
+          <div style={{ fontSize: 12, color: T.dim, marginTop: 2 }}>Add exercises as you go</div>
+        </div>
+      </button>
+
+      {templates.length > 0 && (
+        <div style={{ ...card }}>
+          <div style={{ ...label, marginBottom: 12 }}>Templates</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {templates.map(tpl => (
+              <div key={tpl.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 14px", background: "#080e1c", borderRadius: 10 }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 14, color: T.fg, fontWeight: 500 }}>{tpl.name}</div>
+                  <div style={{ fontSize: 11, color: T.dim, marginTop: 2 }}>{tpl.exercises.map(e => e.name).slice(0, 4).join(" · ")}{tpl.exercises.length > 4 ? ` +${tpl.exercises.length - 4}` : ""}</div>
+                </div>
+                <button onClick={() => startTemplate(tpl)} style={{ ...pill(true), fontSize: 11, padding: "5px 12px" }}>Start</button>
+                <button onClick={() => deleteTemplate(tpl.id)} style={{ background: "none", border: "none", color: T.dim, cursor: "pointer", fontSize: 14, padding: "4px 6px" }}>✕</button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+
+  // ── ACTIVE WORKOUT ───────────────────────────────────────────────────────
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      {/* Header bar */}
+      <div style={{ ...card, padding: "12px 16px", display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+        <input value={wName} onChange={e => setWName(e.target.value)}
+          style={{ ...input, flex: 1, minWidth: 140, padding: "6px 12px", fontSize: 15, fontWeight: 600, background: "transparent", border: "none", outline: "none", color: T.fg }} />
+        <div style={{ fontSize: 22, fontWeight: 700, color: T.green, fontVariantNumeric: "tabular-nums", flexShrink: 0 }}>{fmtElapsed(elapsed)}</div>
+        <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
+          {!showTemplateSave && <button onClick={() => setShowTemplateSave(true)} style={{ ...pill(false), fontSize: 11 }}>Save template</button>}
+          <button onClick={finish} disabled={saving}
+            style={{ ...pill(true), fontSize: 12, opacity: saving ? 0.6 : 1 }}>
+            {saving ? "Saving…" : `Finish (${totalSets} sets)`}
+          </button>
+        </div>
+      </div>
+
+      {/* Save as template inline form */}
+      {showTemplateSave && (
+        <div style={{ ...card, padding: "12px 16px", display: "flex", gap: 8, alignItems: "center" }}>
+          <input value={tplName} onChange={e => setTplName(e.target.value)}
+            placeholder="Template name…"
+            onKeyDown={e => e.key === "Enter" && saveTemplate()}
+            style={{ ...input, flex: 1, padding: "7px 12px", fontSize: 13 }} />
+          <button onClick={saveTemplate} disabled={!tplName.trim() || tplSaving}
+            style={{ ...pill(true), fontSize: 11, opacity: !tplName.trim() ? 0.5 : 1 }}>
+            {tplSaving ? "…" : "Save"}
+          </button>
+          <button onClick={() => setShowTemplateSave(false)} style={{ background: "none", border: "none", color: T.dim, cursor: "pointer", fontSize: 14, padding: "4px" }}>✕</button>
+        </div>
+      )}
+
+      {/* Volume summary chip */}
+      {totalVol > 0 && (
+        <div style={{ fontSize: 12, color: T.mid, textAlign: "right" }}>
+          <span style={{ color: T.green, fontWeight: 600 }}>{totalSets}</span> working sets · <span style={{ color: T.green, fontWeight: 600 }}>{Math.round(totalVol / 1000 * 10) / 10}t</span> total volume
+        </div>
+      )}
+
+      {/* Exercise cards */}
+      {exercises.map((ex, ei) => {
+        let workingCount = 0;
+        return (
+          <div key={ei} style={{ ...card, padding: "14px 16px" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+              <div style={{ flex: 1, fontSize: 14, fontWeight: 600, color: T.fg, textTransform: "capitalize" }}>{ex.name}</div>
+              <button onClick={() => removeExercise(ei)} style={{ background: "none", border: "none", color: T.dim, cursor: "pointer", fontSize: 13, padding: "2px 6px" }}>Remove</button>
+            </div>
+
+            {/* Set column headers */}
+            <div style={{ display: "grid", gridTemplateColumns: "28px 44px 1fr 1fr 64px 24px", gap: 4, marginBottom: 4, paddingLeft: 2 }}>
+              {["#","Type","kg","Reps","RIR",""].map((h, i) => <div key={i} style={{ ...label, fontSize: 9, textAlign: i >= 2 ? "center" : "left" }}>{h}</div>)}
+            </div>
+
+            {ex.sets.map((set, si) => {
+              if (set.type !== "warmup") workingCount++;
+              const setNum = set.type === "warmup" ? "W" : set.type === "drop" ? "D" : set.type === "failure" ? "F" : workingCount;
+              const numColor = set.type === "warmup" ? T.mid : set.type === "drop" ? "#6ab4e0" : set.type === "failure" ? T.red : T.green;
+              return (
+                <div key={si} style={{ display: "grid", gridTemplateColumns: "28px 44px 1fr 1fr 64px 24px", gap: 4, marginBottom: 4, alignItems: "center" }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: numColor, textAlign: "center" }}>{setNum}</div>
+
+                  {/* Type picker */}
+                  <div style={{ position: "relative" }}>
+                    <select value={set.type} onChange={e => updSet(ei, si, "type", e.target.value)}
+                      style={{ ...input, padding: "5px 4px", fontSize: 11, background: "#080e1c", width: "100%", textAlign: "center", cursor: "pointer", appearance: "none" }}>
+                      {SET_TYPES.map(t => <option key={t.key} value={t.key}>{t.title}</option>)}
+                    </select>
+                  </div>
+
+                  <input type="number" min="0" step="0.5" value={set.kg} onChange={e => updSet(ei, si, "kg", e.target.value)}
+                    placeholder="—" style={{ ...input, padding: "5px 6px", fontSize: 13, textAlign: "center" }} />
+                  <input type="number" min="0" step="1" value={set.reps} onChange={e => updSet(ei, si, "reps", e.target.value)}
+                    placeholder="—" style={{ ...input, padding: "5px 6px", fontSize: 13, textAlign: "center" }} />
+                  <input type="number" min="0" max="10" step="0.5" value={set.rir} onChange={e => updSet(ei, si, "rir", e.target.value)}
+                    placeholder="—" style={{ ...input, padding: "5px 6px", fontSize: 11, textAlign: "center" }} />
+                  <button onClick={() => removeSet(ei, si)}
+                    style={{ background: "none", border: "none", color: T.dim, cursor: "pointer", fontSize: 14, padding: "2px", lineHeight: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                    ×
+                  </button>
+                </div>
+              );
+            })}
+
+            <button onClick={() => addSet(ei)}
+              style={{ marginTop: 6, fontSize: 12, color: T.mid, background: "transparent", border: `1px dashed ${T.line}`, borderRadius: 8, padding: "6px 12px", cursor: "pointer", width: "100%" }}>
+              + Add set
+            </button>
+          </div>
+        );
+      })}
+
+      {/* Add exercise / finish */}
+      <button onClick={() => setShowPicker(true)}
+        style={{ ...card, cursor: "pointer", border: `1px dashed ${T.line}`, background: "transparent", fontSize: 14, color: T.mid, padding: "16px", textAlign: "center" }}>
+        + Add exercise
+      </button>
+
+      <button onClick={() => { if (confirm("Discard this workout?")) { setPhase("idle"); setExercises([]); } }}
+        style={{ background: "none", border: "none", color: T.dim, cursor: "pointer", fontSize: 12, padding: "6px", textDecoration: "underline" }}>
+        Discard workout
+      </button>
+
+      {/* Overlays */}
+      {showPicker && !showAddEx && (
+        <ExercisePicker customExercises={customExercises} onPick={addExercise}
+          onCreateNew={() => setShowAddEx(true)} onClose={() => setShowPicker(false)} />
+      )}
+      {showPicker && showAddEx && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.85)", zIndex: 200, display: "flex", flexDirection: "column", padding: "24px clamp(14px,4vw,44px)", overflowY: "auto" }}>
+          <div style={{ ...card, maxWidth: 520, width: "100%", margin: "0 auto" }}>
+            <AddExerciseForm refresh={refresh}
+              onSave={name => { addExercise(name); setShowAddEx(false); setShowPicker(false); }}
+              onCancel={() => setShowAddEx(false)} />
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function Train({ go, s, refresh }) {
   const [expandedWorkout, setExpandedWorkout] = useState(null);
   const [trainTab, setTrainTab] = useState("workouts");
@@ -805,10 +1303,13 @@ function Train({ go, s, refresh }) {
 
       {/* Tabs */}
       <div style={{ display: "flex", gap: 6, marginBottom: 18, flexWrap: "wrap" }}>
-        {[["workouts", "Workouts"], ["strength", "Strength PRs"], ["stimulus", "Stimulus"], ["body", "Weight"]].map(([k, lbl]) => (
+        {[["log", "Log Workout"], ["workouts", "History"], ["strength", "Strength PRs"], ["stimulus", "Stimulus"], ["body", "Weight"]].map(([k, lbl]) => (
           <button key={k} style={pill(trainTab === k)} onClick={() => setTrainTab(k)}>{lbl}</button>
         ))}
       </div>
+
+      {/* ── Log tab ── */}
+      {trainTab === "log" && <LogWorkout s={s} refresh={refresh} />}
 
       {/* ── Workouts tab ── */}
       {trainTab === "workouts" && (
