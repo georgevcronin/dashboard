@@ -1,12 +1,69 @@
 import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { createRoot } from "react-dom/client";
 
-const T = { bg: "#0a0d0b", panel: "#101512", line: "#1c241f", dim: "#5d6b62", mid: "#8a948d", fg: "#e8ece9", green: "#3ddc84", amber: "#e0b46a", red: "#e07a6a" };
+// ── DESIGN SYSTEM ─────────────────────────────────────────────────────────
+// Editorial brutalism. Electric-yellow accent, hard edges, oversized Syne
+// numerals against a Georgia-italic editorial counterpoint. All colours route
+// through CSS variables so the dark/light toggle is a single attribute flip.
+const T = {
+  bg: "var(--bg)", panel: "var(--panel)", panel2: "var(--panel2)", line: "var(--line)",
+  dim: "var(--dim)", mid: "var(--mid)", fg: "var(--fg)",
+  accent: "var(--accent)", bright: "var(--bright)", ink: "var(--ink)",
+  // Status scale — kept semantic. green ALSO carried "brand" duty in the old
+  // app; brand is now `accent` (yellow), so green means strictly "good".
+  green: "var(--green)", amber: "var(--amber)", red: "var(--red)",
+  blue: "var(--blue)", violet: "var(--violet)",
+};
+
+// Type scale — five steps, no in-between sizes.
+//   hero   72  the single number that matters   (Syne 800)
+//   display 44 secondary big metric             (Syne 800)
+//   title  24  section / page headings          (Syne 700)
+//   body   14  reading text
+//   micro  11  labels + captions (UPPERCASE for labels)
+const display = { fontFamily: "'Syne', system-ui, sans-serif", fontWeight: 800, letterSpacing: "-0.03em", lineHeight: 0.9, fontVariantNumeric: "tabular-nums" };
+const titleFont = { fontFamily: "'Syne', system-ui, sans-serif", fontWeight: 700, letterSpacing: "-0.02em" };
 const serif = { fontFamily: "Georgia, 'Times New Roman', serif", fontStyle: "italic", fontWeight: 400 };
-const label = { fontSize: 10, letterSpacing: "0.16em", textTransform: "uppercase", color: T.dim };
-const card = { background: T.panel, border: `1px solid ${T.line}`, borderRadius: 16, padding: 20 };
-const pill = (a) => ({ padding: "6px 14px", borderRadius: 999, cursor: "pointer", fontSize: 12, border: "1px solid", borderColor: a ? T.green : T.line, background: a ? "rgba(61,220,132,.1)" : "transparent", color: a ? T.green : T.mid });
-const input = { background: "#0c100e", border: `1px solid ${T.line}`, borderRadius: 10, padding: "10px 13px", color: T.fg, fontSize: 14 };
+const num = { fontVariantNumeric: "tabular-nums" };
+
+const label = { fontSize: 11, letterSpacing: "0.18em", textTransform: "uppercase", color: T.dim, fontWeight: 600 };
+// Brutalist card: hard 3px corners, hairline rule, flat fill. No glow, no soft shadow.
+const card = { background: T.panel, border: `1px solid ${T.line}`, borderRadius: 3, padding: 22 };
+// Active pill = yellow highlighter block with ink text. Inactive = hairline ghost.
+const pill = (a) => ({ padding: "7px 15px", borderRadius: 999, cursor: "pointer", fontSize: 12, fontWeight: a ? 700 : 500, border: "1px solid", borderColor: a ? "transparent" : T.line, background: a ? T.bright : "transparent", color: a ? "#141414" : T.mid, transition: "all .12s", letterSpacing: a ? "0.01em" : "0" });
+const input = { background: T.panel2, border: `1px solid ${T.line}`, borderRadius: 3, padding: "11px 13px", color: T.fg, fontSize: 14 };
+
+// CSS variables + base typography. Injected once at the root.
+const GLOBAL_CSS = `
+:root, :root[data-theme="dark"] {
+  --bg:#0f0f0f; --panel:#171717; --panel2:#121212; --line:#292929;
+  --dim:#6e6e6e; --mid:#9c9c9c; --fg:#f3f1ec; --ink:#141414;
+  --accent:#F5E642; --bright:#F5E642;
+  --green:#6ee787; --amber:#f5a623; --red:#ff5c4d; --blue:#5ac8fa; --violet:#b89cff;
+}
+:root[data-theme="light"] {
+  --bg:#f4f1ea; --panel:#ece8de; --panel2:#e4dfd2; --line:#d6cfbf;
+  --dim:#8a8478; --mid:#5d574c; --fg:#16140f; --ink:#16140f;
+  --accent:#7a6a00; --bright:#F5E642;
+  --green:#1f8f3e; --amber:#b5650a; --red:#c8341f; --blue:#1f6f9c; --violet:#6a4fd0;
+}
+* { -webkit-tap-highlight-color: transparent; }
+body { font-family:'Inter',-apple-system,system-ui,sans-serif; }
+::selection { background:var(--bright); color:#141414; }
+`;
+
+function applyTheme(mode) {
+  document.documentElement.setAttribute("data-theme", mode);
+  document.querySelector('meta[name="theme-color"]')?.setAttribute("content", mode === "light" ? "#f4f1ea" : "#0f0f0f");
+  try { localStorage.setItem("peak-theme", mode); } catch {}
+}
+function useTheme() {
+  const [mode, setMode] = useState(() => {
+    try { return localStorage.getItem("peak-theme") || "dark"; } catch { return "dark"; }
+  });
+  useEffect(() => { applyTheme(mode); }, [mode]);
+  return [mode, () => setMode(m => (m === "dark" ? "light" : "dark"))];
+}
 const API_BASE = "https://europe-west2-dashboard-79dbb.cloudfunctions.net/api";
 const api = (p, body, method = "POST") => fetch(`${API_BASE}/${p}`, body ? { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) } : undefined).then((r) => r.json());
 
@@ -27,13 +84,14 @@ function Line({ data, w = 600, h = 140, color = T.green, fill = true }) {
   const min = Math.min(...data), max = Math.max(...data), rng = max - min || 1;
   const pts = data.map((v, i) => [(i / (data.length - 1)) * w, h - ((v - min) / rng) * (h - 20) - 10]);
   const d = pts.map((p, i) => `${i ? "L" : "M"}${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(" ");
-  const id = "g" + color.slice(1);
+  // Sanitise id — color may be "var(--green)", which is not a valid id fragment.
+  const id = "g" + color.replace(/[^a-z0-9]/gi, "");
   return (
     <svg viewBox={`0 0 ${w} ${h}`} style={{ width: "100%", display: "block" }}>
-      {fill && <><defs><linearGradient id={id} x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor={color} stopOpacity=".22" /><stop offset="100%" stopColor={color} stopOpacity="0" /></linearGradient></defs>
+      {fill && <><defs><linearGradient id={id} x1="0" y1="0" x2="0" y2="1"><stop offset="0%" style={{ stopColor: color }} stopOpacity=".22" /><stop offset="100%" style={{ stopColor: color }} stopOpacity="0" /></linearGradient></defs>
         <path d={`${d} L${w},${h} L0,${h} Z`} fill={`url(#${id})`} /></>}
-      <path d={d} fill="none" stroke={color} strokeWidth="2.5" strokeLinecap="round" />
-      <circle cx={pts.at(-1)[0]} cy={pts.at(-1)[1]} r="4" fill={color} />
+      <path d={d} fill="none" strokeWidth="2.5" strokeLinecap="round" style={{ stroke: color }} />
+      <circle cx={pts.at(-1)[0]} cy={pts.at(-1)[1]} r="4" style={{ fill: color }} />
     </svg>
   );
 }
@@ -42,25 +100,24 @@ function Ring({ pct, size = 150, stroke = 11, color = T.green, children }) {
   return (
     <div style={{ position: "relative", width: size, height: size, flexShrink: 0 }}>
       <svg width={size} height={size}>
-        <circle cx={size / 2} cy={size / 2} r={r} stroke="#1d2420" strokeWidth={stroke} fill="none" />
-        <circle cx={size / 2} cy={size / 2} r={r} stroke={color} strokeWidth={stroke} fill="none" strokeLinecap="round"
+        <circle cx={size / 2} cy={size / 2} r={r} strokeWidth={stroke} fill="none" style={{ stroke: "var(--line)" }} />
+        <circle cx={size / 2} cy={size / 2} r={r} strokeWidth={stroke} fill="none" strokeLinecap="round"
           strokeDasharray={c} strokeDashoffset={c * (1 - Math.min(pct || 0, 1))} transform={`rotate(-90 ${size / 2} ${size / 2})`}
-          style={{ transition: "stroke-dashoffset .8s ease" }} />
+          style={{ transition: "stroke-dashoffset .8s ease", stroke: color }} />
       </svg>
       <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>{children}</div>
     </div>
   );
 }
 const Back = ({ onClick, title }) => (
-  <div style={{ display: "flex", alignItems: "baseline", gap: 14, marginBottom: 18 }}>
-    <button onClick={onClick} style={{ ...pill(false), border: "none", paddingLeft: 0 }}>← Home</button>
-    <h2 style={{ ...serif, fontSize: 32, margin: 0 }}>{title}</h2>
+  <div style={{ marginBottom: 22, paddingBottom: 16, borderBottom: `1px solid ${T.line}` }}>
+    <button onClick={onClick} style={{ ...label, color: T.dim, background: "none", border: "none", cursor: "pointer", padding: 0, marginBottom: 10, display: "flex", alignItems: "center", gap: 6 }}>← Home</button>
+    <h2 style={{ ...titleFont, fontSize: "clamp(28px,5vw,40px)", margin: 0, lineHeight: 0.95, color: T.fg }}>{title}</h2>
   </div>
 );
 const dash = (v, unit = "") => (v == null ? "—" : `${typeof v === "number" ? Math.round(v * 10) / 10 : v}${unit}`);
 
 function Home({ go, s }) {
-  const isMobile = useIsMobile();
   const hr = new Date().getHours();
   const greet = hr < 12 ? "Good morning" : hr < 18 ? "Good afternoon" : "Good evening";
   const t = s.today || {};
@@ -88,235 +145,152 @@ function Home({ go, s }) {
   const lastThought = s.thoughts?.at(-1);
   const cap = (str) => str ? str.charAt(0).toUpperCase() + str.slice(1) : "";
 
-  const hover = (accentColor) => ({
-    onMouseEnter: e => { e.currentTarget.style.borderColor = accentColor; e.currentTarget.style.transform = "translateY(-2px)"; },
-    onMouseLeave: e => { e.currentTarget.style.borderColor = T.line; e.currentTarget.style.transform = ""; },
-    onMouseDown: e => e.currentTarget.style.transform = "scale(.987)",
-    onMouseUp: e => e.currentTarget.style.transform = "translateY(-2px)",
-  });
+  // ── Brutalist presentation ───────────────────────────────────────────────
+  const name = s.profile?.name || "friend";
+  const dateStr = new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" }).toUpperCase();
+  const recWord = rec == null ? "No data" : rec >= 80 ? "Primed" : rec >= 55 ? "Solid" : rec >= 40 ? "Worn" : "Run down";
+  const recRead = rec == null ? "Recovery appears after a couple of synced nights."
+    : rec >= 80 ? "Fully bounced back. Good day to push intensity."
+    : rec >= 55 ? "Train, but keep something in the tank."
+    : "Walk, hydrate, keep it light today.";
 
-  const tile = (gradColor) => ({
-    ...card,
-    cursor: "pointer",
-    display: "flex",
-    flexDirection: "column",
-    overflow: "hidden",
-    userSelect: "none",
-    transition: "border-color .15s, transform .1s",
-    background: `linear-gradient(155deg, ${gradColor}, ${T.panel} 65%)`,
-  });
+  // Flat cell — no card chrome. Hairline rules come from the 1px grid gap.
+  const cell = { background: T.bg, padding: "20px 22px", cursor: "pointer", display: "flex", flexDirection: "column", userSelect: "none", transition: "background .14s", position: "relative", minHeight: 138 };
+  const cellHover = {
+    onMouseEnter: e => { e.currentTarget.style.background = T.panel; },
+    onMouseLeave: e => { e.currentTarget.style.background = T.bg; },
+  };
+  const arrow = <span style={{ position: "absolute", top: 18, right: 20, color: T.dim, fontSize: 13 }}>↗</span>;
+  const cellLabel = (txt, color) => <div style={{ ...label, color: color || T.dim }}>{txt}</div>;
 
-  // ── Vitality content (shared between mobile + desktop) ──────────────────
-  const vitalityContent = (
-    <>
-      <div style={{ ...label, color: T.green }}>Vitality</div>
-      <div style={{ display: "flex", alignItems: "center", gap: 16, marginTop: 12 }}>
-        <Ring pct={(rec || 0) / 100} size={isMobile ? 72 : 86} stroke={8} color={recColor}>
-          <div style={{ fontSize: isMobile ? 17 : 20, fontWeight: 700, color: recColor, lineHeight: 1 }}>{rec != null ? rec : "—"}</div>
-          <div style={{ fontSize: 8, color: T.dim, letterSpacing: "0.1em", marginTop: 1 }}>REC</div>
-        </Ring>
-        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          <div>
-            <div style={label}>Sleep</div>
-            <div style={{ fontSize: isMobile ? 16 : 20, fontWeight: 600, marginTop: 1, color: !t.sleepH ? T.dim : t.sleepH >= sleepTarget ? T.green : t.sleepH >= sleepTarget * 0.82 ? T.amber : T.red }}>
-              {t.sleepH ? fmtHM(t.sleepH) : "—"}
-            </div>
-          </div>
-          <div style={{ display: "flex", gap: 16 }}>
-            <div><div style={label}>HRV</div><div style={{ fontSize: 14, fontWeight: 600, marginTop: 1, color: T.fg }}>{t.hrv != null ? t.hrv : "—"}</div></div>
-            {t.rhr && <div><div style={label}>HR</div><div style={{ fontSize: 14, color: T.fg, marginTop: 1 }}>{t.rhr}</div></div>}
-          </div>
-        </div>
-      </div>
-      {sleepSeries.length > 2 && (
-        <div style={{ marginTop: "auto", paddingTop: 10 }}>
-          <div style={{ ...label, marginBottom: 5 }}>7-night sleep</div>
-          <div style={{ display: "flex", alignItems: "flex-end", gap: 3, height: 30 }}>
-            {sleepSeries.map((h, i) => {
-              const pct = Math.min(1, h / (sleepTarget * 1.15));
-              const c = h >= sleepTarget ? T.green : h >= sleepTarget * 0.82 ? T.amber : T.red;
-              return <div key={i} style={{ flex: 1, background: `${c}55`, borderRadius: "3px 3px 0 0", height: `${Math.max(10, pct * 100)}%` }} />;
-            })}
-          </div>
-        </div>
-      )}
-      <div style={{ fontSize: 11, color: T.dim, marginTop: 8 }}>Open →</div>
-    </>
-  );
-
-  // ── Fuel bars ──────────────────────────────────────────────────────────
-  const fuelBars = [
-    { lbl: "Protein", val: Math.round(protein), max: proteinTarget, unit: "g", color: T.green },
-    { lbl: "Calories", val: Math.round(calories), max: calTarget, unit: "kcal", color: T.amber },
-    { lbl: "Water", val: water, max: waterTarget, unit: "", color: "#6ab4e0" },
-  ].map(({ lbl, val, max, unit, color }) => (
-    <div key={lbl}>
-      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
-        <div style={{ fontSize: 10, letterSpacing: "0.12em", textTransform: "uppercase", color: T.dim }}>{lbl}</div>
-        <div style={{ fontSize: 11, color: T.fg }}>{val}<span style={{ color: T.dim }}>/{max}{unit}</span></div>
-      </div>
-      <div style={{ height: 3, background: T.line, borderRadius: 99, marginBottom: 7 }}>
-        <div style={{ height: "100%", width: `${Math.min(100, (val / max) * 100)}%`, background: color, borderRadius: 99, transition: "width .5s" }} />
-      </div>
-    </div>
-  ));
-
-  // ── MOBILE LAYOUT ──────────────────────────────────────────────────────
-  if (isMobile) {
-    return (
-      <div>
-        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
-          <div style={{ width: 28, height: 28, background: `linear-gradient(135deg, ${T.green}, #1a6b40)`, clipPath: "polygon(50% 0,100% 25%,100% 75%,50% 100%,0 75%,0 25%)", flexShrink: 0 }} />
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ ...serif, fontSize: 17 }}>{greet}, <span style={{ color: T.green }}>{s.profile?.name || "friend"}</span></div>
-            <div style={{ ...label, fontSize: 9 }}>{new Date().toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" }).toUpperCase()}{s.lastSync && <span style={{ color: T.dim }}> · {s.lastSync}</span>}</div>
-          </div>
-        </div>
-
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-          {/* Vitality — full width */}
-          <div style={{ ...tile("rgba(61,220,132,.1)"), gridColumn: "1 / 3", minHeight: 160 }} onClick={() => go("vitality")} {...hover(T.green)}>
-            {vitalityContent}
-          </div>
-
-          {/* Train */}
-          <div style={{ ...tile("rgba(106,180,224,.09)"), minHeight: 130 }} onClick={() => go("train")} {...hover("#6ab4e0")}>
-            <div style={{ ...label, color: "#6ab4e0" }}>Train</div>
-            <div style={{ fontSize: 30, fontWeight: 700, color: T.fg, lineHeight: 1, marginTop: 6 }}>{s.workoutsMonth ?? 0}</div>
-            <div style={{ fontSize: 10, color: T.dim }}>this month</div>
-            <div style={{ marginTop: "auto", paddingTop: 8 }}>
-              {lastWkt && <div style={{ fontSize: 11, color: T.fg, textTransform: "capitalize", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{lastWkt.name}</div>}
-              <div style={{ fontSize: 10, color: T.dim }}>{daysAgo === 0 ? "Today" : daysAgo === 1 ? "Yesterday" : `${daysAgo}d ago`}</div>
-            </div>
-          </div>
-
-          {/* Fuel */}
-          <div style={{ ...tile("rgba(224,180,106,.08)"), minHeight: 130 }} onClick={() => go("fuel")} {...hover(T.amber)}>
-            <div style={{ ...label, color: T.amber }}>Fuel</div>
-            <div style={{ flex: 1, marginTop: 8 }}>{fuelBars}</div>
-          </div>
-
-          {/* Mentor */}
-          <div style={{ ...tile("rgba(224,106,106,.08)"), minHeight: 110 }} onClick={() => go("mentor")} {...hover(T.red)}>
-            <div style={{ ...label, color: T.red }}>Mentor</div>
-            <div style={{ flex: 1, marginTop: 6, overflow: "hidden" }}>
-              {lastThought?.text
-                ? <div style={{ fontSize: 11, color: T.mid, lineHeight: 1.5, display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{lastThought.text}</div>
-                : <div style={{ ...serif, fontSize: 11, color: T.dim }}>Your AI coach.</div>}
-            </div>
-            <div style={{ fontSize: 10, color: T.dim, marginTop: 6 }}>Ask →</div>
-          </div>
-
-          {/* Fatigue */}
-          <div style={{ ...tile("rgba(164,138,224,.08)"), minHeight: 110 }} onClick={() => go("fatigue")} {...hover("#a48ae0")}>
-            <div style={{ ...label, color: "#a48ae0" }}>Fatigue</div>
-            <div style={{ flex: 1, marginTop: 6 }}>
-              {lastWkt
-                ? <><div style={{ fontSize: 12, color: T.fg, textTransform: "capitalize", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{lastWkt.name}</div>
-                    <div style={{ fontSize: 10, color: T.dim, marginTop: 2 }}>{daysAgo === 0 ? "Active today" : `${daysAgo}d recovery`}</div></>
-                : <div style={{ fontSize: 11, color: T.dim }}>Log workouts →</div>}
-            </div>
-            <div style={{ fontSize: 10, color: T.dim, marginTop: 6 }}>Heat map →</div>
-          </div>
-
-          {/* Plan — full width */}
-          <div style={{ ...tile("rgba(106,180,224,.06)"), gridColumn: "1 / 3", minHeight: 80 }} onClick={() => go("plan")} {...hover("#6ab4e0")}>
-            <div style={{ ...label, color: "#6ab4e0" }}>This Week</div>
-            <div style={{ flex: 1, marginTop: 6 }}>
-              {s.weeklyPlan?.focus
-                ? <div style={{ ...serif, fontSize: 13, color: T.mid, lineHeight: 1.5, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{s.weeklyPlan.focus}</div>
-                : <div style={{ ...serif, fontSize: 12, color: T.dim }}>Generate your week →</div>}
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  // ── DESKTOP LAYOUT ─────────────────────────────────────────────────────
   return (
-    <div style={{ display: "flex", flexDirection: "column", height: "calc(100dvh - 104px)" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12, flexShrink: 0 }}>
-        <div style={{ width: 32, height: 32, background: `linear-gradient(135deg, ${T.green}, #1a6b40)`, clipPath: "polygon(50% 0,100% 25%,100% 75%,50% 100%,0 75%,0 25%)", flexShrink: 0 }} />
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <span style={{ ...serif, fontSize: 20 }}>{greet}, <span style={{ color: T.green }}>{s.profile?.name || "friend"}</span></span>
-          <span style={{ ...label, marginLeft: 12 }}>{new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" }).toUpperCase()}</span>
+    <div>
+      {/* MASTHEAD — editorial */}
+      <header style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", gap: 16, marginBottom: 22, paddingBottom: 18, borderBottom: `1px solid ${T.line}` }}>
+        <div style={{ minWidth: 0 }}>
+          <div style={{ ...label, color: T.dim, marginBottom: 12 }}>{dateStr}{s.lastSync && <span>{" · "}SYNCED {s.lastSync}</span>}</div>
+          <h1 style={{ ...titleFont, fontSize: "clamp(30px,6.5vw,52px)", margin: 0, lineHeight: 0.92, color: T.fg }}>
+            {greet},<br /><span style={{ color: T.accent }}>{name}.</span>
+          </h1>
         </div>
-        {s.lastSync && <div style={{ fontSize: 11, color: T.dim, flexShrink: 0 }}>synced {s.lastSync}</div>}
-      </div>
+        <div style={{ width: 34, height: 34, background: T.bright, clipPath: "polygon(50% 0,100% 25%,100% 75%,50% 100%,0 75%,0 25%)", flexShrink: 0 }} />
+      </header>
 
-      <div style={{ flex: 1, display: "grid", gridTemplateColumns: "1.55fr 1fr 1fr", gridTemplateRows: "1fr 1fr 0.72fr", gap: 10, minHeight: 0 }}>
+      {/* LEDGER GRID — hairline rules via 1px gap over a line-coloured frame */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(232px, 1fr))", gap: 1, background: T.line, border: `1px solid ${T.line}`, borderRadius: 3, overflow: "hidden" }}>
 
-        {/* VITALITY — col 1, rows 1-2 */}
-        <div style={{ ...tile("rgba(61,220,132,.1)"), gridRow: "1 / 3" }} onClick={() => go("vitality")} {...hover(T.green)}>
-          {vitalityContent}
+        {/* HERO — RECOVERY, full width */}
+        <div style={{ ...cell, gridColumn: "1 / -1", minHeight: 0, padding: "26px 24px" }} onClick={() => go("vitality")} {...cellHover}>
+          {arrow}
+          {cellLabel("Today · Recovery", T.accent)}
+          <div style={{ display: "flex", alignItems: "flex-end", flexWrap: "wrap", gap: "0 30px", marginTop: 8 }}>
+            <div style={{ ...display, fontSize: "clamp(64px,16vw,112px)", color: recColor }}>
+              {rec != null ? rec : "—"}<span style={{ fontSize: "0.3em", color: T.dim, marginLeft: 4 }}>%</span>
+            </div>
+            <div style={{ flex: 1, minWidth: 200, paddingBottom: 14 }}>
+              <div style={{ ...titleFont, fontSize: 22, color: recColor, marginBottom: 6 }}>{recWord}</div>
+              <div style={{ fontSize: 13, color: T.mid, lineHeight: 1.5, maxWidth: 360 }}>{recRead}</div>
+            </div>
+            <div style={{ display: "flex", gap: 28, paddingBottom: 14 }}>
+              {[["Sleep", t.sleepH ? fmtHM(t.sleepH) : "—"], ["HRV", t.hrv != null ? t.hrv : "—"], ["RHR", t.rhr || "—"]].map(([k, v]) => (
+                <div key={k}>
+                  <div style={label}>{k}</div>
+                  <div style={{ ...num, fontSize: 22, fontWeight: 700, color: T.fg, marginTop: 5 }}>{v}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+          {sleepSeries.length > 2 && (
+            <div style={{ marginTop: 18, display: "flex", alignItems: "center", gap: 14 }}>
+              <div style={{ ...label, whiteSpace: "nowrap" }}>7-night sleep</div>
+              <div style={{ display: "flex", alignItems: "flex-end", gap: 4, height: 30, flex: 1, maxWidth: 340 }}>
+                {sleepSeries.map((h, i) => {
+                  const pct = Math.min(1, h / (sleepTarget * 1.15));
+                  const c = h >= sleepTarget ? T.green : h >= sleepTarget * 0.82 ? T.amber : T.red;
+                  return <div key={i} style={{ flex: 1, background: c, opacity: 0.5, height: `${Math.max(12, pct * 100)}%` }} />;
+                })}
+              </div>
+            </div>
+          )}
         </div>
 
         {/* TRAIN */}
-        <div style={{ ...tile("rgba(106,180,224,.09)") }} onClick={() => go("train")} {...hover("#6ab4e0")}>
-          <div style={{ ...label, color: "#6ab4e0" }}>Train</div>
-          <div style={{ marginTop: 8 }}>
-            <div style={{ fontSize: 38, fontWeight: 700, color: T.fg, lineHeight: 1 }}>{s.workoutsMonth ?? 0}</div>
-            <div style={{ fontSize: 11, color: T.dim, marginTop: 2 }}>workouts this month</div>
+        <div style={cell} onClick={() => go("train")} {...cellHover}>
+          {arrow}{cellLabel("Train", T.blue)}
+          <div style={{ ...display, fontSize: 52, color: T.fg, marginTop: 14 }}>{s.workoutsMonth ?? 0}</div>
+          <div style={{ fontSize: 11, color: T.dim, marginTop: 6 }}>workouts this month</div>
+          <div style={{ marginTop: "auto", paddingTop: 14 }}>
+            {lastWkt && <div style={{ fontSize: 12, color: T.fg, textTransform: "capitalize", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{lastWkt.name}</div>}
+            <div style={{ fontSize: 11, color: T.dim, marginTop: 2 }}>{lastWkt ? (daysAgo === 0 ? "Today" : daysAgo === 1 ? "Yesterday" : `${daysAgo}d ago`) : "—"} · {setsThisWeek} sets/wk</div>
           </div>
-          <div style={{ marginTop: "auto", paddingTop: 10, display: "flex", flexDirection: "column", gap: 4 }}>
-            {lastWkt && <>
-              <div style={label}>Last</div>
-              <div style={{ fontSize: 13, color: T.fg, textTransform: "capitalize", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{lastWkt.name}</div>
-              <div style={{ fontSize: 11, color: T.dim }}>{daysAgo === 0 ? "Today" : daysAgo === 1 ? "Yesterday" : `${daysAgo}d ago`}{lastWkt.duration ? ` · ${lastWkt.duration}min` : ""}</div>
-            </>}
-            <div style={{ fontSize: 11, color: T.dim }}>{setsThisWeek} sets this week</div>
-          </div>
-        </div>
-
-        {/* MENTOR */}
-        <div style={{ ...tile("rgba(224,106,106,.08)") }} onClick={() => go("mentor")} {...hover(T.red)}>
-          <div style={{ ...label, color: T.red }}>Mentor</div>
-          <div style={{ flex: 1, marginTop: 8, overflow: "hidden" }}>
-            {lastThought?.text
-              ? <div style={{ fontSize: 12, color: T.mid, lineHeight: 1.55, display: "-webkit-box", WebkitLineClamp: 5, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{lastThought.text}</div>
-              : <div style={{ ...serif, fontSize: 13, color: T.dim, lineHeight: 1.5 }}>Your AI coach — training, recovery, nutrition.</div>}
-          </div>
-          <div style={{ fontSize: 11, color: T.dim, marginTop: 8 }}>Ask anything →</div>
-        </div>
-
-        {/* FATIGUE */}
-        <div style={{ ...tile("rgba(164,138,224,.08)") }} onClick={() => go("fatigue")} {...hover("#a48ae0")}>
-          <div style={{ ...label, color: "#a48ae0" }}>Fatigue</div>
-          <div style={{ flex: 1, marginTop: 8 }}>
-            {lastWkt
-              ? <><div style={{ fontSize: 13, color: T.fg, textTransform: "capitalize", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{lastWkt.name}</div>
-                  <div style={{ fontSize: 11, color: T.dim, marginTop: 2 }}>{daysAgo === 0 ? "Active today" : daysAgo === 1 ? "1 day recovery" : `${daysAgo}d recovery`}</div></>
-              : <div style={{ ...serif, fontSize: 12, color: T.dim }}>Log workouts to see muscle fatigue.</div>}
-          </div>
-          <div style={{ fontSize: 11, color: T.dim, marginTop: 6 }}>Muscle heat map →</div>
         </div>
 
         {/* FUEL */}
-        <div style={{ ...tile("rgba(224,180,106,.08)") }} onClick={() => go("fuel")} {...hover(T.amber)}>
-          <div style={{ ...label, color: T.amber }}>Fuel</div>
-          <div style={{ flex: 1, marginTop: 10, display: "flex", flexDirection: "column", justifyContent: "center" }}>{fuelBars}</div>
+        <div style={cell} onClick={() => go("fuel")} {...cellHover}>
+          {arrow}{cellLabel("Fuel", T.amber)}
+          <div style={{ display: "flex", alignItems: "baseline", gap: 5, marginTop: 14 }}>
+            <div style={{ ...display, fontSize: 52, color: T.fg }}>{Math.round(calories)}</div>
+            <div style={{ ...num, fontSize: 12, color: T.dim }}>/ {calTarget}</div>
+          </div>
+          <div style={{ fontSize: 11, color: T.dim, marginTop: 6 }}>kcal today</div>
+          <div style={{ marginTop: "auto", paddingTop: 14, display: "flex", flexDirection: "column", gap: 9 }}>
+            {[["Protein", Math.round(protein), proteinTarget, T.green], ["Water", water, waterTarget, T.blue]].map(([k, v, m, c]) => (
+              <div key={k}>
+                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                  <span style={{ fontSize: 10, letterSpacing: "0.12em", textTransform: "uppercase", color: T.dim }}>{k}</span>
+                  <span style={{ ...num, fontSize: 11, color: T.fg }}>{v}<span style={{ color: T.dim }}>/{m}</span></span>
+                </div>
+                <div style={{ height: 3, background: T.line }}>
+                  <div style={{ height: "100%", width: `${Math.min(100, (v / m) * 100)}%`, background: c, transition: "width .5s" }} />
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
 
-        {/* PLAN — cols 1-2 */}
-        <div style={{ ...tile("rgba(106,180,224,.06)"), gridColumn: "1 / 3" }} onClick={() => go("plan")} {...hover("#6ab4e0")}>
-          <div style={{ ...label, color: "#6ab4e0" }}>This Week</div>
-          <div style={{ flex: 1, marginTop: 6, display: "flex", alignItems: "center" }}>
-            {s.weeklyPlan?.focus
-              ? <div style={{ ...serif, fontSize: 15, color: T.mid, lineHeight: 1.5, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{s.weeklyPlan.focus}</div>
-              : <div style={{ ...serif, fontSize: 14, color: T.dim }}>No plan yet — generate your week →</div>}
+        {/* FATIGUE */}
+        <div style={cell} onClick={() => go("fatigue")} {...cellHover}>
+          {arrow}{cellLabel("Fatigue", T.violet)}
+          <div style={{ flex: 1, marginTop: 14 }}>
+            {lastWkt
+              ? <><div style={{ ...titleFont, fontSize: 18, color: T.fg, textTransform: "capitalize", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{lastWkt.name}</div>
+                  <div style={{ fontSize: 11, color: T.dim, marginTop: 4 }}>{daysAgo === 0 ? "Active today" : daysAgo === 1 ? "1 day recovery" : `${daysAgo}d recovery`}</div></>
+              : <div style={{ ...serif, fontSize: 14, color: T.dim }}>Log workouts to see muscle fatigue.</div>}
           </div>
+          <div style={{ fontSize: 11, color: T.dim }}>Muscle heat map ↗</div>
+        </div>
+
+        {/* MENTOR */}
+        <div style={cell} onClick={() => go("mentor")} {...cellHover}>
+          {arrow}{cellLabel("Mentor", T.red)}
+          <div style={{ flex: 1, marginTop: 14, overflow: "hidden" }}>
+            {lastThought?.text
+              ? <div style={{ ...serif, fontSize: 14, color: T.mid, lineHeight: 1.55, display: "-webkit-box", WebkitLineClamp: 4, WebkitBoxOrient: "vertical", overflow: "hidden" }}>“{lastThought.text}”</div>
+              : <div style={{ ...serif, fontSize: 14, color: T.dim, lineHeight: 1.5 }}>Your AI coach — training, recovery, nutrition.</div>}
+          </div>
+          <div style={{ fontSize: 11, color: T.dim }}>Ask anything ↗</div>
+        </div>
+
+        {/* PLAN */}
+        <div style={cell} onClick={() => go("plan")} {...cellHover}>
+          {arrow}{cellLabel("This Week", T.blue)}
+          <div style={{ flex: 1, marginTop: 14 }}>
+            {s.weeklyPlan?.focus
+              ? <div style={{ ...serif, fontSize: 15, color: T.mid, lineHeight: 1.5, display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{s.weeklyPlan.focus}</div>
+              : <div style={{ ...serif, fontSize: 14, color: T.dim }}>No plan yet — generate your week.</div>}
+          </div>
+          <div style={{ fontSize: 11, color: T.dim }}>Plan the week ↗</div>
         </div>
 
         {/* PROFILE */}
-        <div style={{ ...tile("rgba(255,255,255,.02)") }} onClick={() => go("settings")} {...hover(T.mid)}>
-          <div style={label}>Profile</div>
-          <div style={{ flex: 1, marginTop: 6, display: "flex", flexDirection: "column", justifyContent: "center" }}>
-            <div style={{ fontSize: 16, fontWeight: 600, color: T.fg }}>{s.profile?.name || "—"}</div>
-            {s.macroGoal && <div style={{ fontSize: 11, color: T.dim, marginTop: 3, textTransform: "capitalize" }}>Goal: {cap(s.macroGoal)}</div>}
-            {s.profile?.heightCm && <div style={{ fontSize: 11, color: T.dim }}>Height: {s.profile.heightCm} cm</div>}
+        <div style={cell} onClick={() => go("settings")} {...cellHover}>
+          {arrow}{cellLabel("Profile")}
+          <div style={{ flex: 1, marginTop: 14 }}>
+            <div style={{ ...titleFont, fontSize: 18, color: T.fg }}>{name}</div>
+            {s.macroGoal && <div style={{ fontSize: 11, color: T.dim, marginTop: 4, textTransform: "capitalize" }}>Goal · {cap(s.macroGoal)}</div>}
+            {s.profile?.heightCm && <div style={{ fontSize: 11, color: T.dim, marginTop: 2 }}>Height · {s.profile.heightCm} cm</div>}
           </div>
-          <div style={{ fontSize: 11, color: T.dim }}>Edit profile →</div>
+          <div style={{ fontSize: 11, color: T.dim }}>Edit profile ↗</div>
         </div>
 
       </div>
@@ -410,7 +384,7 @@ function Vitality({ go, s }) {
             <div style={{ ...serif, fontSize: 19, color: qualColor, marginBottom: 8 }}>{qualWord ?? "No data"}</div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginBottom: 10 }}>
               {[["Time Asleep", fmtHM(t.sleepH)], ["Time in Bed", fmtHM(t.sleepInBed ?? (t.sleepH && t.sleepEff ? t.sleepH / (t.sleepEff / 100) : null))]].map(([k, v]) => (
-                <div key={k} style={{ background: "#0c100e", borderRadius: 10, padding: "8px 10px" }}>
+                <div key={k} style={{ background: "var(--panel2)", borderRadius: 10, padding: "8px 10px" }}>
                   <div style={{ fontSize: 9, color: T.dim, letterSpacing: "0.12em", textTransform: "uppercase", marginBottom: 3 }}>{k}</div>
                   <div style={{ fontSize: 16, fontWeight: 600 }}>{v}</div>
                 </div>
@@ -633,12 +607,12 @@ function Train({ go, s, refresh }) {
       {trainTab === "workouts" && (
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
           {/* Muscle map CTA */}
-          <div style={{ ...card, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap", background: "linear-gradient(150deg, rgba(164,138,224,.08), #101512 70%)" }}>
+          <div style={{ ...card, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap", background: "linear-gradient(150deg, rgba(164,138,224,.08), var(--panel) 70%)" }}>
             <div>
-              <div style={{ ...label, color: "#a48ae0" }}>Exercise muscle map</div>
+              <div style={{ ...label, color: "var(--violet)" }}>Exercise muscle map</div>
               <div style={{ fontSize: 13, color: T.mid, marginTop: 3 }}>Tell the app exactly which muscles each exercise targets — used for fatigue tracking.</div>
             </div>
-            <button style={{ ...pill(true), borderColor: "#a48ae0", color: "#a48ae0", background: "rgba(164,138,224,.1)", padding: "9px 18px", flexShrink: 0 }} onClick={() => go("quiz")}>
+            <button style={{ ...pill(true), borderColor: "var(--violet)", color: "var(--violet)", background: "rgba(164,138,224,.1)", padding: "9px 18px", flexShrink: 0 }} onClick={() => go("quiz")}>
               Open editor →
             </button>
           </div>
@@ -864,7 +838,7 @@ function Fuel({ go, s, refresh }) {
             {Math.round(current)} / {max}{unit} {over && <span style={{ fontSize: 10 }}>({Math.round(current - max)}+ over)</span>}
           </span>
         </div>
-        <div style={{ height: 10, background: "#1d2420", borderRadius: 99, overflow: "hidden" }}>
+        <div style={{ height: 10, background: "var(--line)", borderRadius: 99, overflow: "hidden" }}>
           <div style={{ height: "100%", width: `${Math.min(pct, 1) * 100}%`, background: over ? T.amber : color, borderRadius: 99, transition: "width .6s" }} />
         </div>
       </div>
@@ -890,7 +864,7 @@ function Fuel({ go, s, refresh }) {
                 <div style={{ fontSize: 36, fontWeight: 600, marginTop: 2 }}>{Math.round(nt.calories)} <span style={{ fontSize: 15, color: T.mid }}>/ {mt.calories} kcal</span></div>
               </div>
               <div style={{ display: "flex", gap: 20 }}>
-                {[["P", nt.protein, mt.protein, T.green], ["C", nt.carbs, mt.carbs, "#6ab4e0"], ["F", nt.fat, mt.fat, T.amber]].map(([l, cur, max, c]) => (
+                {[["P", nt.protein, mt.protein, T.green], ["C", nt.carbs, mt.carbs, "var(--blue)"], ["F", nt.fat, mt.fat, T.amber]].map(([l, cur, max, c]) => (
                   <div key={l} style={{ textAlign: "center" }}>
                     <Ring pct={cur / (max || 1)} size={68} stroke={6} color={cur > max ? T.amber : c}>
                       <div style={{ fontSize: 14, fontWeight: 600 }}>{Math.round(cur)}</div>
@@ -903,7 +877,7 @@ function Fuel({ go, s, refresh }) {
             </div>
             <div style={{ marginTop: 18 }}>
               {macroBar("protein", nt.protein, mt.protein, T.green)}
-              {macroBar("carbs", nt.carbs, mt.carbs, "#6ab4e0")}
+              {macroBar("carbs", nt.carbs, mt.carbs, "var(--blue)")}
               {macroBar("fat", nt.fat, mt.fat, T.amber)}
               {macroBar("calories", nt.calories, mt.calories, T.fg, " kcal")}
             </div>
@@ -935,7 +909,7 @@ function Fuel({ go, s, refresh }) {
               <div style={{ marginTop: 14, paddingTop: 10, borderTop: `1px solid ${T.line}` }}>
                 <div style={{ ...label, marginBottom: 6 }}>Today's meals</div>
                 {s.nutritionLog.map((m, i) => (
-                  <div key={i} style={{ display: "flex", justifyContent: "space-between", fontSize: 13, padding: "5px 0", borderBottom: "1px solid #161c18" }}>
+                  <div key={i} style={{ display: "flex", justifyContent: "space-between", fontSize: 13, padding: "5px 0", borderBottom: "1px solid var(--line)" }}>
                     <span><span style={{ color: T.dim, fontSize: 11 }}>{m.time}</span> {m.label}</span>
                     <span style={{ color: T.mid, fontVariantNumeric: "tabular-nums" }}>{m.protein}p {m.carbs}c {m.fat}f · {m.calories}kcal</span>
                   </div>
@@ -1042,7 +1016,7 @@ function Money({ go, s, refresh }) {
                 {Object.entries(groups).map(([g, list], i) => {
                   const sum = list.reduce((a, e) => a + Math.max(0, e.amount), 0);
                   const pos = entries.reduce((a, e) => a + Math.max(0, e.amount), 0) || 1;
-                  const colors = { bank: T.green, stocks: "#6ab4e0", crypto: T.amber, other: "#a48ae0", debt: T.red };
+                  const colors = { bank: T.green, stocks: "var(--blue)", crypto: T.amber, other: "var(--violet)", debt: T.red };
                   return <div key={g} style={{ width: `${(sum / pos) * 100}%`, background: colors[g] || T.dim }} title={g} />;
                 })}
               </div>
@@ -1050,7 +1024,7 @@ function Money({ go, s, refresh }) {
                 {Object.entries(groups).map(([g, list]) => {
                   const sum = list.reduce((a, e) => a + Math.max(0, e.amount), 0);
                   const pos = entries.reduce((a, e) => a + Math.max(0, e.amount), 0) || 1;
-                  const colors = { bank: T.green, stocks: "#6ab4e0", crypto: T.amber, other: "#a48ae0", debt: T.red };
+                  const colors = { bank: T.green, stocks: "var(--blue)", crypto: T.amber, other: "var(--violet)", debt: T.red };
                   return <span key={g}><span style={{ display: "inline-block", width: 7, height: 7, borderRadius: 99, background: colors[g] || T.dim, marginRight: 5 }} />{g} {Math.round((sum / pos) * 100)}%</span>;
                 })}
               </div>
@@ -1073,7 +1047,7 @@ function Money({ go, s, refresh }) {
             <div key={g} style={{ marginBottom: 14 }}>
               <div style={{ ...serif, fontSize: 16, marginBottom: 4, textTransform: "capitalize" }}>{g}</div>
               {list.map((e) => (
-                <div key={e.i} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid #161c18", fontSize: 13 }}>
+                <div key={e.i} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid var(--line)", fontSize: 13 }}>
                   <span>{e.name} <span style={{ color: T.dim, fontSize: 11 }}>· {e.date}</span></span>
                   <span style={{ color: e.amount < 0 ? T.red : T.fg }}>
                     {e.amount.toLocaleString()} <button onClick={async () => { await api("finance/" + e.i, {}, "DELETE"); refresh(); }} style={{ background: "none", border: "none", color: T.dim, cursor: "pointer" }}>×</button>
@@ -1121,7 +1095,7 @@ function Mentor({ go, s, refresh }) {
           ) : (
             <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 10, marginBottom: 12, overflowY: "auto" }}>
               {msgs.map((m, i) => (
-                <div key={i} style={{ alignSelf: m.role === "user" ? "flex-end" : "flex-start", maxWidth: "85%", background: m.role === "user" ? "rgba(61,220,132,.1)" : "#0c100e", border: `1px solid ${m.role === "user" ? "rgba(61,220,132,.3)" : T.line}`, borderRadius: 14, padding: "10px 14px", fontSize: 14, lineHeight: 1.5, whiteSpace: "pre-wrap" }}>{m.content}</div>
+                <div key={i} style={{ alignSelf: m.role === "user" ? "flex-end" : "flex-start", maxWidth: "85%", background: m.role === "user" ? "rgba(61,220,132,.1)" : "var(--panel2)", border: `1px solid ${m.role === "user" ? "rgba(61,220,132,.3)" : T.line}`, borderRadius: 14, padding: "10px 14px", fontSize: 14, lineHeight: 1.5, whiteSpace: "pre-wrap" }}>{m.content}</div>
               ))}
               {busy && <div style={{ ...serif, color: T.dim, fontSize: 13 }}>mentor is thinking…</div>}
             </div>
@@ -1131,7 +1105,7 @@ function Mentor({ go, s, refresh }) {
             <button onClick={() => send()} disabled={busy} style={{ ...pill(true), opacity: busy ? 0.5 : 1 }}>→</button>
           </div>
         </div>
-        <div style={{ ...card, background: "radial-gradient(ellipse at 50% 120%, rgba(61,220,132,.07), #0c100e 70%)" }}>
+        <div style={{ ...card, background: "radial-gradient(ellipse at 50% 120%, rgba(61,220,132,.07), var(--panel2) 70%)" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
             <div style={{ ...serif, fontSize: 22 }}>The void.</div>
             <div style={label}>Memory · {s.thoughts?.length ?? 0} thoughts</div>
@@ -1259,23 +1233,23 @@ function AdaptationChart({ series, atrophyRate, w = 600, h = 100 }) {
     <svg viewBox={`0 0 ${w} ${h + 24}`} style={{ width: "100%", display: "block" }}>
       <defs>
         <linearGradient id="adG" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor={T.green} stopOpacity=".22" />
-          <stop offset="100%" stopColor={T.green} stopOpacity="0" />
+          <stop offset="0%" style={{ stopColor: T.green }} stopOpacity=".22" />
+          <stop offset="100%" style={{ stopColor: T.green }} stopOpacity="0" />
         </linearGradient>
       </defs>
       <path d={`${adaptPath} L${pts.at(-1)[0]},${h} L${pts[0][0]},${h} Z`} fill="url(#adG)" />
-      <path d={adaptPath} fill="none" stroke={T.green} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-      <line x1={nowX} y1="0" x2={nowX} y2={h} stroke={T.dim} strokeWidth="1" strokeDasharray="3 3" />
-      <text x={nowX + 3} y="10" fontSize="8" fill={T.dim}>now</text>
+      <path d={adaptPath} fill="none" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ stroke: T.green }} />
+      <line x1={nowX} y1="0" x2={nowX} y2={h} strokeWidth="1" strokeDasharray="3 3" style={{ stroke: T.dim }} />
+      <text x={nowX + 3} y="10" fontSize="8" style={{ fill: T.dim }}>now</text>
       {peakX > nowX && peakX < w && (
         <>
-          <line x1={peakX} y1="0" x2={peakX} y2={h} stroke={T.amber} strokeWidth="1" strokeOpacity=".45" />
-          <text x={peakX} y="10" fontSize="8" fill={T.amber} textAnchor="middle">↑48h</text>
+          <line x1={peakX} y1="0" x2={peakX} y2={h} strokeWidth="1" strokeOpacity=".45" style={{ stroke: T.amber }} />
+          <text x={peakX} y="10" fontSize="8" textAnchor="middle" style={{ fill: T.amber }}>↑48h</text>
         </>
       )}
-      {atPath && <path d={atPath} fill="none" stroke={T.red} strokeWidth="1.5" strokeDasharray="5 3" strokeLinecap="round" />}
-      <line x1="0" y1={h - 3} x2={w} y2={h - 3} stroke={T.line} strokeWidth="0.5" />
-      {dayLabels.map((l, i) => <text key={i} x={l.x} y={h + 20} fontSize="8" fill={T.dim} textAnchor="middle">{l.label}</text>)}
+      {atPath && <path d={atPath} fill="none" strokeWidth="1.5" strokeDasharray="5 3" strokeLinecap="round" style={{ stroke: T.red }} />}
+      <line x1="0" y1={h - 3} x2={w} y2={h - 3} strokeWidth="0.5" style={{ stroke: T.line }} />
+      {dayLabels.map((l, i) => <text key={i} x={l.x} y={h + 20} fontSize="8" textAnchor="middle" style={{ fill: T.dim }}>{l.label}</text>)}
     </svg>
   );
 }
@@ -1561,7 +1535,7 @@ function Fatigue({ go, s, refresh }) {
       <div style={{ ...card, marginBottom: 16, display: "flex", gap: 24, alignItems: "center", flexWrap: "wrap" }}>
         {(() => {
           const p = trainingLoad.pct;
-          const color = p == null ? T.dim : p < 70 ? "#6ab4e0" : p <= 130 ? T.green : p <= 170 ? T.amber : T.red;
+          const color = p == null ? T.dim : p < 70 ? "var(--blue)" : p <= 130 ? T.green : p <= 170 ? T.amber : T.red;
           const word = p == null ? "No data" : p < 70 ? "Undertraining" : p <= 130 ? "Optimal" : p <= 170 ? "High load" : "Overtraining";
           return (
             <>
@@ -1616,7 +1590,7 @@ function Fatigue({ go, s, refresh }) {
               <div style={label}>{side}</div>
               <svg viewBox={side === "front" ? "80 30 140 280" : "380 30 140 280"} style={{ width: 160, height: 320 }}>
                 {/* Body silhouette — paths in front coords, translated +300 for back */}
-                <g transform={side === "back" ? "translate(300,0)" : undefined} fill="#1a2420" stroke={T.line} strokeWidth="1" strokeLinejoin="round">
+                <g transform={side === "back" ? "translate(300,0)" : undefined} strokeWidth="1" strokeLinejoin="round" style={{ fill: "var(--panel2)", stroke: T.line }}>
                   {/* Head */}
                   <ellipse cx="150" cy="50" rx="17" ry="20"/>
                   {/* Neck */}
@@ -1641,15 +1615,15 @@ function Fatigue({ go, s, refresh }) {
                   <path d="M 176,272 C 183,282 185,296 184,307 C 183,309 179,310 174,309 L 167,308 C 166,297 167,285 167,274 C 168,273 172,272 176,272 Z"/>
                 </g>
                 {/* Spine crease for back view */}
-                {side === "back" && <line x1="450" y1="85" x2="450" y2="165" stroke={T.line} strokeWidth="0.75" strokeDasharray="2,3"/>}
+                {side === "back" && <line x1="450" y1="85" x2="450" y2="165" strokeWidth="0.75" strokeDasharray="2,3" style={{ stroke: T.line }}/>}
                 {/* Muscle overlays — ellipses use absolute coordinates */}
                 {Object.entries(MUSCLES).filter(([, m]) => m.side === side).map(([key, m]) => {
                   const level = getMuscleLevel(key);
                   return (
                     <ellipse key={key} cx={m.cx} cy={m.cy} rx={m.rx} ry={m.ry}
                       fill={fatigueColor(level)}
-                      stroke={hover === key ? T.fg : "transparent"} strokeWidth={hover === key ? 1.5 : 0}
-                      style={{ cursor: "pointer", transition: "fill .3s" }}
+                      strokeWidth={hover === key ? 1.5 : 0}
+                      style={{ cursor: "pointer", transition: "fill .3s", stroke: hover === key ? T.fg : "transparent" }}
                       onMouseEnter={() => setHover(key)} onMouseLeave={() => setHover(null)} />
                   );
                 })}
@@ -1672,10 +1646,10 @@ function Fatigue({ go, s, refresh }) {
       <div style={{ ...card, marginTop: 16 }}>
         <div style={{ ...label, marginBottom: 10 }}>All muscles · sorted by fatigue</div>
         {Object.entries(fatigue).sort((a, b) => b[1] - a[1]).map(([m, v]) => (
-          <div key={m} style={{ display: "flex", alignItems: "center", gap: 10, padding: "6px 0", borderBottom: `1px solid #161c18` }}>
+          <div key={m} style={{ display: "flex", alignItems: "center", gap: 10, padding: "6px 0", borderBottom: `1px solid var(--line)` }}>
             <span style={{ width: 10, height: 10, borderRadius: 2, background: fatigueColor(v), flexShrink: 0 }} />
             <span style={{ flex: 1, fontSize: 13, textTransform: "capitalize" }}>{m.replace(/([A-Z])/g, " $1")}</span>
-            <div style={{ width: 120, height: 5, background: "#1d2420", borderRadius: 99 }}>
+            <div style={{ width: 120, height: 5, background: "var(--line)", borderRadius: 99 }}>
               <div style={{ height: "100%", width: `${v * 100}%`, background: fatigueColor(v), borderRadius: 99 }} />
             </div>
             <span style={{ fontSize: 12, color: T.mid, width: 36, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{Math.round(v * 100)}%</span>
@@ -1772,11 +1746,11 @@ function Fatigue({ go, s, refresh }) {
           {Object.keys(RECOVERY_H).map(m => {
             const val = (s.muscleSensitivity || {})[m] || 1.0;
             const isEditing = editingSens === m;
-            const color = val > 1.15 ? T.amber : val < 0.85 ? "#6ab4e0" : T.green;
+            const color = val > 1.15 ? T.amber : val < 0.85 ? "var(--blue)" : T.green;
             return (
-              <div key={m} style={{ display: "flex", alignItems: "center", gap: 10, padding: "6px 0", borderBottom: `1px solid #161c18` }}>
+              <div key={m} style={{ display: "flex", alignItems: "center", gap: 10, padding: "6px 0", borderBottom: `1px solid var(--line)` }}>
                 <span style={{ flex: 1, fontSize: 13, textTransform: "capitalize" }}>{m.replace(/([A-Z])/g, " $1")}</span>
-                <div style={{ width: 80, height: 4, background: "#1d2420", borderRadius: 99 }}>
+                <div style={{ width: 80, height: 4, background: "var(--line)", borderRadius: 99 }}>
                   <div style={{ height: "100%", width: `${Math.min(1, val / 2) * 100}%`, background: color, borderRadius: 99, transition: "width .3s" }} />
                 </div>
                 {isEditing ? (
@@ -1871,7 +1845,7 @@ function ExerciseRow({ exercise, userMap, onSave }) {
     ? { label: "custom", color: T.green, bg: "rgba(61,220,132,.12)" }
     : isAuto
     ? { label: "auto", color: T.amber, bg: "rgba(224,180,106,.12)" }
-    : { label: "unmapped", color: T.dim, bg: "rgba(255,255,255,.05)" };
+    : { label: "unmapped", color: T.dim, bg: "var(--panel2)" };
 
   return (
     <div style={{ borderBottom: `1px solid ${T.line}` }}>
@@ -2033,12 +2007,12 @@ function Plan({ go }) {
   };
 
   const ST = {
-    lift:  { color: "#6ab4e0", bg: "rgba(106,180,224,.12)", icon: "△" },
+    lift:  { color: "var(--blue)", bg: "rgba(106,180,224,.12)", icon: "△" },
     zone2: { color: T.green,   bg: "rgba(61,220,132,.12)",  icon: "◎" },
     hiit:  { color: T.red,     bg: "rgba(224,122,106,.12)", icon: "▲" },
-    climb: { color: "#a48ae0", bg: "rgba(164,138,224,.12)", icon: "◈" },
+    climb: { color: "var(--violet)", bg: "rgba(164,138,224,.12)", icon: "◈" },
     flex:  { color: T.amber,   bg: "rgba(224,180,106,.12)", icon: "〜" },
-    rest:  { color: T.dim,     bg: "rgba(255,255,255,.03)", icon: "◌" },
+    rest:  { color: T.dim,     bg: "var(--panel2)", icon: "◌" },
   };
 
   const genDate = plan?.generatedAt
@@ -2163,34 +2137,49 @@ const NAV_PAGES = [
   { key: "quiz",     icon: "◇", label: "Muscle Map" },
 ];
 
+// Primary nav: 5 items only. Fatigue, Plan, Profile and Muscle Map are
+// reachable from the Home tiles — they don't earn a permanent tab slot.
+const NAV_PRIMARY = ["home", "vitality", "train", "fuel", "mentor"];
+
 function BottomNav({ page, go }) {
-  const visible = NAV_PAGES.filter(p => p.key !== "settings" && p.key !== "quiz");
+  const visible = NAV_PAGES.filter(p => NAV_PRIMARY.includes(p.key));
   return (
     <nav style={{
       position: "fixed", bottom: 0, left: 0, right: 0,
-      background: "rgba(10,13,11,.92)", backdropFilter: "blur(16px) saturate(180%)",
-      borderTop: `1px solid ${T.line}`,
-      display: "flex", justifyContent: "space-around", alignItems: "center",
-      padding: "8px 0 calc(8px + env(safe-area-inset-bottom))",
+      background: T.bg, borderTop: `1px solid ${T.line}`,
+      display: "flex", justifyContent: "space-around", alignItems: "stretch",
+      padding: "0 0 env(safe-area-inset-bottom)",
       zIndex: 100,
     }}>
       {visible.map(({ key, icon, label }) => {
         const active = page === key;
         return (
           <button key={key} onClick={() => go(key)} style={{
-            background: "none", border: "none", cursor: "pointer",
-            display: "flex", flexDirection: "column", alignItems: "center", gap: 3,
-            padding: "4px 8px", borderRadius: 10,
-            color: active ? T.green : T.dim,
-            transition: "color .15s",
+            background: "none", border: "none", borderTop: `3px solid ${active ? T.bright : "transparent"}`,
+            cursor: "pointer", flex: 1,
+            display: "flex", flexDirection: "column", alignItems: "center", gap: 4,
+            padding: "9px 0 11px",
+            color: active ? T.fg : T.dim,
+            transition: "color .15s, border-color .15s",
           }}>
             <span style={{ fontSize: 16, lineHeight: 1 }}>{icon}</span>
-            <span style={{ fontSize: 9, letterSpacing: "0.08em", textTransform: "uppercase" }}>{label}</span>
-            {active && <span style={{ width: 4, height: 4, borderRadius: "50%", background: T.green, position: "absolute", marginTop: 28 }} />}
+            <span style={{ fontSize: 9, letterSpacing: "0.12em", textTransform: "uppercase", fontWeight: active ? 700 : 500 }}>{label}</span>
           </button>
         );
       })}
     </nav>
+  );
+}
+
+// Persistent dark/light toggle, fixed top-right. Shows the mode you'll switch TO.
+function ThemeToggle({ mode, toggle }) {
+  return (
+    <button onClick={toggle} aria-label="Toggle theme" style={{
+      position: "fixed", top: "calc(14px + env(safe-area-inset-top))", right: 14, zIndex: 200,
+      width: 38, height: 38, borderRadius: 999, cursor: "pointer",
+      border: `1px solid ${T.line}`, background: T.panel, color: T.fg,
+      fontSize: 16, lineHeight: 1, display: "flex", alignItems: "center", justifyContent: "center",
+    }}>{mode === "dark" ? "☀" : "☾"}</button>
   );
 }
 
@@ -2201,6 +2190,7 @@ function App() {
   };
   const [page, setPage] = useState(getHash);
   const [s, setS] = useState(null);
+  const [mode, toggleTheme] = useTheme();
 
   const go = useCallback((key) => {
     window.location.hash = key === "home" ? "" : key;
@@ -2228,17 +2218,22 @@ function App() {
   useEffect(() => { refresh(); const t = setInterval(refresh, 60000); return () => clearInterval(t); }, [refresh]);
 
   if (!s) return (
-    <div style={{ minHeight: "100vh", background: T.bg, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 16 }}>
-      <div style={{ width: 44, height: 44, background: `linear-gradient(135deg, ${T.green}, #1a6b40)`, clipPath: "polygon(50% 0,100% 25%,100% 75%,50% 100%,0 75%,0 25%)", animation: "pulse 1.5s ease-in-out infinite" }} />
-      <div style={{ ...serif, color: T.dim, fontSize: 16 }}>loading…</div>
-      <style>{`@keyframes pulse { 0%,100%{opacity:.4} 50%{opacity:1} }`}</style>
-    </div>
+    <>
+      <style>{GLOBAL_CSS}</style>
+      <div style={{ minHeight: "100vh", background: T.bg, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 18 }}>
+        <div style={{ width: 44, height: 44, background: T.bright, clipPath: "polygon(50% 0,100% 25%,100% 75%,50% 100%,0 75%,0 25%)", animation: "pulse 1.5s ease-in-out infinite" }} />
+        <div style={{ ...serif, color: T.dim, fontSize: 16 }}>loading…</div>
+        <style>{`@keyframes pulse { 0%,100%{opacity:.35} 50%{opacity:1} }`}</style>
+      </div>
+    </>
   );
 
   const props = { go, s, refresh };
   const pages = { home: <Home {...props} />, vitality: <Vitality {...props} />, train: <Train {...props} />, fuel: <Fuel {...props} />, mentor: <Mentor {...props} />, settings: <Settings {...props} />, plan: <Plan {...props} />, fatigue: <Fatigue {...props} />, quiz: <Quiz {...props} /> };
   return (
-    <div style={{ minHeight: "100vh", background: T.bg, color: T.fg, fontFamily: "'Inter', -apple-system, system-ui, sans-serif", padding: "24px clamp(14px,4vw,44px) 80px" }}>
+    <div style={{ minHeight: "100vh", background: T.bg, color: T.fg, fontFamily: "'Inter', -apple-system, system-ui, sans-serif", padding: "24px clamp(14px,4vw,44px) 88px" }}>
+      <style>{GLOBAL_CSS}</style>
+      <ThemeToggle mode={mode} toggle={toggleTheme} />
       <div style={{ maxWidth: 1100, margin: "0 auto" }}>{pages[page]}</div>
       <BottomNav page={page} go={go} />
     </div>
