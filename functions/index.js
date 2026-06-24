@@ -954,6 +954,65 @@ app.put("/muscle-sensitivity", async (req, res) => {
   res.json({ ok: true });
 });
 
+// ---------- Workout session plan (AI-generated) ----------
+app.post("/workout/plan", async (req, res) => {
+  const key = process.env.GROQ_API_KEY;
+  if (!key) return res.json({ error: "GROQ_API_KEY not set" });
+
+  const { focusMuscles = [], durationMin = 60, intensity = "moderate", goal = "hypertrophy", notes = "" } = req.body;
+  const bw = Object.values(db.weight || {}).at(-1) || 75;
+
+  const recentWorkouts = (db.workouts || []).slice(-10)
+    .map(w => `${w.date} ${w.name}${w.duration ? " " + w.duration + "min" : ""}`).join(", ");
+
+  const byEx = {};
+  for (const l of (db.lifts || []).slice(-100)) (byEx[l.exercise] = byEx[l.exercise] || []).push(l);
+  const liftHistory = Object.entries(byEx).slice(0, 15).map(([ex, sets]) => {
+    const sorted = [...sets].sort((a, b) => (a.date || "").localeCompare(b.date || ""));
+    const latest = sorted.at(-1);
+    const best1RM = Math.max(...sets.map(s => estOneRM(+s.kg || 0, +s.reps || 0)));
+    return `${ex}: last ${latest.kg}kg×${latest.reps}, est1RM ${Math.round(best1RM)}kg`;
+  }).join("; ");
+
+  const systemPrompt = `You are a personal trainer creating a single gym session plan for ${db.profile?.name || "the athlete"} (${bw}kg bodyweight). Return ONLY valid JSON:
+{
+  "title": "Workout title",
+  "rationale": "1-2 sentences why this plan fits today",
+  "exercises": [
+    { "name": "Exercise name", "sets": 3, "reps": "8-10", "rpe": 8, "notes": "optional coaching cue", "isNew": false }
+  ],
+  "warmup": "brief warmup description",
+  "cooldown": "brief cooldown description"
+}
+Session: ${durationMin} min total. Intensity: ${intensity}. Goal: ${goal}. Focus: ${focusMuscles.join(", ") || "full body"}. ${notes ? "Extra notes: " + notes : ""}
+Include 4-7 exercises. Mark isNew:true for exercises not in the user's lift history. Use common exercise names.`;
+
+  const userPrompt = `Recent workouts: ${recentWorkouts || "none yet"}
+Lift history with estimated 1RMs: ${liftHistory || "no data yet"}
+Create the workout plan now.`;
+
+  try {
+    const r = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": "Bearer " + key },
+      body: JSON.stringify({
+        model: "llama-3.3-70b-versatile",
+        max_tokens: 1200,
+        response_format: { type: "json_object" },
+        messages: [{ role: "system", content: systemPrompt }, { role: "user", content: userPrompt }],
+      }),
+    });
+    if (!r.ok) return res.status(500).json({ error: "Groq API error " + r.status });
+    const data = await r.json();
+    const content = data.choices?.[0]?.message?.content;
+    let plan;
+    try { plan = JSON.parse(content); } catch { return res.status(500).json({ error: "AI returned invalid JSON" }); }
+    res.json(plan);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // ---------- Setup page ----------
 app.get("/setup", (req, res) => {
   const host = req.get("host") || "YOUR-PROJECT.web.app";

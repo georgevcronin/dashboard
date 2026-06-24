@@ -982,12 +982,317 @@ function ExercisePicker({ customExercises, onPick, onCreateNew, onClose }) {
   );
 }
 
-// ─── Active workout logger ───────────────────────────────────────────────────
+// ─── Strength scoring ────────────────────────────────────────────────────────
+
+function frontE1RM(kg, reps) {
+  if (!kg || !reps) return kg || 0;
+  if (reps >= 6) return kg / (1.0278 - 0.0278 * reps);
+  return kg * (1 + reps / 30);
+}
+
+// 1RM thresholds in kg for an 80 kg male: [beginner, novice, intermediate, advanced, elite]
+const STRENGTH_STD = {
+  "barbell bench press":         [48, 68,  92, 118, 148],
+  "incline barbell bench press": [39, 55,  75,  96, 120],
+  "decline barbell bench press": [51, 72,  97, 124, 155],
+  "dumbbell bench press":        [38, 54,  73,  94, 118],
+  "incline dumbbell press":      [31, 45,  61,  78,  98],
+  "dips":                        [ 0, 13,  28,  45,  65],
+  "push-up":                     [ 0,  8,  18,  30,  45],
+  "cable fly":                   [20, 31,  44,  57,  72],
+  "pec deck":                    [37, 54,  74,  94, 118],
+  "barbell overhead press":      [29, 41,  56,  73,  92],
+  "dumbbell shoulder press":     [21, 31,  43,  56,  70],
+  "seated dumbbell press":       [21, 31,  43,  56,  70],
+  "lateral raise":               [ 6,  9,  13,  18,  24],
+  "back squat":                  [55, 78, 104, 133, 165],
+  "front squat":                 [42, 60,  80, 102, 127],
+  "hack squat":                  [55, 78, 104, 133, 165],
+  "leg press":                   [82,116, 153, 192, 232],
+  "leg extension":               [30, 43,  57,  72,  88],
+  "leg curl":                    [25, 37,  50,  64,  79],
+  "seated leg curl":             [25, 37,  50,  64,  79],
+  "hip thrust":                  [60, 88, 119, 151, 184],
+  "bulgarian split squat":       [22, 35,  49,  64,  80],
+  "deadlift":                    [73,103, 136, 172, 210],
+  "romanian deadlift":           [55, 79, 105, 132, 162],
+  "sumo deadlift":               [75,107, 141, 178, 217],
+  "barbell row":                 [42, 60,  80, 103, 127],
+  "dumbbell row":                [29, 42,  57,  73,  90],
+  "t-bar row":                   [44, 63,  85, 108, 133],
+  "seated cable row":            [44, 63,  84, 107, 130],
+  "pull-up":                     [ 0,  9,  22,  38,  57],
+  "chin-up":                     [ 0, 11,  25,  42,  63],
+  "lat pulldown":                [41, 58,  77,  98, 121],
+  "barbell curl":                [19, 29,  41,  53,  67],
+  "dumbbell curl":               [10, 15,  22,  29,  37],
+  "skull crusher":               [22, 33,  46,  59,  74],
+  "close-grip bench press":      [43, 61,  82, 105, 131],
+  "tricep pushdown":             [23, 35,  48,  62,  77],
+  "overhead tricep extension":   [18, 27,  38,  50,  63],
+  "face pull":                   [18, 27,  38,  50,  63],
+  "calf raise":                  [55, 80, 108, 138, 170],
+};
+
+const LEVEL_LABELS = ["Untrained", "Beginner", "Novice", "Intermediate", "Advanced", "Elite"];
+const LEVEL_COLORS = [T.dim, "#6ab4e0", "#8a9ab8", T.green, "#fca311", "#ff8c42"];
+
+function getStrengthLevel(exerciseName, est1RM, bwKg = 80) {
+  if (!est1RM || est1RM <= 0) return null;
+  const std = STRENGTH_STD[(exerciseName || "").toLowerCase().trim()];
+  if (!std) return null;
+  const scale = Math.pow(Math.max(bwKg || 80, 40) / 80, 0.67);
+  const t = std.map(v => v * scale);
+  let level = 0;
+  for (let i = 0; i < t.length; i++) { if (est1RM >= t[i]) level = i + 1; }
+  let pct;
+  if (level === 0) pct = t[0] > 0 ? Math.min(est1RM / t[0], 1) * 20 : 20;
+  else if (level >= 5) pct = 100;
+  else pct = level * 20 + ((est1RM - t[level - 1]) / Math.max(t[level] - t[level - 1], 1)) * 20;
+  return {
+    level, label: LEVEL_LABELS[level], color: LEVEL_COLORS[level],
+    pct: Math.min(Math.max(Math.round(pct), 0), 100),
+    nextLabel: level < 5 ? LEVEL_LABELS[level + 1] : null,
+    nextAt: level < 5 ? t[level] : null,
+  };
+}
+
+const STRENGTH_RATIOS = [
+  { a: "barbell bench press", b: "barbell overhead press", expected: 1.6,  label: "Bench / OHP" },
+  { a: "barbell bench press", b: "barbell row",            expected: 1.0,  label: "Push / Pull" },
+  { a: "back squat",          b: "deadlift",               expected: 0.84, label: "Squat / DL"  },
+  { a: "back squat",          b: "barbell bench press",    expected: 1.25, label: "Squat / Bench" },
+];
+
+// ─── Pre-session AI planner ───────────────────────────────────────────────────
+
+function PlanningScreen({ s, onStart, onSkip }) {
+  const FOCUS_OPTS = ["chest","back","shoulders","arms","legs","glutes","core"];
+  const [selected, setSelected] = useState([]);
+  const [durationMin, setDurationMin] = useState(60);
+  const [intensity, setIntensity] = useState("moderate");
+  const [goal, setGoal] = useState("hypertrophy");
+  const [notes, setNotes] = useState("");
+  const [plan, setPlan] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [err, setErr] = useState(null);
+
+  function toggleFocus(m) { setSelected(p => p.includes(m) ? p.filter(x => x !== m) : [...p, m]); }
+
+  async function generate() {
+    setLoading(true); setErr(null); setPlan(null);
+    try {
+      const p = await api("workout/plan", { focusMuscles: selected, durationMin, intensity, goal, notes });
+      if (p.error) setErr(p.error);
+      else setPlan(p);
+    } catch(e) { setErr(e.message); }
+    setLoading(false);
+  }
+
+  if (plan) return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      <div style={{ ...card, background: "rgba(252,163,17,.07)", border: `1px solid ${T.green}55`, padding: "14px 18px" }}>
+        <div style={{ fontSize: 17, fontWeight: 700, color: T.green, marginBottom: 4 }}>{plan.title}</div>
+        <div style={{ fontSize: 12, color: T.mid }}>{plan.rationale}</div>
+      </div>
+      {plan.warmup && (
+        <div style={{ ...card, padding: "10px 16px" }}>
+          <div style={{ ...label, marginBottom: 3 }}>Warmup</div>
+          <div style={{ fontSize: 12, color: T.mid }}>{plan.warmup}</div>
+        </div>
+      )}
+      <div style={{ ...card }}>
+        <div style={{ ...label, marginBottom: 10 }}>Exercises</div>
+        {(plan.exercises || []).map((ex, i) => (
+          <div key={i} style={{ borderBottom: `1px solid ${T.line}`, paddingBottom: 8, marginBottom: 8 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <span style={{ fontSize: 14, color: T.fg, textTransform: "capitalize", flex: 1 }}>{ex.name}</span>
+              {ex.isNew && <span style={{ fontSize: 9, color: T.green, border: `1px solid ${T.green}44`, borderRadius: 4, padding: "1px 5px" }}>NEW</span>}
+            </div>
+            <div style={{ fontSize: 12, color: T.dim, marginTop: 3 }}>
+              {ex.sets} sets x {ex.reps} reps{ex.rpe ? ` @ RPE ${ex.rpe}` : ""}
+              {ex.notes ? <span style={{ marginLeft: 8, color: T.mid, fontStyle: "italic" }}>{ex.notes}</span> : null}
+            </div>
+          </div>
+        ))}
+      </div>
+      {plan.cooldown && (
+        <div style={{ ...card, padding: "10px 16px" }}>
+          <div style={{ ...label, marginBottom: 3 }}>Cooldown</div>
+          <div style={{ fontSize: 12, color: T.mid }}>{plan.cooldown}</div>
+        </div>
+      )}
+      <div style={{ display: "flex", gap: 8 }}>
+        <button onClick={() => onStart(plan)} style={{ ...pill(true), flex: 1, padding: "13px", fontSize: 14, fontWeight: 600 }}>Start this workout</button>
+        <button onClick={() => setPlan(null)} style={{ ...pill(false), fontSize: 12, padding: "10px 16px" }}>Regenerate</button>
+      </div>
+      <button onClick={onSkip} style={{ background: "none", border: "none", color: T.dim, cursor: "pointer", fontSize: 12, textDecoration: "underline", padding: "4px" }}>Skip - start empty</button>
+    </div>
+  );
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      <div style={{ fontSize: 15, fontWeight: 600, color: T.fg }}>Plan your session</div>
+      <div style={{ ...card }}>
+        <div style={{ ...label, marginBottom: 8 }}>Focus muscles</div>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+          {FOCUS_OPTS.map(m => (
+            <button key={m} onClick={() => toggleFocus(m)} style={{ ...pill(selected.includes(m)), fontSize: 11 }}>
+              {m.charAt(0).toUpperCase() + m.slice(1)}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div style={{ ...card }}>
+        <div style={{ ...label, marginBottom: 8 }}>Duration</div>
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+          {[30,45,60,75,90].map(d => <button key={d} onClick={() => setDurationMin(d)} style={{ ...pill(durationMin===d), fontSize: 12 }}>{d} min</button>)}
+        </div>
+      </div>
+      <div style={{ ...card }}>
+        <div style={{ ...label, marginBottom: 8 }}>Goal</div>
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+          {[["strength","Strength"],["hypertrophy","Hypertrophy"],["endurance","Endurance"]].map(([v,l]) => (
+            <button key={v} onClick={() => setGoal(v)} style={{ ...pill(goal===v), fontSize: 12 }}>{l}</button>
+          ))}
+        </div>
+      </div>
+      <div style={{ ...card }}>
+        <div style={{ ...label, marginBottom: 8 }}>Intensity</div>
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+          {[["easy","Easy"],["moderate","Moderate"],["hard","Hard"],["max","Max effort"]].map(([v,l]) => (
+            <button key={v} onClick={() => setIntensity(v)} style={{ ...pill(intensity===v), fontSize: 12 }}>{l}</button>
+          ))}
+        </div>
+      </div>
+      <div style={{ ...card }}>
+        <div style={{ ...label, marginBottom: 6 }}>Notes (optional)</div>
+        <textarea value={notes} onChange={e => setNotes(e.target.value)}
+          placeholder="injuries, preferences, specific requests"
+          style={{ ...input, width: "100%", minHeight: 58, resize: "vertical", boxSizing: "border-box", fontFamily: "inherit" }} />
+      </div>
+      {err && <div style={{ color: T.red, fontSize: 13 }}>{err}</div>}
+      <button onClick={generate} disabled={loading}
+        style={{ ...pill(true), padding: "13px", fontSize: 14, fontWeight: 600, opacity: loading ? 0.7 : 1 }}>
+        {loading ? "Generating plan..." : "Generate AI Plan"}
+      </button>
+      <button onClick={onSkip} style={{ background: "none", border: "none", color: T.dim, cursor: "pointer", fontSize: 12, textDecoration: "underline", padding: "4px" }}>
+        Skip - start empty
+      </button>
+    </div>
+  );
+}
+
+// ─── Post-session review ──────────────────────────────────────────────────────
+
+function ReviewScreen({ comparison, wName, s, onDone }) {
+  const [feel, setFeel] = useState(null);
+  const [newRatings, setNewRatings] = useState({});
+  const bwKg = Object.values(s.weight || {}).at(-1) || 75;
+
+  const e1RMs = {};
+  (comparison.exercises || []).forEach(ex => { if (ex.curr1RM) e1RMs[ex.name] = ex.curr1RM; });
+  const ratioRows = STRENGTH_RATIOS
+    .filter(r => e1RMs[r.a] && e1RMs[r.b])
+    .map(r => { const actual = e1RMs[r.a] / e1RMs[r.b]; return { ...r, actual, diff: ((actual - r.expected) / r.expected) * 100 }; });
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      <div style={{ ...card, textAlign: "center", padding: "18px" }}>
+        <div style={{ fontSize: 22, fontWeight: 700, color: T.green, marginBottom: 4 }}>Session complete!</div>
+        <div style={{ fontSize: 13, color: T.mid }}>{wName} · {comparison.durationMin} min · {Math.round((comparison.totalVol || 0) / 1000 * 10) / 10}t volume</div>
+      </div>
+
+      {comparison.prs?.length > 0 && (
+        <div style={{ ...card, background: "rgba(252,163,17,.08)", border: `1px solid ${T.green}55`, padding: "14px 18px" }}>
+          <div style={{ ...label, color: T.green, marginBottom: 8 }}>Personal Records</div>
+          {comparison.prs.map((pr, i) => <div key={i} style={{ fontSize: 13, color: T.fg, marginBottom: 3 }}>{pr}</div>)}
+        </div>
+      )}
+
+      <div style={{ ...card }}>
+        <div style={{ ...label, marginBottom: 10 }}>Exercise Performance</div>
+        {(comparison.exercises || []).filter(ex => ex.curr1RM).map((ex, i) => {
+          const lvl = getStrengthLevel(ex.name, ex.curr1RM, bwKg);
+          const delta = ex.prev1RM && ex.curr1RM ? ex.curr1RM - ex.prev1RM : null;
+          return (
+            <div key={i} style={{ borderBottom: `1px solid ${T.line}`, paddingBottom: 12, marginBottom: 12 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 5 }}>
+                <span style={{ fontSize: 14, color: T.fg, textTransform: "capitalize", flex: 1 }}>{ex.name}</span>
+                {lvl && <span style={{ fontSize: 9, background: lvl.color + "22", color: lvl.color, border: `1px solid ${lvl.color}44`, borderRadius: 4, padding: "2px 6px" }}>{lvl.label}</span>}
+              </div>
+              <div style={{ fontSize: 12, color: T.mid, marginBottom: lvl ? 6 : 0 }}>
+                Est 1RM: <span style={{ color: T.fg, fontWeight: 600 }}>{Math.round(ex.curr1RM)} kg</span>
+                {delta !== null && (
+                  <span style={{ marginLeft: 10, color: delta > 0.5 ? T.green : delta < -0.5 ? T.red : T.mid }}>
+                    {delta > 0.5 ? "up" : delta < -0.5 ? "down" : "="} {Math.abs(Math.round(delta))} kg vs prev
+                  </span>
+                )}
+                {!ex.prev1RM && <span style={{ marginLeft: 10, color: T.green }}>First session!</span>}
+              </div>
+              {lvl && (
+                <>
+                  <div style={{ height: 4, background: T.line, borderRadius: 2, overflow: "hidden", marginBottom: 3 }}>
+                    <div style={{ height: "100%", width: lvl.pct + "%", background: lvl.color, borderRadius: 2, transition: "width .6s ease" }} />
+                  </div>
+                  {lvl.nextLabel && <div style={{ fontSize: 10, color: T.dim }}>{lvl.nextLabel} at {Math.round(lvl.nextAt)} kg est 1RM</div>}
+                </>
+              )}
+              {ex.isNew && (
+                <div style={{ marginTop: 8 }}>
+                  <div style={{ fontSize: 11, color: T.mid, marginBottom: 5 }}>Rate this exercise:</div>
+                  <div style={{ display: "flex", gap: 6 }}>
+                    {["1","2","3","4","5"].map((v) => (
+                      <button key={v} onClick={() => setNewRatings(r => ({ ...r, [ex.name]: +v }))}
+                        style={{ fontSize: 13, background: newRatings[ex.name] === +v ? "rgba(252,163,17,.2)" : "transparent", border: `1px solid ${newRatings[ex.name] === +v ? T.green : T.line}`, borderRadius: 8, padding: "5px 10px", cursor: "pointer", color: newRatings[ex.name] === +v ? T.green : T.mid }}>
+                        {v}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {ratioRows.length > 0 && (
+        <div style={{ ...card }}>
+          <div style={{ ...label, marginBottom: 10 }}>Strength Balance</div>
+          {ratioRows.map((r, i) => (
+            <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
+              <div style={{ fontSize: 12, color: T.mid, flex: 1 }}>{r.label}</div>
+              <div style={{ fontSize: 13, fontWeight: 600, color: Math.abs(r.diff) < 10 ? T.green : T.amber }}>{r.actual.toFixed(2)}</div>
+              <div style={{ fontSize: 11, color: T.dim }}>target {r.expected.toFixed(2)}</div>
+              <div style={{ fontSize: 11, color: Math.abs(r.diff) < 10 ? T.green : T.red }}>{r.diff > 0 ? "+" : ""}{Math.round(r.diff)}%</div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div style={{ ...card }}>
+        <div style={{ ...label, marginBottom: 8 }}>How did the session feel?</div>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          {[["1","Rough"],["2","Hard"],["3","Good"],["4","Great"],["5","Amazing"]].map(([v,lbl]) => (
+            <button key={v} onClick={() => setFeel(+v)} style={{ ...pill(feel === +v), fontSize: 12 }}>{lbl}</button>
+          ))}
+        </div>
+      </div>
+
+      <button onClick={() => onDone(feel, newRatings)}
+        style={{ ...pill(true), padding: "13px", fontSize: 14, fontWeight: 600 }}>
+        Done
+      </button>
+    </div>
+  );
+}
+
+// ─── Active workout logger ────────────────────────────────────────────────────
 function LogWorkout({ s, refresh }) {
-  const [phase, setPhase] = useState("idle"); // idle | active
+  const [phase, setPhase] = useState("idle"); // idle | planning | active | review
   const [wName, setWName] = useState("My Workout");
   const [startTs, setStartTs] = useState(null);
-  const [exercises, setExercises] = useState([]); // [{name, sets:[{type,kg,reps,rir}]}]
+  const [exercises, setExercises] = useState([]);
   const [showPicker, setShowPicker] = useState(false);
   const [showAddEx, setShowAddEx] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -996,6 +1301,9 @@ function LogWorkout({ s, refresh }) {
   const [tplName, setTplName] = useState("");
   const [tplSaving, setTplSaving] = useState(false);
   const [finishMsg, setFinishMsg] = useState(null);
+  const [aiPlan, setAiPlan] = useState(null);
+  const [comparison, setComparison] = useState(null);
+  const [showPlanRef, setShowPlanRef] = useState(false);
 
   useEffect(() => {
     if (phase !== "active") return;
@@ -1003,34 +1311,39 @@ function LogWorkout({ s, refresh }) {
     return () => clearInterval(t);
   }, [phase, startTs]);
 
-  function fmtElapsed(s) {
-    const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
-    return h > 0 ? `${h}:${String(m).padStart(2,"0")}:${String(sec).padStart(2,"0")}` : `${m}:${String(sec).padStart(2,"0")}`;
+  function fmtElapsed(sec) {
+    const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), sc = sec % 60;
+    return h > 0 ? `${h}:${String(m).padStart(2,"0")}:${String(sc).padStart(2,"0")}` : `${m}:${String(sc).padStart(2,"0")}`;
   }
 
-  function startFresh() { setStartTs(Date.now()); setExercises([]); setWName("My Workout"); setPhase("active"); }
+  function startFresh() { setStartTs(Date.now()); setExercises([]); setWName("My Workout"); setAiPlan(null); setPhase("active"); }
 
   function startTemplate(tpl) {
-    setStartTs(Date.now());
-    setWName(tpl.name);
+    setStartTs(Date.now()); setWName(tpl.name); setAiPlan(null);
     setExercises(tpl.exercises.map(e => ({ name: e.name, sets: Array.from({ length: e.sets }, () => mkSet()) })));
     setPhase("active");
   }
 
-  function addExercise(name) { setExercises(prev => [...prev, { name, sets: [mkSet()] }]); setShowPicker(false); }
-
-  function removeExercise(i) { setExercises(prev => prev.filter((_, idx) => idx !== i)); }
-
-  function addSet(i) { setExercises(prev => { const n=[...prev]; const ex={...n[i]}; ex.sets=[...ex.sets, mkSet(ex.sets.at(-1))]; n[i]=ex; return n; }); }
-
-  function removeSet(ei, si) {
-    setExercises(prev => {
-      const n = [...prev]; const ex = {...n[ei]}; ex.sets = ex.sets.filter((_,i) => i !== si);
-      if (ex.sets.length === 0) return n.filter((_,i) => i !== ei);
-      n[ei] = ex; return n;
-    });
+  function startWithPlan(plan) {
+    setStartTs(Date.now()); setWName(plan.title || "My Workout"); setAiPlan(plan);
+    setExercises((plan.exercises || []).map(ex => ({
+      name: ex.name,
+      sets: Array.from({ length: ex.sets || 3 }, () => mkSet()),
+      planNote: ex.notes || null, planReps: ex.reps || null, planRpe: ex.rpe || null,
+    })));
+    setPhase("active");
   }
 
+  function addExercise(name) { setExercises(prev => [...prev, { name, sets: [mkSet()] }]); setShowPicker(false); }
+  function removeExercise(i) { setExercises(prev => prev.filter((_, idx) => idx !== i)); }
+  function addSet(i) { setExercises(prev => { const n=[...prev]; const ex={...n[i]}; ex.sets=[...ex.sets, mkSet(ex.sets.at(-1))]; n[i]=ex; return n; }); }
+  function removeSet(ei, si) {
+    setExercises(prev => {
+      const n=[...prev]; const ex={...n[ei]}; ex.sets=ex.sets.filter((_,ii) => ii!==si);
+      if (ex.sets.length===0) return n.filter((_,ii) => ii!==ei);
+      n[ei]=ex; return n;
+    });
+  }
   function updSet(ei, si, field, val) {
     setExercises(prev => {
       const n=[...prev]; const ex={...n[ei]}; const sets=[...ex.sets];
@@ -1043,38 +1356,60 @@ function LogWorkout({ s, refresh }) {
     setSaving(true);
     try {
       const endTs = Date.now();
-      const r = await api("workouts/log", { name: wName, startTime: new Date(startTs).toISOString(), endTime: new Date(endTs).toISOString(), exercises });
-      setFinishMsg(`Saved — ${r.added} sets logged.`);
-      setTimeout(() => { setPhase("idle"); setFinishMsg(null); refresh(); }, 1800);
+      const durationMin = Math.round((endTs - startTs) / 60000);
+      const liftHistory = s.lifts || [];
+      const bwKg = Object.values(s.weight || {}).at(-1) || 75;
+      const prs = [];
+      const compExercises = exercises.map(ex => {
+        const wSets = ex.sets.filter(st => st.type !== "warmup" && st.kg !== "" && st.reps !== "");
+        const curr1RM = wSets.length > 0 ? Math.max(...wSets.map(st => frontE1RM(+st.kg||0,+st.reps||0))) : 0;
+        const prevSets = liftHistory.filter(l => l.exercise?.toLowerCase() === ex.name.toLowerCase());
+        const prev1RM = prevSets.length > 0 ? Math.max(...prevSets.map(l => frontE1RM(+l.kg||0,+l.reps||0))) : 0;
+        if (curr1RM > 0 && prev1RM > 0 && curr1RM > prev1RM + 0.5)
+          prs.push(`${ex.name}: ${Math.round(curr1RM)} kg est 1RM (prev ${Math.round(prev1RM)} kg)`);
+        return { name: ex.name, curr1RM: curr1RM || null, prev1RM: prev1RM || null, isNew: prevSets.length === 0 && wSets.length > 0 };
+      });
+      const totalVol = exercises.reduce((acc, ex) => acc + ex.sets.filter(st => st.type !== "warmup").reduce((a, st) => a + (parseFloat(st.kg)||0)*(parseInt(st.reps)||0), 0), 0);
+      await api("workouts/log", { name: wName, startTime: new Date(startTs).toISOString(), endTime: new Date(endTs).toISOString(), exercises });
+      setSaving(false);
+      setComparison({ exercises: compExercises, prs, durationMin, totalVol });
+      setPhase("review");
     } catch(e) { setSaving(false); }
   }
 
   async function saveTemplate() {
     if (!tplName.trim()) return;
     setTplSaving(true);
-    await api("templates", { name: tplName.trim(), exercises: exercises.map(e => ({ name: e.name, sets: e.sets.filter(s => s.type !== "warmup").length || e.sets.length })) });
-    setTplSaving(false); setShowTemplateSave(false); setTplName("");
-    refresh();
+    await api("templates", { name: tplName.trim(), exercises: exercises.map(e => ({ name: e.name, sets: e.sets.filter(st => st.type !== "warmup").length || e.sets.length })) });
+    setTplSaving(false); setShowTemplateSave(false); setTplName(""); refresh();
   }
 
   async function deleteTemplate(id) { await api(`templates/${id}`, {}, "DELETE"); refresh(); }
 
   const templates = s.workoutTemplates || [];
   const customExercises = s.exerciseLibrary || [];
+  const totalSets = exercises.reduce((acc, ex) => acc + ex.sets.filter(st => st.type !== "warmup" && (st.kg !== "" || st.reps !== "")).length, 0);
+  const totalVol = exercises.reduce((acc, ex) => acc + ex.sets.filter(st => st.type !== "warmup").reduce((a, st) => a + (parseFloat(st.kg)||0)*(parseInt(st.reps)||0), 0), 0);
 
-  const totalSets = exercises.reduce((acc, ex) => acc + ex.sets.filter(s => s.type !== "warmup" && (s.kg !== "" || s.reps !== "")).length, 0);
-  const totalVol = exercises.reduce((acc, ex) => acc + ex.sets.filter(s => s.type !== "warmup").reduce((a, s) => a + (parseFloat(s.kg)||0) * (parseInt(s.reps)||0), 0), 0);
-
-  // ── IDLE SCREEN ──────────────────────────────────────────────────────────
+  // ── IDLE ──────────────────────────────────────────────────────────────────
   if (phase === "idle") return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
       {finishMsg && <div style={{ ...card, background: "rgba(252,163,17,.1)", border: `1px solid ${T.green}44`, color: T.green, fontSize: 14, textAlign: "center" }}>{finishMsg}</div>}
 
-      <button onClick={startFresh}
-        style={{ ...card, background: `linear-gradient(135deg, rgba(252,163,17,.15), ${T.panel} 70%)`, border: `1px solid ${T.green}44`, cursor: "pointer", display: "flex", alignItems: "center", gap: 14, padding: "18px 20px" }}>
-        <div style={{ width: 40, height: 40, borderRadius: 999, background: `rgba(252,163,17,.18)`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20, flexShrink: 0 }}>＋</div>
+      <button onClick={() => setPhase("planning")}
+        style={{ ...card, background: `linear-gradient(135deg, rgba(252,163,17,.18), ${T.panel} 70%)`, border: `1px solid ${T.green}`, cursor: "pointer", display: "flex", alignItems: "center", gap: 14, padding: "18px 20px" }}>
+        <div style={{ width: 42, height: 42, borderRadius: 999, background: "rgba(252,163,17,.22)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, fontWeight: 700, color: T.green, flexShrink: 0 }}>AI</div>
         <div style={{ textAlign: "left" }}>
-          <div style={{ fontSize: 15, fontWeight: 600, color: T.fg }}>Start empty workout</div>
+          <div style={{ fontSize: 15, fontWeight: 600, color: T.green }}>Plan & Start workout</div>
+          <div style={{ fontSize: 12, color: T.mid, marginTop: 2 }}>AI creates a personalised session based on your history</div>
+        </div>
+      </button>
+
+      <button onClick={startFresh}
+        style={{ ...card, background: "transparent", border: `1px dashed ${T.line}`, cursor: "pointer", display: "flex", alignItems: "center", gap: 14, padding: "14px 20px" }}>
+        <div style={{ width: 38, height: 38, borderRadius: 999, background: T.line, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18, flexShrink: 0 }}>+</div>
+        <div style={{ textAlign: "left" }}>
+          <div style={{ fontSize: 14, color: T.fg }}>Start empty workout</div>
           <div style={{ fontSize: 12, color: T.dim, marginTop: 2 }}>Add exercises as you go</div>
         </div>
       </button>
@@ -1090,7 +1425,7 @@ function LogWorkout({ s, refresh }) {
                   <div style={{ fontSize: 11, color: T.dim, marginTop: 2 }}>{tpl.exercises.map(e => e.name).slice(0, 4).join(" · ")}{tpl.exercises.length > 4 ? ` +${tpl.exercises.length - 4}` : ""}</div>
                 </div>
                 <button onClick={() => startTemplate(tpl)} style={{ ...pill(true), fontSize: 11, padding: "5px 12px" }}>Start</button>
-                <button onClick={() => deleteTemplate(tpl.id)} style={{ background: "none", border: "none", color: T.dim, cursor: "pointer", fontSize: 14, padding: "4px 6px" }}>✕</button>
+                <button onClick={() => deleteTemplate(tpl.id)} style={{ background: "none", border: "none", color: T.dim, cursor: "pointer", fontSize: 14, padding: "4px 6px" }}>x</button>
               </div>
             ))}
           </div>
@@ -1099,39 +1434,68 @@ function LogWorkout({ s, refresh }) {
     </div>
   );
 
-  // ── ACTIVE WORKOUT ───────────────────────────────────────────────────────
+  // ── PLANNING ──────────────────────────────────────────────────────────────
+  if (phase === "planning") return <PlanningScreen s={s} onStart={startWithPlan} onSkip={startFresh} />;
+
+  // ── REVIEW ────────────────────────────────────────────────────────────────
+  if (phase === "review" && comparison) return (
+    <ReviewScreen comparison={comparison} wName={wName} s={s}
+      onDone={(feel, ratings) => {
+        const msg = comparison.prs?.length > 0
+          ? `${comparison.prs.length} PR${comparison.prs.length > 1 ? "s" : ""}! Great session.`
+          : "Workout saved!";
+        setPhase("idle"); setFinishMsg(msg); setComparison(null); refresh();
+      }} />
+  );
+
+  // ── ACTIVE ────────────────────────────────────────────────────────────────
+  const bwKg = Object.values(s.weight || {}).at(-1) || 75;
+  const liftHistory = s.lifts || [];
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-      {/* Header bar */}
+      {/* Header */}
       <div style={{ ...card, padding: "12px 16px", display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
         <input value={wName} onChange={e => setWName(e.target.value)}
           style={{ ...input, flex: 1, minWidth: 140, padding: "6px 12px", fontSize: 15, fontWeight: 600, background: "transparent", border: "none", outline: "none", color: T.fg }} />
         <div style={{ fontSize: 22, fontWeight: 700, color: T.green, fontVariantNumeric: "tabular-nums", flexShrink: 0 }}>{fmtElapsed(elapsed)}</div>
-        <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
+        <div style={{ display: "flex", gap: 8, flexShrink: 0, flexWrap: "wrap" }}>
+          {aiPlan && <button onClick={() => setShowPlanRef(p => !p)} style={{ ...pill(showPlanRef), fontSize: 11 }}>AI Plan</button>}
           {!showTemplateSave && <button onClick={() => setShowTemplateSave(true)} style={{ ...pill(false), fontSize: 11 }}>Save template</button>}
-          <button onClick={finish} disabled={saving}
-            style={{ ...pill(true), fontSize: 12, opacity: saving ? 0.6 : 1 }}>
-            {saving ? "Saving…" : `Finish (${totalSets} sets)`}
+          <button onClick={finish} disabled={saving} style={{ ...pill(true), fontSize: 12, opacity: saving ? 0.6 : 1 }}>
+            {saving ? "Saving..." : `Finish (${totalSets} sets)`}
           </button>
         </div>
       </div>
 
-      {/* Save as template inline form */}
+      {/* AI plan reference */}
+      {aiPlan && showPlanRef && (
+        <div style={{ ...card, background: "rgba(252,163,17,.05)", border: `1px solid ${T.green}44`, padding: "12px 16px" }}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: T.green, marginBottom: 6 }}>{aiPlan.title}</div>
+          {(aiPlan.exercises || []).map((ex, i) => (
+            <div key={i} style={{ fontSize: 12, color: T.mid, marginBottom: 3 }}>
+              <span style={{ color: T.fg, textTransform: "capitalize" }}>{ex.name}</span>
+              {" "}- {ex.sets}x{ex.reps}{ex.rpe ? ` @RPE${ex.rpe}` : ""}{ex.notes ? ` · ${ex.notes}` : ""}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Save as template */}
       {showTemplateSave && (
         <div style={{ ...card, padding: "12px 16px", display: "flex", gap: 8, alignItems: "center" }}>
-          <input value={tplName} onChange={e => setTplName(e.target.value)}
-            placeholder="Template name…"
+          <input value={tplName} onChange={e => setTplName(e.target.value)} placeholder="Template name..."
             onKeyDown={e => e.key === "Enter" && saveTemplate()}
             style={{ ...input, flex: 1, padding: "7px 12px", fontSize: 13 }} />
           <button onClick={saveTemplate} disabled={!tplName.trim() || tplSaving}
             style={{ ...pill(true), fontSize: 11, opacity: !tplName.trim() ? 0.5 : 1 }}>
-            {tplSaving ? "…" : "Save"}
+            {tplSaving ? "..." : "Save"}
           </button>
-          <button onClick={() => setShowTemplateSave(false)} style={{ background: "none", border: "none", color: T.dim, cursor: "pointer", fontSize: 14, padding: "4px" }}>✕</button>
+          <button onClick={() => setShowTemplateSave(false)} style={{ background: "none", border: "none", color: T.dim, cursor: "pointer", fontSize: 14, padding: "4px" }}>x</button>
         </div>
       )}
 
-      {/* Volume summary chip */}
+      {/* Volume summary */}
       {totalVol > 0 && (
         <div style={{ fontSize: 12, color: T.mid, textAlign: "right" }}>
           <span style={{ color: T.green, fontWeight: 600 }}>{totalSets}</span> working sets · <span style={{ color: T.green, fontWeight: 600 }}>{Math.round(totalVol / 1000 * 10) / 10}t</span> total volume
@@ -1141,12 +1505,29 @@ function LogWorkout({ s, refresh }) {
       {/* Exercise cards */}
       {exercises.map((ex, ei) => {
         let workingCount = 0;
+        const prevHistory = liftHistory.filter(l => l.exercise?.toLowerCase() === ex.name.toLowerCase());
+        const prevBest = prevHistory.length > 0
+          ? prevHistory.reduce((best, l) => frontE1RM(+l.kg||0,+l.reps||0) > frontE1RM(+best.kg||0,+best.reps||0) ? l : best, prevHistory[0])
+          : null;
+        const currWS = ex.sets.filter(st => st.type !== "warmup" && st.kg !== "" && st.reps !== "");
+        const curr1RM = currWS.length > 0 ? Math.max(...currWS.map(st => frontE1RM(+st.kg||0,+st.reps||0))) : 0;
+        const lvl = curr1RM > 0 ? getStrengthLevel(ex.name, curr1RM, bwKg) : null;
+
         return (
           <div key={ei} style={{ ...card, padding: "14px 16px" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
               <div style={{ flex: 1, fontSize: 14, fontWeight: 600, color: T.fg, textTransform: "capitalize" }}>{ex.name}</div>
+              {lvl && <span style={{ fontSize: 9, background: lvl.color + "22", color: lvl.color, border: `1px solid ${lvl.color}44`, borderRadius: 4, padding: "2px 6px", flexShrink: 0 }}>{lvl.label}</span>}
               <button onClick={() => removeExercise(ei)} style={{ background: "none", border: "none", color: T.dim, cursor: "pointer", fontSize: 13, padding: "2px 6px" }}>Remove</button>
             </div>
+
+            {(prevBest || ex.planReps) && (
+              <div style={{ fontSize: 11, color: T.dim, marginBottom: 8, display: "flex", gap: 12, flexWrap: "wrap" }}>
+                {prevBest && <span>Prev best: <span style={{ color: T.mid }}>{prevBest.kg}kg x{prevBest.reps}</span></span>}
+                {ex.planReps && <span style={{ color: T.green }}>Plan: {ex.sets.length}x{ex.planReps}{ex.planRpe ? ` @RPE${ex.planRpe}` : ""}</span>}
+                {ex.planNote && <span style={{ fontStyle: "italic" }}>{ex.planNote}</span>}
+              </div>
+            )}
 
             {/* Set column headers */}
             <div style={{ display: "grid", gridTemplateColumns: "28px 44px 1fr 1fr 64px 24px", gap: 4, marginBottom: 4, paddingLeft: 2 }}>
@@ -1161,7 +1542,6 @@ function LogWorkout({ s, refresh }) {
                 <div key={si} style={{ display: "grid", gridTemplateColumns: "28px 44px 1fr 1fr 64px 24px", gap: 4, marginBottom: 4, alignItems: "center" }}>
                   <div style={{ fontSize: 12, fontWeight: 700, color: numColor, textAlign: "center" }}>{setNum}</div>
 
-                  {/* Type picker */}
                   <div style={{ position: "relative" }}>
                     <select value={set.type} onChange={e => updSet(ei, si, "type", e.target.value)}
                       style={{ ...input, padding: "5px 4px", fontSize: 11, background: "#080e1c", width: "100%", textAlign: "center", cursor: "pointer", appearance: "none" }}>
@@ -1170,14 +1550,14 @@ function LogWorkout({ s, refresh }) {
                   </div>
 
                   <input type="number" min="0" step="0.5" value={set.kg} onChange={e => updSet(ei, si, "kg", e.target.value)}
-                    placeholder="—" style={{ ...input, padding: "5px 6px", fontSize: 13, textAlign: "center" }} />
+                    placeholder="-" style={{ ...input, padding: "5px 6px", fontSize: 13, textAlign: "center" }} />
                   <input type="number" min="0" step="1" value={set.reps} onChange={e => updSet(ei, si, "reps", e.target.value)}
-                    placeholder="—" style={{ ...input, padding: "5px 6px", fontSize: 13, textAlign: "center" }} />
+                    placeholder="-" style={{ ...input, padding: "5px 6px", fontSize: 13, textAlign: "center" }} />
                   <input type="number" min="0" max="10" step="0.5" value={set.rir} onChange={e => updSet(ei, si, "rir", e.target.value)}
-                    placeholder="—" style={{ ...input, padding: "5px 6px", fontSize: 11, textAlign: "center" }} />
+                    placeholder="-" style={{ ...input, padding: "5px 6px", fontSize: 11, textAlign: "center" }} />
                   <button onClick={() => removeSet(ei, si)}
                     style={{ background: "none", border: "none", color: T.dim, cursor: "pointer", fontSize: 14, padding: "2px", lineHeight: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
-                    ×
+                    x
                   </button>
                 </div>
               );
@@ -1998,7 +2378,7 @@ const RECOVERY_H = {
 };
 
 // All displayable muscles with SVG coordinates (front and back body)
-const MUSCLES = {
+const BODY_SVG = {
   // Front — { label, cx, cy, rx, ry, side [, link] }
   frontDelts:  { label:"Front Delts",  cx:113, cy:87,  rx:9,  ry:8,  side:"front" },
   frontDeltsR: { label:"Front Delts",  cx:187, cy:87,  rx:9,  ry:8,  side:"front", link:"frontDelts" },
@@ -2108,7 +2488,7 @@ function Fatigue({ go, s, refresh }) {
   }, [s.lifts, s.liftPRs, s.workouts, s.muscleSensitivity, s.soreness]);
 
   const getMuscleLevel = (key) => {
-    const m = MUSCLES[key];
+    const m = BODY_SVG[key];
     const dataKey = m.link || key;
     return fatigue[dataKey] || 0;
   };
@@ -2239,7 +2619,7 @@ function Fatigue({ go, s, refresh }) {
     refresh();
   };
 
-  const hoverMuscle = hover ? MUSCLES[hover] : null;
+  const hoverMuscle = hover ? BODY_SVG[hover] : null;
   const hoverKey = hoverMuscle ? (hoverMuscle.link || hover) : null;
   const hoverLevel = hoverKey ? (fatigue[hoverKey] || 0) : 0;
   const hoverWord = hoverLevel < 0.2 ? "Fresh" : hoverLevel < 0.45 ? "Mild" : hoverLevel < 0.7 ? "Moderate" : "Fatigued";
@@ -2335,7 +2715,7 @@ function Fatigue({ go, s, refresh }) {
                 {/* Spine crease for back view */}
                 {side === "back" && <line x1="450" y1="85" x2="450" y2="165" strokeWidth="0.75" strokeDasharray="2,3" style={{ stroke: T.line }}/>}
                 {/* Muscle overlays — ellipses use absolute coordinates */}
-                {Object.entries(MUSCLES).filter(([, m]) => m.side === side).map(([key, m]) => {
+                {Object.entries(BODY_SVG).filter(([, m]) => m.side === side).map(([key, m]) => {
                   const level = getMuscleLevel(key);
                   return (
                     <ellipse key={key} cx={m.cx} cy={m.cy} rx={m.rx} ry={m.ry}
