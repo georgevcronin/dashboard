@@ -111,13 +111,16 @@ app.post("/health", async (req, res) => {
   }
   for (const w of d.workouts || []) {
     const k = day(w.start || w.date);
-    if (!db.workouts.find((x) => x.date === k && x.name === w.name && x.start === w.start)) {
+    // Normalize start to ISO so it matches Hevy lift keys (HAE sends "2024-01-15 09:00:00 +0000")
+    let isoStart = null;
+    if (w.start) { try { isoStart = new Date(w.start).toISOString(); } catch(e) { isoStart = w.start; } }
+    if (!db.workouts.find((x) => x.date === k && x.name === w.name && x.start === isoStart)) {
       const rawKcal = w.activeEnergyBurned?.qty ?? w.activeEnergy?.qty ?? null;
       const unit = w.activeEnergyBurned?.units ?? w.activeEnergy?.units ?? "kcal";
       const durationMin = w.duration ? Math.round(w.duration / 60) : null;
       const kcalFromUnit = rawKcal != null ? Math.round(unit === "kJ" ? rawKcal / 4.184 : rawKcal) : null;
       const kcal = kjGuard(kcalFromUnit, durationMin);
-      db.workouts.push({ date: k, name: w.name, start: w.start, duration: durationMin, kcal });
+      db.workouts.push({ date: k, name: w.name, start: isoStart, duration: durationMin, kcal });
       saved++;
     }
   }
@@ -131,6 +134,18 @@ app.get("/health-debug", (req, res) => {
     date: k, sleep_hours: db.metrics[k].sleep_hours ?? null, sleep_eff: db.metrics[k].sleep_eff ?? null,
   }));
   res.json({ recentMetrics: today, lastPayloads: _healthLog });
+});
+
+// ---------- Migrate non-ISO workout starts ----------
+app.post("/fix-workout-starts", async (req, res) => {
+  let fixed = 0;
+  for (const w of (db.workouts || [])) {
+    if (w.start && !w.start.includes("T")) {
+      try { const iso = new Date(w.start).toISOString(); if (iso !== w.start) { w.start = iso; fixed++; } } catch(e) {}
+    }
+  }
+  if (fixed) await save();
+  res.json({ ok: true, fixed });
 });
 
 // ---------- iOS Shortcuts endpoint ----------

@@ -521,6 +521,8 @@ function Vitality({ go, s }) {
 function Train({ go, s, refresh }) {
   const [expandedWorkout, setExpandedWorkout] = useState(null);
   const [trainTab, setTrainTab] = useState("workouts");
+  const [hevySyncing, setHevySyncing] = useState(false);
+  const [hevySyncMsg, setHevySyncMsg] = useState(null);
 
   const weights = (s.weights || []).map((w) => w.value);
   const cur = weights.at(-1);
@@ -532,11 +534,12 @@ function Train({ go, s, refresh }) {
     (byEx[l.exercise] = byEx[l.exercise] || []).push(l);
   });
 
-  // Group lifts by session key for workout expansion
+  // Group lifts by session key for workout expansion — normalise to ISO so HAE & Hevy keys match
   const liftsByKey = {};
   (s.lifts || []).forEach((l) => {
-    const key = l.start || l.date;
-    if (!key) return;
+    if (!l.start && !l.date) return;
+    let key;
+    try { key = l.start ? new Date(l.start).toISOString() : l.date; } catch(e) { key = l.start || l.date; }
     (liftsByKey[key] = liftsByKey[key] || []).push(l);
   });
 
@@ -623,7 +626,7 @@ function Train({ go, s, refresh }) {
             </div>
           )}
           {sortedWorkouts.map((w, i) => {
-            const wktKey = w.start || w.date;
+            let wktKey; try { wktKey = w.start ? new Date(w.start).toISOString() : w.date; } catch(e) { wktKey = w.start || w.date; }
             const dayLifts = liftsByKey[wktKey] || [];
             const byExDay = {};
             dayLifts.forEach(l => { if (l.exercise) (byExDay[l.exercise] = byExDay[l.exercise] || []).push(l); });
@@ -689,8 +692,18 @@ function Train({ go, s, refresh }) {
               </div>
             );
           })}
-          <div style={{ textAlign: "center", paddingBottom: 4 }}>
+          <div style={{ display: "flex", gap: 14, justifyContent: "center", alignItems: "center", paddingBottom: 4 }}>
             <a href="import" style={{ fontSize: 12, color: T.dim, textDecoration: "none" }}>↑ Import Hevy CSV</a>
+            <button style={{ fontSize: 12, color: hevySyncing ? T.dim : T.green, background: "transparent", border: "none", cursor: hevySyncing ? "default" : "pointer", padding: 0 }}
+              disabled={hevySyncing}
+              onClick={() => {
+                setHevySyncing(true); setHevySyncMsg(null);
+                api("hevy/backfill", {}).then(r => { setHevySyncMsg(r.added > 0 ? `+${r.added} sets synced` : "Already up to date"); if (r.added > 0) refresh(); })
+                  .catch(() => setHevySyncMsg("Sync failed")).finally(() => setHevySyncing(false));
+              }}>
+              {hevySyncing ? "Syncing…" : "↻ Sync Hevy"}
+            </button>
+            {hevySyncMsg && <span style={{ fontSize: 11, color: T.mid }}>{hevySyncMsg}</span>}
           </div>
         </div>
       )}
