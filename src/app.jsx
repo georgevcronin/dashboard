@@ -84,13 +84,14 @@ function Line({ data, w = 600, h = 140, color = T.green, fill = true }) {
   const min = Math.min(...data), max = Math.max(...data), rng = max - min || 1;
   const pts = data.map((v, i) => [(i / (data.length - 1)) * w, h - ((v - min) / rng) * (h - 20) - 10]);
   const d = pts.map((p, i) => `${i ? "L" : "M"}${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(" ");
-  const id = "g" + color.slice(1);
+  // Sanitise id — color may be "var(--green)", which is not a valid id fragment.
+  const id = "g" + color.replace(/[^a-z0-9]/gi, "");
   return (
     <svg viewBox={`0 0 ${w} ${h}`} style={{ width: "100%", display: "block" }}>
-      {fill && <><defs><linearGradient id={id} x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor={color} stopOpacity=".22" /><stop offset="100%" stopColor={color} stopOpacity="0" /></linearGradient></defs>
+      {fill && <><defs><linearGradient id={id} x1="0" y1="0" x2="0" y2="1"><stop offset="0%" style={{ stopColor: color }} stopOpacity=".22" /><stop offset="100%" style={{ stopColor: color }} stopOpacity="0" /></linearGradient></defs>
         <path d={`${d} L${w},${h} L0,${h} Z`} fill={`url(#${id})`} /></>}
-      <path d={d} fill="none" stroke={color} strokeWidth="2.5" strokeLinecap="round" />
-      <circle cx={pts.at(-1)[0]} cy={pts.at(-1)[1]} r="4" fill={color} />
+      <path d={d} fill="none" strokeWidth="2.5" strokeLinecap="round" style={{ stroke: color }} />
+      <circle cx={pts.at(-1)[0]} cy={pts.at(-1)[1]} r="4" style={{ fill: color }} />
     </svg>
   );
 }
@@ -99,10 +100,10 @@ function Ring({ pct, size = 150, stroke = 11, color = T.green, children }) {
   return (
     <div style={{ position: "relative", width: size, height: size, flexShrink: 0 }}>
       <svg width={size} height={size}>
-        <circle cx={size / 2} cy={size / 2} r={r} stroke="#1d2420" strokeWidth={stroke} fill="none" />
-        <circle cx={size / 2} cy={size / 2} r={r} stroke={color} strokeWidth={stroke} fill="none" strokeLinecap="round"
+        <circle cx={size / 2} cy={size / 2} r={r} strokeWidth={stroke} fill="none" style={{ stroke: "var(--line)" }} />
+        <circle cx={size / 2} cy={size / 2} r={r} strokeWidth={stroke} fill="none" strokeLinecap="round"
           strokeDasharray={c} strokeDashoffset={c * (1 - Math.min(pct || 0, 1))} transform={`rotate(-90 ${size / 2} ${size / 2})`}
-          style={{ transition: "stroke-dashoffset .8s ease" }} />
+          style={{ transition: "stroke-dashoffset .8s ease", stroke: color }} />
       </svg>
       <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>{children}</div>
     </div>
@@ -383,7 +384,7 @@ function Vitality({ go, s }) {
             <div style={{ ...serif, fontSize: 19, color: qualColor, marginBottom: 8 }}>{qualWord ?? "No data"}</div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginBottom: 10 }}>
               {[["Time Asleep", fmtHM(t.sleepH)], ["Time in Bed", fmtHM(t.sleepInBed ?? (t.sleepH && t.sleepEff ? t.sleepH / (t.sleepEff / 100) : null))]].map(([k, v]) => (
-                <div key={k} style={{ background: "#0c100e", borderRadius: 10, padding: "8px 10px" }}>
+                <div key={k} style={{ background: "var(--panel2)", borderRadius: 10, padding: "8px 10px" }}>
                   <div style={{ fontSize: 9, color: T.dim, letterSpacing: "0.12em", textTransform: "uppercase", marginBottom: 3 }}>{k}</div>
                   <div style={{ fontSize: 16, fontWeight: 600 }}>{v}</div>
                 </div>
@@ -606,12 +607,12 @@ function Train({ go, s, refresh }) {
       {trainTab === "workouts" && (
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
           {/* Muscle map CTA */}
-          <div style={{ ...card, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap", background: "linear-gradient(150deg, rgba(164,138,224,.08), #101512 70%)" }}>
+          <div style={{ ...card, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap", background: "linear-gradient(150deg, rgba(164,138,224,.08), var(--panel) 70%)" }}>
             <div>
-              <div style={{ ...label, color: "#a48ae0" }}>Exercise muscle map</div>
+              <div style={{ ...label, color: "var(--violet)" }}>Exercise muscle map</div>
               <div style={{ fontSize: 13, color: T.mid, marginTop: 3 }}>Tell the app exactly which muscles each exercise targets — used for fatigue tracking.</div>
             </div>
-            <button style={{ ...pill(true), borderColor: "#a48ae0", color: "#a48ae0", background: "rgba(164,138,224,.1)", padding: "9px 18px", flexShrink: 0 }} onClick={() => go("quiz")}>
+            <button style={{ ...pill(true), borderColor: "var(--violet)", color: "var(--violet)", background: "rgba(164,138,224,.1)", padding: "9px 18px", flexShrink: 0 }} onClick={() => go("quiz")}>
               Open editor →
             </button>
           </div>
@@ -837,7 +838,7 @@ function Fuel({ go, s, refresh }) {
             {Math.round(current)} / {max}{unit} {over && <span style={{ fontSize: 10 }}>({Math.round(current - max)}+ over)</span>}
           </span>
         </div>
-        <div style={{ height: 10, background: "#1d2420", borderRadius: 99, overflow: "hidden" }}>
+        <div style={{ height: 10, background: "var(--line)", borderRadius: 99, overflow: "hidden" }}>
           <div style={{ height: "100%", width: `${Math.min(pct, 1) * 100}%`, background: over ? T.amber : color, borderRadius: 99, transition: "width .6s" }} />
         </div>
       </div>
@@ -863,7 +864,7 @@ function Fuel({ go, s, refresh }) {
                 <div style={{ fontSize: 36, fontWeight: 600, marginTop: 2 }}>{Math.round(nt.calories)} <span style={{ fontSize: 15, color: T.mid }}>/ {mt.calories} kcal</span></div>
               </div>
               <div style={{ display: "flex", gap: 20 }}>
-                {[["P", nt.protein, mt.protein, T.green], ["C", nt.carbs, mt.carbs, "#6ab4e0"], ["F", nt.fat, mt.fat, T.amber]].map(([l, cur, max, c]) => (
+                {[["P", nt.protein, mt.protein, T.green], ["C", nt.carbs, mt.carbs, "var(--blue)"], ["F", nt.fat, mt.fat, T.amber]].map(([l, cur, max, c]) => (
                   <div key={l} style={{ textAlign: "center" }}>
                     <Ring pct={cur / (max || 1)} size={68} stroke={6} color={cur > max ? T.amber : c}>
                       <div style={{ fontSize: 14, fontWeight: 600 }}>{Math.round(cur)}</div>
@@ -876,7 +877,7 @@ function Fuel({ go, s, refresh }) {
             </div>
             <div style={{ marginTop: 18 }}>
               {macroBar("protein", nt.protein, mt.protein, T.green)}
-              {macroBar("carbs", nt.carbs, mt.carbs, "#6ab4e0")}
+              {macroBar("carbs", nt.carbs, mt.carbs, "var(--blue)")}
               {macroBar("fat", nt.fat, mt.fat, T.amber)}
               {macroBar("calories", nt.calories, mt.calories, T.fg, " kcal")}
             </div>
@@ -908,7 +909,7 @@ function Fuel({ go, s, refresh }) {
               <div style={{ marginTop: 14, paddingTop: 10, borderTop: `1px solid ${T.line}` }}>
                 <div style={{ ...label, marginBottom: 6 }}>Today's meals</div>
                 {s.nutritionLog.map((m, i) => (
-                  <div key={i} style={{ display: "flex", justifyContent: "space-between", fontSize: 13, padding: "5px 0", borderBottom: "1px solid #161c18" }}>
+                  <div key={i} style={{ display: "flex", justifyContent: "space-between", fontSize: 13, padding: "5px 0", borderBottom: "1px solid var(--line)" }}>
                     <span><span style={{ color: T.dim, fontSize: 11 }}>{m.time}</span> {m.label}</span>
                     <span style={{ color: T.mid, fontVariantNumeric: "tabular-nums" }}>{m.protein}p {m.carbs}c {m.fat}f · {m.calories}kcal</span>
                   </div>
@@ -1015,7 +1016,7 @@ function Money({ go, s, refresh }) {
                 {Object.entries(groups).map(([g, list], i) => {
                   const sum = list.reduce((a, e) => a + Math.max(0, e.amount), 0);
                   const pos = entries.reduce((a, e) => a + Math.max(0, e.amount), 0) || 1;
-                  const colors = { bank: T.green, stocks: "#6ab4e0", crypto: T.amber, other: "#a48ae0", debt: T.red };
+                  const colors = { bank: T.green, stocks: "var(--blue)", crypto: T.amber, other: "var(--violet)", debt: T.red };
                   return <div key={g} style={{ width: `${(sum / pos) * 100}%`, background: colors[g] || T.dim }} title={g} />;
                 })}
               </div>
@@ -1023,7 +1024,7 @@ function Money({ go, s, refresh }) {
                 {Object.entries(groups).map(([g, list]) => {
                   const sum = list.reduce((a, e) => a + Math.max(0, e.amount), 0);
                   const pos = entries.reduce((a, e) => a + Math.max(0, e.amount), 0) || 1;
-                  const colors = { bank: T.green, stocks: "#6ab4e0", crypto: T.amber, other: "#a48ae0", debt: T.red };
+                  const colors = { bank: T.green, stocks: "var(--blue)", crypto: T.amber, other: "var(--violet)", debt: T.red };
                   return <span key={g}><span style={{ display: "inline-block", width: 7, height: 7, borderRadius: 99, background: colors[g] || T.dim, marginRight: 5 }} />{g} {Math.round((sum / pos) * 100)}%</span>;
                 })}
               </div>
@@ -1046,7 +1047,7 @@ function Money({ go, s, refresh }) {
             <div key={g} style={{ marginBottom: 14 }}>
               <div style={{ ...serif, fontSize: 16, marginBottom: 4, textTransform: "capitalize" }}>{g}</div>
               {list.map((e) => (
-                <div key={e.i} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid #161c18", fontSize: 13 }}>
+                <div key={e.i} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid var(--line)", fontSize: 13 }}>
                   <span>{e.name} <span style={{ color: T.dim, fontSize: 11 }}>· {e.date}</span></span>
                   <span style={{ color: e.amount < 0 ? T.red : T.fg }}>
                     {e.amount.toLocaleString()} <button onClick={async () => { await api("finance/" + e.i, {}, "DELETE"); refresh(); }} style={{ background: "none", border: "none", color: T.dim, cursor: "pointer" }}>×</button>
@@ -1094,7 +1095,7 @@ function Mentor({ go, s, refresh }) {
           ) : (
             <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 10, marginBottom: 12, overflowY: "auto" }}>
               {msgs.map((m, i) => (
-                <div key={i} style={{ alignSelf: m.role === "user" ? "flex-end" : "flex-start", maxWidth: "85%", background: m.role === "user" ? "rgba(61,220,132,.1)" : "#0c100e", border: `1px solid ${m.role === "user" ? "rgba(61,220,132,.3)" : T.line}`, borderRadius: 14, padding: "10px 14px", fontSize: 14, lineHeight: 1.5, whiteSpace: "pre-wrap" }}>{m.content}</div>
+                <div key={i} style={{ alignSelf: m.role === "user" ? "flex-end" : "flex-start", maxWidth: "85%", background: m.role === "user" ? "rgba(61,220,132,.1)" : "var(--panel2)", border: `1px solid ${m.role === "user" ? "rgba(61,220,132,.3)" : T.line}`, borderRadius: 14, padding: "10px 14px", fontSize: 14, lineHeight: 1.5, whiteSpace: "pre-wrap" }}>{m.content}</div>
               ))}
               {busy && <div style={{ ...serif, color: T.dim, fontSize: 13 }}>mentor is thinking…</div>}
             </div>
@@ -1104,7 +1105,7 @@ function Mentor({ go, s, refresh }) {
             <button onClick={() => send()} disabled={busy} style={{ ...pill(true), opacity: busy ? 0.5 : 1 }}>→</button>
           </div>
         </div>
-        <div style={{ ...card, background: "radial-gradient(ellipse at 50% 120%, rgba(61,220,132,.07), #0c100e 70%)" }}>
+        <div style={{ ...card, background: "radial-gradient(ellipse at 50% 120%, rgba(61,220,132,.07), var(--panel2) 70%)" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
             <div style={{ ...serif, fontSize: 22 }}>The void.</div>
             <div style={label}>Memory · {s.thoughts?.length ?? 0} thoughts</div>
@@ -1232,23 +1233,23 @@ function AdaptationChart({ series, atrophyRate, w = 600, h = 100 }) {
     <svg viewBox={`0 0 ${w} ${h + 24}`} style={{ width: "100%", display: "block" }}>
       <defs>
         <linearGradient id="adG" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor={T.green} stopOpacity=".22" />
-          <stop offset="100%" stopColor={T.green} stopOpacity="0" />
+          <stop offset="0%" style={{ stopColor: T.green }} stopOpacity=".22" />
+          <stop offset="100%" style={{ stopColor: T.green }} stopOpacity="0" />
         </linearGradient>
       </defs>
       <path d={`${adaptPath} L${pts.at(-1)[0]},${h} L${pts[0][0]},${h} Z`} fill="url(#adG)" />
-      <path d={adaptPath} fill="none" stroke={T.green} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-      <line x1={nowX} y1="0" x2={nowX} y2={h} stroke={T.dim} strokeWidth="1" strokeDasharray="3 3" />
-      <text x={nowX + 3} y="10" fontSize="8" fill={T.dim}>now</text>
+      <path d={adaptPath} fill="none" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ stroke: T.green }} />
+      <line x1={nowX} y1="0" x2={nowX} y2={h} strokeWidth="1" strokeDasharray="3 3" style={{ stroke: T.dim }} />
+      <text x={nowX + 3} y="10" fontSize="8" style={{ fill: T.dim }}>now</text>
       {peakX > nowX && peakX < w && (
         <>
-          <line x1={peakX} y1="0" x2={peakX} y2={h} stroke={T.amber} strokeWidth="1" strokeOpacity=".45" />
-          <text x={peakX} y="10" fontSize="8" fill={T.amber} textAnchor="middle">↑48h</text>
+          <line x1={peakX} y1="0" x2={peakX} y2={h} strokeWidth="1" strokeOpacity=".45" style={{ stroke: T.amber }} />
+          <text x={peakX} y="10" fontSize="8" textAnchor="middle" style={{ fill: T.amber }}>↑48h</text>
         </>
       )}
-      {atPath && <path d={atPath} fill="none" stroke={T.red} strokeWidth="1.5" strokeDasharray="5 3" strokeLinecap="round" />}
-      <line x1="0" y1={h - 3} x2={w} y2={h - 3} stroke={T.line} strokeWidth="0.5" />
-      {dayLabels.map((l, i) => <text key={i} x={l.x} y={h + 20} fontSize="8" fill={T.dim} textAnchor="middle">{l.label}</text>)}
+      {atPath && <path d={atPath} fill="none" strokeWidth="1.5" strokeDasharray="5 3" strokeLinecap="round" style={{ stroke: T.red }} />}
+      <line x1="0" y1={h - 3} x2={w} y2={h - 3} strokeWidth="0.5" style={{ stroke: T.line }} />
+      {dayLabels.map((l, i) => <text key={i} x={l.x} y={h + 20} fontSize="8" textAnchor="middle" style={{ fill: T.dim }}>{l.label}</text>)}
     </svg>
   );
 }
@@ -1534,7 +1535,7 @@ function Fatigue({ go, s, refresh }) {
       <div style={{ ...card, marginBottom: 16, display: "flex", gap: 24, alignItems: "center", flexWrap: "wrap" }}>
         {(() => {
           const p = trainingLoad.pct;
-          const color = p == null ? T.dim : p < 70 ? "#6ab4e0" : p <= 130 ? T.green : p <= 170 ? T.amber : T.red;
+          const color = p == null ? T.dim : p < 70 ? "var(--blue)" : p <= 130 ? T.green : p <= 170 ? T.amber : T.red;
           const word = p == null ? "No data" : p < 70 ? "Undertraining" : p <= 130 ? "Optimal" : p <= 170 ? "High load" : "Overtraining";
           return (
             <>
@@ -1589,7 +1590,7 @@ function Fatigue({ go, s, refresh }) {
               <div style={label}>{side}</div>
               <svg viewBox={side === "front" ? "80 30 140 280" : "380 30 140 280"} style={{ width: 160, height: 320 }}>
                 {/* Body silhouette — paths in front coords, translated +300 for back */}
-                <g transform={side === "back" ? "translate(300,0)" : undefined} fill="#1a2420" stroke={T.line} strokeWidth="1" strokeLinejoin="round">
+                <g transform={side === "back" ? "translate(300,0)" : undefined} strokeWidth="1" strokeLinejoin="round" style={{ fill: "var(--panel2)", stroke: T.line }}>
                   {/* Head */}
                   <ellipse cx="150" cy="50" rx="17" ry="20"/>
                   {/* Neck */}
@@ -1614,15 +1615,15 @@ function Fatigue({ go, s, refresh }) {
                   <path d="M 176,272 C 183,282 185,296 184,307 C 183,309 179,310 174,309 L 167,308 C 166,297 167,285 167,274 C 168,273 172,272 176,272 Z"/>
                 </g>
                 {/* Spine crease for back view */}
-                {side === "back" && <line x1="450" y1="85" x2="450" y2="165" stroke={T.line} strokeWidth="0.75" strokeDasharray="2,3"/>}
+                {side === "back" && <line x1="450" y1="85" x2="450" y2="165" strokeWidth="0.75" strokeDasharray="2,3" style={{ stroke: T.line }}/>}
                 {/* Muscle overlays — ellipses use absolute coordinates */}
                 {Object.entries(MUSCLES).filter(([, m]) => m.side === side).map(([key, m]) => {
                   const level = getMuscleLevel(key);
                   return (
                     <ellipse key={key} cx={m.cx} cy={m.cy} rx={m.rx} ry={m.ry}
                       fill={fatigueColor(level)}
-                      stroke={hover === key ? T.fg : "transparent"} strokeWidth={hover === key ? 1.5 : 0}
-                      style={{ cursor: "pointer", transition: "fill .3s" }}
+                      strokeWidth={hover === key ? 1.5 : 0}
+                      style={{ cursor: "pointer", transition: "fill .3s", stroke: hover === key ? T.fg : "transparent" }}
                       onMouseEnter={() => setHover(key)} onMouseLeave={() => setHover(null)} />
                   );
                 })}
@@ -1645,10 +1646,10 @@ function Fatigue({ go, s, refresh }) {
       <div style={{ ...card, marginTop: 16 }}>
         <div style={{ ...label, marginBottom: 10 }}>All muscles · sorted by fatigue</div>
         {Object.entries(fatigue).sort((a, b) => b[1] - a[1]).map(([m, v]) => (
-          <div key={m} style={{ display: "flex", alignItems: "center", gap: 10, padding: "6px 0", borderBottom: `1px solid #161c18` }}>
+          <div key={m} style={{ display: "flex", alignItems: "center", gap: 10, padding: "6px 0", borderBottom: `1px solid var(--line)` }}>
             <span style={{ width: 10, height: 10, borderRadius: 2, background: fatigueColor(v), flexShrink: 0 }} />
             <span style={{ flex: 1, fontSize: 13, textTransform: "capitalize" }}>{m.replace(/([A-Z])/g, " $1")}</span>
-            <div style={{ width: 120, height: 5, background: "#1d2420", borderRadius: 99 }}>
+            <div style={{ width: 120, height: 5, background: "var(--line)", borderRadius: 99 }}>
               <div style={{ height: "100%", width: `${v * 100}%`, background: fatigueColor(v), borderRadius: 99 }} />
             </div>
             <span style={{ fontSize: 12, color: T.mid, width: 36, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{Math.round(v * 100)}%</span>
@@ -1745,11 +1746,11 @@ function Fatigue({ go, s, refresh }) {
           {Object.keys(RECOVERY_H).map(m => {
             const val = (s.muscleSensitivity || {})[m] || 1.0;
             const isEditing = editingSens === m;
-            const color = val > 1.15 ? T.amber : val < 0.85 ? "#6ab4e0" : T.green;
+            const color = val > 1.15 ? T.amber : val < 0.85 ? "var(--blue)" : T.green;
             return (
-              <div key={m} style={{ display: "flex", alignItems: "center", gap: 10, padding: "6px 0", borderBottom: `1px solid #161c18` }}>
+              <div key={m} style={{ display: "flex", alignItems: "center", gap: 10, padding: "6px 0", borderBottom: `1px solid var(--line)` }}>
                 <span style={{ flex: 1, fontSize: 13, textTransform: "capitalize" }}>{m.replace(/([A-Z])/g, " $1")}</span>
-                <div style={{ width: 80, height: 4, background: "#1d2420", borderRadius: 99 }}>
+                <div style={{ width: 80, height: 4, background: "var(--line)", borderRadius: 99 }}>
                   <div style={{ height: "100%", width: `${Math.min(1, val / 2) * 100}%`, background: color, borderRadius: 99, transition: "width .3s" }} />
                 </div>
                 {isEditing ? (
@@ -1844,7 +1845,7 @@ function ExerciseRow({ exercise, userMap, onSave }) {
     ? { label: "custom", color: T.green, bg: "rgba(61,220,132,.12)" }
     : isAuto
     ? { label: "auto", color: T.amber, bg: "rgba(224,180,106,.12)" }
-    : { label: "unmapped", color: T.dim, bg: "rgba(255,255,255,.05)" };
+    : { label: "unmapped", color: T.dim, bg: "var(--panel2)" };
 
   return (
     <div style={{ borderBottom: `1px solid ${T.line}` }}>
@@ -2006,12 +2007,12 @@ function Plan({ go }) {
   };
 
   const ST = {
-    lift:  { color: "#6ab4e0", bg: "rgba(106,180,224,.12)", icon: "△" },
+    lift:  { color: "var(--blue)", bg: "rgba(106,180,224,.12)", icon: "△" },
     zone2: { color: T.green,   bg: "rgba(61,220,132,.12)",  icon: "◎" },
     hiit:  { color: T.red,     bg: "rgba(224,122,106,.12)", icon: "▲" },
-    climb: { color: "#a48ae0", bg: "rgba(164,138,224,.12)", icon: "◈" },
+    climb: { color: "var(--violet)", bg: "rgba(164,138,224,.12)", icon: "◈" },
     flex:  { color: T.amber,   bg: "rgba(224,180,106,.12)", icon: "〜" },
-    rest:  { color: T.dim,     bg: "rgba(255,255,255,.03)", icon: "◌" },
+    rest:  { color: T.dim,     bg: "var(--panel2)", icon: "◌" },
   };
 
   const genDate = plan?.generatedAt
