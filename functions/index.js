@@ -28,10 +28,11 @@ function sanitizeNutrition(obj) {
   return { protein: parseFloat(obj.protein) || 0, carbs: parseFloat(obj.carbs) || 0, fat: parseFloat(obj.fat) || 0, calories: parseFloat(obj.calories) || 0 };
 }
 
-function estOneRM(kg, reps) {
+function estOneRM(kg, reps, rir = 0) {
   if (!kg || !reps) return kg || 0;
-  if (reps >= 6) return kg / (1.0278 - 0.0278 * reps);
-  return kg * (1 + reps / 30);
+  const r = reps + (rir || 0);
+  if (r >= 6) return kg / (1.0278 - 0.0278 * r);
+  return kg * (1 + r / 30);
 }
 
 // ---------- Firestore-backed state (cached in memory) ----------
@@ -488,14 +489,14 @@ app.get("/summary", async (req, res) => {
   const liftPRs = {};
   for (const l of db.lifts) {
     if (!l.kg || !l.exercise) continue;
-    const e = estOneRM(l.kg, l.reps || 1);
+    const e = estOneRM(l.kg, l.reps || 1, l.rir || 0);
     if (!liftPRs[l.exercise] || e > liftPRs[l.exercise]) liftPRs[l.exercise] = Math.round(e * 100) / 100;
   }
   // Estimate atrophy rate from training gaps (14–90 days) on the full lift history
   const _byExDate = {};
   for (const l of db.lifts) {
     if (!l.kg || !l.exercise || !l.date) continue;
-    const e1rm = estOneRM(l.kg, l.reps || 1);
+    const e1rm = estOneRM(l.kg, l.reps || 1, l.rir || 0);
     if (!_byExDate[l.exercise]) _byExDate[l.exercise] = {};
     if (_byExDate[l.exercise][l.date] == null || e1rm > _byExDate[l.exercise][l.date]) _byExDate[l.exercise][l.date] = e1rm;
   }
@@ -970,7 +971,7 @@ app.post("/workout/plan", async (req, res) => {
   const liftHistory = Object.entries(byEx).slice(0, 15).map(([ex, sets]) => {
     const sorted = [...sets].sort((a, b) => (a.date || "").localeCompare(b.date || ""));
     const latest = sorted.at(-1);
-    const best1RM = Math.max(...sets.map(s => estOneRM(+s.kg || 0, +s.reps || 0)));
+    const best1RM = Math.max(...sets.map(s => estOneRM(+s.kg || 0, +s.reps || 0, +s.rir || 0)));
     return `${ex}: last ${latest.kg}kg×${latest.reps}, est1RM ${Math.round(best1RM)}kg`;
   }).join("; ");
 

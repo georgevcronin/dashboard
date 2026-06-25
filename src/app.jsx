@@ -986,10 +986,11 @@ function ExercisePicker({ customExercises, onPick, onCreateNew, onClose }) {
 
 // ─── Strength scoring ────────────────────────────────────────────────────────
 
-function frontE1RM(kg, reps) {
+function frontE1RM(kg, reps, rir = 0) {
   if (!kg || !reps) return kg || 0;
-  if (reps >= 6) return kg / (1.0278 - 0.0278 * reps);
-  return kg * (1 + reps / 30);
+  const r = reps + (rir || 0);
+  if (r >= 6) return kg / (1.0278 - 0.0278 * r);
+  return kg * (1 + r / 30);
 }
 
 // 1RM thresholds in kg for an 80 kg male: [beginner, novice, intermediate, advanced, elite]
@@ -1364,9 +1365,9 @@ function LogWorkout({ s, refresh }) {
       const prs = [];
       const compExercises = exercises.map(ex => {
         const wSets = ex.sets.filter(st => st.type !== "warmup" && st.kg !== "" && st.reps !== "");
-        const curr1RM = wSets.length > 0 ? Math.max(...wSets.map(st => frontE1RM(+st.kg||0,+st.reps||0))) : 0;
+        const curr1RM = wSets.length > 0 ? Math.max(...wSets.map(st => frontE1RM(+st.kg||0,+st.reps||0,+st.rir||0))) : 0;
         const prevSets = liftHistory.filter(l => l.exercise?.toLowerCase() === ex.name.toLowerCase());
-        const prev1RM = prevSets.length > 0 ? Math.max(...prevSets.map(l => frontE1RM(+l.kg||0,+l.reps||0))) : 0;
+        const prev1RM = prevSets.length > 0 ? Math.max(...prevSets.map(l => frontE1RM(+l.kg||0,+l.reps||0,+l.rir||0))) : 0;
         if (curr1RM > 0 && prev1RM > 0 && curr1RM > prev1RM + 0.5)
           prs.push(`${ex.name}: ${Math.round(curr1RM)} kg est 1RM (prev ${Math.round(prev1RM)} kg)`);
         return { name: ex.name, curr1RM: curr1RM || null, prev1RM: prev1RM || null, isNew: prevSets.length === 0 && wSets.length > 0 };
@@ -1509,10 +1510,10 @@ function LogWorkout({ s, refresh }) {
         let workingCount = 0;
         const prevHistory = liftHistory.filter(l => l.exercise?.toLowerCase() === ex.name.toLowerCase());
         const prevBest = prevHistory.length > 0
-          ? prevHistory.reduce((best, l) => frontE1RM(+l.kg||0,+l.reps||0) > frontE1RM(+best.kg||0,+best.reps||0) ? l : best, prevHistory[0])
+          ? prevHistory.reduce((best, l) => frontE1RM(+l.kg||0,+l.reps||0,+l.rir||0) > frontE1RM(+best.kg||0,+best.reps||0,+best.rir||0) ? l : best, prevHistory[0])
           : null;
         const currWS = ex.sets.filter(st => st.type !== "warmup" && st.kg !== "" && st.reps !== "");
-        const curr1RM = currWS.length > 0 ? Math.max(...currWS.map(st => frontE1RM(+st.kg||0,+st.reps||0))) : 0;
+        const curr1RM = currWS.length > 0 ? Math.max(...currWS.map(st => frontE1RM(+st.kg||0,+st.reps||0,+st.rir||0))) : 0;
         const lvl = curr1RM > 0 ? getStrengthLevel(ex.name, curr1RM, bwKg) : null;
 
         return (
