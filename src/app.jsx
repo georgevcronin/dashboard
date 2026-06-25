@@ -378,6 +378,8 @@ function Home({ go, s }) {
         <div style={{ flex: 1, minWidth: 0 }}>
           <span style={{ ...serif, fontSize: 20 }}>{greet}, <span style={{ color: T.green }}>{s.profile?.name || "friend"}</span></span>
           <span style={{ ...label, marginLeft: 12 }}>{new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" }).toUpperCase()}</span>
+        </div>
+      </div>
 
       <div style={{ flexShrink: 0 }}><Aria s={s} /></div>
 
