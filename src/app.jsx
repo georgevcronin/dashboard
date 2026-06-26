@@ -1069,34 +1069,89 @@ const STRENGTH_RATIOS = [
 
 // ─── Pre-session AI planner ───────────────────────────────────────────────────
 
+const MUSCLE_TO_FOCUS = {
+  chest:"chest", lats:"back", rhomboids:"back", rearDelts:"back", traps:"back",
+  frontDelts:"shoulders", sideDelts:"shoulders",
+  biceps:"arms", triceps:"arms", forearms:"arms",
+  quads:"legs", hamstrings:"legs", calves:"legs", adductors:"legs",
+  glutes:"glutes", hipFlexors:"glutes",
+  core:"core", lowerBack:"core",
+};
+const ALL_FOCUS = ["chest","back","shoulders","arms","legs","glutes","core"];
+
 function PlanningScreen({ s, onStart, onSkip }) {
-  const FOCUS_OPTS = ["chest","back","shoulders","arms","legs","glutes","core"];
-  const [selected, setSelected] = useState([]);
-  const [durationMin, setDurationMin] = useState(60);
-  const [intensity, setIntensity] = useState("moderate");
-  const [goal, setGoal] = useState("hypertrophy");
+  // ── Auto-derive intensity from recovery score ──────────────────────────
+  const rec = s.recovery ?? null;
+  const autoIntensity = rec == null ? "moderate"
+    : rec >= 80 ? "max"
+    : rec >= 65 ? "hard"
+    : rec >= 45 ? "moderate"
+    : "easy";
+  const intensityReason = rec == null ? "no recovery data"
+    : `recovery ${rec}%`;
+
+  // ── Auto-derive goal from recent rep ranges ────────────────────────────
+  const recentSets = (s.lifts || []).slice(-40).filter(l => l.reps);
+  const avgReps = recentSets.length > 0
+    ? recentSets.reduce((a, l) => a + (+l.reps || 0), 0) / recentSets.length : 10;
+  const autoGoal = avgReps < 6 ? "strength" : avgReps > 12 ? "endurance" : "hypertrophy";
+  const goalReason = recentSets.length > 0 ? `avg ${Math.round(avgReps)} reps recently` : "default";
+
+  // ── Auto-derive focus: muscles not trained in last 48h ─────────────────
+  const now = Date.now();
+  const lastTrained = {};
+  for (const l of (s.lifts || []).slice(-300)) {
+    const muscles = MUSCLE_MAP[(l.exercise || "").toLowerCase()] || {};
+    for (const m of Object.keys(muscles)) {
+      const focus = MUSCLE_TO_FOCUS[m];
+      if (!focus) continue;
+      const ms = new Date(l.date).getTime();
+      if (!lastTrained[focus] || ms > lastTrained[focus]) lastTrained[focus] = ms;
+    }
+  }
+  const autoFocus = ALL_FOCUS.filter(f => {
+    const last = lastTrained[f];
+    return !last || (now - last) / 3600000 >= 48;
+  });
+  const focusMuscles = autoFocus.length > 0 ? autoFocus : ALL_FOCUS.slice(0, 3);
+
+  const [long, setLong] = useState(false);
+  const durationMin = long ? 75 : 45;
   const [notes, setNotes] = useState("");
+  const [showNotes, setShowNotes] = useState(false);
   const [plan, setPlan] = useState(null);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState(null);
 
-  function toggleFocus(m) { setSelected(p => p.includes(m) ? p.filter(x => x !== m) : [...p, m]); }
-
-  async function generate() {
+  async function generate(dur) {
     setLoading(true); setErr(null); setPlan(null);
     try {
-      const p = await api("workout/plan", { focusMuscles: selected, durationMin, intensity, goal, notes });
+      const p = await api("workout/plan", { focusMuscles, durationMin: dur ?? durationMin, intensity: autoIntensity, goal: autoGoal, notes });
       if (p.error) setErr(p.error);
       else setPlan(p);
     } catch(e) { setErr(e.message); }
     setLoading(false);
   }
 
+  useEffect(() => { generate(durationMin); }, []);
+
+  const chip = (txt, sub) => (
+    <div style={{ ...card, padding: "8px 12px", display: "flex", flexDirection: "column", gap: 2, flex: 1 }}>
+      <div style={{ fontSize: 12, fontWeight: 600, color: T.fg, textTransform: "capitalize" }}>{txt}</div>
+      <div style={{ fontSize: 10, color: T.dim }}>{sub}</div>
+    </div>
+  );
+
   if (plan) return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
       <div style={{ ...card, background: "rgba(252,163,17,.07)", border: `1px solid ${T.green}55`, padding: "14px 18px" }}>
         <div style={{ fontSize: 17, fontWeight: 700, color: T.green, marginBottom: 4 }}>{plan.title}</div>
         <div style={{ fontSize: 12, color: T.mid }}>{plan.rationale}</div>
+      </div>
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+        {chip(autoIntensity, intensityReason)}
+        {chip(autoGoal, goalReason)}
+        {chip(`${durationMin} min`, long ? "long session" : "short session")}
       </div>
       {plan.warmup && (
         <div style={{ ...card, padding: "10px 16px" }}>
@@ -1113,7 +1168,7 @@ function PlanningScreen({ s, onStart, onSkip }) {
               {ex.isNew && <span style={{ fontSize: 9, color: T.green, border: `1px solid ${T.green}44`, borderRadius: 4, padding: "1px 5px" }}>NEW</span>}
             </div>
             <div style={{ fontSize: 12, color: T.dim, marginTop: 3 }}>
-              {ex.sets} sets x {ex.reps} reps{ex.rpe ? ` @ RPE ${ex.rpe}` : ""}
+              {ex.sets} sets × {ex.reps} reps{ex.rpe ? ` @ RPE ${ex.rpe}` : ""}
               {ex.notes ? <span style={{ marginLeft: 8, color: T.mid, fontStyle: "italic" }}>{ex.notes}</span> : null}
             </div>
           </div>
@@ -1125,63 +1180,43 @@ function PlanningScreen({ s, onStart, onSkip }) {
           <div style={{ fontSize: 12, color: T.mid }}>{plan.cooldown}</div>
         </div>
       )}
-      <div style={{ display: "flex", gap: 8 }}>
-        <button onClick={() => onStart(plan)} style={{ ...pill(true), flex: 1, padding: "13px", fontSize: 14, fontWeight: 600 }}>Start this workout</button>
-        <button onClick={() => setPlan(null)} style={{ ...pill(false), fontSize: 12, padding: "10px 16px" }}>Regenerate</button>
+      <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+        <button style={{ ...pill(false), fontSize: 12, whiteSpace: "nowrap" }}
+          onClick={() => { const nl = !long; setLong(nl); generate(nl ? 75 : 45); }}>
+          Switch to {long ? "short" : "long"}
+        </button>
+        <button onClick={() => generate()} style={{ ...pill(false), fontSize: 12 }}>Regenerate</button>
+        <button onClick={() => onStart(plan)} style={{ ...pill(true), flex: 1, padding: "13px", fontSize: 14, fontWeight: 600 }}>Start</button>
       </div>
-      <button onClick={onSkip} style={{ background: "none", border: "none", color: T.dim, cursor: "pointer", fontSize: 12, textDecoration: "underline", padding: "4px" }}>Skip - start empty</button>
+      <button onClick={onSkip} style={{ background: "none", border: "none", color: T.dim, cursor: "pointer", fontSize: 12, textDecoration: "underline", padding: "4px" }}>Skip — start empty</button>
     </div>
   );
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-      <div style={{ fontSize: 15, fontWeight: 600, color: T.fg }}>Plan your session</div>
-      <div style={{ ...card }}>
-        <div style={{ ...label, marginBottom: 8 }}>Focus muscles</div>
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-          {FOCUS_OPTS.map(m => (
-            <button key={m} onClick={() => toggleFocus(m)} style={{ ...pill(selected.includes(m)), fontSize: 11 }}>
-              {m.charAt(0).toUpperCase() + m.slice(1)}
-            </button>
-          ))}
-        </div>
+      <div style={{ display: "flex", gap: 6 }}>
+        {chip(autoIntensity, intensityReason)}
+        {chip(autoGoal, goalReason)}
+        {chip(focusMuscles.slice(0, 3).join(", ") + (focusMuscles.length > 3 ? "…" : ""), "unworked muscles")}
       </div>
-      <div style={{ ...card }}>
-        <div style={{ ...label, marginBottom: 8 }}>Duration</div>
-        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-          {[30,45,60,75,90].map(d => <button key={d} onClick={() => setDurationMin(d)} style={{ ...pill(durationMin===d), fontSize: 12 }}>{d} min</button>)}
-        </div>
+      <div style={{ display: "flex", gap: 8 }}>
+        <button onClick={() => setLong(false)} style={{ ...pill(!long), flex: 1 }}>Short · 45 min</button>
+        <button onClick={() => setLong(true)} style={{ ...pill(long), flex: 1 }}>Long · 75 min</button>
       </div>
-      <div style={{ ...card }}>
-        <div style={{ ...label, marginBottom: 8 }}>Goal</div>
-        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-          {[["strength","Strength"],["hypertrophy","Hypertrophy"],["endurance","Endurance"]].map(([v,l]) => (
-            <button key={v} onClick={() => setGoal(v)} style={{ ...pill(goal===v), fontSize: 12 }}>{l}</button>
-          ))}
-        </div>
-      </div>
-      <div style={{ ...card }}>
-        <div style={{ ...label, marginBottom: 8 }}>Intensity</div>
-        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-          {[["easy","Easy"],["moderate","Moderate"],["hard","Hard"],["max","Max effort"]].map(([v,l]) => (
-            <button key={v} onClick={() => setIntensity(v)} style={{ ...pill(intensity===v), fontSize: 12 }}>{l}</button>
-          ))}
-        </div>
-      </div>
-      <div style={{ ...card }}>
-        <div style={{ ...label, marginBottom: 6 }}>Notes (optional)</div>
+      <button onClick={() => setShowNotes(v => !v)} style={{ background: "none", border: "none", color: T.dim, cursor: "pointer", fontSize: 12, textAlign: "left", padding: 0 }}>
+        {showNotes ? "▾" : "▸"} Add notes / special requests
+      </button>
+      {showNotes && (
         <textarea value={notes} onChange={e => setNotes(e.target.value)}
-          placeholder="injuries, preferences, specific requests"
+          placeholder="injuries, preferences, skip an exercise…"
           style={{ ...input, width: "100%", minHeight: 58, resize: "vertical", boxSizing: "border-box", fontFamily: "inherit" }} />
-      </div>
+      )}
       {err && <div style={{ color: T.red, fontSize: 13 }}>{err}</div>}
-      <button onClick={generate} disabled={loading}
-        style={{ ...pill(true), padding: "13px", fontSize: 14, fontWeight: 600, opacity: loading ? 0.7 : 1 }}>
-        {loading ? "Generating plan..." : "Generate AI Plan"}
-      </button>
-      <button onClick={onSkip} style={{ background: "none", border: "none", color: T.dim, cursor: "pointer", fontSize: 12, textDecoration: "underline", padding: "4px" }}>
-        Skip - start empty
-      </button>
+      {loading
+        ? <div style={{ ...serif, color: T.dim, fontSize: 13, textAlign: "center", padding: "20px 0" }}>Building your session…</div>
+        : <button onClick={() => generate()} style={{ ...pill(true), padding: "13px", fontSize: 14, fontWeight: 600 }}>Generate</button>
+      }
+      <button onClick={onSkip} style={{ background: "none", border: "none", color: T.dim, cursor: "pointer", fontSize: 12, textDecoration: "underline", padding: "4px" }}>Skip — start empty</button>
     </div>
   );
 }
