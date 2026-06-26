@@ -960,7 +960,8 @@ app.post("/workout/plan", async (req, res) => {
   const key = process.env.GROQ_API_KEY;
   if (!key) return res.json({ error: "GROQ_API_KEY not set" });
 
-  const { focusMuscles = [], durationMin = 60, intensity = "moderate", goal = "hypertrophy", notes = "" } = req.body;
+  const { focusMuscles = [], durationMin = 60, intensity = "moderate", goal = "hypertrophy", notes = "",
+          muscleFatigue = {}, muscleRIR = {}, cnsOffset = 0 } = req.body;
   const bw = Object.values(db.weight || {}).at(-1) || 75;
 
   const recentWorkouts = (db.workouts || []).slice(-10)
@@ -975,18 +976,28 @@ app.post("/workout/plan", async (req, res) => {
     return `${ex}: last ${latest.kg}kg×${latest.reps}, est1RM ${Math.round(best1RM)}kg`;
   }).join("; ");
 
+  // Per-muscle RIR guidance string for the prompt
+  const rirGuidance = Object.entries(muscleRIR).length > 0
+    ? Object.entries(muscleRIR).map(([m, rir]) => {
+        const fatigue = muscleFatigue[m] != null ? ` (${Math.round(muscleFatigue[m] * 100)}% fatigued)` : "";
+        const effective = rir + cnsOffset;
+        return `${m}${fatigue}: target RIR ${effective}`;
+      }).join(", ")
+    : null;
+
   const systemPrompt = `You are a personal trainer creating a single gym session plan for ${db.profile?.name || "the athlete"} (${bw}kg bodyweight). Return ONLY valid JSON:
 {
   "title": "Workout title",
   "rationale": "1-2 sentences why this plan fits today",
   "exercises": [
-    { "name": "Exercise name", "sets": 3, "reps": "8-10", "rpe": 8, "notes": "optional coaching cue", "isNew": false }
+    { "name": "Exercise name", "sets": 3, "reps": "8-10", "rpe": 8, "rir": 2, "notes": "optional coaching cue", "isNew": false }
   ],
   "warmup": "brief warmup description",
   "cooldown": "brief cooldown description"
 }
 Session: ${durationMin} min total. Intensity: ${intensity}. Goal: ${goal}. Focus: ${focusMuscles.join(", ") || "full body"}. ${notes ? "Extra notes: " + notes : ""}
-Include 4-7 exercises. Mark isNew:true for exercises not in the user's lift history. Use common exercise names.`;
+${rirGuidance ? `Per-muscle fatigue and RIR targets (use these to set rpe and rir per exercise — higher fatigue means higher RIR, less intensity): ${rirGuidance}.${cnsOffset > 0 ? ` CNS fatigue adds +${cnsOffset} RIR globally.` : ""}` : ""}
+Include 4-7 exercises. Mark isNew:true for exercises not in lift history. Use common exercise names. Always include rir field in each exercise.`;
 
   const userPrompt = `Recent workouts: ${recentWorkouts || "none yet"}
 Lift history with estimated 1RMs: ${liftHistory || "no data yet"}

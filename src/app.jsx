@@ -1115,6 +1115,41 @@ function PlanningScreen({ s, onStart, onSkip }) {
   });
   const focusMuscles = autoFocus.length > 0 ? autoFocus : ALL_FOCUS.slice(0, 3);
 
+  // ── Per-muscle fatigue → RIR recommendation ────────────────────────────
+  // Exponential decay of effort per muscle group over the last 7 days
+  const FOCUS_HALF_LIFE_H = { chest:52, back:52, shoulders:44, arms:36, legs:56, glutes:56, core:36 };
+  const focusFatigue = {};
+  const focusAccum = {};
+  for (const l of (s.lifts || []).filter(l => {
+    const hoursAgo = (now - new Date(l.date).getTime()) / 3600000;
+    return hoursAgo <= 168;
+  })) {
+    const muscles = MUSCLE_MAP[(l.exercise || "").toLowerCase()] || {};
+    for (const [m, w] of Object.entries(muscles)) {
+      const focus = MUSCLE_TO_FOCUS[m];
+      if (!focus) continue;
+      const hoursAgo = (now - new Date(l.date).getTime()) / 3600000;
+      const hl = FOCUS_HALF_LIFE_H[focus] || 48;
+      const decay = Math.pow(0.5, hoursAgo / hl);
+      focusAccum[focus] = (focusAccum[focus] || 0) + (l.kg || 0) * (l.reps || 1) * w * decay;
+    }
+  }
+  const maxAccum = Math.max(1, ...Object.values(focusAccum));
+  for (const f of ALL_FOCUS) focusFatigue[f] = Math.round(((focusAccum[f] || 0) / maxAccum) * 100) / 100;
+
+  // RIR floor per focus group (CNS fatigue will add a global offset on top when implemented)
+  function fatigueToRIR(fatigue) {
+    if (fatigue <= 0.2) return 1;
+    if (fatigue <= 0.4) return 2;
+    if (fatigue <= 0.6) return 3;
+    return 4;
+  }
+  const muscleRIR = {};
+  for (const f of ALL_FOCUS) muscleRIR[f] = fatigueToRIR(focusFatigue[f]);
+
+  // CNS_FATIGUE_OFFSET: placeholder — wire in cnsLoad from CNS fatigue section when ready
+  const cnsOffset = 0; // e.g. Math.round(cnsLoad * 2) once CNS section exists
+
   const [long, setLong] = useState(false);
   const durationMin = long ? 75 : 45;
   const [notes, setNotes] = useState("");
@@ -1126,7 +1161,11 @@ function PlanningScreen({ s, onStart, onSkip }) {
   async function generate(dur) {
     setLoading(true); setErr(null); setPlan(null);
     try {
-      const p = await api("workout/plan", { focusMuscles, durationMin: dur ?? durationMin, intensity: autoIntensity, goal: autoGoal, notes });
+      const p = await api("workout/plan", {
+        focusMuscles, durationMin: dur ?? durationMin,
+        intensity: autoIntensity, goal: autoGoal, notes,
+        muscleFatigue: focusFatigue, muscleRIR, cnsOffset,
+      });
       if (p.error) setErr(p.error);
       else setPlan(p);
     } catch(e) { setErr(e.message); }
