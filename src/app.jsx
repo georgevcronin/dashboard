@@ -2547,7 +2547,10 @@ function computeFatigueState(lifts, now, calibration = null) {
     const hoursAgo = (now - new Date(l.date).getTime()) / 3600000;
     const kg = +l.kg || 0, reps = +l.reps || 1, rir = +l.rir || 0;
     const est1rm = frontE1RM(kg, reps, rir);
-    const intensity = Math.min(1.0, kg / Math.max(est1rm, 1));
+    // Intensity = blend of relative weight (how heavy) and effort (how close to failure)
+    const weightIntensity = Math.min(1.0, kg / Math.max(est1rm, 1));
+    const effortIntensity = Math.max(0, 1 - rir / 10);
+    const intensity = weightIntensity * 0.6 + effortIntensity * 0.4;
     const volume = kg * reps;
     const mfl = inferMuscleFatigueLoad(l.exercise, muscles);
     const cnsl = inferCnsLoad(l.exercise, muscles);
