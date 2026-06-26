@@ -1115,14 +1115,15 @@ function PlanningScreen({ s, onStart, onSkip }) {
   });
   const focusMuscles = autoFocus.length > 0 ? autoFocus : ALL_FOCUS.slice(0, 3);
 
-  // ── 3-component fatigue model ─────────────────────────────────────────────
-  const { focusFatigue, cnsScore } = computeFatigueState(s.lifts, now);
+  // ── 3-component fatigue model (personalised via calibration) ─────────────
+  const calibration = useMemo(() => calibrateRecovery(s.lifts), [s.lifts]);
+  const { focusFatigue, cnsScore } = computeFatigueState(s.lifts, now, calibration);
 
+  // Base RIR from fatigue, anchored to personal optimal RIR when calibrated
+  const baseRIR = calibration?.optimalRIR ?? 2;
   function fatigueToRIR(fatigue) {
-    if (fatigue <= 0.2) return 1;
-    if (fatigue <= 0.4) return 2;
-    if (fatigue <= 0.6) return 3;
-    return 4;
+    const floor = Math.round(baseRIR + fatigue * 2);
+    return Math.max(1, Math.min(5, floor));
   }
   const muscleRIR = {};
   for (const f of ALL_FOCUS) muscleRIR[f] = fatigueToRIR(focusFatigue[f]);
@@ -2460,8 +2461,78 @@ function inferCnsLoad(exerciseName, muscles) {
 //             peripheral neural (44h HL, intensity²-scaled),
 //             CNS (8h HL, intensity⁸ spike term)
 // Display composite: muscle×0.70 + peripheral×0.25 + CNS×0.05
-function computeFatigueState(lifts, now) {
-  const METABOLIC_HL = 18, STRUCTURAL_HL = 38, PERIPHERAL_HL = 44, CNS_HL = 8;
+// Infers personal recovery rate and optimal RIR from lift history.
+// Buckets consecutive session pairs by rest period, finds which rest window
+// produced the highest average relative 1RM gain → implies individual half-life.
+// Returns { recoveryMultiplier, optimalRestH, optimalRIR, pairsAnalyzed } or null if insufficient data.
+function calibrateRecovery(lifts) {
+  if (!lifts || lifts.length < 10) return null;
+
+  // Group sets into per-day sessions per exercise
+  const sessions = {};
+  for (const l of lifts) {
+    if (!l.exercise || !l.kg || !l.reps) continue;
+    const dateKey = (l.date || "").slice(0, 10);
+    const key = (l.exercise || "").toLowerCase();
+    if (!sessions[key]) sessions[key] = {};
+    if (!sessions[key][dateKey]) sessions[key][dateKey] = { sets: 0, rirSum: 0, best1RM: 0 };
+    const sess = sessions[key][dateKey];
+    const e1rm = frontE1RM(+l.kg, +l.reps, +l.rir || 0);
+    sess.sets++;
+    sess.rirSum += (+l.rir || 0);
+    sess.best1RM = Math.max(sess.best1RM, e1rm);
+  }
+
+  // Build consecutive session pairs (A → B) per exercise
+  const pairs = [];
+  for (const [, dayMap] of Object.entries(sessions)) {
+    const days = Object.entries(dayMap)
+      .map(([date, d]) => ({ date, avgRIR: d.rirSum / d.sets, sets: d.sets, best1RM: d.best1RM }))
+      .sort((a, b) => a.date.localeCompare(b.date));
+    for (let i = 1; i < days.length; i++) {
+      const prev = days[i - 1], curr = days[i];
+      const restH = (new Date(curr.date) - new Date(prev.date)) / 3600000;
+      if (restH <= 0 || restH > 336 || prev.best1RM <= 0) continue;
+      pairs.push({
+        restH,
+        avgRIR: prev.avgRIR,
+        relGain: (curr.best1RM - prev.best1RM) / prev.best1RM,
+      });
+    }
+  }
+  if (pairs.length < 5) return null;
+
+  // Bucket by 24h windows, find which rest period yields highest avg relative gain
+  const buckets = {};
+  for (const p of pairs) {
+    const b = Math.floor(p.restH / 24) * 24;
+    if (!buckets[b]) buckets[b] = [];
+    buckets[b].push(p.relGain);
+  }
+  let bestBucket = 48, bestAvg = -Infinity;
+  for (const [b, gains] of Object.entries(buckets)) {
+    if (gains.length < 2) continue;
+    const avg = gains.reduce((s, g) => s + g, 0) / gains.length;
+    if (avg > bestAvg) { bestAvg = avg; bestBucket = +b; }
+  }
+  const optimalRestH = bestBucket + 12; // centre of bucket
+
+  // Population optimal rest ≈ 48h — ratio gives personal recovery speed
+  const recoveryMultiplier = Math.max(0.4, Math.min(2.5, 48 / optimalRestH));
+
+  // Optimal RIR: average RIR of the top-quartile gain sessions
+  const sorted = [...pairs].filter(p => p.relGain > 0).sort((a, b) => b.relGain - a.relGain);
+  const top = sorted.slice(0, Math.max(1, Math.floor(sorted.length * 0.25)));
+  const optimalRIR = top.length > 0
+    ? Math.round((top.reduce((s, p) => s + p.avgRIR, 0) / top.length) * 10) / 10
+    : 2;
+
+  return { recoveryMultiplier, optimalRestH, optimalRIR, pairsAnalyzed: pairs.length };
+}
+
+function computeFatigueState(lifts, now, calibration = null) {
+  const mult = calibration?.recoveryMultiplier ?? 1.0;
+  const METABOLIC_HL = 18 * mult, STRUCTURAL_HL = 38 * mult, PERIPHERAL_HL = 44 * mult, CNS_HL = 8 * mult;
   const CNS_SCALE = 50;
   const muscleAccum = {}, peripheralAccum = {};
   let cnsAccumRaw = 0;
