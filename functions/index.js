@@ -961,7 +961,7 @@ app.post("/workout/plan", async (req, res) => {
   if (!key) return res.json({ error: "GROQ_API_KEY not set" });
 
   const { focusMuscles = [], durationMin = 60, intensity = "moderate", goal = "hypertrophy", notes = "",
-          muscleFatigue = {}, muscleRIR = {}, cnsOffset = 0 } = req.body;
+          muscleFatigue = {}, muscleRIR = {}, cnsOffset = 0, cnsScore = 0 } = req.body;
   const bw = Object.values(db.weight || {}).at(-1) || 75;
 
   const recentWorkouts = (db.workouts || []).slice(-10)
@@ -996,7 +996,7 @@ app.post("/workout/plan", async (req, res) => {
   "cooldown": "brief cooldown description"
 }
 Session: ${durationMin} min total. Intensity: ${intensity}. Goal: ${goal}. Focus: ${focusMuscles.join(", ") || "full body"}. ${notes ? "Extra notes: " + notes : ""}
-${rirGuidance ? `Per-muscle fatigue and RIR targets (use these to set rpe and rir per exercise — higher fatigue means higher RIR, less intensity): ${rirGuidance}.${cnsOffset > 0 ? ` CNS fatigue adds +${cnsOffset} RIR globally.` : ""}` : ""}
+${rirGuidance ? `Per-muscle fatigue and RIR targets: ${rirGuidance}.` : ""}${cnsOffset > 0 ? ` CNS fatigue score ${Math.round(cnsScore * 100)}% — adds +${cnsOffset} RIR to all exercises globally.` : ""}
 Include 4-7 exercises. Mark isNew:true for exercises not in lift history. Use common exercise names. Always include rir field in each exercise.`;
 
   const userPrompt = `Recent workouts: ${recentWorkouts || "none yet"}

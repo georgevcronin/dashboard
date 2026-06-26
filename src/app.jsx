@@ -55,11 +55,11 @@ body { font-family:'Inter',-apple-system,system-ui,sans-serif; }
 function applyTheme(mode) {
   document.documentElement.setAttribute("data-theme", mode);
   document.querySelector('meta[name="theme-color"]')?.setAttribute("content", mode === "light" ? "#f4f1ea" : "#0f0f0f");
-  try { localStorage.setItem("peak-theme", mode); } catch {}
+  try { localStorage.setItem("press-theme", mode); } catch {}
 }
 function useTheme() {
   const [mode, setMode] = useState(() => {
-    try { return localStorage.getItem("peak-theme") || "dark"; } catch { return "dark"; }
+    try { return localStorage.getItem("press-theme") || "dark"; } catch { return "dark"; }
   });
   useEffect(() => { applyTheme(mode); }, [mode]);
   return [mode, () => setMode(m => (m === "dark" ? "light" : "dark"))];
@@ -1115,29 +1115,9 @@ function PlanningScreen({ s, onStart, onSkip }) {
   });
   const focusMuscles = autoFocus.length > 0 ? autoFocus : ALL_FOCUS.slice(0, 3);
 
-  // ── Per-muscle fatigue → RIR recommendation ────────────────────────────
-  // Exponential decay of effort per muscle group over the last 7 days
-  const FOCUS_HALF_LIFE_H = { chest:52, back:52, shoulders:44, arms:36, legs:56, glutes:56, core:36 };
-  const focusFatigue = {};
-  const focusAccum = {};
-  for (const l of (s.lifts || []).filter(l => {
-    const hoursAgo = (now - new Date(l.date).getTime()) / 3600000;
-    return hoursAgo <= 168;
-  })) {
-    const muscles = MUSCLE_MAP[(l.exercise || "").toLowerCase()] || {};
-    for (const [m, w] of Object.entries(muscles)) {
-      const focus = MUSCLE_TO_FOCUS[m];
-      if (!focus) continue;
-      const hoursAgo = (now - new Date(l.date).getTime()) / 3600000;
-      const hl = FOCUS_HALF_LIFE_H[focus] || 48;
-      const decay = Math.pow(0.5, hoursAgo / hl);
-      focusAccum[focus] = (focusAccum[focus] || 0) + (l.kg || 0) * (l.reps || 1) * w * decay;
-    }
-  }
-  const maxAccum = Math.max(1, ...Object.values(focusAccum));
-  for (const f of ALL_FOCUS) focusFatigue[f] = Math.round(((focusAccum[f] || 0) / maxAccum) * 100) / 100;
+  // ── 3-component fatigue model ─────────────────────────────────────────────
+  const { focusFatigue, cnsScore } = computeFatigueState(s.lifts, now);
 
-  // RIR floor per focus group (CNS fatigue will add a global offset on top when implemented)
   function fatigueToRIR(fatigue) {
     if (fatigue <= 0.2) return 1;
     if (fatigue <= 0.4) return 2;
@@ -1146,9 +1126,7 @@ function PlanningScreen({ s, onStart, onSkip }) {
   }
   const muscleRIR = {};
   for (const f of ALL_FOCUS) muscleRIR[f] = fatigueToRIR(focusFatigue[f]);
-
-  // CNS_FATIGUE_OFFSET: placeholder — wire in cnsLoad from CNS fatigue section when ready
-  const cnsOffset = 0; // e.g. Math.round(cnsLoad * 2) once CNS section exists
+  const cnsOffset = cnsScore > 0.8 ? 3 : cnsScore > 0.6 ? 2 : cnsScore > 0.3 ? 1 : 0;
 
   const [long, setLong] = useState(false);
   const durationMin = long ? 75 : 45;
@@ -1164,7 +1142,7 @@ function PlanningScreen({ s, onStart, onSkip }) {
       const p = await api("workout/plan", {
         focusMuscles, durationMin: dur ?? durationMin,
         intensity: autoIntensity, goal: autoGoal, notes,
-        muscleFatigue: focusFatigue, muscleRIR, cnsOffset,
+        muscleFatigue: focusFatigue, muscleRIR, cnsOffset, cnsScore,
       });
       if (p.error) setErr(p.error);
       else setPlan(p);
@@ -2300,7 +2278,7 @@ function Mentor({ go, s, refresh }) {
 // PLAN_COMPONENT - to be inserted into app.jsx
 
 // FATIGUE PAGE — muscle heat map from lifting, running, bouldering
-// Inserted into Peak app
+// Inserted into Press app
 
 // Exercise → muscle mapping (primary 1.0, secondary 0.5)
 const MUSCLE_MAP = {
@@ -2445,6 +2423,97 @@ function matchExercise(name, userMap) {
   if (n.includes("boulder") || n.includes("climb")) return MUSCLE_MAP._bouldering;
   if (n.includes("cycle") || n.includes("bike") || n.includes("ride")) return MUSCLE_MAP._cycling;
   return null;
+}
+
+// Infer how fatiguing a movement is (0–1) from its muscle profile + name keywords
+function inferMuscleFatigueLoad(exerciseName, muscles) {
+  const n = (exerciseName || "").toLowerCase();
+  const total = Object.values(muscles).reduce((s, w) => s + w, 0);
+  let base = Math.min(0.8, 0.2 + total * 0.08);
+  if (n.includes("deadlift")) base = Math.max(base, 0.9);
+  else if (n.includes("squat") || n.includes("hack squat")) base = Math.max(base, 0.8);
+  else if (n.includes("row") || n.includes("pull-up") || n.includes("pull up")) base = Math.max(base, 0.7);
+  else if (n.includes("press") && !n.includes("leg")) base = Math.max(base, 0.6);
+  if (n.includes("plank") || n.includes("crunch")) base = Math.min(base, 0.3);
+  else if (n.includes("curl") || n.includes("raise") || n.includes("extension")) base = Math.min(base, 0.5);
+  return Math.round(Math.max(0.1, Math.min(1.0, base)) * 10) / 10;
+}
+
+// Infer CNS demand (0–1) — heavy/explosive compounds score highest
+function inferCnsLoad(exerciseName, muscles) {
+  const n = (exerciseName || "").toLowerCase();
+  const primaries = Object.values(muscles).filter(w => w >= 0.8).length;
+  let cns = 0.2 + primaries * 0.15;
+  if (n.includes("snatch") || n.includes("clean") || n.includes("jerk")) cns = 1.0;
+  else if (n.includes("deadlift")) cns = Math.max(cns, 0.9);
+  else if (n.includes("squat") || n.includes("hack squat")) cns = Math.max(cns, 0.8);
+  else if (n.includes("overhead press") || n.includes("ohp")) cns = Math.max(cns, 0.7);
+  else if (n.includes("bench press") || n.includes("row") || n.includes("pull-up") || n.includes("pull up")) cns = Math.max(cns, 0.6);
+  if (n.includes("machine") || n.includes("leg press") || n.includes("leg extension") || n.includes("leg curl") || n.includes("seated")) cns = Math.min(cns, 0.4);
+  if (n.includes("plank") || n.includes("crunch")) cns = Math.min(cns, 0.2);
+  if (n.includes("curl") || n.includes("raise") || n.includes("pushdown")) cns = Math.min(cns, 0.35);
+  return Math.round(Math.max(0.1, Math.min(1.0, cns)) * 10) / 10;
+}
+
+// 3-component fatigue model (science-backed decay rates & weightings)
+// Components: muscle (metabolic 18h HL + structural 38h HL, context-blended by intensity),
+//             peripheral neural (44h HL, intensity²-scaled),
+//             CNS (8h HL, intensity⁸ spike term)
+// Display composite: muscle×0.70 + peripheral×0.25 + CNS×0.05
+function computeFatigueState(lifts, now) {
+  const METABOLIC_HL = 18, STRUCTURAL_HL = 38, PERIPHERAL_HL = 44, CNS_HL = 8;
+  const CNS_SCALE = 50;
+  const muscleAccum = {}, peripheralAccum = {};
+  let cnsAccumRaw = 0;
+
+  for (const l of (lifts || []).filter(l => {
+    const h = (now - new Date(l.date).getTime()) / 3600000;
+    return h >= 0 && h <= 168;
+  })) {
+    const muscles = matchExercise(l.exercise, null);
+    if (!muscles || !Object.keys(muscles).length) continue;
+
+    const hoursAgo = (now - new Date(l.date).getTime()) / 3600000;
+    const kg = +l.kg || 0, reps = +l.reps || 1, rir = +l.rir || 0;
+    const est1rm = frontE1RM(kg, reps, rir);
+    const intensity = Math.min(1.0, kg / Math.max(est1rm, 1));
+    const volume = kg * reps;
+    const mfl = inferMuscleFatigueLoad(l.exercise, muscles);
+    const cnsl = inferCnsLoad(l.exercise, muscles);
+
+    // Raw values: metabolic peaks at low intensity, structural at high intensity
+    const metabolicRaw = volume * mfl * (1 + (1 - intensity) * 0.5);
+    const structuralRaw = volume * mfl * intensity * intensity;
+    const muscleRaw = metabolicRaw * (1 - intensity) + structuralRaw * intensity;
+    const peripheralRaw = volume * mfl * intensity * intensity;
+    const cnsRaw = Math.pow(reps, 0.65) * cnsl * (intensity * intensity + Math.pow(intensity, 8) * 2.5);
+
+    // Intensity-blended decay for muscle (metabolic clears fast, structural slow)
+    const metDecay = Math.pow(0.5, hoursAgo / METABOLIC_HL);
+    const strDecay = Math.pow(0.5, hoursAgo / STRUCTURAL_HL);
+    const muscleDecay = metDecay * (1 - intensity) + strDecay * intensity;
+    const peripheralDecay = Math.pow(0.5, hoursAgo / PERIPHERAL_HL);
+    const cnsDecay = Math.pow(0.5, hoursAgo / CNS_HL);
+
+    for (const [m, w] of Object.entries(muscles)) {
+      const focus = MUSCLE_TO_FOCUS[m];
+      if (!focus) continue;
+      muscleAccum[focus] = (muscleAccum[focus] || 0) + muscleRaw * w * muscleDecay;
+      peripheralAccum[focus] = (peripheralAccum[focus] || 0) + peripheralRaw * w * peripheralDecay;
+    }
+    cnsAccumRaw += cnsRaw * cnsDecay;
+  }
+
+  const maxMuscle = Math.max(1, ...Object.values(muscleAccum));
+  const maxPeripheral = Math.max(1, ...Object.values(peripheralAccum));
+  const cnsScore = Math.min(1, cnsAccumRaw / CNS_SCALE);
+  const focusFatigue = {};
+  for (const f of ALL_FOCUS) {
+    const mNorm = (muscleAccum[f] || 0) / maxMuscle;
+    const pNorm = (peripheralAccum[f] || 0) / maxPeripheral;
+    focusFatigue[f] = Math.round((mNorm * 0.70 + pNorm * 0.25 + cnsScore * 0.05) * 100) / 100;
+  }
+  return { focusFatigue, cnsScore };
 }
 
 // Recovery half-life per muscle group (hours) — larger muscles recover slower
