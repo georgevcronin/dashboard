@@ -2443,20 +2443,20 @@ function inferMuscleFatigueLoad(exerciseName, muscles) {
   return Math.round(Math.max(0.1, Math.min(1.0, base)) * 10) / 10;
 }
 
-// Infer CNS demand (0–1) — heavy/explosive compounds score highest
+// Infer CNS demand (0–1) — heavy/explosive compounds score highest, isolation very low
 function inferCnsLoad(exerciseName, muscles) {
   const n = (exerciseName || "").toLowerCase();
   const primaries = Object.values(muscles).filter(w => w >= 0.8).length;
-  let cns = 0.2 + primaries * 0.15;
+  let cns = 0.1 + primaries * 0.1;
   if (n.includes("snatch") || n.includes("clean") || n.includes("jerk")) cns = 1.0;
   else if (n.includes("deadlift")) cns = Math.max(cns, 0.9);
   else if (n.includes("squat") || n.includes("hack squat")) cns = Math.max(cns, 0.8);
   else if (n.includes("overhead press") || n.includes("ohp")) cns = Math.max(cns, 0.7);
-  else if (n.includes("bench press") || n.includes("row") || n.includes("pull-up") || n.includes("pull up")) cns = Math.max(cns, 0.6);
-  if (n.includes("machine") || n.includes("leg press") || n.includes("leg extension") || n.includes("leg curl") || n.includes("seated")) cns = Math.min(cns, 0.4);
-  if (n.includes("plank") || n.includes("crunch")) cns = Math.min(cns, 0.2);
-  if (n.includes("curl") || n.includes("raise") || n.includes("pushdown")) cns = Math.min(cns, 0.35);
-  return Math.round(Math.max(0.1, Math.min(1.0, cns)) * 10) / 10;
+  else if (n.includes("bench press") || n.includes("row") || n.includes("pull-up") || n.includes("pull up") || n.includes("pulldown") || n.includes("chin-up")) cns = Math.max(cns, 0.6);
+  if (n.includes("machine") || n.includes("leg press") || n.includes("leg extension") || n.includes("leg curl") || n.includes("seated")) cns = Math.min(cns, 0.2);
+  if (n.includes("plank") || n.includes("crunch")) cns = Math.min(cns, 0.1);
+  if (n.includes("curl") || n.includes("raise") || n.includes("pushdown") || n.includes("fly") || n.includes("extension")) cns = Math.min(cns, 0.15);
+  return Math.round(Math.max(0.05, Math.min(1.0, cns)) * 100) / 100;
 }
 
 // 3-component fatigue model (science-backed decay rates & weightings)
@@ -2536,7 +2536,7 @@ function calibrateRecovery(lifts) {
 function computeFatigueState(lifts, now, calibration = null) {
   const mult = calibration?.recoveryMultiplier ?? 1.0;
   const METABOLIC_HL = 18 * mult, STRUCTURAL_HL = 38 * mult, PERIPHERAL_HL = 44 * mult, CNS_HL = 8 * mult;
-  const CNS_SCALE = 50;
+  const CNS_SCALE = 100;
   const muscleAccum = {}, peripheralAccum = {};
   let cnsAccumRaw = 0;
 
