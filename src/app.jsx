@@ -1119,8 +1119,9 @@ function PlanningScreen({ s, onStart, onSkip }) {
   const calibration = useMemo(() => calibrateRecovery(s.lifts), [s.lifts]);
   const { focusFatigue, cnsScore } = computeFatigueState(s.lifts, now, calibration);
 
-  // Base RIR from fatigue, anchored to personal optimal RIR when calibrated
-  const baseRIR = calibration?.optimalRIR ?? 2;
+  // Default RIR by goal: hypertrophy trains close to failure, strength preserves quality
+  const goalDefaultRIR = autoGoal === "hypertrophy" ? 0 : autoGoal === "strength" ? 1 : 2;
+  const baseRIR = calibration?.optimalRIR ?? goalDefaultRIR;
   function fatigueToRIR(fatigue) {
     const floor = Math.round(baseRIR + fatigue * 2);
     return Math.max(1, Math.min(5, floor));
@@ -2349,10 +2350,12 @@ function volumeResponsePct(numSets) {
 }
 
 // Niv Zinder RIR effectiveness: sigmoid, high at RIR 0, dip around RIR 5-6, moderate at RIR 10
+// RIR 0 = maximum hypertrophic stimulus. RIR 1 within 5%. Exponential decay thereafter.
+// Reflects proximity-to-failure evidence (Schoenfeld, Refalo 2023).
 function rirEffectiveness(rir) {
   const r = Math.max(0, Math.min(10, rir));
-  if (r <= 5) return 0.18 + 0.82 * Math.pow(1 - r / 5, 1.5);
-  return 0.18 + 0.14 * (r - 5) / 5;
+  if (r <= 1) return 1.0 - r * 0.05;          // 1.00 at RIR 0, 0.95 at RIR 1
+  return 0.95 * Math.exp(-0.22 * (r - 1));     // ~0.76 at 2, ~0.61 at 3, ~0.49 at 4
 }
 
 // Supercompensation gamma curve — normalized so peak = stimulusScore at t = 48h (k=3, θ=24)
