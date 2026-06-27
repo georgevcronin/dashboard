@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { createRoot } from "react-dom/client";
+import { BODY_MAP } from "./bodyMap";
 
 // ── DESIGN SYSTEM ─────────────────────────────────────────────────────────
 // Editorial brutalism. Electric-yellow accent, hard edges, oversized Syne
@@ -1320,6 +1321,54 @@ function fatigueColor(pct) {
   return `rgba(224,106,106,${0.4 + p * 0.5})`;
 }
 
+// Human-readable labels for the app's fatigue keys (used by the body map)
+const BODY_LABELS = {
+  chest: "Chest", frontDelts: "Front Delts", sideDelts: "Side Delts", rearDelts: "Rear Delts",
+  biceps: "Biceps", forearms: "Forearms", triceps: "Triceps", core: "Core", obliques: "Obliques",
+  lats: "Lats", rhomboids: "Rhomboids", lowerBack: "Lower Back", traps: "Traps",
+  quads: "Quads", hamstrings: "Hamstrings", glutes: "Glutes", adductors: "Adductors",
+  hipFlexors: "Hip Flexors", calves: "Calves",
+};
+
+// Anatomical triptych — base silhouette + per-muscle CSS-mask overlays tinted live by fatigue.
+function BodyTriptych({ fatigue, hover, setHover }) {
+  const VIEWS = [["front", "Anterior"], ["side", "Lateral"], ["back", "Posterior"]];
+  return (
+    <div style={{ display: "flex", gap: 22, justifyContent: "center", alignItems: "flex-start", flexWrap: "wrap" }}>
+      {VIEWS.map(([view, label]) => {
+        const d = BODY_MAP[view];
+        if (!d) return null;
+        return (
+          <div key={view} style={{ textAlign: "center" }}>
+            <div style={{ fontSize: 8, letterSpacing: "0.2em", textTransform: "uppercase", color: "var(--dim)", marginBottom: 6 }}>{label}</div>
+            <div style={{ position: "relative", width: d.w, height: d.h, margin: "0 auto" }}>
+              <img src={d.base} alt={label} style={{ position: "absolute", inset: 0, width: d.w, height: d.h, pointerEvents: "none" }} />
+              {Object.entries(d.masks).map(([key, mask]) => {
+                const level = fatigue[key] || 0;
+                const isHover = hover === key;
+                return (
+                  <div key={key}
+                    onMouseEnter={() => setHover(key)} onMouseLeave={() => setHover(null)}
+                    style={{
+                      position: "absolute", inset: 0, cursor: "pointer",
+                      background: fatigueColor(level),
+                      WebkitMaskImage: `url(${mask})`, maskImage: `url(${mask})`,
+                      WebkitMaskSize: "contain", maskSize: "contain",
+                      WebkitMaskRepeat: "no-repeat", maskRepeat: "no-repeat",
+                      WebkitMaskPosition: "center", maskPosition: "center",
+                      filter: isHover ? "brightness(1.5)" : "none",
+                      transition: "filter .2s, background .3s",
+                    }} />
+                );
+              })}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function Fatigue({ go, s, refresh }) {
   const [hover, setHover] = useState(null);
   const [sorenessTarget, setSorenessTarget] = useState(null);
@@ -1521,9 +1570,8 @@ function Fatigue({ go, s, refresh }) {
     refresh();
   };
 
-  const hoverMuscle = hover ? MUSCLES[hover] : null;
-  const hoverKey = hoverMuscle ? (hoverMuscle.link || hover) : null;
-  const hoverLevel = hoverKey ? (fatigue[hoverKey] || 0) : 0;
+  const hoverLabel = hover ? (BODY_LABELS[hover] || hover) : null;
+  const hoverLevel = hover ? (fatigue[hover] || 0) : 0;
   const hoverWord = hoverLevel < 0.2 ? "Fresh" : hoverLevel < 0.45 ? "Mild" : hoverLevel < 0.7 ? "Moderate" : "Fatigued";
 
   return (
@@ -1582,61 +1630,15 @@ function Fatigue({ go, s, refresh }) {
         ))}
       </div>
 
-      {/* Body diagram */}
+      {/* Body diagram — anatomical triptych, live-tinted by fatigue */}
       <div style={{ ...card, padding: 24, position: "relative" }}>
-        <div style={{ display: "flex", justifyContent: "center", gap: 30 }}>
-          {["front", "back"].map(side => (
-            <div key={side} style={{ textAlign: "center" }}>
-              <div style={label}>{side}</div>
-              <svg viewBox={side === "front" ? "80 30 140 280" : "380 30 140 280"} style={{ width: 160, height: 320 }}>
-                {/* Body silhouette — paths in front coords, translated +300 for back */}
-                <g transform={side === "back" ? "translate(300,0)" : undefined} strokeWidth="1" strokeLinejoin="round" style={{ fill: "var(--panel2)", stroke: T.line }}>
-                  {/* Head */}
-                  <ellipse cx="150" cy="50" rx="17" ry="20"/>
-                  {/* Neck */}
-                  <path d="M 143,69 L 157,69 L 157.5,80 L 142.5,80 Z" strokeWidth="0.5"/>
-                  {/* Torso — shoulders wide → waist narrow → hips flare */}
-                  <path d="M 144,77 L 117,83 C 107,91 104,113 106,133 C 107,144 119,154 127,158 C 121,165 118,176 120,184 L 180,184 C 182,176 179,165 173,158 C 181,154 193,144 194,133 C 196,113 193,91 183,83 L 156,77 Z"/>
-                  {/* Left upper arm — tapers from shoulder to elbow */}
-                  <path d="M 103,83 C 93,90 88,110 88,129 C 88,141 92,151 99,156 L 111,152 C 115,142 116,124 114,107 C 113,93 118,84 117,83 Z"/>
-                  {/* Left forearm */}
-                  <path d="M 99,157 C 92,166 88,182 88,196 C 88,204 91,210 96,211 L 107,207 C 109,198 109,182 109,169 C 109,162 106,156 99,157 Z"/>
-                  {/* Right upper arm */}
-                  <path d="M 197,83 C 207,90 212,110 212,129 C 212,141 208,151 201,156 L 189,152 C 185,142 184,124 186,107 C 187,93 182,84 183,83 Z"/>
-                  {/* Right forearm */}
-                  <path d="M 201,157 C 208,166 212,182 212,196 C 212,204 209,210 204,211 L 193,207 C 191,198 191,182 191,169 C 191,162 194,156 201,157 Z"/>
-                  {/* Left thigh */}
-                  <path d="M 118,185 C 110,198 107,220 108,241 C 109,256 115,267 124,271 L 135,267 C 138,251 139,232 137,211 C 135,196 131,187 122,185 Z"/>
-                  {/* Right thigh */}
-                  <path d="M 182,185 C 190,198 193,220 192,241 C 191,256 185,267 176,271 L 165,267 C 162,251 161,232 163,211 C 165,196 169,187 178,185 Z"/>
-                  {/* Left calf */}
-                  <path d="M 124,272 C 117,282 115,296 116,307 C 117,309 121,310 126,309 L 133,308 C 134,297 133,285 133,274 C 132,273 128,272 124,272 Z"/>
-                  {/* Right calf */}
-                  <path d="M 176,272 C 183,282 185,296 184,307 C 183,309 179,310 174,309 L 167,308 C 166,297 167,285 167,274 C 168,273 172,272 176,272 Z"/>
-                </g>
-                {/* Spine crease for back view */}
-                {side === "back" && <line x1="450" y1="85" x2="450" y2="165" strokeWidth="0.75" strokeDasharray="2,3" style={{ stroke: T.line }}/>}
-                {/* Muscle overlays — ellipses use absolute coordinates */}
-                {Object.entries(MUSCLES).filter(([, m]) => m.side === side).map(([key, m]) => {
-                  const level = getMuscleLevel(key);
-                  return (
-                    <ellipse key={key} cx={m.cx} cy={m.cy} rx={m.rx} ry={m.ry}
-                      fill={fatigueColor(level)}
-                      strokeWidth={hover === key ? 1.5 : 0}
-                      style={{ cursor: "pointer", transition: "fill .3s", stroke: hover === key ? T.fg : "transparent" }}
-                      onMouseEnter={() => setHover(key)} onMouseLeave={() => setHover(null)} />
-                  );
-                })}
-              </svg>
-            </div>
-          ))}
-        </div>
+        <BodyTriptych fatigue={fatigue} hover={hover} setHover={setHover} />
 
         {/* Hover tooltip */}
-        {hoverMuscle && (
+        {hover && (
           <div style={{ position: "absolute", bottom: 16, left: "50%", transform: "translateX(-50%)", background: T.panel, border: `1px solid ${T.line}`, borderRadius: 10, padding: "8px 16px", fontSize: 13, display: "flex", gap: 12, alignItems: "center" }}>
             <span style={{ width: 14, height: 14, borderRadius: 3, background: fatigueColor(hoverLevel) }} />
-            <span style={{ fontWeight: 600 }}>{hoverMuscle.label}</span>
+            <span style={{ fontWeight: 600 }}>{hoverLabel}</span>
             <span style={{ color: T.mid }}>{hoverWord} · {Math.round(hoverLevel * 100)}%</span>
           </div>
         )}
