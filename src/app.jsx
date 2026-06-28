@@ -2456,7 +2456,36 @@ function inferCnsLoad(exerciseName, muscles) {
   if (n.includes("machine") || n.includes("leg press") || n.includes("leg extension") || n.includes("leg curl") || n.includes("seated")) cns = Math.min(cns, 0.2);
   if (n.includes("plank") || n.includes("crunch")) cns = Math.min(cns, 0.1);
   if (n.includes("curl") || n.includes("raise") || n.includes("pushdown") || n.includes("fly") || n.includes("extension")) cns = Math.min(cns, 0.15);
+  // Steady-state cardio has negligible CNS cost; HIIT slightly higher
+  if (n.includes("run") || n.includes("jog") || n.includes("bike") || n.includes("cycle") || n.includes("ride") ||
+      n.includes("swim") || n.includes("walk") || n.includes("hike") || n.includes("zone")) cns = Math.min(cns, 0.10);
+  if (n.includes("hiit")) cns = Math.min(cns, 0.25);
+  if (n.includes("boulder") || n.includes("climb")) cns = Math.min(cns, 0.20);
   return Math.round(Math.max(0.05, Math.min(1.0, cns)) * 100) / 100;
+}
+
+// Returns true if this is a cardio/activity log where reps = duration (minutes)
+function isCardioActivity(exerciseName, kg) {
+  if (+kg !== 0) return false;
+  const n = (exerciseName || "").toLowerCase();
+  return n.includes("run") || n.includes("jog") || n.includes("bike") || n.includes("cycle") ||
+         n.includes("ride") || n.includes("swim") || n.includes("walk") || n.includes("hike") ||
+         n.includes("boulder") || n.includes("climb") || n.includes("hiit") || n.includes("zone") ||
+         n.includes("cardio") || n.includes("rowing machine") || n.includes("ski erg") || n.includes("assault");
+}
+
+// For cardio, volume proxy = duration(min) × MET-equivalent factor; intensity = aerobic effort level
+function cardioVolumeAndIntensity(exerciseName, durationMin) {
+  const n = (exerciseName || "").toLowerCase();
+  let factor = 8, intensity = 0.50;
+  if (n.includes("hiit")) { factor = 12; intensity = 0.72; }
+  else if (n.includes("run") || n.includes("jog")) { factor = 10; intensity = 0.52; }
+  else if (n.includes("boulder") || n.includes("climb")) { factor = 9; intensity = 0.62; }
+  else if (n.includes("bike") || n.includes("cycle") || n.includes("ride")) { factor = 7; intensity = 0.48; }
+  else if (n.includes("swim")) { factor = 9; intensity = 0.55; }
+  else if (n.includes("zone")) { factor = 5; intensity = 0.35; }
+  else if (n.includes("walk") || n.includes("hike")) { factor = 4; intensity = 0.30; }
+  return { volume: durationMin * factor, intensity };
 }
 
 // 3-component fatigue model (science-backed decay rates & weightings)
@@ -2549,12 +2578,18 @@ function computeFatigueState(lifts, now, calibration = null) {
 
     const hoursAgo = (now - new Date(l.date).getTime()) / 3600000;
     const kg = +l.kg || 0, reps = +l.reps || 1, rir = +l.rir || 0;
-    const est1rm = frontE1RM(kg, reps, rir);
-    // Intensity = blend of relative weight (how heavy) and effort (how close to failure)
-    const weightIntensity = Math.min(1.0, kg / Math.max(est1rm, 1));
-    const effortIntensity = Math.max(0, 1 - rir / 10);
-    const intensity = weightIntensity * 0.6 + effortIntensity * 0.4;
-    const volume = kg * reps;
+    const cardio = isCardioActivity(l.exercise, kg);
+    let volume, intensity;
+    if (cardio) {
+      // reps = duration in minutes; derive volume & intensity from MET-equivalent model
+      ({ volume, intensity } = cardioVolumeAndIntensity(l.exercise, reps));
+    } else {
+      const est1rm = frontE1RM(kg, reps, rir);
+      const weightIntensity = Math.min(1.0, kg / Math.max(est1rm, 1));
+      const effortIntensity = Math.max(0, 1 - rir / 10);
+      intensity = weightIntensity * 0.6 + effortIntensity * 0.4;
+      volume = kg * reps;
+    }
     const mfl = inferMuscleFatigueLoad(l.exercise, muscles);
     const cnsl = inferCnsLoad(l.exercise, muscles);
 
