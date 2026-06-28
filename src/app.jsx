@@ -504,7 +504,7 @@ function S4({ s }) {
 }
 
 // ── S5: FATIGUE ───────────────────────────────────────────────────────────────
-const BODY_BASE = window.location.pathname.includes('/dashboard') ? '/dashboard' : '';
+const BODY_BASE = '';
 const ALL_MUSCLES = ['glutes','quads','hamstrings','adductors','calves','erectors','chest','abs','obliques','biceps','triceps','forearms','traps','front-delt','rear-delt','lats','rhomboids','neck'];
 
 function S5({ s }) {

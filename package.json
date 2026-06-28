@@ -1,5 +1,5 @@
 {
-  "name": "peak",
+  "name": "press",
   "version": "1.0.0",
   "scripts": {
     "build": "esbuild src/app.jsx --bundle --jsx=automatic --minify --outfile=public/app.js",
