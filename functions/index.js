@@ -398,6 +398,7 @@ app.get("/summary", async (req, res) => {
     waterStats: { streak, avg: waterDays.length ? Math.round(avg(waterDays) * 10) / 10 : 0, hitRate: waterDays.length ? Math.round((waterDays.filter(v => v >= target).length / waterDays.length) * 100) : 0, best: waterDays.length ? Math.max(...waterDays) : 0 },
     weights, workouts: db.workouts.slice(-20), workoutsMonth: monthWk.length,
     water: lastN(db.water, 14), waterToday: db.water[day()] || 0,
+    weeklyPlan: db.weeklyPlan || null,
     lifts: db.lifts.slice(-50), finance: db.finance, thoughts: db.thoughts,
     nutritionToday: (db.nutrition || {})[day()] || { protein: 0, carbs: 0, fat: 0, calories: 0 },
     nutrition14: Object.keys(db.nutrition || {}).sort().slice(-14).map(k => ({ date: k, ...(db.nutrition[k]) })),
@@ -467,6 +468,29 @@ app.post("/finance", async (req, res) => {
 });
 app.delete("/finance/:i", async (req, res) => { db.finance.splice(+req.params.i, 1); await save(); res.json({ ok: true }); });
 app.post("/thought", async (req, res) => { db.thoughts.push({ date: day(), text: req.body.text }); await save(); res.json({ ok: true }); });
+app.post("/workout/session", async (req, res) => {
+  const { name, exercises, duration } = req.body;
+  const d = day();
+  db.workouts = db.workouts || [];
+  db.workouts.unshift({ date: d, name: name || 'Session', duration: duration || null });
+  for (const ex of (exercises || [])) {
+    for (const set of (ex.sets || [])) {
+      const kg = parseFloat(set.kg) || 0;
+      const reps = parseInt(set.reps) || 1;
+      if (kg > 0 || reps > 0) db.lifts.push({ date: d, exercise: ex.name.toLowerCase().trim(), kg, reps, source: 'manual' });
+    }
+  }
+  await save(); res.json({ ok: true });
+});
+app.post("/lift", async (req, res) => {
+  const { exercise, kg, reps, sets } = req.body;
+  if (!exercise) return res.status(400).json({ error: "exercise required" });
+  const d = day();
+  const n = sets && +sets > 1 ? +sets : 1;
+  for (let i = 0; i < n; i++) db.lifts.push({ date: d, exercise: exercise.toLowerCase().trim(), kg: +kg || 0, reps: +reps || 1, source: "manual" });
+  await save(); res.json({ ok: true });
+});
+app.delete("/lift/:i", async (req, res) => { db.lifts.splice(+req.params.i, 1); await save(); res.json({ ok: true }); });
 app.post("/profile", async (req, res) => { db.profile = { ...db.profile, ...req.body }; await save(); res.json(db.profile); });
 
 // ---------- Mentor ----------

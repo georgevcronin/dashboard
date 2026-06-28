@@ -125,6 +125,15 @@ section.visible .fade:nth-child(6){transition-delay:.56s}
 .prog-val{font-size:9px;font-family:'JetBrains Mono',monospace;color:var(--dim);width:80px;text-align:right;flex-shrink:0;white-space:nowrap}
 .prog-sub{opacity:.45}
 .body-view svg{display:block}
+.ol-hdr{position:sticky;top:0;background:var(--paper);border-bottom:3px solid var(--ink);padding:12px 20px;display:flex;align-items:center;justify-content:space-between;z-index:10}
+.ol-btn{font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.12em;text-transform:uppercase;padding:6px 14px;cursor:pointer;border:none}
+.ol-btn-ghost{background:none;border:1px solid var(--rule)!important;color:var(--dim)}
+.ol-btn-solid{background:var(--ink);color:var(--paper)}
+.set-input{width:52px;text-align:right;background:none;border:none;border-bottom:1px solid var(--rule);font-family:'JetBrains Mono',monospace;font-size:11px;outline:none;padding:2px 0}
+.ex-input{flex:1;background:none;border:none;border-bottom:2px solid var(--ink);font-family:'Times New Roman',serif;font-style:italic;font-size:15px;color:var(--ink);outline:none;padding:4px 0}
+.action-row{display:flex;gap:10px;margin-top:auto;padding-top:12px;border-top:1px solid var(--rule)}
+.action-btn{flex:1;font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.12em;text-transform:uppercase;padding:8px 12px;cursor:pointer;text-align:center;border:1px solid var(--ink);background:none;color:var(--ink)}
+.action-btn.primary{background:var(--ink);color:var(--paper)}
 `;
 
 // ── HELPERS ─────────────────────────────────────────────────────────────────
@@ -376,13 +385,127 @@ function S2({ s }) {
   );
 }
 
+// ── WORKOUT LOGGER ───────────────────────────────────────────────────────────
+function WorkoutLogger({ planDay, onClose, refresh }) {
+  const [exercises, setExercises] = useState([]);
+  const [newEx, setNewEx] = useState('');
+  const [start] = useState(Date.now());
+  const [elapsed, setElapsed] = useState(0);
+  const [saving, setSaving] = useState(false);
+  const inputRef = useRef();
+
+  useEffect(() => {
+    const t = setInterval(() => setElapsed(Math.floor((Date.now() - start) / 1000)), 1000);
+    return () => clearInterval(t);
+  }, [start]);
+
+  const fmt = s => `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
+
+  const addExercise = name => {
+    if (!name.trim()) return;
+    setExercises(prev => [...prev, { name: name.trim(), sets: [{ kg: '', reps: '' }] }]);
+    setNewEx('');
+    setTimeout(() => inputRef.current?.focus(), 50);
+  };
+
+  const addSet = i => setExercises(prev => prev.map((ex, j) =>
+    j !== i ? ex : { ...ex, sets: [...ex.sets, { kg: ex.sets.at(-1)?.kg || '', reps: ex.sets.at(-1)?.reps || '' }] }
+  ));
+
+  const updateSet = (ei, si, field, val) => setExercises(prev => prev.map((ex, i) =>
+    i !== ei ? ex : { ...ex, sets: ex.sets.map((s, j) => j !== si ? s : { ...s, [field]: val }) }
+  ));
+
+  const removeSet = (ei, si) => setExercises(prev => prev.map((ex, i) =>
+    i !== ei ? ex : { ...ex, sets: ex.sets.filter((_, j) => j !== si) }
+  ).filter(ex => ex.sets.length > 0));
+
+  const finish = async () => {
+    const valid = exercises.map(ex => ({ ...ex, sets: ex.sets.filter(s => s.kg !== '' || s.reps !== '') })).filter(ex => ex.sets.length > 0);
+    if (!valid.length) { onClose(); return; }
+    setSaving(true);
+    await fetch(`${API_BASE}/workout/session`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: planDay?.sessions?.[0]?.title || 'Session', exercises: valid, duration: Math.round(elapsed / 60) }),
+    });
+    await api('summary').then(refresh);
+    onClose();
+  };
+
+  const session = planDay?.sessions?.[0];
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, zIndex: 1000, background: 'var(--paper)', overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
+      <div className="ol-hdr">
+        <div>
+          <div className="kicker" style={{ marginBottom: 2 }}>In Session</div>
+          <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 22, fontWeight: 600, letterSpacing: '-.02em' }}>{fmt(elapsed)}</div>
+        </div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button className="ol-btn ol-btn-ghost" onClick={onClose}>Discard</button>
+          <button className="ol-btn ol-btn-solid" onClick={finish} disabled={saving}>{saving ? 'Saving…' : 'Finish'}</button>
+        </div>
+      </div>
+
+      <div style={{ padding: '16px 20px', flex: 1, display: 'flex', flexDirection: 'column' }}>
+        {session && (
+          <div style={{ marginBottom: 18, padding: '10px 12px', borderLeft: '2px solid var(--gold)', background: 'var(--paper2)' }}>
+            <div className="kicker" style={{ marginBottom: 4 }}>{session.type} · {session.duration}</div>
+            <div style={{ fontFamily: "'Playfair Display',serif", fontStyle: 'italic', fontSize: 15, marginBottom: 4 }}>{session.title}</div>
+            <div style={{ fontSize: 11, color: 'var(--dim)', lineHeight: 1.5 }}>{session.detail}</div>
+          </div>
+        )}
+
+        {exercises.map((ex, i) => (
+          <div key={i} style={{ marginBottom: 18, paddingBottom: 14, borderBottom: '1px solid var(--rule)' }}>
+            <div style={{ fontFamily: "'Playfair Display',serif", fontWeight: 700, fontSize: 16, textTransform: 'capitalize', marginBottom: 8 }}>{ex.name}</div>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontFamily: "'JetBrains Mono',monospace", fontSize: 11, marginBottom: 8 }}>
+              <thead>
+                <tr>
+                  {['Set','kg','Reps',''].map((h, j) => (
+                    <th key={j} style={{ textAlign: j === 0 ? 'left' : 'right', color: 'var(--dim)', fontSize: 8, letterSpacing: '.15em', textTransform: 'uppercase', padding: '3px 0', borderBottom: '1px solid var(--rule)', fontWeight: 400, width: j === 3 ? 24 : 'auto' }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {ex.sets.map((set, j) => (
+                  <tr key={j}>
+                    <td style={{ padding: '5px 0', color: 'var(--dim)' }}>{j + 1}</td>
+                    <td style={{ padding: '5px 0', textAlign: 'right' }}>
+                      <input className="set-input" value={set.kg} onChange={e => updateSet(i, j, 'kg', e.target.value)} inputMode="decimal" placeholder="—" style={{ color: 'var(--gold)' }} />
+                    </td>
+                    <td style={{ padding: '5px 0', textAlign: 'right' }}>
+                      <input className="set-input" value={set.reps} onChange={e => updateSet(i, j, 'reps', e.target.value)} inputMode="numeric" placeholder="—" style={{ color: 'var(--ink)' }} />
+                    </td>
+                    <td style={{ textAlign: 'right', padding: '5px 0' }}>
+                      <button onClick={() => removeSet(i, j)} style={{ background: 'none', border: 'none', color: 'var(--dim)', cursor: 'pointer', fontSize: 14, lineHeight: 1 }}>×</button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <button className="ol-btn ol-btn-ghost" style={{ fontSize: 8 }} onClick={() => addSet(i)}>+ Set</button>
+          </div>
+        ))}
+
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 }}>
+          <input ref={inputRef} className="ex-input" value={newEx} onChange={e => setNewEx(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && addExercise(newEx)} placeholder="Add exercise…" />
+          <button className="ol-btn ol-btn-solid" onClick={() => addExercise(newEx)}>Add</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── S3: TRAINING ──────────────────────────────────────────────────────────────
-function S3({ s }) {
+function S3({ s, onStartWorkout }) {
   const workouts = s?.workouts || [];
   const lifts = s?.lifts || [];
   const liftVol = s?.liftVolume || [];
   const lastSession = workouts[0] || null;
   const sessionLifts = lastSession ? lifts.filter(l => l.date === lastSession.date) : [];
+  const [genning, setGenning] = useState(false);
 
   const exerciseMap = {};
   sessionLifts.forEach(l => {
@@ -390,9 +513,20 @@ function S3({ s }) {
   });
   const rows = Object.values(exerciseMap).slice(0, 5);
   const topLift = rows.reduce((a, b) => (b.kg > (a?.kg || 0) ? b : a), null);
-
   const sessionName = lastSession?.name ? lastSession.name[0].toUpperCase() + lastSession.name.slice(1) : 'Session';
   const daysAgo = lastSession?.date ? Math.round((Date.now() - new Date(lastSession.date)) / 86_400_000) : null;
+
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const plan = s?.weeklyPlan;
+  const todayPlan = plan?.days?.find(d => d.date === todayStr) || null;
+  const todaySession = todayPlan?.sessions?.[0] || null;
+
+  const generatePlan = async () => {
+    setGenning(true);
+    await fetch(`${API_BASE}/plan/week`, { method: 'POST' });
+    setGenning(false);
+    window.location.reload();
+  };
 
   return (
     <section id="s3">
@@ -431,7 +565,35 @@ function S3({ s }) {
           <div className="stat-cell"><div className="sc-label">Month</div><div className="sc-num forest" style={{ fontSize: 22 }}>{s?.workoutsMonth ?? '—'}<span style={{ fontSize: '.5em', color: 'var(--dim)' }}>sessions</span></div></div>
         </div>
       </div>
-      <div className="pull fade">The best training programme is the one you <strong>actually complete.</strong></div>
+      <div className="fade" style={{ marginTop: 'auto' }}>
+        {todaySession ? (
+          <div style={{ borderTop: '1px solid var(--rule)', paddingTop: 10 }}>
+            <div className="kicker" style={{ marginBottom: 4 }}>{plan.focus}</div>
+            <div style={{ fontFamily: "'Playfair Display',serif", fontStyle: 'italic', fontSize: 13, color: 'var(--dim)', marginBottom: 10, lineHeight: 1.4 }}>
+              Today — <strong style={{ fontStyle: 'normal', color: 'var(--ink)' }}>{todaySession.title}</strong> · {todaySession.duration}
+            </div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              {todaySession.type === 'rest' ? (
+                <div style={{ fontSize: 11, color: 'var(--dim)', fontStyle: 'italic' }}>{todaySession.detail}</div>
+              ) : (
+                <>
+                  <button className="action-btn primary" onClick={() => onStartWorkout(todayPlan)}>Start Today's Session</button>
+                  <button className="action-btn" onClick={() => onStartWorkout(null)}>Freestyle</button>
+                </>
+              )}
+            </div>
+          </div>
+        ) : (
+          <div style={{ borderTop: '1px solid var(--rule)', paddingTop: 10, display: 'flex', gap: 8 }}>
+            {!plan ? (
+              <button className="action-btn" onClick={generatePlan} disabled={genning}>{genning ? 'Generating…' : 'Generate Week Plan'}</button>
+            ) : (
+              <button className="action-btn" onClick={generatePlan} disabled={genning}>{genning ? 'Generating…' : 'Regenerate Plan'}</button>
+            )}
+            <button className="action-btn primary" onClick={() => onStartWorkout(null)}>Start Workout</button>
+          </div>
+        )}
+      </div>
     </section>
   );
 }
@@ -582,6 +744,10 @@ function S5({ s }) {
 // ── APP ──────────────────────────────────────────────────────────────────────
 function App() {
   const [s, setS] = useState(null);
+  const [loggerPlanDay, setLoggerPlanDay] = useState(undefined);
+  const loggerOpen = loggerPlanDay !== undefined;
+
+  const refresh = data => { if (data) setS(data); else api('summary').then(setS).catch(console.error); };
 
   useEffect(() => { api('summary').then(setS).catch(console.error); }, []);
 
@@ -639,10 +805,17 @@ function App() {
       <div className="scroll" id="press-scroll">
         <S1 s={s} />
         <S2 s={s} />
-        <S3 s={s} />
+        <S3 s={s} onStartWorkout={planDay => setLoggerPlanDay(planDay ?? null)} />
         <S4 s={s} />
         <S5 s={s} />
       </div>
+      {loggerOpen && (
+        <WorkoutLogger
+          planDay={loggerPlanDay}
+          onClose={() => setLoggerPlanDay(undefined)}
+          refresh={setS}
+        />
+      )}
     </>
   );
 }
