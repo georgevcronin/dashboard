@@ -1117,7 +1117,13 @@ function PlanningScreen({ s, onStart, onSkip }) {
 
   // ── 3-component fatigue model (personalised via calibration) ─────────────
   const calibration = useMemo(() => calibrateRecovery(s.lifts), [s.lifts]);
-  const { focusFatigue, cnsScore } = computeFatigueState(s.lifts, now, calibration);
+  const hrProfile = useMemo(() => {
+    const age = s.profile?.age;
+    const maxHR = s.profile?.maxHR || (age ? Math.round(220 - age) : 190);
+    const restHR = s.baselines?.rhr || 60;
+    return { maxHR, restHR };
+  }, [s.profile, s.baselines]);
+  const { focusFatigue, cnsScore } = computeFatigueState(s.lifts, now, calibration, hrProfile);
 
   // Default RIR by goal: hypertrophy trains close to failure, strength preserves quality
   const goalDefaultRIR = autoGoal === "hypertrophy" ? 0 : autoGoal === "strength" ? 1 : 2;
@@ -1586,39 +1592,57 @@ function LogWorkout({ s, refresh }) {
               </div>
             )}
 
-            {/* Set column headers */}
-            <div style={{ display: "grid", gridTemplateColumns: "28px 44px 1fr 1fr 64px 24px", gap: 4, marginBottom: 4, paddingLeft: 2 }}>
-              {["#","Type","kg","Reps","RIR",""].map((h, i) => <div key={i} style={{ ...label, fontSize: 9, textAlign: i >= 2 ? "center" : "left" }}>{h}</div>)}
-            </div>
-
-            {ex.sets.map((set, si) => {
-              if (set.type !== "warmup") workingCount++;
-              const setNum = set.type === "warmup" ? "W" : set.type === "drop" ? "D" : set.type === "failure" ? "F" : workingCount;
-              const numColor = set.type === "warmup" ? T.mid : set.type === "drop" ? "#6ab4e0" : set.type === "failure" ? T.red : T.green;
+            {/* Set column headers — cardio gets Min/HR instead of kg/RIR */}
+            {(() => {
+              const isCardio = isCardioByName(ex.name);
+              const headers = isCardio ? ["#","","—","Min","HR bpm",""] : ["#","Type","kg","Reps","RIR",""];
               return (
-                <div key={si} style={{ display: "grid", gridTemplateColumns: "28px 44px 1fr 1fr 64px 24px", gap: 4, marginBottom: 4, alignItems: "center" }}>
-                  <div style={{ fontSize: 12, fontWeight: 700, color: numColor, textAlign: "center" }}>{setNum}</div>
-
-                  <div style={{ position: "relative" }}>
-                    <select value={set.type} onChange={e => updSet(ei, si, "type", e.target.value)}
-                      style={{ ...input, padding: "5px 4px", fontSize: 11, background: "#080e1c", width: "100%", textAlign: "center", cursor: "pointer", appearance: "none" }}>
-                      {SET_TYPES.map(t => <option key={t.key} value={t.key}>{t.title}</option>)}
-                    </select>
+                <>
+                  <div style={{ display: "grid", gridTemplateColumns: "28px 44px 1fr 1fr 64px 24px", gap: 4, marginBottom: 4, paddingLeft: 2 }}>
+                    {headers.map((h, i) => <div key={i} style={{ ...label, fontSize: 9, textAlign: i >= 2 ? "center" : "left" }}>{h}</div>)}
                   </div>
-
-                  <input type="number" min="0" step="0.5" value={set.kg} onChange={e => updSet(ei, si, "kg", e.target.value)}
-                    placeholder="-" style={{ ...input, padding: "5px 6px", fontSize: 13, textAlign: "center" }} />
-                  <input type="number" min="0" step="1" value={set.reps} onChange={e => updSet(ei, si, "reps", e.target.value)}
-                    placeholder="-" style={{ ...input, padding: "5px 6px", fontSize: 13, textAlign: "center" }} />
-                  <input type="number" min="0" max="10" step="0.5" value={set.rir} onChange={e => updSet(ei, si, "rir", e.target.value)}
-                    placeholder="-" style={{ ...input, padding: "5px 6px", fontSize: 11, textAlign: "center" }} />
-                  <button onClick={() => removeSet(ei, si)}
-                    style={{ background: "none", border: "none", color: T.dim, cursor: "pointer", fontSize: 14, padding: "2px", lineHeight: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
-                    x
-                  </button>
-                </div>
+                  {ex.sets.map((set, si) => {
+                    if (set.type !== "warmup") workingCount++;
+                    const setNum = set.type === "warmup" ? "W" : set.type === "drop" ? "D" : set.type === "failure" ? "F" : workingCount;
+                    const numColor = set.type === "warmup" ? T.mid : set.type === "drop" ? "#6ab4e0" : set.type === "failure" ? T.red : T.green;
+                    return (
+                      <div key={si} style={{ display: "grid", gridTemplateColumns: "28px 44px 1fr 1fr 64px 24px", gap: 4, marginBottom: 4, alignItems: "center" }}>
+                        <div style={{ fontSize: 12, fontWeight: 700, color: numColor, textAlign: "center" }}>{setNum}</div>
+                        {isCardio ? (
+                          <div style={{ fontSize: 10, color: T.dim, textAlign: "center", paddingTop: 2 }}>cardio</div>
+                        ) : (
+                          <div style={{ position: "relative" }}>
+                            <select value={set.type} onChange={e => updSet(ei, si, "type", e.target.value)}
+                              style={{ ...input, padding: "5px 4px", fontSize: 11, background: "#080e1c", width: "100%", textAlign: "center", cursor: "pointer", appearance: "none" }}>
+                              {SET_TYPES.map(t => <option key={t.key} value={t.key}>{t.title}</option>)}
+                            </select>
+                          </div>
+                        )}
+                        {isCardio ? (
+                          <div style={{ fontSize: 10, color: T.dim, textAlign: "center" }}>—</div>
+                        ) : (
+                          <input type="number" min="0" step="0.5" value={set.kg} onChange={e => updSet(ei, si, "kg", e.target.value)}
+                            placeholder="-" style={{ ...input, padding: "5px 6px", fontSize: 13, textAlign: "center" }} />
+                        )}
+                        <input type="number" min="0" step="1" value={set.reps} onChange={e => updSet(ei, si, "reps", e.target.value)}
+                          placeholder="-" style={{ ...input, padding: "5px 6px", fontSize: 13, textAlign: "center" }} />
+                        {isCardio ? (
+                          <input type="number" min="50" max="220" step="1" value={set.hr ?? ""} onChange={e => updSet(ei, si, "hr", e.target.value)}
+                            placeholder="opt" style={{ ...input, padding: "5px 6px", fontSize: 11, textAlign: "center" }} />
+                        ) : (
+                          <input type="number" min="0" max="10" step="0.5" value={set.rir} onChange={e => updSet(ei, si, "rir", e.target.value)}
+                            placeholder="-" style={{ ...input, padding: "5px 6px", fontSize: 11, textAlign: "center" }} />
+                        )}
+                        <button onClick={() => removeSet(ei, si)}
+                          style={{ background: "none", border: "none", color: T.dim, cursor: "pointer", fontSize: 14, padding: "2px", lineHeight: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                          x
+                        </button>
+                      </div>
+                    );
+                  })}
+                </>
               );
-            })}
+            })()}
 
             <button onClick={() => addSet(ei)}
               style={{ marginTop: 6, fontSize: 12, color: T.mid, background: "transparent", border: `1px dashed ${T.line}`, borderRadius: 8, padding: "6px 12px", cursor: "pointer", width: "100%" }}>
@@ -2464,9 +2488,8 @@ function inferCnsLoad(exerciseName, muscles) {
   return Math.round(Math.max(0.05, Math.min(1.0, cns)) * 100) / 100;
 }
 
-// Returns true if this is a cardio/activity log where reps = duration (minutes)
-function isCardioActivity(exerciseName, kg) {
-  if (+kg !== 0) return false;
+// Name-only cardio detection (used for UI decisions before kg is entered)
+function isCardioByName(exerciseName) {
   const n = (exerciseName || "").toLowerCase();
   return n.includes("run") || n.includes("jog") || n.includes("bike") || n.includes("cycle") ||
          n.includes("ride") || n.includes("swim") || n.includes("walk") || n.includes("hike") ||
@@ -2474,8 +2497,15 @@ function isCardioActivity(exerciseName, kg) {
          n.includes("cardio") || n.includes("rowing machine") || n.includes("ski erg") || n.includes("assault");
 }
 
-// For cardio, volume proxy = duration(min) × MET-equivalent factor; intensity = aerobic effort level
-function cardioVolumeAndIntensity(exerciseName, durationMin) {
+// Returns true if this is a cardio/activity log where reps = duration (minutes)
+function isCardioActivity(exerciseName, kg) {
+  if (+kg !== 0) return false;
+  return isCardioByName(exerciseName);
+}
+
+// Volume proxy = duration(min) × MET factor; intensity via Karvonen when HR is logged
+// restHR/maxHR from profile; fallback to exercise-type defaults when no HR
+function cardioVolumeAndIntensity(exerciseName, durationMin, hr = 0, restHR = 60, maxHR = 190) {
   const n = (exerciseName || "").toLowerCase();
   let factor = 8, intensity = 0.50;
   if (n.includes("hiit")) { factor = 12; intensity = 0.72; }
@@ -2485,6 +2515,9 @@ function cardioVolumeAndIntensity(exerciseName, durationMin) {
   else if (n.includes("swim")) { factor = 9; intensity = 0.55; }
   else if (n.includes("zone")) { factor = 5; intensity = 0.35; }
   else if (n.includes("walk") || n.includes("hike")) { factor = 4; intensity = 0.30; }
+  if (hr > 0 && maxHR > restHR) {
+    intensity = Math.min(1, Math.max(0, (hr - restHR) / (maxHR - restHR)));
+  }
   return { volume: durationMin * factor, intensity };
 }
 
@@ -2562,7 +2595,7 @@ function calibrateRecovery(lifts) {
   return { recoveryMultiplier, optimalRestH, optimalRIR, pairsAnalyzed: pairs.length };
 }
 
-function computeFatigueState(lifts, now, calibration = null) {
+function computeFatigueState(lifts, now, calibration = null, hrProfile = {}) {
   const mult = calibration?.recoveryMultiplier ?? 1.0;
   const METABOLIC_HL = 18 * mult, STRUCTURAL_HL = 38 * mult, PERIPHERAL_HL = 44 * mult, CNS_HL = 8 * mult;
   const CNS_SCALE = 100;
@@ -2579,10 +2612,12 @@ function computeFatigueState(lifts, now, calibration = null) {
     const hoursAgo = (now - new Date(l.date).getTime()) / 3600000;
     const kg = +l.kg || 0, reps = +l.reps || 1, rir = +l.rir || 0;
     const cardio = isCardioActivity(l.exercise, kg);
+    const restHR = hrProfile.restHR || 60;
+    const maxHR = hrProfile.maxHR || 190;
     let volume, intensity;
     if (cardio) {
-      // reps = duration in minutes; derive volume & intensity from MET-equivalent model
-      ({ volume, intensity } = cardioVolumeAndIntensity(l.exercise, reps));
+      // reps = duration in minutes; hr = avg heart rate (bpm) if logged
+      ({ volume, intensity } = cardioVolumeAndIntensity(l.exercise, reps, +l.hr || 0, restHR, maxHR));
     } else {
       const est1rm = frontE1RM(kg, reps, rir);
       const weightIntensity = Math.min(1.0, kg / Math.max(est1rm, 1));
@@ -3459,7 +3494,7 @@ function Settings({ go, s, refresh }) {
     <>
       <Back onClick={() => go("home")} title="Profile" />
       <div style={{ ...card, maxWidth: 420, display: "grid", gap: 12 }}>
-        {[["name", "Name", "text"], ["heightCm", "Height (cm)", "number"], ["sex", "Sex (m/f)", "text"], ["age", "Age", "number"], ["waterTarget", "Water target (bottles/day)", "number"]].map(([k, l, t]) => (
+        {[["name", "Name", "text"], ["heightCm", "Height (cm)", "number"], ["sex", "Sex (m/f)", "text"], ["age", "Age", "number"], ["maxHR", "Max heart rate (bpm, optional — overrides 220−age)", "number"], ["waterTarget", "Water target (bottles/day)", "number"]].map(([k, l, t]) => (
           <div key={k}><div style={{ ...label, marginBottom: 4 }}>{l}</div>
             <input value={p[k] ?? ""} type={t} onChange={(e) => setP({ ...p, [k]: t === "number" ? +e.target.value : e.target.value })} style={{ ...input, width: "100%" }} /></div>
         ))}
