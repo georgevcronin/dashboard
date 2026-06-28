@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import { createRoot } from "react-dom/client";
 
-const API_BASE = "https://europe-west2-dashboard-79dbb.cloudfunctions.net/api";
+const API_BASE = "https://europe-west2-pressnewsletter.cloudfunctions.net/api";
 const api = p => fetch(`${API_BASE}/${p}`).then(r => r.json());
 
 // ── MUSCLE FATIGUE ──────────────────────────────────────────────────────────

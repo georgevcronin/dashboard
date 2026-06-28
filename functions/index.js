@@ -10,9 +10,9 @@ const app = express();
 app.use(express.json({ limit: "10mb" }));
 
 const ALLOWED_ORIGINS = [
-  "https://georgevcronin.github.io",
-  "http://localhost:3000",
-  "http://localhost:4321",
+  "https://pressnewsletter.web.app",
+  "https://pressnewsletter.firebaseapp.com",
+  "http://localhost:5000",
 ];
 app.use((req, res, next) => {
   const origin = req.headers.origin;
@@ -222,7 +222,7 @@ app.post("/import", async (req, res) => {
 });
 
 // ---------- Strava ----------
-const STRAVA_BASE = "https://europe-west2-dashboard-79dbb.cloudfunctions.net/api";
+const STRAVA_BASE = "https://europe-west2-pressnewsletter.cloudfunctions.net/api";
 
 function stravaCredentials() {
   return {
