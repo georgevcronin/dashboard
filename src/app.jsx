@@ -904,26 +904,28 @@ function parseHevyCSV(text) {
   const rows = parseCSV(text);
   const map = {};
   for (const row of rows) {
-    const title = row['Title'] || row['Workout Name'] || 'Session';
-    const startRaw = row['Start Time'] || row['Date'];
+    const title = row['title'] || row['Title'] || row['Workout Name'] || 'Session';
+    const startRaw = row['start_time'] || row['Start Time'] || row['Date'];
     if (!startRaw) continue;
     const key = `${title}__${startRaw}`;
     if (!map[key]) {
       const startMs = new Date(startRaw).getTime();
-      const endMs = row['End Time'] ? new Date(row['End Time']).getTime() : null;
+      const endRaw = row['end_time'] || row['End Time'];
+      const endMs = endRaw ? new Date(endRaw).getTime() : null;
+      const dateISO = new Date(startRaw).toISOString().split('T')[0];
       map[key] = {
         name: title,
-        date: startRaw.split(' ')[0],
+        date: dateISO,
         duration: endMs ? Math.round((endMs - startMs) / 60000) : null,
         exercises: {},
       };
     }
-    const exRaw = row['Exercise Name'] || row['Exercise'];
+    const exRaw = row['exercise_title'] || row['Exercise Name'] || row['Exercise'];
     if (!exRaw) continue;
     const exName = exRaw.toLowerCase().trim();
     if (!map[key].exercises[exName]) map[key].exercises[exName] = [];
-    const kg = parseFloat(row['Weight (kg)'] ?? row['Weight']) || 0;
-    const reps = parseInt(row['Reps']) || 0;
+    const kg = parseFloat(row['weight_kg'] ?? row['Weight (kg)'] ?? row['Weight']) || 0;
+    const reps = parseInt(row['reps'] || row['Reps']) || 0;
     if (kg > 0 || reps > 0) map[key].exercises[exName].push({ kg, reps });
   }
   return Object.values(map).map(s => ({
