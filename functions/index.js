@@ -981,9 +981,63 @@ app.put("/muscle-sensitivity", async (req, res) => {
 
 // ---------- Setup page ----------
 app.get("/setup", (req, res) => {
-  const host = req.get("host") || "YOUR-PROJECT.web.app";
-  const url = "https://" + host + "/shortcut";
-  res.send('<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Peak Setup</title><style>body{font-family:system-ui;background:#0a0d0b;color:#e8ece9;max-width:640px;margin:0 auto;padding:20px}h1{color:#3ddc84}h2{color:#8a948d;font-size:16px;margin-top:24px}code{background:#1c241f;padding:2px 8px;border-radius:4px;font-size:14px}.url{background:#1c241f;padding:12px;border-radius:8px;font-family:monospace;font-size:15px;color:#3ddc84;word-break:break-all;margin:8px 0;user-select:all}ol{line-height:1.8;padding-left:20px}li{margin-bottom:6px}</style></head><body><h1>Peak Setup</h1><h2>Your sync URL</h2><div class="url">' + url + '</div><h2>Shortcut steps</h2><ol><li>Open Shortcuts, tap +, name it Sync Health</li><li>Add Find Health Samples: Heart Rate Variability, limit 1. Set Variable: hrv</li><li>Repeat for: Resting Heart Rate (rhr), Step Count today (steps), Weight (weight)</li><li>Add Dictionary with keys: hrv, rhr, steps, weight</li><li>Add Get Contents of URL: POST to the URL above, body = JSON dictionary</li></ol><h2>Automate</h2><p>Automation tab, Time of Day, 8 AM + 9 PM, run Sync Health. One tap per notification.</p></body></html>');
+  const syncUrl = `https://europe-west2-pressnewsletter.cloudfunctions.net/api/shortcut`;
+  res.send(`<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Press — Apple Health Setup</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;900&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{--paper:#f5f0e2;--ink:#0d0b08;--gold:#6b5800;--dim:#8a7a5c;--rule:#c4b898}
+body{background:var(--paper);color:var(--ink);font-family:'JetBrains Mono',monospace;max-width:560px;margin:0 auto;padding:48px 24px 64px}
+.kicker{font-size:8px;letter-spacing:.22em;text-transform:uppercase;color:var(--dim);margin-bottom:10px}
+h1{font-family:'Playfair Display',serif;font-size:32px;font-weight:900;line-height:1.1;margin-bottom:6px}
+.sub{font-size:11px;color:var(--dim);line-height:1.7;margin-bottom:32px}
+hr{border:none;border-top:2px solid var(--ink);margin:28px 0}
+h2{font-family:'Playfair Display',serif;font-size:18px;font-weight:700;margin-bottom:12px}
+.url-box{background:var(--ink);color:var(--paper);padding:14px 16px;font-size:11px;word-break:break-all;line-height:1.6;cursor:pointer;user-select:all;margin-bottom:6px}
+.copy-hint{font-size:8px;letter-spacing:.14em;text-transform:uppercase;color:var(--dim)}
+ol{padding-left:0;list-style:none;counter-reset:steps}
+li{counter-increment:steps;display:flex;gap:14px;padding:10px 0;border-bottom:1px solid var(--rule);font-size:11px;line-height:1.7;align-items:flex-start}
+li::before{content:counter(steps);font-family:'Playfair Display',serif;font-size:20px;font-weight:900;color:var(--gold);flex-shrink:0;width:20px;line-height:1}
+code{background:rgba(0,0,0,.07);padding:1px 5px;font-size:10px}
+strong{font-weight:600}
+.note{margin-top:28px;border-left:3px solid var(--gold);padding-left:12px;font-size:10px;color:var(--dim);line-height:1.8}
+</style>
+</head>
+<body>
+<div class="kicker">Press — iOS Health Sync</div>
+<h1>Apple Health Setup</h1>
+<p class="sub">Stream your sleep, HRV, heart rate, and steps into Press automatically every morning via iOS Shortcuts.</p>
+
+<hr>
+
+<h2>Your sync URL</h2>
+<div class="url-box" onclick="navigator.clipboard.writeText(this.innerText)">${syncUrl}</div>
+<div class="copy-hint">Tap to copy</div>
+
+<hr>
+
+<h2>Shortcut steps</h2>
+<ol>
+  <li><span>Open <strong>Shortcuts</strong> on your iPhone and tap <strong>Automation</strong></span></li>
+  <li><span>Tap <strong>New Automation</strong> → <strong>Time of Day</strong> → set to <strong>8:00 AM, Daily</strong></span></li>
+  <li><span>Add action: <strong>Find Health Samples</strong> — type: <strong>Heart Rate Variability</strong>, limit 1 → <strong>Set Variable</strong>: <code>hrv</code></span></li>
+  <li><span>Repeat for <strong>Resting Heart Rate</strong> → <code>rhr</code>, <strong>Steps</strong> (today) → <code>steps</code>, <strong>Sleep Analysis</strong> → <code>sleep_hours</code></span></li>
+  <li><span>Add action: <strong>Get Contents of URL</strong>. Paste your sync URL above. Method: <strong>POST</strong>, Body: <strong>JSON</strong></span></li>
+  <li><span>Add the four keys to the JSON body: <code>hrv</code>, <code>rhr</code>, <code>steps</code>, <code>sleep_hours</code> — set each to the variable from step 3–4</span></li>
+  <li><span>Toggle <strong>Run Automatically</strong> on. Done — Press receives your health data every morning.</span></li>
+</ol>
+
+<div class="note">
+  <strong>Tip:</strong> You can add a second automation at 9 PM for an evening sync — duplicate the shortcut and change the time.
+</div>
+</body>
+</html>`);
 });
 
 exports.api = functions.region("europe-west2").runWith({ timeoutSeconds: 300, memory: "256MB", invoker: "public" }).https.onRequest(app);

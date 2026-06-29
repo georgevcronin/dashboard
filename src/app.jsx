@@ -1909,9 +1909,15 @@ function S6({ s, onSignOut, refresh }) {
   const [weightVal, setWeightVal] = useState('');
   const [bfVal, setBfVal] = useState('');
   const [saving, setSaving] = useState('');
+  const [healthGuideOpen, setHealthGuideOpen] = useState(false);
+  const [urlCopied, setUrlCopied] = useState(false);
   const [notifPermission, setNotifPermission] = useState(() =>
     typeof Notification !== 'undefined' ? Notification.permission : 'unsupported'
   );
+  const shortcutUrl = `${API_BASE}/shortcut`;
+  const copyShortcutUrl = () => {
+    navigator.clipboard.writeText(shortcutUrl).then(() => { setUrlCopied(true); setTimeout(() => setUrlCopied(false), 2000); });
+  };
 
   const enableNotifications = async () => {
     if (typeof Notification === 'undefined') return;
@@ -2030,11 +2036,39 @@ function S6({ s, onSignOut, refresh }) {
 
         {/* Apple Health */}
         <div style={{ padding: '10px 0' }}>
-          <div className="kicker" style={{ marginBottom: 6 }}>Apple Health Sync</div>
-          <p style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, color: 'var(--dim)', lineHeight: 1.7, margin: '0 0 10px' }}>
-            Sync HRV, sleep, steps, and weight automatically via Health Auto Export or an iOS Shortcut pointed at your personal endpoint.
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+            <div className="kicker" style={{ margin: 0 }}>Apple Health Sync</div>
+            <button className="prof-btn" onClick={() => setHealthGuideOpen(v => !v)}>
+              {healthGuideOpen ? 'Hide' : 'Setup Guide'}
+            </button>
+          </div>
+          <p style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, color: 'var(--dim)', lineHeight: 1.7, margin: 0 }}>
+            Sync HRV, sleep, steps, and weight automatically from your iPhone via iOS Shortcuts.
           </p>
-          <button className="prof-btn" onClick={() => window.open(`${API_BASE}/setup`, '_blank')}>View Setup Guide</button>
+          {healthGuideOpen && (
+            <div style={{ marginTop: 14, borderLeft: '3px solid var(--gold)', paddingLeft: 14 }}>
+              <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, color: 'var(--ink)', lineHeight: 2 }}>
+                <div><strong>1.</strong> Open <strong>Shortcuts</strong> on your iPhone</div>
+                <div><strong>2.</strong> Tap <strong>Automation</strong> → <strong>New Automation</strong></div>
+                <div><strong>3.</strong> Choose trigger: <strong>Time of Day — 8:00 AM, Daily</strong></div>
+                <div><strong>4.</strong> Add action: <strong>Get Contents of URL</strong></div>
+                <div style={{ margin: '6px 0' }}>
+                  <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 4 }}>Your sync URL</div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'var(--ink)', padding: '8px 10px' }}
+                    onClick={copyShortcutUrl}>
+                    <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--paper)', flex: 1, wordBreak: 'break-all', lineHeight: 1.5 }}>{shortcutUrl}</span>
+                    <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, color: 'var(--gold)', letterSpacing: '0.12em', textTransform: 'uppercase', flexShrink: 0, cursor: 'pointer' }}>
+                      {urlCopied ? 'Copied' : 'Copy'}
+                    </span>
+                  </div>
+                </div>
+                <div><strong>5.</strong> Method: <strong>POST</strong> · Body: <strong>JSON</strong></div>
+                <div><strong>6.</strong> Add keys: <code style={{ background: 'rgba(0,0,0,.07)', padding: '1px 4px', fontSize: 9 }}>sleep_hours</code> <code style={{ background: 'rgba(0,0,0,.07)', padding: '1px 4px', fontSize: 9 }}>hrv</code> <code style={{ background: 'rgba(0,0,0,.07)', padding: '1px 4px', fontSize: 9 }}>rhr</code> <code style={{ background: 'rgba(0,0,0,.07)', padding: '1px 4px', fontSize: 9 }}>steps</code></div>
+                <div><strong>7.</strong> Set each value from <strong>Health</strong> actions (Find Health Samples → limit 1)</div>
+                <div><strong>8.</strong> Enable <strong>Run Automatically</strong> — done</div>
+              </div>
+            </div>
+          )}
         </div>
 
         <div className="rule-thin" />
