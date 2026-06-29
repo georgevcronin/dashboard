@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from "react";
-import { createRoot } from "react-dom/client";
+import { createRoot, flushSync } from "react-dom/client";
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, onAuthStateChanged, signOut, GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult } from 'firebase/auth';
 
@@ -1031,11 +1031,12 @@ function HevyImport({ onClose, refresh }) {
 
   const doImport = async () => {
     const total = sessions.length;
-    setStatus('importing');
-    setLog([]);
-    setProgress({ done: 0, total, imported: 0, skipped: 0, current: sessions[0] || null });
-    // yield so React paints the importing screen before any network requests
-    await new Promise(r => setTimeout(r, 80));
+    // flushSync forces React to synchronously commit before any async work starts
+    flushSync(() => {
+      setStatus('importing');
+      setLog([]);
+      setProgress({ done: 0, total, imported: 0, skipped: 0, current: sessions[0] || null });
+    });
 
     let totalImported = 0, totalSkipped = 0;
 
