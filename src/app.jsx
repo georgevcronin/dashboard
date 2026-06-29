@@ -6,7 +6,7 @@ import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, on
 
 const FIREBASE_CONFIG = {
   apiKey: "AIzaSyDlVzSc9yow5GHbQipRWuYAZ5QTQ-jmXiY",
-  authDomain: "pressnewsletter.web.app",
+  authDomain: "pressnewsletter.firebaseapp.com",
   projectId: "pressnewsletter",
   storageBucket: "pressnewsletter.firebasestorage.app",
   messagingSenderId: "342853014013",
