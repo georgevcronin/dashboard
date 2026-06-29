@@ -195,6 +195,43 @@ section.visible .fade:nth-child(6){transition-delay:.56s}
 .auth-toggle span{color:var(--gold);cursor:pointer;text-decoration:underline}
 .auth-err{font-size:10px;color:var(--red);font-family:'JetBrains Mono',monospace;text-align:center;border:1px solid var(--red);padding:8px}
 .auth-rule-bottom{width:100%;max-width:380px;height:1px;background:var(--rule);margin-top:24px}
+.tab-bar{display:flex;border-bottom:2px solid var(--ink);margin-bottom:12px;gap:0}
+.tab-btn{font-family:'JetBrains Mono',monospace;font-size:8px;letter-spacing:.18em;text-transform:uppercase;padding:7px 16px;cursor:pointer;background:none;border:none;color:var(--dim);border-bottom:2px solid transparent;margin-bottom:-2px}
+.tab-btn.active{color:var(--ink);border-bottom-color:var(--ink)}
+.muscle-scroll{flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch}
+.muscle-scroll::-webkit-scrollbar{width:3px}.muscle-scroll::-webkit-scrollbar-track{background:var(--paper2)}.muscle-scroll::-webkit-scrollbar-thumb{background:var(--rule)}
+.muscle-row{display:flex;align-items:center;gap:10px;padding:5px 0;border-bottom:1px solid var(--paper2)}
+.muscle-name{font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--dim);width:80px;flex-shrink:0;text-transform:capitalize}
+.muscle-bar-track{flex:1;height:6px;background:var(--paper2);border-radius:1px;overflow:hidden}
+.muscle-bar-fill{height:100%;border-radius:1px;transition:width .4s ease}
+.muscle-pct{font-family:'JetBrains Mono',monospace;font-size:9px;width:30px;text-align:right;color:var(--dim);flex-shrink:0}
+.soreness-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;padding:4px 0}
+.soreness-btn{font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.08em;text-transform:capitalize;padding:7px 4px;cursor:pointer;border:1px solid var(--rule);background:none;color:var(--dim);position:relative;text-align:center}
+.soreness-btn.has-log{border-color:var(--navy);color:var(--navy)}
+.soreness-dot{position:absolute;top:4px;right:4px;width:5px;height:5px;border-radius:50%;background:var(--navy)}
+.soreness-slider-wrap{background:var(--paper2);border:1px solid var(--rule);padding:10px 12px;margin-top:8px}
+.prof-field{display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--rule)}
+.prof-lbl{font-size:8px;letter-spacing:.16em;text-transform:uppercase;color:var(--dim)}
+.prof-val{font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--ink)}
+.prof-input{font-family:'JetBrains Mono',monospace;font-size:12px;background:none;border:none;border-bottom:1px solid var(--ink);outline:none;color:var(--ink);width:120px;text-align:right}
+.prof-btn{font-family:'JetBrains Mono',monospace;font-size:8px;letter-spacing:.12em;text-transform:uppercase;padding:4px 10px;cursor:pointer;border:1px solid var(--rule);background:none;color:var(--dim)}
+.prof-btn.solid{background:var(--ink);color:var(--paper);border-color:var(--ink)}
+.onboard-overlay{position:fixed;inset:0;z-index:9999;background:var(--paper);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:32px 24px}
+.onboard-rule{width:100%;max-width:460px;height:3px;background:var(--ink);margin-bottom:20px}
+.onboard-logo{font-family:'Playfair Display',Georgia,serif;font-weight:900;font-size:clamp(48px,12vw,72px);letter-spacing:-.02em;color:var(--ink);line-height:.9;margin-bottom:6px}
+.onboard-sub{font-size:10px;letter-spacing:.22em;text-transform:uppercase;color:var(--dim);margin-bottom:28px}
+.onboard-list{width:100%;max-width:460px;list-style:none;margin-bottom:32px;border-top:1px solid var(--rule)}
+.onboard-list li{padding:12px 0;border-bottom:1px solid var(--rule);font-size:13px;color:var(--ink);line-height:1.5;display:flex;gap:14px}
+.onboard-list li::before{content:'—';color:var(--gold);font-weight:700;flex-shrink:0}
+.onboard-start{font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.2em;text-transform:uppercase;padding:14px 40px;background:var(--ink);color:var(--paper);border:none;cursor:pointer;width:100%;max-width:460px}
+.pr-search{font-family:'JetBrains Mono',monospace;font-size:11px;background:none;border:none;border-bottom:1px solid var(--ink);outline:none;color:var(--ink);width:100%;padding:6px 0;margin-bottom:10px}
+.pr-search::placeholder{color:var(--rule)}
+.nutri-log-form{display:flex;flex-direction:column;gap:8px;padding:10px 0;border-top:1px solid var(--rule)}
+.nutri-log-row{display:flex;gap:6px;align-items:center}
+.nutri-input{font-family:'JetBrains Mono',monospace;font-size:11px;background:none;border:none;border-bottom:1px solid var(--rule);outline:none;color:var(--ink);padding:3px 0}
+.nutri-input.wide{flex:1}.nutri-input.narrow{width:52px;text-align:right}
+.nutri-photo-btn{font-family:'JetBrains Mono',monospace;font-size:8px;letter-spacing:.12em;text-transform:uppercase;padding:6px 12px;cursor:pointer;border:1px solid var(--rule);background:none;color:var(--dim)}
+.nutri-submit-btn{font-family:'JetBrains Mono',monospace;font-size:8px;letter-spacing:.12em;text-transform:uppercase;padding:6px 12px;cursor:pointer;background:var(--ink);color:var(--paper);border:none}
 `;
 
 // ── HELPERS ─────────────────────────────────────────────────────────────────
@@ -1262,8 +1299,12 @@ function S3({ s, onStartWorkout, onImport }) {
             <button className="action-btn primary" onClick={() => onStartWorkout(null)}>Start Workout</button>
           </div>
         )}
-        <div style={{ borderTop: '1px solid var(--rule)', paddingTop: 8, marginTop: 4 }}>
+        <div style={{ borderTop: '1px solid var(--rule)', paddingTop: 8, marginTop: 4, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <button onClick={onImport} style={{ background: 'none', border: 'none', fontFamily: "'JetBrains Mono',monospace", fontSize: 9, letterSpacing: '.1em', textTransform: 'uppercase', color: 'var(--dim)', cursor: 'pointer', padding: 0 }}>Import from Hevy</button>
+          {s?.stravaConnected
+            ? <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, letterSpacing: '.08em', color: 'var(--forest)' }}>Strava Connected</span>
+            : <button onClick={() => { window.location.href = `${API_BASE}/strava/auth`; }} style={{ background: 'none', border: '1px solid var(--rule)', fontFamily: "'JetBrains Mono',monospace", fontSize: 8, letterSpacing: '.1em', textTransform: 'uppercase', color: 'var(--dim)', cursor: 'pointer', padding: '4px 10px' }}>Connect Strava</button>
+          }
         </div>
       </div>
     </section>
@@ -1271,68 +1312,143 @@ function S3({ s, onStartWorkout, onImport }) {
 }
 
 // ── S4: FUEL ─────────────────────────────────────────────────────────────────
-function S4({ s }) {
+function S4({ s, refresh }) {
   const n = s?.nutritionToday || {};
   const mt = s?.macroTargets || {};
-  const log = s?.nutritionLog || [];
+  const mealLog = s?.nutritionLog || [];
   const water = s?.waterToday ?? 0;
   const waterTarget = s?.profile?.waterTarget || 8;
+  const today = new Date().toISOString().slice(0, 10);
+  const todayLog = mealLog.filter(m => m.date === today);
 
   const cal = n.calories || 0;
   const calTarget = mt.calories || 2400;
   const short = calTarget - cal;
-  const protein = n.protein || 0;
-  const carbs = n.carbs || 0;
-  const fat = n.fat || 0;
+
+  const [label, setLabel] = useState('');
+  const [protein, setProtein] = useState('');
+  const [carbs, setCarbs] = useState('');
+  const [fat, setFat] = useState('');
+  const [calories, setCalories] = useState('');
+  const [analysing, setAnalysing] = useState(false);
+  const [description, setDescription] = useState('');
+  const [logging, setLogging] = useState(false);
+  const photoRef = useRef();
+
+  const handlePhoto = async e => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setAnalysing(true); setDescription('');
+    const reader = new FileReader();
+    reader.onload = async ev => {
+      try {
+        const data = await api('nutrition/analyze', {
+          method: 'POST',
+          body: JSON.stringify({ imageBase64: ev.target.result }),
+        });
+        if (data.description) setDescription(data.description);
+        if (data.calories) setCalories(String(data.calories));
+        if (data.protein)  setProtein(String(data.protein));
+        if (data.carbs)    setCarbs(String(data.carbs));
+        if (data.fat)      setFat(String(data.fat));
+        if (!label && data.description) setLabel(data.description.slice(0, 40));
+      } catch {}
+      setAnalysing(false);
+    };
+    reader.readAsDataURL(file);
+    e.target.value = '';
+  };
+
+  const logMeal = async () => {
+    if (!calories && !protein) return;
+    setLogging(true);
+    await api('nutrition', {
+      method: 'POST',
+      body: JSON.stringify({ label, protein: +protein || 0, carbs: +carbs || 0, fat: +fat || 0, calories: +calories || 0 }),
+    });
+    setLabel(''); setProtein(''); setCarbs(''); setFat(''); setCalories(''); setDescription('');
+    setLogging(false);
+    refresh(null);
+  };
 
   return (
-    <section id="s4">
-      <div className="fade">
+    <section id="s4" style={{ display: 'flex', flexDirection: 'column' }}>
+      <div className="fade" style={{ flexShrink: 0 }}>
         <div className="kicker">Nutrition · Today</div>
         <div className="headline">
           {cal > 0 ? `${cal.toLocaleString()} kcal —` : 'Fuel'}<br />
           {cal > 0 ? (short > 0 ? `${short.toLocaleString()} Short` : 'On Target') : 'Awaiting Log'}
         </div>
-        <div className="deck">{s?.macroGoal ? `Goal: ${s.macroGoal}.` : ''} {log.length > 0 ? `${log.length} meal${log.length > 1 ? 's' : ''} logged.` : 'No meals logged yet.'}{mt.protein ? ` Protein target: ${mt.protein}g.` : ''}</div>
       </div>
-      <div className="fade" style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+
+      <div className="fade" style={{ flexShrink: 0 }}>
         {[
-          { label: 'Calories', val: cal,     tgt: calTarget,         unit: 'kcal', color: 'var(--ink)'    },
-          { label: 'Protein',  val: protein,  tgt: mt.protein || 160, unit: 'g',    color: 'var(--navy)'   },
-          { label: 'Carbs',    val: carbs,    tgt: mt.carbs || 250,   unit: 'g',    color: 'var(--forest)' },
-          { label: 'Fat',      val: fat,      tgt: mt.fat || 75,      unit: 'g',    color: 'var(--ember)'  },
-          { label: 'Water',    val: water,    tgt: waterTarget,       unit: 'gl',   color: 'var(--navy)',  extra: { marginTop: 10 } },
-        ].map(({ label, val, tgt, unit, color, extra }) => {
+          { label: 'Calories', val: cal,          tgt: calTarget,         unit: 'kcal', color: 'var(--ink)'    },
+          { label: 'Protein',  val: n.protein||0,  tgt: mt.protein || 160, unit: 'g',    color: 'var(--navy)'   },
+          { label: 'Carbs',    val: n.carbs||0,    tgt: mt.carbs || 250,   unit: 'g',    color: 'var(--forest)' },
+          { label: 'Fat',      val: n.fat||0,      tgt: mt.fat || 75,      unit: 'g',    color: 'var(--ember)'  },
+          { label: 'Water',    val: water,         tgt: waterTarget,       unit: 'gl',   color: 'var(--navy)'   },
+        ].map(({ label: lbl, val, tgt, unit, color }) => {
           const p = tgt ? pct(val, tgt) : 0;
           return (
-            <div key={label} className="macro" style={extra || {}}>
-              <div className="macro-lbl">
-                <span>{label.toUpperCase()}</span>
-                <span>{val} / {tgt} {unit} &nbsp; {p}%</span>
-              </div>
+            <div key={lbl} className="macro">
+              <div className="macro-lbl"><span>{lbl.toUpperCase()}</span><span>{val} / {tgt} {unit} &nbsp;{p}%</span></div>
               <div className="macro-track"><div className="macro-fill" style={{ width: `${p}%`, background: color }} /></div>
             </div>
           );
         })}
       </div>
-      {log.length > 0 && (
-        <div className="fade">
-          <div className="rule-thin" />
-          <table className="data-table">
-            <thead><tr><th>Meal</th><th>Time</th><th>Protein</th><th>kcal</th></tr></thead>
-            <tbody>
-              {log.slice(0, 3).map((m, i) => (
-                <tr key={i}>
-                  <td>{m.name || m.meal || 'Meal'}</td>
-                  <td>{m.time || '—'}</td>
-                  <td className="up">{m.protein ? `${m.protein}g` : '—'}</td>
-                  <td className="hi">{m.calories || m.kcal || '—'}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+
+      <div className="fade" style={{ flex: 1, minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
+        <div className="rule-thin" />
+
+        {/* Photo analysis */}
+        <input ref={photoRef} type="file" accept="image/*" capture="environment" style={{ display: 'none' }} onChange={handlePhoto} />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+          <button className="nutri-photo-btn" onClick={() => photoRef.current?.click()} disabled={analysing}>
+            {analysing ? 'Analysing…' : 'Analyse Photo'}
+          </button>
+          {description && <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{description}</span>}
         </div>
-      )}
+
+        {/* Manual log form */}
+        <div className="nutri-log-form">
+          <div className="nutri-log-row">
+            <input className="nutri-input wide" placeholder="Meal name…" value={label} onChange={e => setLabel(e.target.value)} />
+          </div>
+          <div className="nutri-log-row">
+            {[['Protein', protein, setProtein], ['Carbs', carbs, setCarbs], ['Fat', fat, setFat], ['kcal', calories, setCalories]].map(([lbl, val, set]) => (
+              <div key={lbl} style={{ display: 'flex', flexDirection: 'column', gap: 2, alignItems: 'flex-end' }}>
+                <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 7, letterSpacing: '.1em', color: 'var(--dim)' }}>{lbl.toUpperCase()}</span>
+                <input className="nutri-input narrow" type="number" placeholder="0" value={val} onChange={e => set(e.target.value)} inputMode="numeric" />
+              </div>
+            ))}
+            <button className="nutri-submit-btn" onClick={logMeal} disabled={logging || (!calories && !protein)}>
+              {logging ? '…' : 'Log'}
+            </button>
+          </div>
+        </div>
+
+        {/* Today's meal log */}
+        {todayLog.length > 0 && (
+          <>
+            <div className="rule-thin" />
+            <table className="data-table">
+              <thead><tr><th>Meal</th><th>Time</th><th>Pro</th><th>kcal</th></tr></thead>
+              <tbody>
+                {todayLog.map((m, i) => (
+                  <tr key={i}>
+                    <td>{m.label || m.name || 'Meal'}</td>
+                    <td>{m.time || '—'}</td>
+                    <td className="up">{m.protein ? `${m.protein}g` : '—'}</td>
+                    <td className="hi">{m.calories || '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </>
+        )}
+      </div>
     </section>
   );
 }
@@ -1341,12 +1457,24 @@ function S4({ s }) {
 const BODY_BASE = '';
 const ALL_MUSCLES = ['glutes','quads','hamstrings','adductors','calves','erectors','chest','abs','obliques','biceps','triceps','forearms','traps','front-delt','rear-delt','lats','rhomboids','neck'];
 
-function S5({ s }) {
+function S5({ s, refresh }) {
   const antRef = useRef(), latRef = useRef(), postRef = useRef();
   const [svgsReady, setSvgsReady] = useState(false);
-  const fatigue = useMemo(() => computeFatigue(s?.lifts, s?.musclePeaks), [s?.lifts]);
+  const [tab, setTab] = useState('fatigue');
+  const [selectedMuscle, setSelectedMuscle] = useState(null);
+  const [sliderVal, setSliderVal] = useState(5);
+  const [soreLogging, setSoreLogging] = useState(false);
+
+  const fatigue = useMemo(() => computeFatigue(s?.lifts, s?.musclePeaks), [s?.lifts, s?.musclePeaks]);
   const fatigueVals = Object.values(fatigue);
   const overallFatigue = fatigueVals.length ? Math.round(fatigueVals.reduce((a,b)=>a+b,0)/fatigueVals.length) : null;
+  const sortedFatigue = Object.entries(fatigue).filter(([,v]) => v > 0).sort(([,a],[,b]) => b-a);
+  const fMax = sortedFatigue.length ? sortedFatigue[0][1] : 0;
+  const topMuscles = sortedFatigue.slice(0,2).map(([m]) => m);
+
+  const SORENESS_MUSCLES = useMemo(() => [...new Set(Object.values(MUSCLE_MAP).flat())].sort(), []);
+  const recentSoreness = useMemo(() => (s?.soreness || []).filter(e => Date.now() - e.ts < 5 * 24 * 3600000), [s?.soreness]);
+  const sorenessSet = new Set(recentSoreness.map(e => e.muscle));
 
   useEffect(() => {
     Promise.all([
@@ -1371,87 +1499,339 @@ function S5({ s }) {
     });
   }, [svgsReady, fatigue]);
 
-  const topMuscles = Object.entries(fatigue).sort(([,a],[,b]) => b-a).slice(0,2).map(([m]) => m);
-  const fatigueMax = fatigueVals => fatigueVals.length ? Math.round(Math.max(...fatigueVals)) : 0;
-  const fMax = fatigueMax(Object.values(fatigue));
-
   const hl1 = topMuscles[0] ? `${topMuscles[0][0].toUpperCase() + topMuscles[0].slice(1)} Loaded —` : 'Fresh —';
   const hl2 = topMuscles[1] ? `Train ${topMuscles[1][0].toUpperCase() + topMuscles[1].slice(1)} Today` : 'All Systems Go';
 
+  const logSoreness = async () => {
+    if (!selectedMuscle) return;
+    setSoreLogging(true);
+    await api('soreness', { method: 'POST', body: JSON.stringify({ muscle: selectedMuscle, score: sliderVal }) });
+    setSelectedMuscle(null);
+    setSoreLogging(false);
+    refresh(null);
+  };
+
   return (
-    <section id="s5" style={{ padding: '18px 20px 12px' }}>
+    <section id="s5" style={{ padding: '18px 20px 12px', display: 'flex', flexDirection: 'column' }}>
       <div className="fade" style={{ flexShrink: 0 }}>
         <div className="kicker">Recovery · Muscle Fatigue · Post Session</div>
         <div className="headline" style={{ fontSize: 'clamp(24px,6vw,40px)', lineHeight: '.96', marginBottom: 0 }}>{hl1}<br />{hl2}</div>
       </div>
 
-      {/* Body triptych */}
-      <div className="fade" style={{ flexShrink: 0, display: 'flex', justifyContent: 'center', alignItems: 'flex-start', borderTop: '2px solid var(--ink)', borderBottom: '2px solid var(--ink)', margin: '6px 0' }}>
-        {[['Anterior', antRef], ['Lateral', latRef], ['Posterior', postRef]].map(([label, ref]) => (
-          <div key={label} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', flexShrink: 0 }}>
-            <div style={{ fontSize: 7, letterSpacing: '.20em', textTransform: 'uppercase', color: 'var(--dim)', padding: '5px 0', whiteSpace: 'nowrap' }}>{label}</div>
-            <div className="body-view" ref={ref} />
-          </div>
-        ))}
+      <div className="fade tab-bar" style={{ flexShrink: 0 }}>
+        <button className={`tab-btn${tab === 'fatigue' ? ' active' : ''}`} onClick={() => setTab('fatigue')}>Muscle Fatigue</button>
+        <button className={`tab-btn${tab === 'soreness' ? ' active' : ''}`} onClick={() => setTab('soreness')}>Soreness</button>
       </div>
 
-      <div className="fade">
-        <div style={{ borderTop: '1px solid var(--rule)', paddingTop: 10, display: 'flex', flexDirection: 'column', gap: 10 }}>
-          <div style={{ display: 'flex', gap: 0 }}>
-            {/* Most fatigued muscle */}
-            <div className="stat-cell" style={{ flex: '0 0 auto', minWidth: 120 }}>
-              <div className="sc-label">Most Loaded Muscle</div>
-              <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginTop: 2 }}>
-                <div className="sc-num red" style={{ fontSize: 22 }}>{fMax || '—'}<span style={{ fontSize: '.5em', color: 'var(--dim)' }}>/100</span></div>
-                {topMuscles[0] && <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--ember)', textTransform: 'capitalize', letterSpacing: '.06em' }}>{topMuscles[0]}</div>}
-              </div>
-              <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, color: 'var(--dim)', marginTop: 3, letterSpacing: '.04em' }}>
-                % of your hardest ever {topMuscles[0] || 'muscle'} session
-              </div>
+      {tab === 'fatigue' && <>
+        {/* Body triptych */}
+        <div className="fade" style={{ flexShrink: 0, display: 'flex', justifyContent: 'center', alignItems: 'flex-start', borderTop: '2px solid var(--ink)', borderBottom: '2px solid var(--ink)', margin: '6px 0' }}>
+          {[['Anterior', antRef], ['Lateral', latRef], ['Posterior', postRef]].map(([label, ref]) => (
+            <div key={label} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', flexShrink: 0 }}>
+              <div style={{ fontSize: 7, letterSpacing: '.20em', textTransform: 'uppercase', color: 'var(--dim)', padding: '5px 0', whiteSpace: 'nowrap' }}>{label}</div>
+              <div className="body-view" ref={ref} />
             </div>
+          ))}
+        </div>
 
-            <div style={{ width: '1px', background: 'var(--rule)', margin: '0 16px', flexShrink: 0 }} />
-
-            {/* Average fatigue */}
-            <div className="stat-cell" style={{ flex: '0 0 auto', minWidth: 100 }}>
-              <div className="sc-label">Avg Muscle Fatigue</div>
-              <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginTop: 2 }}>
-                <div className="sc-num" style={{ fontSize: 22, color: overallFatigue > 60 ? 'var(--ember)' : overallFatigue > 30 ? 'var(--gold)' : 'var(--forest)' }}>
-                  {(() => { const vals = Object.values(fatigue); return vals.length ? Math.round(vals.reduce((a,b)=>a+b,0)/vals.length) : '—'; })()}
-                  <span style={{ fontSize: '.5em', color: 'var(--dim)' }}>/100</span>
-                </div>
-              </div>
-              <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, color: 'var(--dim)', marginTop: 3, letterSpacing: '.04em' }}>
-                across all muscle groups
-              </div>
+        {/* Stats row */}
+        <div className="fade" style={{ flexShrink: 0, display: 'flex', gap: 0 }}>
+          <div className="stat-cell" style={{ flex: '0 0 auto', minWidth: 120 }}>
+            <div className="sc-label">Most Loaded Muscle</div>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginTop: 2 }}>
+              <div className="sc-num red" style={{ fontSize: 22 }}>{fMax || '—'}<span style={{ fontSize: '.5em', color: 'var(--dim)' }}>/100</span></div>
+              {topMuscles[0] && <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--ember)', textTransform: 'capitalize', letterSpacing: '.06em' }}>{topMuscles[0]}</div>}
             </div>
-
-            <div style={{ width: '1px', background: 'var(--rule)', margin: '0 16px', flexShrink: 0 }} />
-
-            {/* Recovery + RHR */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, flex: 1 }}>
-              <div className="stat-cell">
-                <div className="sc-label">Recovery</div>
-                <div className="sc-num forest" style={{ fontSize: 18 }}>{s?.recoveryTrend?.at(-1) ?? '—'}<span style={{ fontSize: '.5em', color: 'var(--dim)' }}>/100</span></div>
-              </div>
-              <div className="stat-cell">
-                <div className="sc-label">Resting HR</div>
-                <div className="sc-num" style={{ fontSize: 18 }}>{s?.rhrSeries?.at(-1) ?? '—'}<span style={{ fontSize: '.5em', color: 'var(--dim)' }}>bpm</span></div>
-              </div>
+          </div>
+          <div style={{ width: '1px', background: 'var(--rule)', margin: '0 16px', flexShrink: 0 }} />
+          <div className="stat-cell" style={{ flex: '0 0 auto' }}>
+            <div className="sc-label">Avg Muscle Fatigue</div>
+            <div className="sc-num" style={{ fontSize: 22, color: overallFatigue > 60 ? 'var(--ember)' : overallFatigue > 30 ? 'var(--gold)' : 'var(--forest)' }}>
+              {overallFatigue ?? '—'}<span style={{ fontSize: '.5em', color: 'var(--dim)' }}>/100</span>
+            </div>
+          </div>
+          <div style={{ width: '1px', background: 'var(--rule)', margin: '0 16px', flexShrink: 0 }} />
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, flex: 1 }}>
+            <div className="stat-cell">
+              <div className="sc-label">Recovery</div>
+              <div className="sc-num forest" style={{ fontSize: 18 }}>{s?.recoveryTrend?.at(-1) ?? '—'}<span style={{ fontSize: '.5em', color: 'var(--dim)' }}>/100</span></div>
+            </div>
+            <div className="stat-cell">
+              <div className="sc-label">Resting HR</div>
+              <div className="sc-num" style={{ fontSize: 18 }}>{s?.rhrSeries?.at(-1) ?? '—'}<span style={{ fontSize: '.5em', color: 'var(--dim)' }}>bpm</span></div>
             </div>
           </div>
         </div>
+
+        {/* Scrollable muscle bars */}
+        <div className="muscle-scroll fade">
+          {sortedFatigue.map(([m, v]) => (
+            <div key={m} className="muscle-row">
+              <div className="muscle-name">{m}</div>
+              <div className="muscle-bar-track">
+                <div className="muscle-bar-fill" style={{ width: `${v}%`, background: v < 40 ? 'var(--forest)' : v < 70 ? 'var(--gold)' : 'var(--red)' }} />
+              </div>
+              <div className="muscle-pct">{v}%</div>
+            </div>
+          ))}
+          {!sortedFatigue.length && <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, color: 'var(--dim)', paddingTop: 10, fontStyle: 'italic' }}>No recent sessions logged.</div>}
+        </div>
+
+        <div className="fade" style={{ display: 'flex', gap: 14, flexShrink: 0, marginTop: 8, fontFamily: "'JetBrains Mono',monospace", fontSize: 9 }}>
+          {[['Recovered','#1a4f2a'],['Moderate','#6b5800'],['Fatigued','#7a3400']].map(([lbl, css]) => (
+            <div key={lbl} style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+              <div style={{ width: 7, height: 7, borderRadius: '50%', background: css }} />
+              <span style={{ color: 'var(--dim)', letterSpacing: '.08em' }}>{lbl}</span>
+            </div>
+          ))}
+        </div>
+      </>}
+
+      {tab === 'soreness' && (
+        <div className="fade" style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0, overflowY: 'auto' }}>
+          <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)', letterSpacing: '.08em', marginBottom: 10 }}>
+            Tap a muscle to log soreness (1–10)
+          </div>
+          <div className="soreness-grid" style={{ flexShrink: 0 }}>
+            {SORENESS_MUSCLES.map(m => (
+              <button key={m} className={`soreness-btn${sorenessSet.has(m) ? ' has-log' : ''}${selectedMuscle === m ? ' active' : ''}`}
+                onClick={() => { setSelectedMuscle(selectedMuscle === m ? null : m); setSliderVal(5); }}
+                style={selectedMuscle === m ? { borderColor: 'var(--ink)', color: 'var(--ink)' } : {}}>
+                {sorenessSet.has(m) && <span className="soreness-dot" />}
+                {m}
+              </button>
+            ))}
+          </div>
+          {selectedMuscle && (
+            <div className="soreness-slider-wrap">
+              <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)', marginBottom: 8, textTransform: 'capitalize' }}>
+                {selectedMuscle} soreness: <strong style={{ color: 'var(--ink)' }}>{sliderVal}/10</strong>
+              </div>
+              <input type="range" min="1" max="10" value={sliderVal} onChange={e => setSliderVal(+e.target.value)}
+                style={{ width: '100%', marginBottom: 10, accentColor: 'var(--ink)' }} />
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button className="prof-btn solid" onClick={logSoreness} disabled={soreLogging} style={{ fontSize: 8, padding: '5px 14px' }}>
+                  {soreLogging ? 'Logging…' : 'Log'}
+                </button>
+                <button className="prof-btn" onClick={() => setSelectedMuscle(null)} style={{ fontSize: 8, padding: '5px 14px' }}>Cancel</button>
+              </div>
+            </div>
+          )}
+          {recentSoreness.length > 0 && (
+            <div style={{ marginTop: 12, borderTop: '1px solid var(--rule)', paddingTop: 8 }}>
+              <div className="kicker" style={{ marginBottom: 6 }}>Recent Logs</div>
+              {[...recentSoreness].reverse().slice(0, 5).map((e, i) => (
+                <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)', padding: '3px 0', borderBottom: '1px solid var(--paper2)', textTransform: 'capitalize' }}>
+                  <span>{e.muscle}</span><span style={{ color: 'var(--ink)' }}>{e.score}/10</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </section>
+  );
+}
+
+// ── S6: PROFILE ───────────────────────────────────────────────────────────────
+function S6({ s, onSignOut, refresh }) {
+  const [editName, setEditName] = useState(false);
+  const [nameVal, setNameVal] = useState('');
+  const [editWater, setEditWater] = useState(false);
+  const [waterVal, setWaterVal] = useState('');
+  const [weightVal, setWeightVal] = useState('');
+  const [bfVal, setBfVal] = useState('');
+  const [saving, setSaving] = useState('');
+
+  const saveField = async (endpoint, body) => {
+    setSaving(endpoint);
+    await api(endpoint, { method: 'POST', body: JSON.stringify(body) });
+    setSaving('');
+    refresh(null);
+  };
+
+  return (
+    <section id="s6" style={{ display: 'flex', flexDirection: 'column' }}>
+      <div className="fade" style={{ flexShrink: 0 }}>
+        <div className="kicker">Your Profile</div>
+        <div className="headline" style={{ fontSize: 'clamp(24px,6vw,44px)', lineHeight: '.96' }}>{s?.profile?.name || 'Profile'}</div>
       </div>
 
-      <div className="fade" style={{ display: 'flex', gap: 14, flexShrink: 0, marginTop: 10, fontFamily: "'JetBrains Mono',monospace", fontSize: 9 }}>
-        {[['Recovered','#1a4f2a'],['Moderate','#6b5800'],['Fatigued','#7a3400']].map(([label, css]) => (
-          <div key={label} style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-            <div style={{ width: 7, height: 7, borderRadius: '50%', background: css }} />
-            <span style={{ color: 'var(--dim)', letterSpacing: '.08em' }}>{label}</span>
+      <div className="fade" style={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>
+        {/* Name */}
+        <div className="prof-field">
+          <span className="prof-lbl">Display Name</span>
+          {editName
+            ? <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <input className="prof-input" value={nameVal} onChange={e => setNameVal(e.target.value)} autoFocus />
+                <button className="prof-btn solid" onClick={() => { saveField('profile', { name: nameVal }); setEditName(false); }}>Save</button>
+                <button className="prof-btn" onClick={() => setEditName(false)}>✕</button>
+              </div>
+            : <span className="prof-val" style={{ cursor: 'pointer' }} onClick={() => { setNameVal(s?.profile?.name || ''); setEditName(true); }}>
+                {s?.profile?.name || '—'} ✎
+              </span>
+          }
+        </div>
+
+        {/* Water target */}
+        <div className="prof-field">
+          <span className="prof-lbl">Water Target</span>
+          {editWater
+            ? <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <input className="prof-input" type="number" value={waterVal} onChange={e => setWaterVal(e.target.value)} autoFocus style={{ width: 60 }} />
+                <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, color: 'var(--dim)' }}>glasses</span>
+                <button className="prof-btn solid" onClick={() => { saveField('profile', { waterTarget: +waterVal }); setEditWater(false); }}>Save</button>
+                <button className="prof-btn" onClick={() => setEditWater(false)}>✕</button>
+              </div>
+            : <span className="prof-val" style={{ cursor: 'pointer' }} onClick={() => { setWaterVal(s?.profile?.waterTarget || 8); setEditWater(true); }}>
+                {s?.profile?.waterTarget || 8} glasses ✎
+              </span>
+          }
+        </div>
+
+        {/* Macro goal */}
+        <div className="prof-field">
+          <span className="prof-lbl">Macro Goal</span>
+          <div style={{ display: 'flex', gap: 6 }}>
+            {['cut','recomp','bulk'].map(g => (
+              <button key={g} className="prof-btn" onClick={() => saveField('macro-auto', { goal: g })}
+                style={{ textTransform: 'capitalize', ...(s?.macroGoal === g ? { background: 'var(--ink)', color: 'var(--paper)', borderColor: 'var(--ink)' } : {}) }}>
+                {g}
+              </button>
+            ))}
           </div>
-        ))}
+        </div>
+
+        <div className="rule-thin" />
+
+        {/* Weight log */}
+        <div className="prof-field">
+          <span className="prof-lbl">Log Weight</span>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <input className="prof-input" type="number" step="0.1" inputMode="decimal"
+              placeholder={s?.weights?.[0]?.value ? `${s.weights[0].value}kg` : 'kg'}
+              value={weightVal} onChange={e => setWeightVal(e.target.value)} style={{ width: 70 }} />
+            <button className="prof-btn solid" disabled={!weightVal || saving === 'weight'}
+              onClick={() => { saveField('weight', { kg: parseFloat(weightVal) }); setWeightVal(''); }}>
+              {saving === 'weight' ? '…' : 'Log'}
+            </button>
+          </div>
+        </div>
+
+        {/* Body fat log */}
+        <div className="prof-field">
+          <span className="prof-lbl">Log Body Fat %</span>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <input className="prof-input" type="number" step="0.1" inputMode="decimal"
+              placeholder={s?.bodyFatToday ? `${s.bodyFatToday}%` : '%'}
+              value={bfVal} onChange={e => setBfVal(e.target.value)} style={{ width: 70 }} />
+            <button className="prof-btn solid" disabled={!bfVal || saving === 'bodyfat'}
+              onClick={() => { saveField('bodyfat', { pct: parseFloat(bfVal) }); setBfVal(''); }}>
+              {saving === 'bodyfat' ? '…' : 'Log'}
+            </button>
+          </div>
+        </div>
+
+        <div className="rule-thin" />
+
+        {/* Apple Health */}
+        <div style={{ padding: '10px 0' }}>
+          <div className="kicker" style={{ marginBottom: 6 }}>Apple Health Sync</div>
+          <p style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, color: 'var(--dim)', lineHeight: 1.7, margin: '0 0 10px' }}>
+            Sync HRV, sleep, steps, and weight automatically via Health Auto Export or an iOS Shortcut pointed at your personal endpoint.
+          </p>
+          <button className="prof-btn" onClick={() => window.open(`${API_BASE}/setup`, '_blank')}>View Setup Guide</button>
+        </div>
+
+        <div className="rule-thin" />
+
+        {/* Strava */}
+        <div style={{ padding: '10px 0', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div>
+            <div className="kicker" style={{ margin: 0 }}>Strava</div>
+            {s?.stravaConnected && <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--forest)', marginTop: 3 }}>Connected</div>}
+          </div>
+          {!s?.stravaConnected && (
+            <button className="prof-btn" onClick={() => { window.location.href = `${API_BASE}/strava/auth`; }}>Connect Strava</button>
+          )}
+        </div>
+
+        <div className="rule-thin" />
+
+        <button className="prof-btn solid" onClick={onSignOut} style={{ width: '100%', marginTop: 8, padding: '10px 0' }}>Sign Out</button>
       </div>
     </section>
+  );
+}
+
+// ── S7: PERSONAL RECORDS ──────────────────────────────────────────────────────
+function S7({ s }) {
+  const [search, setSearch] = useState('');
+  const prs = useMemo(() => {
+    const byEx = {};
+    for (const l of (s?.lifts || [])) {
+      const e1rm = l.kg > 0 && l.reps > 0 ? Math.round(l.kg * (1 + l.reps / 30)) : 0;
+      if (!byEx[l.exercise] || e1rm > byEx[l.exercise].e1rm)
+        byEx[l.exercise] = { exercise: l.exercise, kg: l.kg, reps: l.reps, e1rm, date: l.date };
+    }
+    return Object.values(byEx).sort((a, b) => b.e1rm - a.e1rm);
+  }, [s?.lifts]);
+
+  const filtered = search
+    ? prs.filter(p => p.exercise.toLowerCase().includes(search.toLowerCase()))
+    : prs;
+
+  return (
+    <section id="s7" style={{ display: 'flex', flexDirection: 'column' }}>
+      <div className="fade" style={{ flexShrink: 0 }}>
+        <div className="kicker">Personal Records · All Time</div>
+        <div className="headline" style={{ fontSize: 'clamp(24px,6vw,44px)', lineHeight: '.96' }}>All-Time<br />Bests</div>
+        <div className="deck">{prs.length} exercise{prs.length !== 1 ? 's' : ''} tracked</div>
+      </div>
+      <div className="fade" style={{ flexShrink: 0 }}>
+        <input className="pr-search" placeholder="Filter exercise…" value={search} onChange={e => setSearch(e.target.value)} />
+      </div>
+      <div className="fade" style={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>
+        <table className="data-table">
+          <thead>
+            <tr><th>Exercise</th><th>Best Set</th><th>e1RM</th><th>Date</th></tr>
+          </thead>
+          <tbody>
+            {filtered.map((pr, i) => (
+              <tr key={i}>
+                <td style={{ textTransform: 'capitalize' }}>{pr.exercise}</td>
+                <td>{pr.kg}kg × {pr.reps}</td>
+                <td className="gld">{pr.e1rm}kg</td>
+                <td>{pr.date}</td>
+              </tr>
+            ))}
+            {!filtered.length && (
+              <tr><td colSpan={4} style={{ textAlign: 'center', fontStyle: 'italic', color: 'var(--dim)', padding: '24px 0' }}>
+                {prs.length ? 'No matches.' : 'No records yet — log some lifts.'}
+              </td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
+// ── ONBOARDING ────────────────────────────────────────────────────────────────
+function OnboardingOverlay({ onDone }) {
+  return (
+    <div className="onboard-overlay">
+      <div className="onboard-rule" />
+      <div className="onboard-logo">PRESS</div>
+      <div className="onboard-sub">Personal Health Operating System</div>
+      <ul className="onboard-list">
+        <li>Daily vitals dashboard — HRV, sleep, body weight and readiness at a glance</li>
+        <li>Fatigue-aware AI workout planner with progressive overload targets</li>
+        <li>Nutrition logger with Groq vision — photograph a meal for instant estimates</li>
+        <li>Personal records, muscle soreness map, and Apple Health / Strava sync</li>
+      </ul>
+      <button className="onboard-start" onClick={onDone}>Get Started</button>
+    </div>
   );
 }
 
@@ -1554,6 +1934,9 @@ function App() {
   const [loggerPlanDay, setLoggerPlanDay] = useState(undefined);
   const loggerOpen = loggerPlanDay !== undefined;
   const [showImport, setShowImport] = useState(false);
+  const [onboarded, setOnboarded] = useState(() => !!localStorage.getItem('press_onboarded'));
+
+  const handleOnboardDone = () => { localStorage.setItem('press_onboarded', '1'); setOnboarded(true); };
 
   useEffect(() => onAuthStateChanged(auth, u => setUser(u ?? null)), []);
 
@@ -1615,9 +1998,10 @@ function App() {
 
   return (
     <>
+      {!onboarded && <OnboardingOverlay onDone={handleOnboardDone} />}
       <Header s={s} onSignOut={() => signOut(auth)} />
       <nav className="sec-nav" id="sec-nav">
-        {[0,1,2,3,4].map(i => (
+        {[0,1,2,3,4,5,6].map(i => (
           <div key={i} className="sn-dot" onClick={() => {
             document.getElementById('press-scroll')?.querySelectorAll('section')[i]?.scrollIntoView({ behavior: 'smooth' });
           }} />
@@ -1627,8 +2011,10 @@ function App() {
         <S1 s={s} />
         <S2 s={s} />
         <S3 s={s} onStartWorkout={planDay => setLoggerPlanDay(planDay ?? null)} onImport={() => setShowImport(true)} />
-        <S4 s={s} />
-        <S5 s={s} />
+        <S4 s={s} refresh={refresh} />
+        <S5 s={s} refresh={refresh} />
+        <S6 s={s} onSignOut={() => signOut(auth)} refresh={refresh} />
+        <S7 s={s} />
       </div>
       {loggerOpen && (
         <WorkoutLogger

@@ -520,6 +520,8 @@ app.get("/summary", async (req, res) => {
     nutritionToday: (db.nutrition || {})[day()] || { protein: 0, carbs: 0, fat: 0, calories: 0 },
     nutrition14: Object.keys(db.nutrition || {}).sort().slice(-14).map(k => ({ date: k, ...(db.nutrition[k]) })),
     nutritionLog: (db.nutritionLog || []).filter(l => l.date === day()),
+    bodyFatToday: (db.metrics[day()] || {}).body_fat_percentage || null,
+    bodyFat30: Object.keys(db.metrics).sort().slice(-30).filter(k => db.metrics[k].body_fat_percentage != null).map(k => ({ date: k, pct: db.metrics[k].body_fat_percentage })),
     macroTargets: db.profile.macroTargets || { calories: 2400, protein: 160, carbs: 250, fat: 75 },
     macroMode: db.profile.macroMode || "manual", macroGoal: db.profile.macroGoal || "recomp",
     lastSync: db.lastSyncAt ? (() => { const d = new Date(db.lastSyncAt); return d.toLocaleDateString("en-GB", { day:"numeric", month:"short" }) + " " + d.toLocaleTimeString("en-GB", { hour:"2-digit", minute:"2-digit" }); })() : (days.at(-1)?.date || null),
@@ -553,6 +555,14 @@ app.post("/water", async (req, res) => {
   await save(); res.json({ today: db.water[k] });
 });
 app.post("/weight", async (req, res) => { db.weight[day()] = req.body.kg; await save(); res.json({ ok: true }); });
+app.post("/bodyfat", async (req, res) => {
+  const { pct } = req.body;
+  const k = day();
+  db.metrics[k] = db.metrics[k] || {};
+  db.metrics[k].body_fat_percentage = pct;
+  await save();
+  res.json({ ok: true });
+});
 app.post("/nutrition", async (req, res) => {
   const k = day(); db.nutrition = db.nutrition || {};
   db.nutrition[k] = db.nutrition[k] || { protein: 0, carbs: 0, fat: 0, calories: 0 };
@@ -561,6 +571,36 @@ app.post("/nutrition", async (req, res) => {
   if (req.body.label) db.nutritionLog.push({ date: k, time: new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }), label: req.body.label, protein: req.body.protein || 0, carbs: req.body.carbs || 0, fat: req.body.fat || 0, calories: req.body.calories || 0 });
   await save(); res.json(db.nutrition[k]);
 });
+app.post("/nutrition/analyze", async (req, res) => {
+  const key = process.env.GROQ_API_KEY;
+  if (!key) return res.status(400).json({ error: 'GROQ_API_KEY not set' });
+  const { imageBase64 } = req.body;
+  if (!imageBase64) return res.status(400).json({ error: 'imageBase64 required' });
+  const mimeMatch = imageBase64.match(/^data:(image\/\w+);base64,/);
+  const dataUrl = mimeMatch ? imageBase64 : `data:image/jpeg;base64,${imageBase64}`;
+  try {
+    const r = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + key },
+      body: JSON.stringify({
+        model: 'meta-llama/llama-4-scout-17b-16e-instruct',
+        max_tokens: 300,
+        response_format: { type: 'json_object' },
+        messages: [{
+          role: 'user',
+          content: [
+            { type: 'image_url', image_url: { url: dataUrl } },
+            { type: 'text', text: 'Analyse this meal photo. Estimate nutritional content. Return ONLY valid JSON: {"description":"brief meal description","calories":0,"protein":0,"carbs":0,"fat":0}. All numbers as integers.' }
+          ]
+        }]
+      })
+    });
+    const data = await r.json();
+    const content = data.choices?.[0]?.message?.content;
+    res.json(JSON.parse(content || '{}'));
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 app.post("/macro-targets", async (req, res) => {
   db.profile.macroTargets = db.profile.macroTargets || { calories: 2400, protein: 160, carbs: 250, fat: 75 };
   for (const m of ["calories", "protein", "carbs", "fat"]) if (req.body[m] != null) db.profile.macroTargets[m] = +req.body[m];
