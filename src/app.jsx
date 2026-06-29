@@ -208,14 +208,54 @@ section.visible .fade:nth-child(6){transition-delay:.56s}
 .prof-input{font-family:'JetBrains Mono',monospace;font-size:12px;background:none;border:none;border-bottom:1px solid var(--ink);outline:none;color:var(--ink);width:120px;text-align:right}
 .prof-btn{font-family:'JetBrains Mono',monospace;font-size:8px;letter-spacing:.12em;text-transform:uppercase;padding:4px 10px;cursor:pointer;border:1px solid var(--rule);background:none;color:var(--dim)}
 .prof-btn.solid{background:var(--ink);color:var(--paper);border-color:var(--ink)}
-.onboard-overlay{position:fixed;inset:0;z-index:9999;background:var(--paper);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:32px 24px}
-.onboard-rule{width:100%;max-width:460px;height:3px;background:var(--ink);margin-bottom:20px}
-.onboard-logo{font-family:'Playfair Display',Georgia,serif;font-weight:900;font-size:clamp(48px,12vw,72px);letter-spacing:-.02em;color:var(--ink);line-height:.9;margin-bottom:6px}
-.onboard-sub{font-size:10px;letter-spacing:.22em;text-transform:uppercase;color:var(--dim);margin-bottom:28px}
-.onboard-list{width:100%;max-width:460px;list-style:none;margin-bottom:32px;border-top:1px solid var(--rule)}
-.onboard-list li{padding:12px 0;border-bottom:1px solid var(--rule);font-size:13px;color:var(--ink);line-height:1.5;display:flex;gap:14px}
-.onboard-list li::before{content:'—';color:var(--gold);font-weight:700;flex-shrink:0}
-.onboard-start{font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.2em;text-transform:uppercase;padding:14px 40px;background:var(--ink);color:var(--paper);border:none;cursor:pointer;width:100%;max-width:460px}
+.onboard-overlay{position:fixed;inset:0;z-index:9999;background:var(--paper);overflow-y:auto}
+.ob-progress{position:sticky;top:0;left:0;right:0;height:2px;background:var(--rule);z-index:10}
+.ob-progress-fill{height:100%;background:var(--gold);transition:width .4s ease}
+.ob-wrap{max-width:480px;margin:0 auto;padding:32px 20px 60px}
+.ob-step-ind{font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.16em;text-transform:uppercase;color:var(--dim);margin-bottom:28px}
+.ob-logo{font-family:'Playfair Display',Georgia,serif;font-weight:900;font-size:clamp(48px,12vw,72px);letter-spacing:-.02em;color:var(--gold);line-height:.9;margin-bottom:10px}
+.ob-sub{font-size:14px;color:var(--ink);line-height:1.6;margin-bottom:8px;font-family:'Times New Roman',serif}
+.ob-lede{font-size:12px;color:var(--dim);font-style:italic;margin-bottom:32px;line-height:1.6}
+.ob-h{font-family:'Playfair Display',serif;font-weight:900;font-size:26px;color:var(--ink);margin-bottom:6px;line-height:1.05}
+.ob-deck{font-size:12px;color:var(--dim);font-style:italic;margin-bottom:24px;line-height:1.5}
+.ob-label{font-family:'JetBrains Mono',monospace;font-size:8px;letter-spacing:.16em;text-transform:uppercase;color:var(--dim);display:block;margin-bottom:4px;margin-top:16px}
+.ob-input{width:100%;border:none;border-bottom:2px solid var(--ink);padding:8px 0;background:transparent;font-family:'Times New Roman',serif;font-size:16px;outline:none;color:var(--ink);margin-bottom:4px}
+.ob-input::placeholder{color:var(--rule)}
+.ob-unit-row{display:flex;gap:8px;align-items:flex-end;margin-bottom:4px}
+.ob-unit-row .ob-input{flex:1;margin-bottom:0}
+.ob-unit-toggle{display:flex;border:1px solid var(--rule);overflow:hidden;flex-shrink:0;height:36px}
+.ob-unit-btn{font-family:'JetBrains Mono',monospace;font-size:8px;letter-spacing:.1em;text-transform:uppercase;padding:0 10px;border:none;background:none;cursor:pointer;color:var(--dim)}
+.ob-unit-btn.active{background:var(--ink);color:var(--paper)}
+.ob-goal-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:20px}
+.ob-goal-card{padding:14px 12px;border:1px solid var(--rule);cursor:pointer;text-align:left;background:none;transition:all .15s}
+.ob-goal-card.selected{background:var(--ink);border-color:var(--ink)}
+.ob-goal-card-title{font-family:'Playfair Display',serif;font-size:15px;font-weight:700;color:var(--ink);margin-bottom:4px}
+.ob-goal-card.selected .ob-goal-card-title{color:var(--paper)}
+.ob-goal-card-desc{font-family:'JetBrains Mono',monospace;font-size:8px;letter-spacing:.08em;color:var(--dim)}
+.ob-goal-card.selected .ob-goal-card-desc{color:rgba(255,255,255,.6)}
+.ob-stepper{display:flex;align-items:center;gap:14px}
+.ob-stepper-btn{width:30px;height:30px;border:1px solid var(--rule);background:none;cursor:pointer;font-family:'JetBrains Mono',monospace;font-size:16px;display:flex;align-items:center;justify-content:center;color:var(--ink)}
+.ob-stepper-val{font-family:'Syne',sans-serif;font-weight:800;font-size:26px;color:var(--ink);min-width:32px;text-align:center}
+.ob-service-row{padding:16px 0;border-bottom:1px solid var(--rule);display:flex;flex-direction:column;gap:8px}
+.ob-svc-top{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
+.ob-svc-title{font-family:'Playfair Display',serif;font-weight:700;font-size:16px;color:var(--ink)}
+.ob-svc-desc{font-size:11px;color:var(--dim);font-style:italic;margin-top:2px;line-height:1.5}
+.ob-svc-btn{font-family:'JetBrains Mono',monospace;font-size:8px;letter-spacing:.12em;text-transform:uppercase;padding:7px 14px;border:1px solid var(--ink);background:none;color:var(--ink);cursor:pointer;white-space:nowrap;flex-shrink:0}
+.ob-svc-btn.done{background:var(--forest);border-color:var(--forest);color:var(--paper)}
+.ob-guide{background:var(--paper2);border-left:2px solid var(--gold);padding:12px 14px;margin-top:8px;font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--dim);line-height:2}
+.ob-guide strong{color:var(--ink)}
+.ob-copy-url{display:flex;align-items:center;gap:8px;margin:4px 0 8px;background:var(--paper);border:1px solid var(--rule);padding:7px 10px;cursor:pointer}
+.ob-copy-url span{flex:1;font-size:9px;letter-spacing:.04em;color:var(--navy);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ob-copy-url button{font-family:'JetBrains Mono',monospace;font-size:7px;letter-spacing:.14em;text-transform:uppercase;border:none;background:none;cursor:pointer;color:var(--gold);flex-shrink:0}
+.ob-hevy-modes{display:flex;gap:8px;margin-top:8px}
+.ob-nav{display:flex;align-items:center;justify-content:space-between;margin-top:32px;padding-top:16px;border-top:1px solid var(--rule)}
+.ob-back{background:none;border:none;font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.12em;text-transform:uppercase;color:var(--dim);cursor:pointer;padding:0}
+.ob-next{font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.16em;text-transform:uppercase;padding:11px 28px;background:var(--ink);color:var(--paper);border:none;cursor:pointer}
+.ob-next:disabled{opacity:.45;cursor:default}
+.ob-summary-row{display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--rule)}
+.ob-summary-check{width:16px;height:16px;border-radius:50%;background:var(--forest);flex-shrink:0}
+.ob-summary-check.empty{background:var(--rule)}
+.ob-summary-lbl{font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--ink);letter-spacing:.06em}
 .pr-search{font-family:'JetBrains Mono',monospace;font-size:11px;background:none;border:none;border-bottom:1px solid var(--ink);outline:none;color:var(--ink);width:100%;padding:6px 0;margin-bottom:10px}
 .pr-search::placeholder{color:var(--rule)}
 .nutri-log-form{display:flex;flex-direction:column;gap:8px;padding:10px 0;border-top:1px solid var(--rule)}
@@ -2090,19 +2130,323 @@ function S7({ s }) {
 }
 
 // ── ONBOARDING ────────────────────────────────────────────────────────────────
-function OnboardingOverlay({ onDone }) {
+function Onboarding({ onComplete, onOpenImport }) {
+  const TOTAL = 5;
+  const [step, setStep] = useState(0);
+
+  // Step 1
+  const [name, setName] = useState('');
+  const [dob, setDob] = useState('');
+  const [heightUnit, setHeightUnit] = useState('cm');
+  const [heightVal, setHeightVal] = useState('');
+  const [weightUnit, setWeightUnit] = useState('kg');
+  const [weightVal, setWeightVal] = useState('');
+  const [bodyFat, setBodyFat] = useState('');
+
+  // Step 2
+  const [goal, setGoal] = useState('');
+  const [sleepTarget, setSleepTarget] = useState(8);
+  const [waterTarget, setWaterTarget] = useState(8);
+  const [trainingDays, setTrainingDays] = useState(4);
+
+  // Step 3 tracking
+  const [stravaStarted, setStravaStarted] = useState(false);
+  const [healthGuideOpen, setHealthGuideOpen] = useState(false);
+  const [hevyKeyVal, setHevyKeyVal] = useState('');
+  const [hevyKeyMode, setHevyKeyMode] = useState(null);
+  const [hevyKeySaved, setHevyKeySaved] = useState(false);
+  const [urlCopied, setUrlCopied] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  const SHORTCUT_URL = `${API_BASE}/shortcut`;
+
+  const copyUrl = () => {
+    navigator.clipboard?.writeText(SHORTCUT_URL).then(() => {
+      setUrlCopied(true); setTimeout(() => setUrlCopied(false), 2000);
+    });
+  };
+
+  const saveStep1 = async () => {
+    const kg = weightUnit === 'kg' ? parseFloat(weightVal) : parseFloat(weightVal) * 0.453592;
+    const cm = heightUnit === 'cm' ? parseFloat(heightVal) : parseFloat(heightVal) * 30.48;
+    const age = dob ? Math.floor((Date.now() - new Date(dob)) / (365.25 * 24 * 3600 * 1000)) : null;
+    const profileBody = { name: name || undefined, dob: dob || undefined, age, heightCm: cm || undefined };
+    await api('profile', { method: 'POST', body: JSON.stringify(profileBody) });
+    if (kg > 0) await api('weight', { method: 'POST', body: JSON.stringify({ kg }) });
+    if (bodyFat) await api('bodyfat', { method: 'POST', body: JSON.stringify({ pct: parseFloat(bodyFat) }) });
+  };
+
+  const saveStep2 = async () => {
+    const macroGoalMap = { 'Lose Fat': 'cut', 'Build Muscle': 'bulk', 'Maintain': 'recomp', 'Athletic Performance': 'recomp' };
+    await api('profile', { method: 'POST', body: JSON.stringify({ goal, sleepTarget, waterTarget, trainingDaysPerWeek: trainingDays }) });
+    if (macroGoalMap[goal]) await api('macro-auto', { method: 'POST', body: JSON.stringify({ goal: macroGoalMap[goal] }) }).catch(() => {});
+  };
+
+  const advance = async () => {
+    setSaving(true);
+    try {
+      if (step === 1) await saveStep1();
+      if (step === 2) await saveStep2();
+    } catch {}
+    setSaving(false);
+    setStep(s => s + 1);
+  };
+
+  const progressPct = (step / (TOTAL - 1)) * 100;
+
+  const inputStyle = { width: '100%', border: 'none', borderBottom: '2px solid var(--ink)', padding: '8px 0', background: 'transparent', fontFamily: 'Times New Roman,serif', fontSize: 16, outline: 'none', color: 'var(--ink)' };
+
   return (
     <div className="onboard-overlay">
-      <div className="onboard-rule" />
-      <div className="onboard-logo">PRESS</div>
-      <div className="onboard-sub">Personal Health Operating System</div>
-      <ul className="onboard-list">
-        <li>Daily vitals dashboard — HRV, sleep, body weight and readiness at a glance</li>
-        <li>Fatigue-aware AI workout planner with progressive overload targets</li>
-        <li>Nutrition logger with Groq vision — photograph a meal for instant estimates</li>
-        <li>Personal records, muscle soreness map, and Apple Health / Strava sync</li>
-      </ul>
-      <button className="onboard-start" onClick={onDone}>Get Started</button>
+      {/* Progress bar */}
+      <div className="ob-progress"><div className="ob-progress-fill" style={{ width: `${progressPct}%` }} /></div>
+
+      <div className="ob-wrap">
+        {step > 0 && (
+          <div className="ob-step-ind">Step {step} of {TOTAL - 1}</div>
+        )}
+
+        {/* ── STEP 0: WELCOME ── */}
+        {step === 0 && (
+          <>
+            <div className="ob-logo">Press</div>
+            <div className="ob-sub">Your personal health operating system.</div>
+            <div className="ob-lede">We'll get you set up in 2 minutes. Tell us about yourself and connect your services.</div>
+            <div style={{ borderTop: '1px solid var(--rule)', borderBottom: '1px solid var(--rule)', margin: '0 0 32px' }}>
+              {[
+                ['Daily vitals', 'HRV, sleep, recovery, and readiness at a glance'],
+                ['AI workout planner', 'Fatigue-aware sessions with progressive overload targets'],
+                ['Nutrition logger', 'Photograph a meal for instant macro estimates'],
+                ['Body & performance', 'PRs, muscle fatigue maps, Apple Health & Strava sync'],
+              ].map(([t, d]) => (
+                <div key={t} style={{ display: 'flex', gap: 14, padding: '12px 0', borderBottom: '1px solid var(--paper2)' }}>
+                  <span style={{ color: 'var(--gold)', fontWeight: 700, flexShrink: 0, fontFamily: 'Times New Roman,serif' }}>—</span>
+                  <div>
+                    <div style={{ fontFamily: "'Playfair Display',serif", fontWeight: 700, fontSize: 14, color: 'var(--ink)' }}>{t}</div>
+                    <div style={{ fontSize: 12, color: 'var(--dim)', marginTop: 2 }}>{d}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <button className="ob-next" style={{ width: '100%', padding: '14px 0' }} onClick={() => setStep(1)}>Get Started</button>
+          </>
+        )}
+
+        {/* ── STEP 1: ABOUT YOU ── */}
+        {step === 1 && (
+          <>
+            <div className="ob-h">About You</div>
+            <div className="ob-deck">Tell us the basics so Press can calibrate your targets and progress.</div>
+
+            <label className="ob-label">Name</label>
+            <input style={inputStyle} placeholder="Your name" value={name} onChange={e => setName(e.target.value)} />
+
+            <label className="ob-label">Date of Birth</label>
+            <input style={inputStyle} type="date" value={dob} onChange={e => setDob(e.target.value)} />
+
+            <label className="ob-label">Height</label>
+            <div className="ob-unit-row">
+              <input style={{ ...inputStyle, flex: 1, width: 'auto' }}
+                placeholder={heightUnit === 'cm' ? 'e.g. 180' : 'e.g. 5.11'}
+                type="number" value={heightVal} onChange={e => setHeightVal(e.target.value)} inputMode="decimal" />
+              <div className="ob-unit-toggle">
+                <button className={`ob-unit-btn${heightUnit === 'cm' ? ' active' : ''}`} onClick={() => setHeightUnit('cm')}>cm</button>
+                <button className={`ob-unit-btn${heightUnit === 'ft' ? ' active' : ''}`} onClick={() => setHeightUnit('ft')}>ft</button>
+              </div>
+            </div>
+
+            <label className="ob-label">Current Weight</label>
+            <div className="ob-unit-row">
+              <input style={{ ...inputStyle, flex: 1, width: 'auto' }}
+                placeholder={weightUnit === 'kg' ? 'e.g. 82' : 'e.g. 180'}
+                type="number" value={weightVal} onChange={e => setWeightVal(e.target.value)} inputMode="decimal" />
+              <div className="ob-unit-toggle">
+                <button className={`ob-unit-btn${weightUnit === 'kg' ? ' active' : ''}`} onClick={() => setWeightUnit('kg')}>kg</button>
+                <button className={`ob-unit-btn${weightUnit === 'lbs' ? ' active' : ''}`} onClick={() => setWeightUnit('lbs')}>lbs</button>
+              </div>
+            </div>
+
+            <label className="ob-label">Body Fat % <span style={{ fontWeight: 400, textTransform: 'none', fontSize: 9, color: 'var(--dim)' }}>(optional)</span></label>
+            <input style={inputStyle} placeholder="Leave blank if unknown" type="number" step="0.1"
+              value={bodyFat} onChange={e => setBodyFat(e.target.value)} inputMode="decimal" />
+
+            <div className="ob-nav">
+              <button className="ob-back" onClick={() => setStep(0)}>← Back</button>
+              <button className="ob-next" onClick={advance} disabled={saving}>{saving ? 'Saving…' : 'Continue'}</button>
+            </div>
+          </>
+        )}
+
+        {/* ── STEP 2: GOALS ── */}
+        {step === 2 && (
+          <>
+            <div className="ob-h">Your Goals</div>
+            <div className="ob-deck">Set your primary objective and daily targets.</div>
+
+            <label className="ob-label">Primary Goal</label>
+            <div className="ob-goal-grid">
+              {[
+                ['Lose Fat', 'Calorie deficit, preserve muscle'],
+                ['Build Muscle', 'Caloric surplus, progressive overload'],
+                ['Maintain', 'Body recomposition, balanced macros'],
+                ['Athletic Performance', 'Power, endurance, sport-specific'],
+              ].map(([g, d]) => (
+                <button key={g} className={`ob-goal-card${goal === g ? ' selected' : ''}`} onClick={() => setGoal(g)}>
+                  <div className="ob-goal-card-title">{g}</div>
+                  <div className="ob-goal-card-desc">{d}</div>
+                </button>
+              ))}
+            </div>
+
+            <div style={{ borderTop: '1px solid var(--rule)', paddingTop: 16 }}>
+              <label className="ob-label" style={{ marginTop: 0 }}>Sleep Target</label>
+              <div className="ob-stepper" style={{ margin: '10px 0 16px' }}>
+                <button className="ob-stepper-btn" onClick={() => setSleepTarget(t => Math.max(5, t - 0.5))}>−</button>
+                <div className="ob-stepper-val">{sleepTarget}<span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 12, color: 'var(--dim)', fontWeight: 400 }}>h</span></div>
+                <button className="ob-stepper-btn" onClick={() => setSleepTarget(t => Math.min(12, t + 0.5))}>+</button>
+                <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 9, color: 'var(--dim)', marginLeft: 6 }}>per night</span>
+              </div>
+
+              <label className="ob-label" style={{ marginTop: 0 }}>Water Target</label>
+              <div className="ob-stepper" style={{ margin: '10px 0 16px' }}>
+                <button className="ob-stepper-btn" onClick={() => setWaterTarget(t => Math.max(2, t - 1))}>−</button>
+                <div className="ob-stepper-val">{waterTarget}</div>
+                <button className="ob-stepper-btn" onClick={() => setWaterTarget(t => Math.min(16, t + 1))}>+</button>
+                <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 9, color: 'var(--dim)', marginLeft: 6 }}>glasses / day</span>
+              </div>
+
+              <label className="ob-label" style={{ marginTop: 0 }}>Training Days per Week</label>
+              <div className="ob-stepper" style={{ margin: '10px 0' }}>
+                <button className="ob-stepper-btn" onClick={() => setTrainingDays(t => Math.max(1, t - 1))}>−</button>
+                <div className="ob-stepper-val">{trainingDays}</div>
+                <button className="ob-stepper-btn" onClick={() => setTrainingDays(t => Math.min(7, t + 1))}>+</button>
+                <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 9, color: 'var(--dim)', marginLeft: 6 }}>days</span>
+              </div>
+            </div>
+
+            <div className="ob-nav">
+              <button className="ob-back" onClick={() => setStep(1)}>← Back</button>
+              <button className="ob-next" onClick={advance} disabled={saving || !goal}>{saving ? 'Saving…' : 'Continue'}</button>
+            </div>
+          </>
+        )}
+
+        {/* ── STEP 3: CONNECT SERVICES ── */}
+        {step === 3 && (
+          <>
+            <div className="ob-h">Connect Services</div>
+            <div className="ob-deck">Optional — you can always connect these later from the Profile page.</div>
+
+            {/* Strava */}
+            <div className="ob-service-row">
+              <div className="ob-svc-top">
+                <div>
+                  <div className="ob-svc-title">Strava</div>
+                  <div className="ob-svc-desc">Import your runs, rides, and activities automatically</div>
+                </div>
+                <button className={`ob-svc-btn${stravaStarted ? ' done' : ''}`}
+                  onClick={() => { setStravaStarted(true); window.open(`${API_BASE}/strava/auth`, '_blank'); }}>
+                  {stravaStarted ? 'Connecting…' : 'Connect'}
+                </button>
+              </div>
+            </div>
+
+            {/* Apple Health */}
+            <div className="ob-service-row">
+              <div className="ob-svc-top">
+                <div>
+                  <div className="ob-svc-title">Apple Health</div>
+                  <div className="ob-svc-desc">Stream sleep, HRV, steps, and heart rate from your iPhone</div>
+                </div>
+                <button className={`ob-svc-btn${healthGuideOpen ? ' done' : ''}`} onClick={() => setHealthGuideOpen(v => !v)}>
+                  {healthGuideOpen ? 'Hide Guide' : 'Setup Guide'}
+                </button>
+              </div>
+              {healthGuideOpen && (
+                <div className="ob-guide">
+                  <strong>1.</strong> Open <strong>Shortcuts</strong> on your iPhone<br />
+                  <strong>2.</strong> Create a new <strong>Personal Automation</strong><br />
+                  <strong>3.</strong> Trigger: <strong>Daily at 6:00 AM</strong><br />
+                  <strong>4.</strong> Add action: <strong>Get Contents of URL</strong><br />
+                  <strong>5.</strong> URL (tap to copy):
+                  <div className="ob-copy-url" onClick={copyUrl}>
+                    <span>{SHORTCUT_URL}</span>
+                    <button onClick={e => { e.stopPropagation(); copyUrl(); }}>{urlCopied ? 'Copied!' : 'Copy'}</button>
+                  </div>
+                  <strong>6.</strong> Method: <strong>POST</strong> · Body: <strong>JSON</strong><br />
+                  <strong>7.</strong> Add fields: <code>sleep_hours</code>, <code>hrv</code>, <code>rhr</code><br />
+                  <strong>8.</strong> Set values from <strong>Health</strong> actions in Shortcuts
+                </div>
+              )}
+            </div>
+
+            {/* Hevy */}
+            <div className="ob-service-row">
+              <div className="ob-svc-top">
+                <div>
+                  <div className="ob-svc-title">Hevy</div>
+                  <div className="ob-svc-desc">Import your lifting history from Hevy</div>
+                </div>
+              </div>
+              <div className="ob-hevy-modes">
+                <button className={`ob-svc-btn${hevyKeyMode === 'csv' ? ' done' : ''}`}
+                  onClick={() => { onOpenImport(); }}>
+                  Import CSV
+                </button>
+                <button className={`ob-svc-btn${hevyKeyMode === 'api' ? ' done' : ''}`}
+                  onClick={() => setHevyKeyMode(m => m === 'api' ? null : 'api')}>
+                  {hevyKeyMode === 'api' ? 'API Key' : 'API Key'}
+                </button>
+              </div>
+              {hevyKeyMode === 'api' && (
+                <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                  <input style={{ ...inputStyle, flex: 1, width: 'auto', fontSize: 12, fontFamily: 'JetBrains Mono,monospace' }}
+                    placeholder="Hevy API key…" value={hevyKeyVal} onChange={e => setHevyKeyVal(e.target.value)} />
+                  <button className="ob-svc-btn" style={hevyKeySaved ? { background: 'var(--forest)', borderColor: 'var(--forest)', color: 'var(--paper)' } : {}}
+                    onClick={async () => {
+                      if (!hevyKeyVal.trim()) return;
+                      await api('hevy/key', { method: 'POST', body: JSON.stringify({ key: hevyKeyVal.trim() }) }).catch(() => {});
+                      setHevyKeySaved(true);
+                    }}>
+                    {hevyKeySaved ? 'Saved' : 'Save'}
+                  </button>
+                </div>
+              )}
+            </div>
+
+            <div className="ob-nav">
+              <button className="ob-back" onClick={() => setStep(2)}>← Back</button>
+              <button className="ob-next" onClick={() => setStep(4)}>Continue</button>
+            </div>
+          </>
+        )}
+
+        {/* ── STEP 4: ALL SET ── */}
+        {step === 4 && (
+          <>
+            <div className="ob-logo" style={{ fontSize: 'clamp(36px,9vw,60px)' }}>You're set up.</div>
+            <div className="ob-sub" style={{ marginBottom: 6 }}>Press is ready.</div>
+            <div className="ob-lede">Your data will populate as you train, sleep, and log.</div>
+
+            <div style={{ borderTop: '1px solid var(--ink)', borderBottom: '1px solid var(--ink)', margin: '8px 0 28px', padding: '4px 0' }}>
+              {[
+                [!!name, name ? `${name}${goal ? ` · ${goal}` : ''}` : 'Profile skipped'],
+                [!!goal, `${sleepTarget}h sleep · ${waterTarget} glasses water · ${trainingDays} training days`],
+                [stravaStarted, 'Strava'],
+                [healthGuideOpen, 'Apple Health setup viewed'],
+                [hevyKeySaved, 'Hevy API key saved'],
+              ].map(([done, lbl], i) => (
+                <div key={i} className="ob-summary-row">
+                  <div className={`ob-summary-check${done ? '' : ' empty'}`} />
+                  <div className="ob-summary-lbl" style={{ color: done ? 'var(--ink)' : 'var(--dim)' }}>{lbl}</div>
+                </div>
+              ))}
+            </div>
+
+            <button className="ob-next" style={{ width: '100%', padding: '14px 0' }} onClick={onComplete}>Open Press</button>
+          </>
+        )}
+      </div>
     </div>
   );
 }
@@ -2351,7 +2695,7 @@ function App() {
 
   return (
     <>
-      {!onboarded && <OnboardingOverlay onDone={handleOnboardDone} />}
+      {!onboarded && <Onboarding onComplete={handleOnboardDone} onOpenImport={() => { handleOnboardDone(); setShowImport(true); }} />}
       <Header s={s} onSignOut={() => signOut(auth)} />
       <nav className="sec-nav" id="sec-nav">
         {[0,1,2,3,4,5,6].map(i => (

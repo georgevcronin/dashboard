@@ -279,6 +279,14 @@ function ingestWorkout(w) {
 }
 
 // ---------- Hevy webhook ----------
+app.post("/hevy/key", async (req, res) => {
+  const { key } = req.body;
+  if (!key) return res.status(400).json({ error: 'key required' });
+  db.profile = { ...(db.profile || {}), hevyApiKey: key };
+  await save();
+  res.json({ ok: true });
+});
+
 app.post("/hevy/webhook", async (req, res) => {
   res.sendStatus(200);
   const workoutId = req.body.workoutId;
