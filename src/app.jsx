@@ -1216,6 +1216,8 @@ function S5({ s }) {
   const antRef = useRef(), latRef = useRef(), postRef = useRef();
   const [svgsReady, setSvgsReady] = useState(false);
   const fatigue = useMemo(() => computeFatigue(s?.lifts, s?.musclePeaks), [s?.lifts]);
+  const fatigueVals = Object.values(fatigue);
+  const overallFatigue = fatigueVals.length ? Math.round(fatigueVals.reduce((a,b)=>a+b,0)/fatigueVals.length) : null;
 
   useEffect(() => {
     Promise.all([
@@ -1265,10 +1267,50 @@ function S5({ s }) {
       </div>
 
       <div className="fade">
-        <div className="stat-cols stat-cols-3" style={{ borderTop: '1px solid var(--rule)', paddingTop: 10 }}>
-          <div className="stat-cell"><div className="sc-label">Peak Fatigue</div><div className="sc-num red" style={{ fontSize: 22 }}>{fMax || '—'}<span style={{ fontSize: '.5em', color: 'var(--dim)' }}>/100</span></div></div>
-          <div className="stat-cell"><div className="sc-label">Recovery</div><div className="sc-num forest" style={{ fontSize: 22 }}>{s?.recoveryTrend?.at(-1) ?? '—'}<span style={{ fontSize: '.5em', color: 'var(--dim)' }}>/100</span></div></div>
-          <div className="stat-cell"><div className="sc-label">RHR</div><div className="sc-num" style={{ fontSize: 22 }}>{s?.rhrSeries?.at(-1) ?? '—'}<span style={{ fontSize: '.5em', color: 'var(--dim)' }}>bpm</span></div></div>
+        <div style={{ borderTop: '1px solid var(--rule)', paddingTop: 10, display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <div style={{ display: 'flex', gap: 0 }}>
+            {/* Most fatigued muscle */}
+            <div className="stat-cell" style={{ flex: '0 0 auto', minWidth: 120 }}>
+              <div className="sc-label">Most Loaded Muscle</div>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginTop: 2 }}>
+                <div className="sc-num red" style={{ fontSize: 22 }}>{fMax || '—'}<span style={{ fontSize: '.5em', color: 'var(--dim)' }}>/100</span></div>
+                {topMuscles[0] && <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--ember)', textTransform: 'capitalize', letterSpacing: '.06em' }}>{topMuscles[0]}</div>}
+              </div>
+              <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, color: 'var(--dim)', marginTop: 3, letterSpacing: '.04em' }}>
+                % of your hardest ever {topMuscles[0] || 'muscle'} session
+              </div>
+            </div>
+
+            <div style={{ width: '1px', background: 'var(--rule)', margin: '0 16px', flexShrink: 0 }} />
+
+            {/* Average fatigue */}
+            <div className="stat-cell" style={{ flex: '0 0 auto', minWidth: 100 }}>
+              <div className="sc-label">Avg Muscle Fatigue</div>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginTop: 2 }}>
+                <div className="sc-num" style={{ fontSize: 22, color: overallFatigue > 60 ? 'var(--ember)' : overallFatigue > 30 ? 'var(--gold)' : 'var(--forest)' }}>
+                  {(() => { const vals = Object.values(fatigue); return vals.length ? Math.round(vals.reduce((a,b)=>a+b,0)/vals.length) : '—'; })()}
+                  <span style={{ fontSize: '.5em', color: 'var(--dim)' }}>/100</span>
+                </div>
+              </div>
+              <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, color: 'var(--dim)', marginTop: 3, letterSpacing: '.04em' }}>
+                across all muscle groups
+              </div>
+            </div>
+
+            <div style={{ width: '1px', background: 'var(--rule)', margin: '0 16px', flexShrink: 0 }} />
+
+            {/* Recovery + RHR */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, flex: 1 }}>
+              <div className="stat-cell">
+                <div className="sc-label">Recovery</div>
+                <div className="sc-num forest" style={{ fontSize: 18 }}>{s?.recoveryTrend?.at(-1) ?? '—'}<span style={{ fontSize: '.5em', color: 'var(--dim)' }}>/100</span></div>
+              </div>
+              <div className="stat-cell">
+                <div className="sc-label">Resting HR</div>
+                <div className="sc-num" style={{ fontSize: 18 }}>{s?.rhrSeries?.at(-1) ?? '—'}<span style={{ fontSize: '.5em', color: 'var(--dim)' }}>bpm</span></div>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 
