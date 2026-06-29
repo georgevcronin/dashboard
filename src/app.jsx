@@ -884,8 +884,158 @@ function WorkoutLogger({ planDay, lifts, onClose, refresh }) {
   );
 }
 
+// ── HEVY IMPORT ───────────────────────────────────────────────────────────────
+function parseCSV(text) {
+  const lines = text.replace(/\r/g, '').trim().split('\n');
+  const headers = lines[0].split(',').map(h => h.replace(/^"|"$/g, '').trim());
+  return lines.slice(1).filter(Boolean).map(line => {
+    const vals = []; let cur = ''; let q = false;
+    for (const ch of line) {
+      if (ch === '"') q = !q;
+      else if (ch === ',' && !q) { vals.push(cur.trim()); cur = ''; }
+      else cur += ch;
+    }
+    vals.push(cur.trim());
+    return Object.fromEntries(headers.map((h, i) => [h, (vals[i] || '').replace(/^"|"$/g, '')]));
+  });
+}
+
+function parseHevyCSV(text) {
+  const rows = parseCSV(text);
+  const map = {};
+  for (const row of rows) {
+    const title = row['Title'] || row['Workout Name'] || 'Session';
+    const startRaw = row['Start Time'] || row['Date'];
+    if (!startRaw) continue;
+    const key = `${title}__${startRaw}`;
+    if (!map[key]) {
+      const startMs = new Date(startRaw).getTime();
+      const endMs = row['End Time'] ? new Date(row['End Time']).getTime() : null;
+      map[key] = {
+        name: title,
+        date: startRaw.split(' ')[0],
+        duration: endMs ? Math.round((endMs - startMs) / 60000) : null,
+        exercises: {},
+      };
+    }
+    const exRaw = row['Exercise Name'] || row['Exercise'];
+    if (!exRaw) continue;
+    const exName = exRaw.toLowerCase().trim();
+    if (!map[key].exercises[exName]) map[key].exercises[exName] = [];
+    const kg = parseFloat(row['Weight (kg)'] ?? row['Weight']) || 0;
+    const reps = parseInt(row['Reps']) || 0;
+    if (kg > 0 || reps > 0) map[key].exercises[exName].push({ kg, reps });
+  }
+  return Object.values(map).map(s => ({
+    ...s,
+    exercises: Object.entries(s.exercises).map(([name, sets]) => ({ name, sets })),
+  })).filter(s => s.exercises.length > 0).sort((a, b) => a.date.localeCompare(b.date));
+}
+
+function HevyImport({ onClose, refresh }) {
+  const [sessions, setSessions] = useState([]);
+  const [status, setStatus] = useState('idle');
+  const [result, setResult] = useState(null);
+  const [error, setError] = useState('');
+  const fileRef = useRef();
+
+  const handleFile = e => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setError('');
+    const reader = new FileReader();
+    reader.onload = ev => {
+      try {
+        const parsed = parseHevyCSV(ev.target.result);
+        if (!parsed.length) { setError('No workout data found — make sure this is a Hevy CSV export.'); return; }
+        setSessions(parsed);
+        setStatus('parsed');
+      } catch (err) { setError('Failed to parse file: ' + err.message); }
+    };
+    reader.readAsText(file);
+  };
+
+  const doImport = async () => {
+    setStatus('importing');
+    const r = await fetch(`${API_BASE}/import/hevy`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sessions }),
+    }).then(r => r.json());
+    setResult(r);
+    if (r.ok) await api('summary').then(refresh);
+    setStatus('done');
+  };
+
+  const totalSets = sessions.reduce((a, s) => a + s.exercises.reduce((b, e) => b + e.sets.length, 0), 0);
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, zIndex: 1000, background: 'var(--paper)', overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
+      <div className="ol-hdr">
+        <div>
+          <div className="kicker" style={{ marginBottom: 2 }}>Data Import</div>
+          <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 19, fontWeight: 700 }}>Hevy CSV</div>
+        </div>
+        <button className="ol-btn ol-btn-ghost" onClick={onClose}>Close</button>
+      </div>
+
+      <div style={{ padding: '20px' }}>
+        {status === 'idle' && (
+          <>
+            <div style={{ fontSize: 12, color: 'var(--dim)', lineHeight: 1.7, marginBottom: 20 }}>
+              In Hevy: <strong>Profile → Settings → Export Workout Data → CSV</strong>. Then select the downloaded file below. All sessions and lifts will be imported into Press.
+            </div>
+            {error && <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, color: 'var(--ember)', marginBottom: 12 }}>{error}</div>}
+            <input ref={fileRef} type="file" accept=".csv,text/csv" onChange={handleFile} style={{ display: 'none' }} />
+            <button className="ol-btn ol-btn-solid" onClick={() => fileRef.current?.click()}>Select CSV file</button>
+          </>
+        )}
+
+        {status === 'parsed' && (
+          <>
+            <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, color: 'var(--dim)', marginBottom: 12, letterSpacing: '.06em' }}>
+              {sessions.length} sessions · {sessions.reduce((a,s)=>a+s.exercises.length,0)} exercises · {totalSets} sets
+            </div>
+            <div style={{ maxHeight: 320, overflowY: 'auto', marginBottom: 16, borderTop: '1px solid var(--rule)' }}>
+              {sessions.slice(-40).reverse().map((s, i) => (
+                <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', padding: '8px 0', borderBottom: '1px solid var(--rule)' }}>
+                  <div>
+                    <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 13, fontWeight: 700, textTransform: 'capitalize' }}>{s.name}</div>
+                    <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)', marginTop: 2 }}>
+                      {s.exercises.map(e => e.name).join(' · ')}
+                    </div>
+                  </div>
+                  <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)', whiteSpace: 'nowrap', marginLeft: 12 }}>{s.date}</div>
+                </div>
+              ))}
+              {sessions.length > 40 && <div style={{ padding: '8px 0', fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)' }}>…and {sessions.length - 40} earlier sessions</div>}
+            </div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button className="ol-btn ol-btn-solid" onClick={doImport}>Import {sessions.length} sessions</button>
+              <button className="ol-btn ol-btn-ghost" onClick={onClose}>Cancel</button>
+            </div>
+          </>
+        )}
+
+        {status === 'importing' && (
+          <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 11, color: 'var(--dim)', letterSpacing: '.06em' }}>Importing…</div>
+        )}
+
+        {status === 'done' && (
+          <>
+            <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 18, fontWeight: 700, marginBottom: 8 }}>
+              {result?.imported} sessions imported.
+            </div>
+            {result?.skipped > 0 && <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, color: 'var(--dim)', marginBottom: 12 }}>{result.skipped} already existed — skipped.</div>}
+            <button className="ol-btn ol-btn-solid" onClick={onClose}>Done</button>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ── S3: TRAINING ──────────────────────────────────────────────────────────────
-function S3({ s, onStartWorkout }) {
+function S3({ s, onStartWorkout, onImport }) {
   const workouts = s?.workouts || [];
   const lifts = s?.lifts || [];
   const liftVol = s?.liftVolume || [];
@@ -979,6 +1129,9 @@ function S3({ s, onStartWorkout }) {
             <button className="action-btn primary" onClick={() => onStartWorkout(null)}>Start Workout</button>
           </div>
         )}
+        <div style={{ borderTop: '1px solid var(--rule)', paddingTop: 8, marginTop: 4 }}>
+          <button onClick={onImport} style={{ background: 'none', border: 'none', fontFamily: "'JetBrains Mono',monospace", fontSize: 9, letterSpacing: '.1em', textTransform: 'uppercase', color: 'var(--dim)', cursor: 'pointer', padding: 0 }}>Import from Hevy</button>
+        </div>
       </div>
     </section>
   );
@@ -1132,6 +1285,7 @@ function App() {
   const [s, setS] = useState(null);
   const [loggerPlanDay, setLoggerPlanDay] = useState(undefined);
   const loggerOpen = loggerPlanDay !== undefined;
+  const [showImport, setShowImport] = useState(false);
 
   const refresh = data => { if (data) setS(data); else api('summary').then(setS).catch(console.error); };
 
@@ -1191,7 +1345,7 @@ function App() {
       <div className="scroll" id="press-scroll">
         <S1 s={s} />
         <S2 s={s} />
-        <S3 s={s} onStartWorkout={planDay => setLoggerPlanDay(planDay ?? null)} />
+        <S3 s={s} onStartWorkout={planDay => setLoggerPlanDay(planDay ?? null)} onImport={() => setShowImport(true)} />
         <S4 s={s} />
         <S5 s={s} />
       </div>
@@ -1203,6 +1357,7 @@ function App() {
           refresh={setS}
         />
       )}
+      {showImport && <HevyImport onClose={() => setShowImport(false)} refresh={setS} />}
     </>
   );
 }

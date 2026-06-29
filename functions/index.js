@@ -573,6 +573,29 @@ app.get("/coach/:exercise", async (req, res) => {
   } catch (e) { res.json({ note: null }); }
 });
 
+app.post("/import/hevy", async (req, res) => {
+  const { sessions } = req.body;
+  if (!Array.isArray(sessions)) return res.status(400).json({ error: 'sessions must be array' });
+  db.workouts = db.workouts || [];
+  db.lifts = db.lifts || [];
+  let imported = 0, skipped = 0;
+  for (const session of sessions) {
+    const exists = db.workouts.some(w => w.date === session.date && w.name === session.name);
+    if (exists) { skipped++; continue; }
+    db.workouts.unshift({ date: session.date, name: session.name, duration: session.duration || null, source: 'hevy' });
+    for (const ex of (session.exercises || [])) {
+      for (const set of (ex.sets || [])) {
+        if ((set.kg || 0) > 0 || (set.reps || 0) > 0) {
+          db.lifts.push({ date: session.date, exercise: ex.name, kg: set.kg || 0, reps: set.reps || 0, source: 'hevy' });
+        }
+      }
+    }
+    imported++;
+  }
+  await save();
+  res.json({ ok: true, imported, skipped });
+});
+
 app.get("/recommendation", async (req, res) => {
   const r = db.metrics[day()]?.recovery;
   if (r == null) return res.json({ text: "Connect health sync and recommendations will appear." });
