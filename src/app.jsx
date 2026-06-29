@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import { createRoot } from "react-dom/client";
 import { initializeApp } from 'firebase/app';
-import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, onAuthStateChanged, signOut } from 'firebase/auth';
+import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, onAuthStateChanged, signOut, GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult } from 'firebase/auth';
 
 const FIREBASE_CONFIG = {
   apiKey: "AIzaSyDlVzSc9yow5GHbQipRWuYAZ5QTQ-jmXiY",
@@ -13,6 +13,17 @@ const FIREBASE_CONFIG = {
 };
 const firebaseApp = initializeApp(FIREBASE_CONFIG);
 const auth = getAuth(firebaseApp);
+const googleProvider = new GoogleAuthProvider();
+
+const signInWithGoogle = async () => {
+  try {
+    await signInWithPopup(auth, googleProvider);
+  } catch (e) {
+    if (e.code === 'auth/popup-blocked' || e.code === 'auth/popup-closed-by-user') {
+      await signInWithRedirect(auth, googleProvider);
+    } else throw e;
+  }
+};
 
 const API_BASE = "https://europe-west2-pressnewsletter.cloudfunctions.net/api";
 
@@ -1445,29 +1456,37 @@ function S5({ s }) {
 
 // ── APP ──────────────────────────────────────────────────────────────────────
 function LoginScreen() {
-  const [mode, setMode] = useState('signin'); // 'signin' | 'register'
+  const [showEmail, setShowEmail] = useState(false);
+  const [mode, setMode] = useState('signin');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
 
-  const submit = async e => {
-    e.preventDefault();
+  useEffect(() => {
+    getRedirectResult(auth).catch(() => {});
+  }, []);
+
+  const google = async () => {
     setErr(''); setBusy(true);
+    try { await signInWithGoogle(); }
+    catch (e) { setErr(e.message); setBusy(false); }
+  };
+
+  const submit = async e => {
+    e.preventDefault(); setErr(''); setBusy(true);
     try {
-      if (mode === 'signin') {
-        await signInWithEmailAndPassword(auth, email.trim(), password);
-      } else {
-        await createUserWithEmailAndPassword(auth, email.trim(), password);
-      }
+      if (mode === 'signin') await signInWithEmailAndPassword(auth, email.trim(), password);
+      else await createUserWithEmailAndPassword(auth, email.trim(), password);
     } catch (ex) {
-      const msg = ex.code === 'auth/invalid-credential' ? 'Wrong email or password.'
-        : ex.code === 'auth/email-already-in-use' ? 'Account already exists — sign in instead.'
-        : ex.code === 'auth/weak-password' ? 'Password must be at least 6 characters.'
-        : ex.code === 'auth/invalid-email' ? 'Invalid email address.'
-        : ex.message;
-      setErr(msg);
-    } finally { setBusy(false); }
+      setErr(
+        ex.code === 'auth/invalid-credential' ? 'Wrong email or password.' :
+        ex.code === 'auth/email-already-in-use' ? 'Account already exists — sign in instead.' :
+        ex.code === 'auth/weak-password' ? 'Password must be at least 6 characters.' :
+        ex.code === 'auth/invalid-email' ? 'Invalid email address.' : ex.message
+      );
+      setBusy(false);
+    }
   };
 
   return (
@@ -1475,27 +1494,54 @@ function LoginScreen() {
       <div className="auth-rule" />
       <div className="auth-logo">PRESS</div>
       <div className="auth-tag">Personal Health Operating System</div>
-      <form className="auth-form" onSubmit={submit}>
-        <div className="auth-field">
-          <label className="auth-lbl">Email</label>
-          <input className="auth-input" type="email" placeholder="you@example.com"
-            value={email} onChange={e => setEmail(e.target.value)} required autoComplete="email" />
-        </div>
-        <div className="auth-field">
-          <label className="auth-lbl">Password</label>
-          <input className="auth-input" type="password" placeholder="••••••••"
-            value={password} onChange={e => setPassword(e.target.value)} required autoComplete={mode === 'signin' ? 'current-password' : 'new-password'} />
-        </div>
-        {err && <div className="auth-err">{err}</div>}
-        <button className="auth-submit" type="submit" disabled={busy}>
-          {busy ? 'Please wait…' : mode === 'signin' ? 'Sign in' : 'Create account'}
+      <div className="auth-form">
+        <button className="auth-submit" onClick={google} disabled={busy} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10 }}>
+          <svg width="16" height="16" viewBox="0 0 18 18" fill="none">
+            <path d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844c-.209 1.125-.843 2.078-1.796 2.717v2.258h2.908c1.702-1.567 2.684-3.874 2.684-6.615z" fill="#fff" fillOpacity=".9"/>
+            <path d="M9 18c2.43 0 4.467-.806 5.956-2.184l-2.908-2.258c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332C2.438 15.983 5.482 18 9 18z" fill="#fff" fillOpacity=".75"/>
+            <path d="M3.964 10.707A5.41 5.41 0 0 1 3.682 9c0-.593.102-1.17.282-1.707V4.961H.957A8.996 8.996 0 0 0 0 9c0 1.452.348 2.827.957 4.039l3.007-2.332z" fill="#fff" fillOpacity=".6"/>
+            <path d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0 5.482 0 2.438 2.017.957 4.961L3.964 7.293C4.672 5.166 6.656 3.58 9 3.58z" fill="#fff" fillOpacity=".45"/>
+          </svg>
+          {busy ? 'Signing in…' : 'Continue with Google'}
         </button>
-        <div className="auth-toggle">
-          {mode === 'signin'
-            ? <>New here? <span onClick={() => { setMode('register'); setErr(''); }}>Create an account</span></>
-            : <>Already have an account? <span onClick={() => { setMode('signin'); setErr(''); }}>Sign in</span></>}
-        </div>
-      </form>
+
+        {!showEmail && (
+          <div className="auth-toggle" style={{ marginTop: 16 }}>
+            <span onClick={() => setShowEmail(true)}>Use email &amp; password instead</span>
+          </div>
+        )}
+
+        {showEmail && <>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '16px 0 12px' }}>
+            <div style={{ flex: 1, height: 1, background: 'var(--rule)' }} />
+            <span style={{ fontSize: 9, letterSpacing: '.14em', textTransform: 'uppercase', color: 'var(--dim)' }}>or</span>
+            <div style={{ flex: 1, height: 1, background: 'var(--rule)' }} />
+          </div>
+          <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            <div className="auth-field">
+              <label className="auth-lbl">Email</label>
+              <input className="auth-input" type="email" placeholder="you@example.com"
+                value={email} onChange={e => setEmail(e.target.value)} required autoComplete="email" />
+            </div>
+            <div className="auth-field">
+              <label className="auth-lbl">Password</label>
+              <input className="auth-input" type="password" placeholder="••••••••"
+                value={password} onChange={e => setPassword(e.target.value)} required
+                autoComplete={mode === 'signin' ? 'current-password' : 'new-password'} />
+            </div>
+            <button className="auth-submit" type="submit" disabled={busy} style={{ background: 'none', color: 'var(--ink)', border: '1px solid var(--ink)' }}>
+              {busy ? 'Please wait…' : mode === 'signin' ? 'Sign in' : 'Create account'}
+            </button>
+            <div className="auth-toggle">
+              {mode === 'signin'
+                ? <>New? <span onClick={() => { setMode('register'); setErr(''); }}>Create account</span></>
+                : <>Have an account? <span onClick={() => { setMode('signin'); setErr(''); }}>Sign in</span></>}
+            </div>
+          </form>
+        </>}
+
+        {err && <div className="auth-err" style={{ marginTop: 12 }}>{err}</div>}
+      </div>
       <div className="auth-rule-bottom" />
     </div>
   );
