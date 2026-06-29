@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useMemo } from "react";
 import { createRoot } from "react-dom/client";
 import { flushSync } from "react-dom";
 import { initializeApp } from 'firebase/app';
-import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, onAuthStateChanged, signOut, GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult, setPersistence, browserLocalPersistence } from 'firebase/auth';
+import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, onAuthStateChanged, signOut, GoogleAuthProvider, signInWithPopup, getRedirectResult } from 'firebase/auth';
 
 const FIREBASE_CONFIG = {
   apiKey: "AIzaSyDlVzSc9yow5GHbQipRWuYAZ5QTQ-jmXiY",
@@ -16,20 +16,6 @@ const firebaseApp = initializeApp(FIREBASE_CONFIG);
 const auth = getAuth(firebaseApp);
 const googleProvider = new GoogleAuthProvider();
 
-const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-
-const signInWithGoogle = async () => {
-  await setPersistence(auth, browserLocalPersistence);
-  if (isMobile) {
-    await signInWithRedirect(auth, googleProvider);
-    return;
-  }
-  try {
-    await signInWithPopup(auth, googleProvider);
-  } catch (e) {
-    await signInWithRedirect(auth, googleProvider);
-  }
-};
 
 const API_BASE = "https://europe-west2-pressnewsletter.cloudfunctions.net/api";
 
@@ -1853,10 +1839,12 @@ function LoginScreen() {
   useEffect(() => { sessionStorage.removeItem('auth_redirect_error'); }, []);
 
 
-  const google = async () => {
+  // Called synchronously from tap — no await before signInWithPopup so iOS
+  // Safari recognises it as a user-gesture and allows the popup to open.
+  const google = () => {
     setErr(''); setBusy(true);
-    try { await signInWithGoogle(); }
-    catch (e) { setErr(e.message); setBusy(false); }
+    signInWithPopup(auth, googleProvider)
+      .catch(e => { setErr(e.code || e.message || 'Sign-in failed'); setBusy(false); });
   };
 
   const submit = async e => {
