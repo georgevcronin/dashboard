@@ -386,42 +386,256 @@ function S2({ s }) {
 }
 
 // ── WORKOUT LOGGER ───────────────────────────────────────────────────────────
-function WorkoutLogger({ planDay, onClose, refresh }) {
+const BASE_EXERCISES = [
+  'back squat','front squat','hack squat','leg press','leg curl','leg extension',
+  'lunge','bulgarian split squat','hip thrust','glute bridge','romanian deadlift',
+  'deadlift','sumo deadlift','calf raise','seated calf raise',
+  'pull up','chin up','lat pulldown','seated row','cable row','barbell row','dumbbell row','t-bar row',
+  'bench press','incline bench press','decline bench press','dumbbell press','incline dumbbell press',
+  'cable fly','dumbbell fly','dip','push up',
+  'overhead press','dumbbell shoulder press','arnold press','lateral raise','front raise','face pull','rear delt fly',
+  'barbell curl','dumbbell curl','hammer curl','preacher curl','cable curl',
+  'tricep pushdown','skull crusher','overhead tricep extension','close grip bench press',
+  'plank','crunch','cable crunch','leg raise','ab rollout','russian twist',
+  'shrug','farmer carry','wrist curl',
+];
+
+const e1rm = (kg, reps) => (kg > 0 && reps > 0) ? Math.round(kg * (1 + reps / 30)) : null;
+const SET_TYPES = ['W','N','D','F'];
+const SET_LABELS = { W: 'Warm-up', N: 'Normal', D: 'Drop Set', F: 'Failure' };
+const REST_DEFAULT = 90;
+const COMPOUND = ['squat','deadlift','bench press','overhead press','barbell row','pull up','chin up','romanian deadlift','hip thrust'];
+const LOWER_BODY = ['squat','deadlift','leg press','lunge','hip thrust','romanian deadlift','bulgarian'];
+
+const cnsLoad = exercises => {
+  let score = 0;
+  for (const ex of exercises) {
+    const mult = COMPOUND.some(c => ex.name.includes(c)) ? 2.2 : 1;
+    for (const s of ex.sets) if (s.type !== 'W' && s.done && +s.kg > 0) score += +s.kg * (+s.reps || 1) * mult;
+  }
+  if (score < 3000) return { label: 'Light', color: 'var(--forest)' };
+  if (score < 9000) return { label: 'Moderate', color: 'var(--gold)' };
+  if (score < 20000) return { label: 'Heavy', color: 'var(--ember)' };
+  return { label: 'Max Effort', color: 'var(--red)' };
+};
+
+const getProgression = (name, prevSets, lifts) => {
+  if (!prevSets?.length) return null;
+  const byDate = {};
+  for (const l of lifts.filter(l => l.exercise === name)) {
+    if (!byDate[l.date]) byDate[l.date] = [];
+    byDate[l.date].push(l);
+  }
+  const dates = Object.keys(byDate).sort();
+  if (dates.length < 2) return null;
+  const last = byDate[dates.at(-1)];
+  const prev2 = byDate[dates.at(-2)];
+  const lastMax = Math.max(...last.map(s => s.kg));
+  const prev2Max = Math.max(...prev2.map(s => s.kg));
+  const lastTopSet = last.find(s => s.kg === lastMax);
+  const inc = LOWER_BODY.some(k => name.includes(k)) ? 5 : 2.5;
+  if (lastTopSet?.reps >= 5) return `↑ Try ${lastMax + inc}kg — hit ${lastTopSet.reps} reps at ${lastMax}kg`;
+  if (lastMax > prev2Max) return `↑ Progressed last session — hold ${lastMax}kg`;
+  if (lastTopSet?.reps >= 3) return `Hold ${lastMax}kg — ${lastTopSet.reps} reps last time`;
+  return `↓ Consider ${Math.max(0, lastMax - inc * 2)}kg — missed reps at ${lastMax}kg`;
+};
+
+const sessionFatigue = exercises => {
+  const scores = {};
+  for (const ex of exercises) {
+    for (const s of ex.sets) {
+      if (!s.done) continue;
+      const load = (+s.kg || 0) * (+s.reps || 1);
+      for (const [key, muscles] of Object.entries(MUSCLE_MAP)) {
+        if (ex.name.includes(key)) { muscles.forEach(m => { scores[m] = (scores[m] || 0) + load; }); break; }
+      }
+    }
+  }
+  const max = Math.max(...Object.values(scores), 1);
+  return Object.fromEntries(Object.entries(scores).map(([m, v]) => [m, Math.min(100, Math.round(v / max * 100))]));
+};
+
+function ExHistoryChart({ name, lifts }) {
+  const pts = useMemo(() => {
+    const byDate = {};
+    for (const l of lifts.filter(l => l.exercise === name)) {
+      const v = e1rm(l.kg, l.reps);
+      if (v && (!byDate[l.date] || v > byDate[l.date])) byDate[l.date] = v;
+    }
+    return Object.entries(byDate).sort(([a],[b]) => a.localeCompare(b)).slice(-16).map(([d,v]) => ({ d, v }));
+  }, [name, lifts]);
+
+  if (pts.length < 2) return <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, color: 'var(--dim)', padding: '8px 0' }}>Not enough history.</div>;
+
+  const vals = pts.map(p => p.v);
+  const mn = Math.min(...vals), mx = Math.max(...vals), rng = mx - mn || 1;
+  const W = 300, H = 70;
+  const x = i => (i / (pts.length - 1)) * W;
+  const y = v => H - ((v - mn) / rng) * (H - 8) - 4;
+  let d = `M${x(0).toFixed(1)},${y(pts[0].v).toFixed(1)}`;
+  for (let i = 1; i < pts.length; i++) {
+    const mx2 = (x(i-1) + x(i)) / 2;
+    d += ` C${mx2},${y(pts[i-1].v)} ${mx2},${y(pts[i].v)} ${x(i).toFixed(1)},${y(pts[i].v).toFixed(1)}`;
+  }
+  const last = pts.at(-1);
+
+  return (
+    <div style={{ margin: '8px 0 12px', padding: '10px 12px', background: 'var(--paper2)', borderLeft: '2px solid var(--navy)' }}>
+      <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, letterSpacing: '.14em', textTransform: 'uppercase', color: 'var(--dim)', marginBottom: 6 }}>
+        e1RM History · {pts.length} sessions · Peak {Math.max(...vals)}kg
+      </div>
+      <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', height: 70, display: 'block' }} preserveAspectRatio="none">
+        <path d={`${d} L${W},${H} L0,${H}Z`} fill="var(--navy)" opacity=".12" />
+        <path d={d} fill="none" stroke="var(--navy)" strokeWidth="1.8" strokeLinecap="round" />
+        <circle cx={x(pts.length-1)} cy={y(last.v)} r="3" fill="var(--navy)" />
+        <text x={x(pts.length-1)-2} y={y(last.v)-6} textAnchor="end" fontSize="8" fill="var(--navy)" fontFamily="JetBrains Mono,monospace">{last.v}kg</text>
+      </svg>
+      <div style={{ display: 'flex', justifyContent: 'space-between', fontFamily: "'JetBrains Mono',monospace", fontSize: 8, color: 'var(--dim)', marginTop: 2 }}>
+        <span>{new Date(pts[0].d).toLocaleDateString('en-GB',{day:'numeric',month:'short'})}</span>
+        <span>{new Date(last.d).toLocaleDateString('en-GB',{day:'numeric',month:'short'})}</span>
+      </div>
+    </div>
+  );
+}
+
+function WorkoutLogger({ planDay, lifts, onClose, refresh }) {
   const [exercises, setExercises] = useState([]);
+  const [loading, setLoading] = useState(!!planDay);
+  const [expandedEx, setExpandedEx] = useState(null);
+  const [coachNotes, setCoachNotes] = useState({});
+  const [coachLoading, setCoachLoading] = useState({});
   const [newEx, setNewEx] = useState('');
+  const [suggestions, setSuggestions] = useState([]);
   const [start] = useState(Date.now());
   const [elapsed, setElapsed] = useState(0);
+  const [rest, setRest] = useState(null);
   const [saving, setSaving] = useState(false);
   const inputRef = useRef();
 
+  const allExercises = useMemo(() => {
+    const fromLifts = [...new Set((lifts || []).map(l => l.exercise).filter(Boolean))];
+    return [...new Set([...fromLifts, ...BASE_EXERCISES])].sort();
+  }, [lifts]);
+
+  const prevData = useMemo(() => {
+    const byEx = {};
+    for (const l of (lifts || [])) {
+      if (!byEx[l.exercise]) byEx[l.exercise] = {};
+      if (!byEx[l.exercise][l.date]) byEx[l.exercise][l.date] = [];
+      byEx[l.exercise][l.date].push(l);
+    }
+    const out = {};
+    for (const [ex, byDate] of Object.entries(byEx)) {
+      const d = Object.keys(byDate).sort().at(-1);
+      if (d) out[ex] = { date: d, sets: byDate[d] };
+    }
+    return out;
+  }, [lifts]);
+
+  const prData = useMemo(() => {
+    const out = {};
+    for (const l of (lifts || [])) {
+      const v = e1rm(l.kg, l.reps);
+      if (v && v > (out[l.exercise] || 0)) out[l.exercise] = v;
+    }
+    return out;
+  }, [lifts]);
+
+  // Load AI-generated template when starting from plan
   useEffect(() => {
-    const t = setInterval(() => setElapsed(Math.floor((Date.now() - start) / 1000)), 1000);
+    if (!planDay) return;
+    const session = planDay.sessions?.[0];
+    if (!session || session.type === 'rest') { setLoading(false); return; }
+    fetch(`${API_BASE}/plan/session-exercises`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type: session.type, title: session.title, detail: session.detail, duration: session.duration }),
+    }).then(r => r.json()).then(data => {
+      if (data.exercises?.length) {
+        setExercises(data.exercises.map(ex => {
+          const key = ex.name.toLowerCase().trim();
+          const prev = prevData[key];
+          return {
+            name: key, bw: false, note: '',
+            sets: ex.sets.map((s, idx) => ({
+              type: s.type || 'N',
+              kg: prev?.sets?.[idx] ? String(prev.sets[idx].kg) : String(s.kg || ''),
+              reps: String(s.reps || ''),
+              rir: '', done: false,
+            })),
+          };
+        }));
+      }
+      setLoading(false);
+    }).catch(() => setLoading(false));
+  }, []);
+
+  useEffect(() => {
+    const t = setInterval(() => setElapsed(s => s + 1), 1000);
     return () => clearInterval(t);
-  }, [start]);
+  }, []);
+
+  useEffect(() => {
+    if (!rest || rest.remaining <= 0) { if (rest) setRest(null); return; }
+    const t = setTimeout(() => setRest(r => r ? { ...r, remaining: r.remaining - 1 } : null), 1000);
+    return () => clearTimeout(t);
+  }, [rest]);
 
   const fmt = s => `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
 
+  const onSearchChange = val => {
+    setNewEx(val);
+    if (!val.trim()) { setSuggestions([]); return; }
+    const q = val.toLowerCase();
+    setSuggestions(allExercises.filter(e => e.includes(q)).slice(0, 8));
+  };
+
   const addExercise = name => {
     if (!name.trim()) return;
-    setExercises(prev => [...prev, { name: name.trim(), sets: [{ kg: '', reps: '' }] }]);
-    setNewEx('');
+    const key = name.toLowerCase().trim();
+    const prev = prevData[key];
+    const sets = prev?.sets?.map(s => ({ type: 'N', kg: String(s.kg || ''), reps: String(s.reps || ''), rir: '', done: false }))
+      || [{ type: 'N', kg: '', reps: '', rir: '', done: false }];
+    setExercises(p => [...p, { name: key, bw: false, note: '', sets }]);
+    setNewEx(''); setSuggestions([]);
     setTimeout(() => inputRef.current?.focus(), 50);
   };
 
-  const addSet = i => setExercises(prev => prev.map((ex, j) =>
-    j !== i ? ex : { ...ex, sets: [...ex.sets, { kg: ex.sets.at(-1)?.kg || '', reps: ex.sets.at(-1)?.reps || '' }] }
-  ));
+  const removeExercise = i => setExercises(p => p.filter((_, j) => j !== i));
 
-  const updateSet = (ei, si, field, val) => setExercises(prev => prev.map((ex, i) =>
+  const addSet = i => setExercises(p => p.map((ex, j) => j !== i ? ex : {
+    ...ex, sets: [...ex.sets, { type: 'N', kg: ex.sets.at(-1)?.kg || '', reps: ex.sets.at(-1)?.reps || '', rir: '', done: false }]
+  }));
+
+  const updateSet = (ei, si, field, val) => setExercises(p => p.map((ex, i) =>
     i !== ei ? ex : { ...ex, sets: ex.sets.map((s, j) => j !== si ? s : { ...s, [field]: val }) }
   ));
 
-  const removeSet = (ei, si) => setExercises(prev => prev.map((ex, i) =>
+  const cycleType = (ei, si) => setExercises(p => p.map((ex, i) =>
+    i !== ei ? ex : { ...ex, sets: ex.sets.map((s, j) => j !== si ? s : { ...s, type: SET_TYPES[(SET_TYPES.indexOf(s.type) + 1) % SET_TYPES.length] }) }
+  ));
+
+  const completeSet = (ei, si) => {
+    updateSet(ei, si, 'done', true);
+    setRest({ remaining: REST_DEFAULT, total: REST_DEFAULT });
+  };
+
+  const removeSet = (ei, si) => setExercises(p => p.map((ex, i) =>
     i !== ei ? ex : { ...ex, sets: ex.sets.filter((_, j) => j !== si) }
   ).filter(ex => ex.sets.length > 0));
 
+  const loadCoach = async name => {
+    if (coachNotes[name] || coachLoading[name]) return;
+    setCoachLoading(p => ({ ...p, [name]: true }));
+    try {
+      const d = await api(`coach/${encodeURIComponent(name)}`);
+      setCoachNotes(p => ({ ...p, [name]: d.note || '' }));
+    } finally { setCoachLoading(p => ({ ...p, [name]: false })); }
+  };
+
   const finish = async () => {
-    const valid = exercises.map(ex => ({ ...ex, sets: ex.sets.filter(s => s.kg !== '' || s.reps !== '') })).filter(ex => ex.sets.length > 0);
+    const valid = exercises.map(ex => ({
+      ...ex, sets: ex.sets.filter(s => s.done || s.kg !== '' || s.reps !== ''),
+    })).filter(ex => ex.sets.length > 0);
     if (!valid.length) { onClose(); return; }
     setSaving(true);
     await fetch(`${API_BASE}/workout/session`, {
@@ -433,13 +647,24 @@ function WorkoutLogger({ planDay, onClose, refresh }) {
   };
 
   const session = planDay?.sessions?.[0];
+  const cns = cnsLoad(exercises);
+  const fatigue = sessionFatigue(exercises);
+  const fatigueMuscles = Object.entries(fatigue).sort(([,a],[,b]) => b - a);
+  const th = { fontSize: 8, letterSpacing: '.14em', textTransform: 'uppercase', color: 'var(--dim)', fontWeight: 400, padding: '3px 0', borderBottom: '1px solid var(--rule)', textAlign: 'right' };
 
   return (
-    <div style={{ position: 'fixed', inset: 0, zIndex: 1000, background: 'var(--paper)', overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
+    <div style={{ position: 'fixed', inset: 0, zIndex: 1000, background: 'var(--paper)', overflowY: 'auto', display: 'flex', flexDirection: 'column', paddingBottom: rest ? 72 : 0 }}>
+
+      {/* Header */}
       <div className="ol-hdr">
         <div>
           <div className="kicker" style={{ marginBottom: 2 }}>In Session</div>
-          <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 22, fontWeight: 600, letterSpacing: '-.02em' }}>{fmt(elapsed)}</div>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
+            <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 22, fontWeight: 600, letterSpacing: '-.02em' }}>{fmt(elapsed)}</div>
+            {exercises.some(e => e.sets.some(s => s.done)) && (
+              <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, letterSpacing: '.12em', textTransform: 'uppercase', padding: '2px 7px', background: cns.color, color: 'var(--paper)' }}>{cns.label}</span>
+            )}
+          </div>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
           <button className="ol-btn ol-btn-ghost" onClick={onClose}>Discard</button>
@@ -447,53 +672,214 @@ function WorkoutLogger({ planDay, onClose, refresh }) {
         </div>
       </div>
 
-      <div style={{ padding: '16px 20px', flex: 1, display: 'flex', flexDirection: 'column' }}>
-        {session && (
-          <div style={{ marginBottom: 18, padding: '10px 12px', borderLeft: '2px solid var(--gold)', background: 'var(--paper2)' }}>
-            <div className="kicker" style={{ marginBottom: 4 }}>{session.type} · {session.duration}</div>
-            <div style={{ fontFamily: "'Playfair Display',serif", fontStyle: 'italic', fontSize: 15, marginBottom: 4 }}>{session.title}</div>
-            <div style={{ fontSize: 11, color: 'var(--dim)', lineHeight: 1.5 }}>{session.detail}</div>
-          </div>
-        )}
-
-        {exercises.map((ex, i) => (
-          <div key={i} style={{ marginBottom: 18, paddingBottom: 14, borderBottom: '1px solid var(--rule)' }}>
-            <div style={{ fontFamily: "'Playfair Display',serif", fontWeight: 700, fontSize: 16, textTransform: 'capitalize', marginBottom: 8 }}>{ex.name}</div>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontFamily: "'JetBrains Mono',monospace", fontSize: 11, marginBottom: 8 }}>
-              <thead>
-                <tr>
-                  {['Set','kg','Reps',''].map((h, j) => (
-                    <th key={j} style={{ textAlign: j === 0 ? 'left' : 'right', color: 'var(--dim)', fontSize: 8, letterSpacing: '.15em', textTransform: 'uppercase', padding: '3px 0', borderBottom: '1px solid var(--rule)', fontWeight: 400, width: j === 3 ? 24 : 'auto' }}>{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {ex.sets.map((set, j) => (
-                  <tr key={j}>
-                    <td style={{ padding: '5px 0', color: 'var(--dim)' }}>{j + 1}</td>
-                    <td style={{ padding: '5px 0', textAlign: 'right' }}>
-                      <input className="set-input" value={set.kg} onChange={e => updateSet(i, j, 'kg', e.target.value)} inputMode="decimal" placeholder="—" style={{ color: 'var(--gold)' }} />
-                    </td>
-                    <td style={{ padding: '5px 0', textAlign: 'right' }}>
-                      <input className="set-input" value={set.reps} onChange={e => updateSet(i, j, 'reps', e.target.value)} inputMode="numeric" placeholder="—" style={{ color: 'var(--ink)' }} />
-                    </td>
-                    <td style={{ textAlign: 'right', padding: '5px 0' }}>
-                      <button onClick={() => removeSet(i, j)} style={{ background: 'none', border: 'none', color: 'var(--dim)', cursor: 'pointer', fontSize: 14, lineHeight: 1 }}>×</button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            <button className="ol-btn ol-btn-ghost" style={{ fontSize: 8 }} onClick={() => addSet(i)}>+ Set</button>
-          </div>
-        ))}
-
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 }}>
-          <input ref={inputRef} className="ex-input" value={newEx} onChange={e => setNewEx(e.target.value)}
-            onKeyDown={e => e.key === 'Enter' && addExercise(newEx)} placeholder="Add exercise…" />
-          <button className="ol-btn ol-btn-solid" onClick={() => addExercise(newEx)}>Add</button>
+      {/* Loading template */}
+      {loading && (
+        <div style={{ padding: '40px 20px', textAlign: 'center', fontFamily: "'JetBrains Mono',monospace", fontSize: 11, color: 'var(--dim)', letterSpacing: '.08em' }}>
+          Generating session plan…
         </div>
-      </div>
+      )}
+
+      {!loading && (
+        <div style={{ padding: '16px 20px', flex: 1, display: 'flex', flexDirection: 'column' }}>
+
+          {/* AI plan context */}
+          {session && (
+            <div style={{ marginBottom: 18, padding: '10px 12px', borderLeft: '2px solid var(--gold)', background: 'var(--paper2)' }}>
+              <div className="kicker" style={{ marginBottom: 4 }}>{session.type} · {session.duration}</div>
+              <div style={{ fontFamily: "'Playfair Display',serif", fontStyle: 'italic', fontSize: 15, marginBottom: 4 }}>{session.title}</div>
+              <div style={{ fontSize: 11, color: 'var(--dim)', lineHeight: 1.5 }}>{session.detail}</div>
+            </div>
+          )}
+
+          {/* Fatigue impact preview */}
+          {fatigueMuscles.length > 0 && (
+            <div style={{ marginBottom: 16 }}>
+              <div className="kicker" style={{ marginBottom: 6 }}>Session Fatigue</div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                {fatigueMuscles.map(([m, pct]) => (
+                  <div key={m} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                    <div style={{ width: 8, height: 8, borderRadius: '50%', background: pct > 70 ? 'var(--ember)' : pct > 35 ? 'var(--gold)' : 'var(--forest)', flexShrink: 0 }} />
+                    <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)', textTransform: 'capitalize' }}>{m}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Exercise blocks */}
+          {exercises.map((ex, i) => {
+            const prev = prevData[ex.name];
+            const doneE1rms = ex.sets.filter(s => s.done && !ex.bw).map(s => e1rm(+s.kg, +s.reps)).filter(Boolean);
+            const bestE1rm = doneE1rms.length ? Math.max(...doneE1rms) : null;
+            const isPR = bestE1rm && bestE1rm > (prData[ex.name] || 0);
+            const vol = ex.sets.filter(s => s.done).reduce((a, s) => a + (+s.kg || 0) * (+s.reps || 1), 0);
+            const progression = getProgression(ex.name, prev?.sets, lifts);
+            const isExpanded = expandedEx === i;
+            const coach = coachNotes[ex.name];
+            const isLoadingCoach = coachLoading[ex.name];
+
+            return (
+              <div key={i} style={{ marginBottom: 22, paddingBottom: 16, borderBottom: '2px solid var(--ink)' }}>
+                {/* Exercise header row */}
+                <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 2 }}>
+                  <button onClick={() => setExpandedEx(isExpanded ? null : i)}
+                    style={{ fontFamily: "'Playfair Display',serif", fontWeight: 700, fontSize: 17, textTransform: 'capitalize', background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'var(--ink)', textAlign: 'left' }}>
+                    {ex.name} {isExpanded ? '▲' : '▸'}
+                  </button>
+                  <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                    {isPR && <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, letterSpacing: '.12em', background: 'var(--gold)', color: 'var(--paper)', padding: '2px 6px' }}>PR</span>}
+                    {bestE1rm && <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)' }}>e1RM {bestE1rm}kg</span>}
+                    <button onClick={() => removeExercise(i)} style={{ background: 'none', border: 'none', color: 'var(--dim)', cursor: 'pointer', fontSize: 16, lineHeight: 1, padding: 0 }}>×</button>
+                  </div>
+                </div>
+
+                {/* History chart (expanded) */}
+                {isExpanded && <ExHistoryChart name={ex.name} lifts={lifts} />}
+
+                {/* Previous performance */}
+                {prev && (
+                  <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)', marginBottom: 3 }}>
+                    {new Date(prev.date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })} · {prev.sets.map(s => ex.bw ? `BW×${s.reps}` : `${s.kg}×${s.reps}`).join(', ')}
+                  </div>
+                )}
+
+                {/* Progressive overload suggestion */}
+                {progression && (
+                  <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: progression.startsWith('↓') ? 'var(--ember)' : 'var(--forest)', marginBottom: 5 }}>
+                    {progression}
+                  </div>
+                )}
+
+                {/* AI coaching note */}
+                <div style={{ marginBottom: 8 }}>
+                  {coach
+                    ? <div style={{ fontFamily: "'Playfair Display',serif", fontStyle: 'italic', fontSize: 11, color: 'var(--dim)', lineHeight: 1.4 }}>"{coach}"</div>
+                    : <button onClick={() => loadCoach(ex.name)} disabled={isLoadingCoach}
+                        style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, letterSpacing: '.1em', textTransform: 'uppercase', background: 'none', border: 'none', color: 'var(--dim)', cursor: 'pointer', padding: 0, opacity: isLoadingCoach ? .5 : 1 }}>
+                        {isLoadingCoach ? 'Loading cue…' : '+ Coaching cue'}
+                      </button>
+                  }
+                </div>
+
+                {/* BW toggle + volume */}
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 }}>
+                  <button onClick={() => setExercises(p => p.map((e, j) => j !== i ? e : { ...e, bw: !e.bw }))}
+                    style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, letterSpacing: '.1em', textTransform: 'uppercase', padding: '3px 8px', cursor: 'pointer', border: '1px solid var(--rule)', background: ex.bw ? 'var(--ink)' : 'none', color: ex.bw ? 'var(--paper)' : 'var(--dim)' }}>
+                    BW
+                  </button>
+                  {vol > 0 && <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)' }}>{Math.round(vol).toLocaleString()} kg total</span>}
+                </div>
+
+                {/* Sets table */}
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontFamily: "'JetBrains Mono',monospace", fontSize: 11, marginBottom: 8 }}>
+                  <thead>
+                    <tr>
+                      <th style={{ ...th, textAlign: 'left', width: 26 }}>Set</th>
+                      <th style={{ ...th, width: 56 }}>Prev</th>
+                      {!ex.bw && <th style={{ ...th, width: 48 }}>kg</th>}
+                      <th style={{ ...th, width: 38 }}>Reps</th>
+                      <th style={{ ...th, width: 28 }}>RIR</th>
+                      <th style={{ ...th, width: 26 }}>✓</th>
+                      <th style={{ ...th, width: 16 }} />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {ex.sets.map((set, j) => {
+                      const prevSet = prev?.sets?.[j];
+                      const setE1rm = !ex.bw ? e1rm(+set.kg, +set.reps) : null;
+                      const setIsPR = setE1rm && setE1rm > (prData[ex.name] || 0);
+                      const isWorking = set.type !== 'W';
+                      return (
+                        <tr key={j} style={{ opacity: set.done ? 0.4 : 1 }}>
+                          <td style={{ padding: '5px 0', textAlign: 'left' }}>
+                            <button onClick={() => cycleType(i, j)} title={SET_LABELS[set.type]}
+                              style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, background: set.type === 'W' ? 'var(--navy)' : set.type === 'F' ? 'var(--ember)' : set.type === 'D' ? 'var(--gold)' : 'var(--paper2)', color: set.type !== 'N' ? 'var(--paper)' : 'var(--dim)', border: 'none', padding: '2px 4px', cursor: 'pointer', minWidth: 20, textAlign: 'center' }}>
+                              {set.type === 'N' ? j + 1 : set.type}
+                            </button>
+                          </td>
+                          <td style={{ padding: '5px 0', textAlign: 'right', color: 'var(--dim)', fontSize: 10 }}>
+                            {prevSet ? (ex.bw ? `BW×${prevSet.reps}` : `${prevSet.kg}×${prevSet.reps}`) : '—'}
+                          </td>
+                          {!ex.bw && (
+                            <td style={{ padding: '5px 0', textAlign: 'right' }}>
+                              <input className="set-input" value={set.kg} onChange={e => updateSet(i, j, 'kg', e.target.value)}
+                                inputMode="decimal" placeholder="—" disabled={set.done}
+                                style={{ color: setIsPR ? 'var(--gold)' : 'var(--ink)', width: 42 }} />
+                            </td>
+                          )}
+                          <td style={{ padding: '5px 0', textAlign: 'right' }}>
+                            <input className="set-input" value={set.reps} onChange={e => updateSet(i, j, 'reps', e.target.value)}
+                              inputMode="numeric" placeholder="—" disabled={set.done}
+                              style={{ color: 'var(--ink)', width: 30 }} />
+                          </td>
+                          <td style={{ padding: '5px 0', textAlign: 'right' }}>
+                            {isWorking
+                              ? <input className="set-input" value={set.rir} onChange={e => updateSet(i, j, 'rir', e.target.value)}
+                                  inputMode="numeric" placeholder="—" disabled={set.done}
+                                  style={{ color: 'var(--dim)', width: 24 }} />
+                              : <span style={{ color: 'var(--rule)', fontSize: 10 }}>—</span>
+                            }
+                          </td>
+                          <td style={{ padding: '5px 0', textAlign: 'right' }}>
+                            {set.done
+                              ? <span style={{ color: 'var(--forest)', fontSize: 13 }}>✓</span>
+                              : <button onClick={() => completeSet(i, j)} style={{ background: 'none', border: '1px solid var(--rule)', color: 'var(--dim)', cursor: 'pointer', fontSize: 11, width: 22, height: 22, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✓</button>
+                            }
+                          </td>
+                          <td style={{ textAlign: 'right', padding: '5px 0' }}>
+                            <button onClick={() => removeSet(i, j)} style={{ background: 'none', border: 'none', color: 'var(--rule)', cursor: 'pointer', fontSize: 14, lineHeight: 1 }}>×</button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+                <button className="ol-btn ol-btn-ghost" style={{ fontSize: 8 }} onClick={() => addSet(i)}>+ Set</button>
+              </div>
+            );
+          })}
+
+          {/* Exercise search */}
+          <div style={{ position: 'relative', marginTop: 8, paddingBottom: 40 }}>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <input ref={inputRef} className="ex-input" value={newEx}
+                onChange={e => onSearchChange(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') addExercise(newEx); if (e.key === 'Escape') { setSuggestions([]); setNewEx(''); } }}
+                placeholder="Search or add exercise…" autoComplete="off" />
+              {newEx.trim() && <button className="ol-btn ol-btn-solid" onClick={() => addExercise(newEx)}>Add</button>}
+            </div>
+            {suggestions.length > 0 && (
+              <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: 'var(--paper)', border: '1px solid var(--ink)', zIndex: 50, maxHeight: 220, overflowY: 'auto' }}>
+                {suggestions.map(ex => (
+                  <div key={ex} onClick={() => addExercise(ex)}
+                    style={{ padding: '9px 12px', fontFamily: "'JetBrains Mono',monospace", fontSize: 11, textTransform: 'capitalize', cursor: 'pointer', borderBottom: '1px solid var(--paper2)', color: 'var(--ink)' }}
+                    onMouseEnter={e => e.currentTarget.style.background = 'var(--paper2)'}
+                    onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>{ex}</div>
+                ))}
+                {!allExercises.includes(newEx.toLowerCase().trim()) && newEx.trim() && (
+                  <div onClick={() => addExercise(newEx)}
+                    style={{ padding: '9px 12px', fontFamily: "'JetBrains Mono',monospace", fontSize: 11, cursor: 'pointer', color: 'var(--gold)', borderTop: '1px solid var(--rule)' }}
+                    onMouseEnter={e => e.currentTarget.style.background = 'var(--paper2)'}
+                    onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                    + Use "{newEx.trim()}"
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Rest timer */}
+      {rest && (
+        <div style={{ position: 'fixed', bottom: 0, left: 0, right: 0, background: 'var(--ink)', color: 'var(--paper)', zIndex: 1100, padding: '12px 20px', display: 'flex', alignItems: 'center', gap: 14 }}>
+          <div style={{ flex: 1, height: 3, background: 'rgba(255,255,255,.2)', borderRadius: 2 }}>
+            <div style={{ height: '100%', background: 'var(--paper)', borderRadius: 2, width: `${(rest.remaining / rest.total) * 100}%`, transition: 'width 1s linear' }} />
+          </div>
+          <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 16, fontWeight: 600, whiteSpace: 'nowrap' }}>Rest {fmt(rest.remaining)}</div>
+          <button onClick={() => setRest(null)} style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, letterSpacing: '.1em', textTransform: 'uppercase', background: 'none', border: '1px solid rgba(255,255,255,.3)', color: 'var(--paper)', padding: '4px 10px', cursor: 'pointer' }}>Skip</button>
+        </div>
+      )}
     </div>
   );
 }
@@ -812,6 +1198,7 @@ function App() {
       {loggerOpen && (
         <WorkoutLogger
           planDay={loggerPlanDay}
+          lifts={s?.lifts || []}
           onClose={() => setLoggerPlanDay(undefined)}
           refresh={setS}
         />

@@ -514,6 +514,65 @@ app.post("/mentor", async (req, res) => {
   } catch (e) { res.json({ reply: "mentor error: " + e.message }); }
 });
 
+app.post("/plan/session-exercises", async (req, res) => {
+  const key = process.env.GROQ_API_KEY;
+  if (!key) return res.json({ exercises: [] });
+  const { type, title, detail, duration } = req.body;
+  const bw = Object.values(db.weight || {}).at(-1) || 75;
+  const byEx = {};
+  for (const l of (db.lifts || []).slice(-120)) {
+    if (!byEx[l.exercise]) byEx[l.exercise] = [];
+    byEx[l.exercise].push(l);
+  }
+  const liftCtx = Object.entries(byEx).slice(0, 14).map(([ex, sets]) => {
+    const sorted = [...sets].sort((a, b) => a.date.localeCompare(b.date));
+    const last = sorted.at(-1);
+    return `${ex}: last ${last.kg}kg×${last.reps} (${sorted.length} sessions total)`;
+  }).join('; ');
+  const prompt = `Generate a specific exercise list for this training session.
+Session: ${title} (${type}, ${duration})
+Guidance: ${detail}
+Athlete: ${bw}kg bodyweight
+Lift history: ${liftCtx || 'no data yet'}
+
+Return ONLY valid JSON:
+{
+  "exercises": [
+    { "name": "exercise name", "sets": [{"type":"W","kg":50,"reps":10},{"type":"N","kg":80,"reps":5},{"type":"N","kg":80,"reps":5}] }
+  ]
+}
+Rules: W=warm-up, N=normal, D=drop, F=failure. 3-6 exercises. Include 1-2 warm-up sets per compound lift. Suggest realistic weights from lift history. Lower body: +5kg increments. Upper: +2.5kg.`;
+  try {
+    const r = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": "Bearer " + key },
+      body: JSON.stringify({ model: "llama-3.3-70b-versatile", max_tokens: 700, response_format: { type: "json_object" }, messages: [{ role: "user", content: prompt }] }),
+    });
+    const data = await r.json();
+    res.json(JSON.parse(data.choices?.[0]?.message?.content || '{"exercises":[]}'));
+  } catch (e) { res.json({ exercises: [] }); }
+});
+
+app.get("/coach/:exercise", async (req, res) => {
+  const key = process.env.GROQ_API_KEY;
+  if (!key) return res.json({ note: null });
+  const ex = decodeURIComponent(req.params.exercise);
+  const sets = (db.lifts || []).filter(l => l.exercise === ex).slice(-30);
+  const byDate = {};
+  for (const l of sets) { if (!byDate[l.date]) byDate[l.date] = []; byDate[l.date].push(l); }
+  const ctx = Object.keys(byDate).sort().slice(-5).map(d => `${d}: ${byDate[d].map(s => `${s.kg}kg×${s.reps}`).join(', ')}`).join('; ');
+  const prompt = `One specific coaching cue for ${ex}. History: ${ctx || 'no data'}. Max 14 words. Evidence-based, specific to their numbers. No intro words.`;
+  try {
+    const r = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": "Bearer " + key },
+      body: JSON.stringify({ model: "llama-3.3-70b-versatile", max_tokens: 60, messages: [{ role: "user", content: prompt }] }),
+    });
+    const data = await r.json();
+    res.json({ note: data.choices?.[0]?.message?.content?.trim() || null });
+  } catch (e) { res.json({ note: null }); }
+});
+
 app.get("/recommendation", async (req, res) => {
   const r = db.metrics[day()]?.recovery;
   if (r == null) return res.json({ text: "Connect health sync and recommendations will appear." });
