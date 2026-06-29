@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from "react";
-import { createRoot, flushSync } from "react-dom/client";
+import { createRoot } from "react-dom/client";
+import { flushSync } from "react-dom";
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, onAuthStateChanged, signOut, GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult } from 'firebase/auth';
 
@@ -15,13 +16,18 @@ const firebaseApp = initializeApp(FIREBASE_CONFIG);
 const auth = getAuth(firebaseApp);
 const googleProvider = new GoogleAuthProvider();
 
+const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+
 const signInWithGoogle = async () => {
+  if (isMobile) {
+    await signInWithRedirect(auth, googleProvider);
+    return;
+  }
   try {
     await signInWithPopup(auth, googleProvider);
   } catch (e) {
-    if (e.code === 'auth/popup-blocked' || e.code === 'auth/popup-closed-by-user') {
-      await signInWithRedirect(auth, googleProvider);
-    } else throw e;
+    // Any popup failure on desktop falls back to redirect
+    await signInWithRedirect(auth, googleProvider);
   }
 };
 
@@ -1844,9 +1850,6 @@ function LoginScreen() {
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
 
-  useEffect(() => {
-    getRedirectResult(auth).catch(() => {});
-  }, []);
 
   const google = async () => {
     setErr(''); setBusy(true);
@@ -1938,7 +1941,11 @@ function App() {
 
   const handleOnboardDone = () => { localStorage.setItem('press_onboarded', '1'); setOnboarded(true); };
 
-  useEffect(() => onAuthStateChanged(auth, u => setUser(u ?? null)), []);
+  useEffect(() => {
+    // Handle redirect result immediately on load (Google Sign-In on mobile)
+    getRedirectResult(auth).catch(() => {});
+    return onAuthStateChanged(auth, u => setUser(u ?? null));
+  }, []);
 
   const refresh = data => { if (data) setS(data); else api('summary').then(setS).catch(console.error); };
 
