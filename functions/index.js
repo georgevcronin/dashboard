@@ -4,7 +4,6 @@ const express = require("express");
 
 admin.initializeApp();
 const firestore = admin.firestore();
-const DOC = firestore.collection("peak").doc("state");
 
 const app = express();
 app.use(express.json({ limit: "10mb" }));
@@ -91,32 +90,81 @@ function musclePeaksFromLifts(lifts) {
   return peaks;
 }
 
-// ---------- Firestore-backed state (cached in memory) ----------
-let db = null;
-const DEFAULTS = {
+// ---------- Firestore-backed state — per user ----------
+const DEFAULTS = () => ({
   metrics: {}, workouts: [], water: {}, weight: {}, lifts: [], finance: [],
   thoughts: [], nutrition: {}, nutritionLog: [], waterEvents: [], nwHistory: [],
-  strava: null,
-  weeklyPlan: null,
-  soreness: [],
-  muscleSensitivity: {},
+  strava: null, weeklyPlan: null, soreness: [], muscleSensitivity: {},
   profile: { name: "George", heightCm: null, sex: null, waterTarget: 7,
     macroTargets: { calories: 2400, protein: 160, carbs: 250, fat: 75 }, macroMode: "manual" },
-};
+});
 
-async function load() {
-  if (db) return db;
-  const snap = await DOC.get();
-  db = snap.exists ? { ...DEFAULTS, ...snap.data() } : { ...DEFAULTS };
-  return db;
+// In-memory cache keyed by uid. 1st-gen Cloud Functions handle one request at a time per
+// instance so the request-scoped globals below are safe to use without race conditions.
+const userDbs = {};
+const userDocRef = uid => firestore.collection('users').doc(uid);
+
+async function loadForUser(uid) {
+  if (userDbs[uid]) return userDbs[uid];
+  const snap = await userDocRef(uid).get();
+  if (snap.exists) {
+    userDbs[uid] = { ...DEFAULTS(), ...snap.data() };
+  } else {
+    // First login: auto-migrate from legacy single-user peak/state document
+    const legacy = await firestore.collection('peak').doc('state').get();
+    userDbs[uid] = legacy.exists ? { ...DEFAULTS(), ...legacy.data() } : DEFAULTS();
+    await userDocRef(uid).set(userDbs[uid]);
+  }
+  return userDbs[uid];
 }
-async function save() { if (db) await DOC.set(db); }
+
+// Request-scoped globals (safe because 1st gen = single concurrent request per instance)
+let db = null;
+let save = async () => {};
 
 const day = (d) => (d ? new Date(d) : new Date()).toISOString().slice(0, 10);
 const avg = (a) => (a.length ? a.reduce((x, y) => x + y, 0) / a.length : null);
 
-// ---------- Middleware: load state before every request ----------
-app.use(async (req, res, next) => { await load(); next(); });
+// ---------- Open webhook routes (iOS Health, Hevy, Strava OAuth) ----------
+// These are called by external services and can't carry a Firebase token.
+// They resolve the owner uid via PRESS_OWNER_UID env var, with legacy fallback.
+const OPEN_PATHS = ['/health', '/shortcut', '/hevy/webhook', '/strava/auth', '/strava/callback', '/setup'];
+
+async function loadOwner() {
+  const uid = process.env.PRESS_OWNER_UID;
+  if (uid) {
+    db = await loadForUser(uid);
+    save = async () => { await userDocRef(uid).set(db); };
+  } else {
+    // Legacy fallback: single-user peak/state document
+    const snap = await firestore.collection('peak').doc('state').get();
+    db = snap.exists ? { ...DEFAULTS(), ...snap.data() } : DEFAULTS();
+    save = async () => { await firestore.collection('peak').doc('state').set(db); };
+  }
+}
+
+// ---------- Auth middleware ----------
+app.use(async (req, res, next) => {
+  if (req.method === 'OPTIONS') return next();
+  if (OPEN_PATHS.some(p => req.path === p || req.path.startsWith(p + '/'))) {
+    await loadOwner();
+    return next();
+  }
+  const header = req.headers.authorization;
+  if (!header?.startsWith('Bearer ')) return res.status(401).json({ error: 'auth required' });
+  try {
+    const { uid } = await admin.auth().verifyIdToken(header.slice(7));
+    req.uid = uid;
+    db = await loadForUser(uid);
+    save = async () => { await userDocRef(uid).set(db); };
+    next();
+  } catch {
+    res.status(401).json({ error: 'invalid token' });
+  }
+});
+
+// ---------- Identity ----------
+app.get('/me', (req, res) => res.json({ uid: req.uid || null }));
 
 // ---------- Health Auto Export webhook ----------
 app.post("/health", async (req, res) => {

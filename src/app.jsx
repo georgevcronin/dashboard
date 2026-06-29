@@ -1,8 +1,41 @@
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import { createRoot } from "react-dom/client";
+import { initializeApp } from 'firebase/app';
+import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, onAuthStateChanged, signOut } from 'firebase/auth';
+
+const FIREBASE_CONFIG = {
+  apiKey: "AIzaSyDlVzSc9yow5GHbQipRWuYAZ5QTQ-jmXiY",
+  authDomain: "pressnewsletter.firebaseapp.com",
+  projectId: "pressnewsletter",
+  storageBucket: "pressnewsletter.firebasestorage.app",
+  messagingSenderId: "342853014013",
+  appId: "1:342853014013:web:0dd6fb5fe4e975921c8994",
+};
+const firebaseApp = initializeApp(FIREBASE_CONFIG);
+const auth = getAuth(firebaseApp);
 
 const API_BASE = "https://europe-west2-pressnewsletter.cloudfunctions.net/api";
-const api = p => fetch(`${API_BASE}/${p}`).then(r => r.json());
+
+const getToken = () => auth.currentUser ? auth.currentUser.getIdToken() : Promise.resolve(null);
+
+const api = async (path, opts = {}) => {
+  const token = await getToken();
+  const headers = {
+    'Content-Type': 'application/json',
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    ...(opts.headers || {}),
+  };
+  const r = await fetch(`${API_BASE}/${path}`, { ...opts, headers });
+  return r.json();
+};
+
+const authFetch = async (url, opts = {}) => {
+  const token = await getToken();
+  return fetch(url, {
+    ...opts,
+    headers: { ...(opts.headers || {}), ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+  });
+};
 
 // ── MUSCLE FATIGUE ──────────────────────────────────────────────────────────
 const MUSCLE_MAP = {
@@ -136,6 +169,21 @@ section.visible .fade:nth-child(6){transition-delay:.56s}
 .action-row{display:flex;gap:10px;margin-top:auto;padding-top:12px;border-top:1px solid var(--rule)}
 .action-btn{flex:1;font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.12em;text-transform:uppercase;padding:8px 12px;cursor:pointer;text-align:center;border:1px solid var(--ink);background:none;color:var(--ink)}
 .action-btn.primary{background:var(--ink);color:var(--paper)}
+.auth-wrap{min-height:100svh;background:var(--paper);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:32px 20px}
+.auth-rule{width:100%;max-width:380px;height:3px;background:var(--ink);margin-bottom:24px}
+.auth-logo{font-family:'Playfair Display',Georgia,serif;font-weight:900;font-size:clamp(40px,10vw,60px);letter-spacing:-.02em;color:var(--ink);margin-bottom:4px}
+.auth-tag{font-size:8px;letter-spacing:.22em;text-transform:uppercase;color:var(--dim);margin-bottom:32px}
+.auth-form{width:100%;max-width:380px;display:flex;flex-direction:column;gap:14px}
+.auth-field{display:flex;flex-direction:column;gap:5px}
+.auth-lbl{font-size:8px;letter-spacing:.18em;text-transform:uppercase;color:var(--dim)}
+.auth-input{font-family:'JetBrains Mono',monospace;font-size:13px;background:none;border:none;border-bottom:2px solid var(--ink);padding:6px 0;outline:none;color:var(--ink);width:100%}
+.auth-input::placeholder{color:var(--rule)}
+.auth-submit{margin-top:6px;font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.18em;text-transform:uppercase;padding:12px;background:var(--ink);color:var(--paper);border:none;cursor:pointer;width:100%}
+.auth-submit:disabled{opacity:.45;cursor:default}
+.auth-toggle{font-size:10px;color:var(--dim);text-align:center;margin-top:10px;font-style:italic}
+.auth-toggle span{color:var(--gold);cursor:pointer;text-decoration:underline}
+.auth-err{font-size:10px;color:var(--red);font-family:'JetBrains Mono',monospace;text-align:center;border:1px solid var(--red);padding:8px}
+.auth-rule-bottom{width:100%;max-width:380px;height:1px;background:var(--rule);margin-top:24px}
 `;
 
 // ── HELPERS ─────────────────────────────────────────────────────────────────
@@ -188,7 +236,7 @@ function BarChart({ data, color }) {
 }
 
 // ── HEADER ──────────────────────────────────────────────────────────────────
-function Header({ s }) {
+function Header({ s, onSignOut }) {
   const today = s?.today || {};
   const n = s?.nutritionToday || {};
   const mt = s?.macroTargets || {};
@@ -210,7 +258,13 @@ function Header({ s }) {
       <div className="masthead">
         <div className="mast-left">Vol. I &nbsp;·&nbsp; Est. 2026</div>
         <div className="mast-title">PRESS</div>
-        <div className="mast-right">{fmtDateShort()}<br />{s?.profile?.name || 'George'} V. Cronin</div>
+        <div className="mast-right" style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 3 }}>
+          <span>{fmtDateShort()}</span>
+          <span style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+            <span>{s?.profile?.name || 'George'} V. Cronin</span>
+            {onSignOut && <button onClick={onSignOut} style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 7, letterSpacing: '.14em', textTransform: 'uppercase', background: 'none', border: '1px solid var(--rule)', color: 'var(--dim)', padding: '2px 6px', cursor: 'pointer', lineHeight: 1.4 }}>Sign out</button>}
+          </span>
+        </div>
       </div>
       <div className="ticker-wrap">
         <div className="ticker-track">
@@ -548,7 +602,7 @@ function WorkoutLogger({ planDay, lifts, onClose, refresh }) {
     if (!planDay) return;
     const session = planDay.sessions?.[0];
     if (!session || session.type === 'rest') { setLoading(false); return; }
-    fetch(`${API_BASE}/plan/session-exercises`, {
+    authFetch(`${API_BASE}/plan/session-exercises`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ type: session.type, title: session.title, detail: session.detail, duration: session.duration }),
     }).then(r => r.json()).then(data => {
@@ -633,7 +687,7 @@ function WorkoutLogger({ planDay, lifts, onClose, refresh }) {
     })).filter(ex => ex.sets.length > 0);
     if (!valid.length) { onClose(); return; }
     setSaving(true);
-    await fetch(`${API_BASE}/workout/session`, {
+    await authFetch(`${API_BASE}/workout/session`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name: planDay?.sessions?.[0]?.title || 'Session', exercises: valid, duration: Math.round(elapsed / 60) }),
     });
@@ -978,7 +1032,7 @@ function HevyImport({ onClose, refresh }) {
       const batch = sessions.slice(i, i + IMPORT_BATCH);
       setProgress({ done: i, total, current: batch[0], imported: totalImported, skipped: totalSkipped });
 
-      const r = await fetch(`${API_BASE}/import/hevy`, {
+      const r = await authFetch(`${API_BASE}/import/hevy`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ sessions: batch }),
       }).then(r => r.json());
@@ -1126,7 +1180,7 @@ function S3({ s, onStartWorkout, onImport }) {
 
   const generatePlan = async () => {
     setGenning(true);
-    await fetch(`${API_BASE}/plan/week`, { method: 'POST' });
+    await authFetch(`${API_BASE}/plan/week`, { method: 'POST' });
     setGenning(false);
     window.location.reload();
   };
@@ -1390,15 +1444,78 @@ function S5({ s }) {
 }
 
 // ── APP ──────────────────────────────────────────────────────────────────────
+function LoginScreen() {
+  const [mode, setMode] = useState('signin'); // 'signin' | 'register'
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [err, setErr] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  const submit = async e => {
+    e.preventDefault();
+    setErr(''); setBusy(true);
+    try {
+      if (mode === 'signin') {
+        await signInWithEmailAndPassword(auth, email.trim(), password);
+      } else {
+        await createUserWithEmailAndPassword(auth, email.trim(), password);
+      }
+    } catch (ex) {
+      const msg = ex.code === 'auth/invalid-credential' ? 'Wrong email or password.'
+        : ex.code === 'auth/email-already-in-use' ? 'Account already exists — sign in instead.'
+        : ex.code === 'auth/weak-password' ? 'Password must be at least 6 characters.'
+        : ex.code === 'auth/invalid-email' ? 'Invalid email address.'
+        : ex.message;
+      setErr(msg);
+    } finally { setBusy(false); }
+  };
+
+  return (
+    <div className="auth-wrap">
+      <div className="auth-rule" />
+      <div className="auth-logo">PRESS</div>
+      <div className="auth-tag">Personal Health Operating System</div>
+      <form className="auth-form" onSubmit={submit}>
+        <div className="auth-field">
+          <label className="auth-lbl">Email</label>
+          <input className="auth-input" type="email" placeholder="you@example.com"
+            value={email} onChange={e => setEmail(e.target.value)} required autoComplete="email" />
+        </div>
+        <div className="auth-field">
+          <label className="auth-lbl">Password</label>
+          <input className="auth-input" type="password" placeholder="••••••••"
+            value={password} onChange={e => setPassword(e.target.value)} required autoComplete={mode === 'signin' ? 'current-password' : 'new-password'} />
+        </div>
+        {err && <div className="auth-err">{err}</div>}
+        <button className="auth-submit" type="submit" disabled={busy}>
+          {busy ? 'Please wait…' : mode === 'signin' ? 'Sign in' : 'Create account'}
+        </button>
+        <div className="auth-toggle">
+          {mode === 'signin'
+            ? <>New here? <span onClick={() => { setMode('register'); setErr(''); }}>Create an account</span></>
+            : <>Already have an account? <span onClick={() => { setMode('signin'); setErr(''); }}>Sign in</span></>}
+        </div>
+      </form>
+      <div className="auth-rule-bottom" />
+    </div>
+  );
+}
+
 function App() {
+  const [user, setUser] = useState(undefined); // undefined = checking, null = signed out
   const [s, setS] = useState(null);
   const [loggerPlanDay, setLoggerPlanDay] = useState(undefined);
   const loggerOpen = loggerPlanDay !== undefined;
   const [showImport, setShowImport] = useState(false);
 
+  useEffect(() => onAuthStateChanged(auth, u => setUser(u ?? null)), []);
+
   const refresh = data => { if (data) setS(data); else api('summary').then(setS).catch(console.error); };
 
-  useEffect(() => { api('summary').then(setS).catch(console.error); }, []);
+  useEffect(() => {
+    if (user) api('summary').then(setS).catch(console.error);
+    else setS(null);
+  }, [user]);
 
   useEffect(() => {
     const el = document.createElement('style');
@@ -1441,9 +1558,17 @@ function App() {
     return () => { obs.disconnect(); window.removeEventListener('keydown', onKey); };
   }, [s]);
 
+  if (user === undefined) return (
+    <div style={{ minHeight: '100svh', background: '#f5f0e2', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <div style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 11, letterSpacing: '.14em', textTransform: 'uppercase', color: '#8a7a5c' }}>Loading…</div>
+    </div>
+  );
+
+  if (!user) return <LoginScreen />;
+
   return (
     <>
-      <Header s={s} />
+      <Header s={s} onSignOut={() => signOut(auth)} />
       <nav className="sec-nav" id="sec-nav">
         {[0,1,2,3,4].map(i => (
           <div key={i} className="sn-dot" onClick={() => {
