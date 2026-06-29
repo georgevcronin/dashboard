@@ -965,14 +965,18 @@ function HevyImport({ onClose, refresh }) {
   };
 
   const doImport = async () => {
+    const total = sessions.length;
     setStatus('importing');
     setLog([]);
+    setProgress({ done: 0, total, imported: 0, skipped: 0, current: sessions[0] || null });
+    // yield so React paints the importing screen before any network requests
+    await new Promise(r => setTimeout(r, 80));
+
     let totalImported = 0, totalSkipped = 0;
-    const total = sessions.length;
 
     for (let i = 0; i < total; i += IMPORT_BATCH) {
       const batch = sessions.slice(i, i + IMPORT_BATCH);
-      setProgress(p => ({ ...p, done: i, total, current: batch[0], imported: totalImported, skipped: totalSkipped }));
+      setProgress({ done: i, total, current: batch[0], imported: totalImported, skipped: totalSkipped });
 
       const r = await fetch(`${API_BASE}/import/hevy`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
