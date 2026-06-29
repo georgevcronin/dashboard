@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useMemo } from "react";
 import { createRoot } from "react-dom/client";
 import { flushSync } from "react-dom";
 import { initializeApp } from 'firebase/app';
-import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, onAuthStateChanged, signOut, GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult } from 'firebase/auth';
+import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, onAuthStateChanged, signOut, GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult, setPersistence, browserLocalPersistence } from 'firebase/auth';
 
 const FIREBASE_CONFIG = {
   apiKey: "AIzaSyDlVzSc9yow5GHbQipRWuYAZ5QTQ-jmXiY",
@@ -19,6 +19,7 @@ const googleProvider = new GoogleAuthProvider();
 const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
 
 const signInWithGoogle = async () => {
+  await setPersistence(auth, browserLocalPersistence);
   if (isMobile) {
     await signInWithRedirect(auth, googleProvider);
     return;
@@ -26,7 +27,6 @@ const signInWithGoogle = async () => {
   try {
     await signInWithPopup(auth, googleProvider);
   } catch (e) {
-    // Any popup failure on desktop falls back to redirect
     await signInWithRedirect(auth, googleProvider);
   }
 };
@@ -1847,8 +1847,10 @@ function LoginScreen() {
   const [mode, setMode] = useState('signin');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
+  const redirectErr = sessionStorage.getItem('auth_redirect_error') || '';
+  const [err, setErr] = useState(redirectErr ? `Google sign-in failed: ${redirectErr}` : '');
+  useEffect(() => { sessionStorage.removeItem('auth_redirect_error'); }, []);
 
 
   const google = async () => {
@@ -1942,8 +1944,12 @@ function App() {
   const handleOnboardDone = () => { localStorage.setItem('press_onboarded', '1'); setOnboarded(true); };
 
   useEffect(() => {
-    // Handle redirect result immediately on load (Google Sign-In on mobile)
-    getRedirectResult(auth).catch(() => {});
+    getRedirectResult(auth)
+      .then(result => { if (result?.user) setUser(result.user); })
+      .catch(e => {
+        // Store error so LoginScreen can display it after redirect
+        sessionStorage.setItem('auth_redirect_error', e?.code || e?.message || 'unknown');
+      });
     return onAuthStateChanged(auth, u => setUser(u ?? null));
   }, []);
 
