@@ -514,39 +514,88 @@ app.post("/mentor", async (req, res) => {
   } catch (e) { res.json({ reply: "mentor error: " + e.message }); }
 });
 
+function computeProgression(lifts, name) {
+  const ex = lifts.filter(l => l.exercise === name);
+  if (!ex.length) return null;
+  const byDate = {};
+  for (const l of ex) { if (!byDate[l.date]) byDate[l.date] = []; byDate[l.date].push(l); }
+  const sessions = Object.entries(byDate).sort(([a],[b]) => a.localeCompare(b)).slice(-6).map(([date, sets]) => {
+    const topKg = Math.max(...sets.map(s => s.kg || 0));
+    const topSet = sets.find(s => s.kg === topKg) || sets[0];
+    const e1rm = topSet.kg > 0 && topSet.reps > 0 ? Math.round(topSet.kg * (1 + topSet.reps / 30)) : 0;
+    return { date, kg: topSet.kg, reps: topSet.reps, e1rm, setCount: sets.length };
+  });
+  const last = sessions.at(-1);
+  const prev = sessions.at(-2);
+  const isLower = ['squat','deadlift','leg press','lunge','hip thrust','romanian'].some(k => name.includes(k));
+  const inc = isLower ? 5 : 2.5;
+  let suggestKg = last.kg, suggestReps = last.reps, trend, note;
+  if (!prev) {
+    trend = 'baseline'; note = `baseline — ${last.kg}kg×${last.reps}`;
+  } else if (last.e1rm > prev.e1rm && last.reps >= 5) {
+    suggestKg = last.kg + inc; trend = 'progressing';
+    note = `progressing — try ${suggestKg}kg×${last.reps} (+${inc}kg)`;
+  } else if (last.e1rm >= prev.e1rm) {
+    suggestReps = last.reps + 1; trend = 'steady';
+    note = `steady — target ${last.kg}kg×${suggestReps} (+1 rep)`;
+  } else if (sessions.slice(-3).every((s, i, a) => i === 0 || s.e1rm <= a[i-1].e1rm)) {
+    suggestKg = Math.max(0, last.kg - inc * 2); trend = 'stalled';
+    note = `stalled — reset to ${suggestKg}kg and rebuild`;
+  } else {
+    trend = 'recovering'; note = `recovering — hold ${last.kg}kg×${last.reps}`;
+  }
+  const warmup1kg = Math.round(suggestKg * 0.5 / 2.5) * 2.5;
+  const warmup2kg = Math.round(suggestKg * 0.75 / 2.5) * 2.5;
+  const recentStr = sessions.slice(-3).map(s => `${s.date}: ${s.kg}kg×${s.reps} (e1RM ${s.e1rm})`).join(', ');
+  return { name, trend, note, suggestKg, suggestReps, warmup1kg, warmup2kg, setCount: last.setCount, recentStr };
+}
+
 app.post("/plan/session-exercises", async (req, res) => {
   const key = process.env.GROQ_API_KEY;
   if (!key) return res.json({ exercises: [] });
   const { type, title, detail, duration } = req.body;
   const bw = Object.values(db.weight || {}).at(-1) || 75;
-  const byEx = {};
-  for (const l of (db.lifts || []).slice(-120)) {
-    if (!byEx[l.exercise]) byEx[l.exercise] = [];
-    byEx[l.exercise].push(l);
-  }
-  const liftCtx = Object.entries(byEx).slice(0, 14).map(([ex, sets]) => {
-    const sorted = [...sets].sort((a, b) => a.date.localeCompare(b.date));
-    const last = sorted.at(-1);
-    return `${ex}: last ${last.kg}kg×${last.reps} (${sorted.length} sessions total)`;
-  }).join('; ');
-  const prompt = `Generate a specific exercise list for this training session.
+  const lifts = db.lifts || [];
+  const knownExercises = [...new Set(lifts.map(l => l.exercise).filter(Boolean))];
+  const progressions = knownExercises.map(n => computeProgression(lifts, n)).filter(Boolean);
+
+  const progressionCtx = progressions.map(p =>
+    `${p.name}: ${p.recentStr} → ${p.note} → USE ${p.suggestKg}kg×${p.suggestReps} for working sets`
+  ).join('\n');
+
+  const prompt = `You are building a precise workout plan. The progressive overload targets have been pre-computed from real training data — use them exactly.
+
 Session: ${title} (${type}, ${duration})
 Guidance: ${detail}
 Athlete: ${bw}kg bodyweight
-Lift history: ${liftCtx || 'no data yet'}
+
+PRE-COMPUTED PROGRESSIVE OVERLOAD TARGETS (use these weights exactly):
+${progressionCtx || 'No history yet — estimate beginner weights'}
+
+Instructions:
+- Select 3-5 exercises appropriate for "${title}" (${type} day)
+- For each chosen exercise, use the exact suggestKg and suggestReps from above
+- Add warm-up sets at ~50% and ~75% of working weight
+- Add 2-4 working sets at the suggested weight
+- If an exercise has no history, estimate reasonable beginner/intermediate weights
 
 Return ONLY valid JSON:
 {
   "exercises": [
-    { "name": "exercise name", "sets": [{"type":"W","kg":50,"reps":10},{"type":"N","kg":80,"reps":5},{"type":"N","kg":80,"reps":5}] }
+    {
+      "name": "exercise name",
+      "note": "progressing — up 2.5kg from last session",
+      "sets": [{"type":"W","kg":50,"reps":10},{"type":"W","kg":70,"reps":5},{"type":"N","kg":90,"reps":5},{"type":"N","kg":90,"reps":5},{"type":"N","kg":90,"reps":5}]
+    }
   ]
 }
-Rules: W=warm-up, N=normal, D=drop, F=failure. 3-6 exercises. Include 1-2 warm-up sets per compound lift. Suggest realistic weights from lift history. Lower body: +5kg increments. Upper: +2.5kg.`;
+Set types: W=warm-up, N=normal, D=drop, F=failure. Include the note field explaining the progression decision.`;
+
   try {
     const r = await fetch("https://api.groq.com/openai/v1/chat/completions", {
       method: "POST",
       headers: { "Content-Type": "application/json", "Authorization": "Bearer " + key },
-      body: JSON.stringify({ model: "llama-3.3-70b-versatile", max_tokens: 700, response_format: { type: "json_object" }, messages: [{ role: "user", content: prompt }] }),
+      body: JSON.stringify({ model: "llama-3.3-70b-versatile", max_tokens: 900, response_format: { type: "json_object" }, messages: [{ role: "user", content: prompt }] }),
     });
     const data = await r.json();
     res.json(JSON.parse(data.choices?.[0]?.message?.content || '{"exercises":[]}'));

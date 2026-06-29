@@ -551,19 +551,12 @@ function WorkoutLogger({ planDay, lifts, onClose, refresh }) {
       body: JSON.stringify({ type: session.type, title: session.title, detail: session.detail, duration: session.duration }),
     }).then(r => r.json()).then(data => {
       if (data.exercises?.length) {
-        setExercises(data.exercises.map(ex => {
-          const key = ex.name.toLowerCase().trim();
-          const prev = prevData[key];
-          return {
-            name: key, bw: false, note: '',
-            sets: ex.sets.map((s, idx) => ({
-              type: s.type || 'N',
-              kg: prev?.sets?.[idx] ? String(prev.sets[idx].kg) : String(s.kg || ''),
-              reps: String(s.reps || ''),
-              rir: '', done: false,
-            })),
-          };
-        }));
+        setExercises(data.exercises.map(ex => ({
+          name: ex.name.toLowerCase().trim(),
+          bw: false,
+          note: ex.note || '',
+          sets: ex.sets.map(s => ({ type: s.type || 'N', kg: String(s.kg || ''), reps: String(s.reps || ''), rir: '', done: false })),
+        })));
       }
       setLoading(false);
     }).catch(() => setLoading(false));
@@ -747,6 +740,13 @@ function WorkoutLogger({ planDay, lifts, onClose, refresh }) {
                 {progression && (
                   <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: progression.startsWith('↓') ? 'var(--ember)' : 'var(--forest)', marginBottom: 5 }}>
                     {progression}
+                  </div>
+                )}
+
+                {/* AI-generated progression note */}
+                {ex.note && (
+                  <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--navy)', marginBottom: 6, letterSpacing: '.04em' }}>
+                    {ex.note}
                   </div>
                 )}
 
