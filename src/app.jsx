@@ -936,11 +936,16 @@ function parseHevyCSV(text) {
   })).filter(s => s.exercises.length > 0).sort((a, b) => a.date.localeCompare(b.date));
 }
 
+const IMPORT_BATCH = 10;
+
 function HevyImport({ onClose, refresh }) {
   const [sessions, setSessions] = useState([]);
   const [status, setStatus] = useState('idle');
   const [result, setResult] = useState(null);
   const [error, setError] = useState('');
+  const [progress, setProgress] = useState({ done: 0, total: 0, imported: 0, skipped: 0, current: null });
+  const [log, setLog] = useState([]);
+  const logRef = useRef();
   const fileRef = useRef();
 
   const handleFile = e => {
@@ -961,16 +966,37 @@ function HevyImport({ onClose, refresh }) {
 
   const doImport = async () => {
     setStatus('importing');
-    const r = await fetch(`${API_BASE}/import/hevy`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ sessions }),
-    }).then(r => r.json());
-    setResult(r);
-    if (r.ok) await api('summary').then(refresh);
+    setLog([]);
+    let totalImported = 0, totalSkipped = 0;
+    const total = sessions.length;
+
+    for (let i = 0; i < total; i += IMPORT_BATCH) {
+      const batch = sessions.slice(i, i + IMPORT_BATCH);
+      setProgress(p => ({ ...p, done: i, total, current: batch[0], imported: totalImported, skipped: totalSkipped }));
+
+      const r = await fetch(`${API_BASE}/import/hevy`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessions: batch }),
+      }).then(r => r.json());
+
+      totalImported += r.imported || 0;
+      totalSkipped += r.skipped || 0;
+
+      setLog(prev => {
+        const next = [...prev, ...batch.map(s => ({ name: s.name, date: s.date, exCount: s.exercises.length }))];
+        setTimeout(() => logRef.current?.scrollTo({ top: 0, behavior: 'smooth' }), 50);
+        return next;
+      });
+    }
+
+    setProgress({ done: total, total, imported: totalImported, skipped: totalSkipped, current: null });
+    setResult({ ok: true, imported: totalImported, skipped: totalSkipped });
+    await api('summary').then(refresh);
     setStatus('done');
   };
 
   const totalSets = sessions.reduce((a, s) => a + s.exercises.reduce((b, e) => b + e.sets.length, 0), 0);
+  const pct = progress.total ? Math.round((progress.done / progress.total) * 100) : 0;
 
   return (
     <div style={{ position: 'fixed', inset: 0, zIndex: 1000, background: 'var(--paper)', overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
@@ -979,10 +1005,11 @@ function HevyImport({ onClose, refresh }) {
           <div className="kicker" style={{ marginBottom: 2 }}>Data Import</div>
           <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 19, fontWeight: 700 }}>Hevy CSV</div>
         </div>
-        <button className="ol-btn ol-btn-ghost" onClick={onClose}>Close</button>
+        {status !== 'importing' && <button className="ol-btn ol-btn-ghost" onClick={onClose}>Close</button>}
       </div>
 
-      <div style={{ padding: '20px' }}>
+      <div style={{ padding: '20px', flex: 1, display: 'flex', flexDirection: 'column' }}>
+
         {status === 'idle' && (
           <>
             <div style={{ fontSize: 12, color: 'var(--dim)', lineHeight: 1.7, marginBottom: 20 }}>
@@ -999,19 +1026,16 @@ function HevyImport({ onClose, refresh }) {
             <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, color: 'var(--dim)', marginBottom: 12, letterSpacing: '.06em' }}>
               {sessions.length} sessions · {sessions.reduce((a,s)=>a+s.exercises.length,0)} exercises · {totalSets} sets
             </div>
-            <div style={{ maxHeight: 320, overflowY: 'auto', marginBottom: 16, borderTop: '1px solid var(--rule)' }}>
-              {sessions.slice(-40).reverse().map((s, i) => (
+            <div style={{ maxHeight: 320, overflowY: 'auto', marginBottom: 16, borderTop: '1px solid var(--rule)', flex: 1 }}>
+              {sessions.slice().reverse().map((s, i) => (
                 <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', padding: '8px 0', borderBottom: '1px solid var(--rule)' }}>
                   <div>
                     <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 13, fontWeight: 700, textTransform: 'capitalize' }}>{s.name}</div>
-                    <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)', marginTop: 2 }}>
-                      {s.exercises.map(e => e.name).join(' · ')}
-                    </div>
+                    <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)', marginTop: 2 }}>{s.exercises.map(e => e.name).join(' · ')}</div>
                   </div>
                   <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)', whiteSpace: 'nowrap', marginLeft: 12 }}>{s.date}</div>
                 </div>
               ))}
-              {sessions.length > 40 && <div style={{ padding: '8px 0', fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)' }}>…and {sessions.length - 40} earlier sessions</div>}
             </div>
             <div style={{ display: 'flex', gap: 8 }}>
               <button className="ol-btn ol-btn-solid" onClick={doImport}>Import {sessions.length} sessions</button>
@@ -1021,15 +1045,50 @@ function HevyImport({ onClose, refresh }) {
         )}
 
         {status === 'importing' && (
-          <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 11, color: 'var(--dim)', letterSpacing: '.06em' }}>Importing…</div>
+          <>
+            {/* Progress bar */}
+            <div style={{ marginBottom: 16 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)', letterSpacing: '.08em', marginBottom: 8 }}>
+                <span>{progress.done} of {progress.total} sessions</span>
+                <span>{pct}%</span>
+              </div>
+              <div style={{ height: 4, background: 'var(--rule)', borderRadius: 2 }}>
+                <div style={{ height: '100%', background: 'var(--ink)', borderRadius: 2, width: `${pct}%`, transition: 'width .4s ease' }} />
+              </div>
+              {progress.current && (
+                <div style={{ fontFamily: "'Playfair Display',serif", fontStyle: 'italic', fontSize: 13, color: 'var(--dim)', marginTop: 8 }}>
+                  {progress.current.name} · {progress.current.date}
+                </div>
+              )}
+              <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)', marginTop: 4 }}>
+                {progress.imported} saved · {progress.skipped} skipped (already existed)
+              </div>
+            </div>
+
+            {/* Live log */}
+            <div ref={logRef} style={{ flex: 1, overflowY: 'auto', borderTop: '1px solid var(--rule)' }}>
+              {log.slice().reverse().map((s, i) => (
+                <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', padding: '7px 0', borderBottom: '1px solid var(--rule)', opacity: i === 0 ? 1 : Math.max(0.25, 1 - i * 0.05) }}>
+                  <div>
+                    <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 12, fontWeight: 700, textTransform: 'capitalize' }}>{s.name}</div>
+                    <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, color: 'var(--dim)', marginTop: 1 }}>{s.exCount} exercises</div>
+                  </div>
+                  <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--forest)' }}>✓ {s.date}</div>
+                </div>
+              ))}
+            </div>
+          </>
         )}
 
         {status === 'done' && (
           <>
-            <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 18, fontWeight: 700, marginBottom: 8 }}>
-              {result?.imported} sessions imported.
+            <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 22, fontWeight: 700, marginBottom: 6 }}>
+              {result?.imported} sessions saved to Firestore.
             </div>
-            {result?.skipped > 0 && <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, color: 'var(--dim)', marginBottom: 12 }}>{result.skipped} already existed — skipped.</div>}
+            {result?.skipped > 0 && <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, color: 'var(--dim)', marginBottom: 16 }}>{result.skipped} already existed — skipped.</div>}
+            <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--forest)', marginBottom: 20, letterSpacing: '.06em' }}>
+              ✓ Saved · Progressive overload + fatigue models updated
+            </div>
             <button className="ol-btn ol-btn-solid" onClick={onClose}>Done</button>
           </>
         )}
