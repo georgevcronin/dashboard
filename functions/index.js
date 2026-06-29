@@ -23,6 +23,43 @@ app.use((req, res, next) => {
   next();
 });
 
+const MUSCLE_MAP_B = {
+  'hack squat':['quads','glutes'],'squat':['quads','glutes','hamstrings'],
+  'leg press':['quads','glutes'],'leg curl':['hamstrings'],'leg extension':['quads'],
+  'lunge':['quads','glutes','hamstrings'],'hip thrust':['glutes'],'glute':['glutes'],
+  'deadlift':['hamstrings','glutes','erectors','lats'],'rdl':['hamstrings','glutes','erectors'],
+  'calf':['calves'],'pull up':['lats','biceps'],'chin up':['lats','biceps'],
+  'lat pulldown':['lats','biceps'],'row':['lats','rhomboids','biceps'],
+  'bench press':['chest','triceps','front-delt'],'chest press':['chest','triceps','front-delt'],
+  'fly':['chest','front-delt'],'dip':['chest','triceps'],
+  'overhead press':['front-delt','triceps'],'shoulder press':['front-delt','triceps'],
+  'lateral raise':['rear-delt'],'face pull':['rear-delt','rhomboids'],
+  'tricep':['triceps'],'bicep':['biceps'],'curl':['biceps'],
+  'ab':['abs'],'crunch':['abs'],'plank':['abs'],'oblique':['obliques'],
+  'shrug':['traps'],'forearm':['forearms'],'wrist':['forearms'],
+};
+
+function musclePeaksFromLifts(lifts) {
+  const byDate = {};
+  for (const l of (lifts || [])) {
+    if (!byDate[l.date]) byDate[l.date] = [];
+    byDate[l.date].push(l);
+  }
+  const peaks = {};
+  for (const dayLifts of Object.values(byDate)) {
+    const day = {};
+    for (const l of dayLifts) {
+      const name = (l.exercise || '').toLowerCase();
+      const load = (l.kg || 0) * (l.reps || 1);
+      for (const [key, muscles] of Object.entries(MUSCLE_MAP_B)) {
+        if (name.includes(key)) { muscles.forEach(m => { day[m] = (day[m] || 0) + load; }); break; }
+      }
+    }
+    for (const [m, v] of Object.entries(day)) { if (v > (peaks[m] || 0)) peaks[m] = v; }
+  }
+  return peaks;
+}
+
 // ---------- Firestore-backed state (cached in memory) ----------
 let db = null;
 const DEFAULTS = {
@@ -396,6 +433,7 @@ app.get("/summary", async (req, res) => {
     baselines: { hrv: baseHRV && Math.round(baseHRV), rhr: baseRHR && Math.round(baseRHR) },
     composition: compVerdict(weights, db.lifts),
     waterStats: { streak, avg: waterDays.length ? Math.round(avg(waterDays) * 10) / 10 : 0, hitRate: waterDays.length ? Math.round((waterDays.filter(v => v >= target).length / waterDays.length) * 100) : 0, best: waterDays.length ? Math.max(...waterDays) : 0 },
+    musclePeaks: musclePeaksFromLifts(db.lifts),
     weights, workouts: [...db.workouts].sort((a,b)=>(b.date||'').localeCompare(a.date||'')).slice(0,20), workoutsMonth: monthWk.length,
     water: lastN(db.water, 14), waterToday: db.water[day()] || 0,
     weeklyPlan: db.weeklyPlan || null,

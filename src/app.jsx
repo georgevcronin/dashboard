@@ -28,7 +28,7 @@ const RECOVERY_H = {
   traps: 48, erectors: 72, abs: 36, obliques: 36,
   'front-delt': 48, 'rear-delt': 48, forearms: 36, neck: 24,
 };
-function computeFatigue(lifts) {
+function computeFatigue(lifts, musclePeaks) {
   if (!lifts?.length) return {};
   const now = Date.now();
   const scores = {};
@@ -48,9 +48,11 @@ function computeFatigue(lifts) {
       }
     }
   });
-  const max = Math.max(...Object.values(scores), 1);
   const out = {};
-  Object.entries(scores).forEach(([m, v]) => { out[m] = Math.min(100, Math.round(v / max * 100)); });
+  Object.entries(scores).forEach(([m, v]) => {
+    const peak = musclePeaks?.[m] || 2000;
+    out[m] = Math.min(100, Math.round(v / peak * 100));
+  });
   return out;
 }
 
@@ -234,7 +236,7 @@ function S1({ s }) {
   const sleep = today.sleepH;
   const sleepEff = today.sleepEff;
   const sleepDebt = s?.sleepDebtH ?? 0;
-  const fatigue = useMemo(() => computeFatigue(s?.lifts), [s?.lifts]);
+  const fatigue = useMemo(() => computeFatigue(s?.lifts, s?.musclePeaks), [s?.lifts]);
   const fatigueVals = Object.values(fatigue);
   const overallFatigue = fatigueVals.length ? Math.round(fatigueVals.reduce((a,b) => a+b, 0) / fatigueVals.length) : null;
   const steps = today.steps != null ? Math.round(today.steps * 1000) : null;
@@ -1213,7 +1215,7 @@ const ALL_MUSCLES = ['glutes','quads','hamstrings','adductors','calves','erector
 function S5({ s }) {
   const antRef = useRef(), latRef = useRef(), postRef = useRef();
   const [svgsReady, setSvgsReady] = useState(false);
-  const fatigue = useMemo(() => computeFatigue(s?.lifts), [s?.lifts]);
+  const fatigue = useMemo(() => computeFatigue(s?.lifts, s?.musclePeaks), [s?.lifts]);
 
   useEffect(() => {
     Promise.all([
