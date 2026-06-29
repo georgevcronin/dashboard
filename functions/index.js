@@ -1,9 +1,16 @@
 const functions = require("firebase-functions");
 const admin = require("firebase-admin");
 const express = require("express");
+const webpush = require("web-push");
 
 admin.initializeApp();
 const firestore = admin.firestore();
+
+const VAPID_PUBLIC = process.env.VAPID_PUBLIC_KEY;
+const VAPID_PRIVATE = process.env.VAPID_PRIVATE_KEY;
+if (VAPID_PUBLIC && VAPID_PRIVATE) {
+  webpush.setVapidDetails('mailto:georgevcronin@gmail.com', VAPID_PUBLIC, VAPID_PRIVATE);
+}
 
 const app = express();
 app.use(express.json({ limit: "10mb" }));
@@ -574,10 +581,13 @@ app.post("/nutrition", async (req, res) => {
 app.post("/nutrition/analyze", async (req, res) => {
   const key = process.env.GROQ_API_KEY;
   if (!key) return res.status(400).json({ error: 'GROQ_API_KEY not set' });
-  const { imageBase64 } = req.body;
+  const { imageBase64, mode } = req.body;
   if (!imageBase64) return res.status(400).json({ error: 'imageBase64 required' });
   const mimeMatch = imageBase64.match(/^data:(image\/\w+);base64,/);
   const dataUrl = mimeMatch ? imageBase64 : `data:image/jpeg;base64,${imageBase64}`;
+  const labelPrompt = 'Read this nutrition label precisely. Return ONLY valid JSON: {"description":"product name","calories":0,"protein":0,"carbs":0,"fat":0}. Use per-serving values. All numbers as integers.';
+  const mealPrompt = 'Analyse this meal photo. Estimate nutritional content for the whole plate. Return ONLY valid JSON: {"description":"brief meal description","calories":0,"protein":0,"carbs":0,"fat":0}. All numbers as integers.';
+  const promptText = mode === 'label' ? labelPrompt : mealPrompt;
   try {
     const r = await fetch('https://api.groq.com/openai/v1/chat/completions', {
       method: 'POST',
@@ -590,7 +600,7 @@ app.post("/nutrition/analyze", async (req, res) => {
           role: 'user',
           content: [
             { type: 'image_url', image_url: { url: dataUrl } },
-            { type: 'text', text: 'Analyse this meal photo. Estimate nutritional content. Return ONLY valid JSON: {"description":"brief meal description","calories":0,"protein":0,"carbs":0,"fat":0}. All numbers as integers.' }
+            { type: 'text', text: promptText }
           ]
         }]
       })
@@ -924,6 +934,32 @@ app.post("/soreness", async (req, res) => {
   }
   await save();
   res.json({ ok: true, muscleSensitivity: db.muscleSensitivity });
+});
+
+// ---------- Push notifications ----------
+app.get("/push/vapid-public-key", (req, res) => {
+  res.json({ key: VAPID_PUBLIC || null });
+});
+
+app.post("/push/subscribe", async (req, res) => {
+  const { subscription } = req.body;
+  if (!subscription?.endpoint) return res.status(400).json({ error: 'subscription required' });
+  db.pushSubscriptions = db.pushSubscriptions || [];
+  const exists = db.pushSubscriptions.find(s => s.endpoint === subscription.endpoint);
+  if (!exists) db.pushSubscriptions.push(subscription);
+  await save();
+  res.json({ ok: true });
+});
+
+app.post("/push/send", async (req, res) => {
+  if (!VAPID_PUBLIC || !VAPID_PRIVATE) return res.status(400).json({ error: 'VAPID not configured' });
+  const { title, body } = req.body;
+  const subs = db.pushSubscriptions || [];
+  if (!subs.length) return res.json({ sent: 0, message: 'no subscribers' });
+  const results = await Promise.allSettled(subs.map(sub =>
+    webpush.sendNotification(sub, JSON.stringify({ title: title || 'Press', body: body || '' }))
+  ));
+  res.json({ sent: results.filter(r => r.status === 'fulfilled').length });
 });
 
 app.put("/muscle-sensitivity", async (req, res) => {

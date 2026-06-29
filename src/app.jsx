@@ -224,6 +224,38 @@ section.visible .fade:nth-child(6){transition-delay:.56s}
 .nutri-input.wide{flex:1}.nutri-input.narrow{width:52px;text-align:right}
 .nutri-photo-btn{font-family:'JetBrains Mono',monospace;font-size:8px;letter-spacing:.12em;text-transform:uppercase;padding:6px 12px;cursor:pointer;border:1px solid var(--rule);background:none;color:var(--dim)}
 .nutri-submit-btn{font-family:'JetBrains Mono',monospace;font-size:8px;letter-spacing:.12em;text-transform:uppercase;padding:6px 12px;cursor:pointer;background:var(--ink);color:var(--paper);border:none}
+.chat-bubble{position:fixed;bottom:24px;right:20px;z-index:500;width:44px;height:44px;border-radius:50%;background:var(--ink);color:var(--paper);border:none;cursor:pointer;font-size:16px;display:flex;align-items:center;justify-content:center;font-family:'JetBrains Mono',monospace;box-shadow:0 2px 12px rgba(0,0,0,.18)}
+.chat-panel{position:fixed;right:0;top:0;bottom:0;width:min(380px,100vw);background:var(--paper);border-left:3px solid var(--ink);z-index:600;display:flex;flex-direction:column}
+.chat-hdr{padding:14px 16px;border-bottom:2px solid var(--ink);display:flex;align-items:center;justify-content:space-between;flex-shrink:0}
+.chat-msgs{flex:1;overflow-y:auto;padding:14px 14px 8px;display:flex;flex-direction:column;gap:10px}
+.chat-msg-user{align-self:flex-end;background:var(--ink);color:var(--paper);padding:8px 12px;max-width:82%;font-size:13px;line-height:1.5}
+.chat-msg-asst{align-self:flex-start;background:var(--paper2);border:1px solid var(--rule);padding:8px 12px;max-width:82%;font-size:13px;line-height:1.5;color:var(--ink)}
+.chat-msg-thinking{align-self:flex-start;font-size:11px;color:var(--dim);font-style:italic;font-family:'JetBrains Mono',monospace}
+.chat-input-row{display:flex;border-top:2px solid var(--ink);flex-shrink:0}
+.chat-input{flex:1;border:none;padding:12px 14px;font-family:'JetBrains Mono',monospace;font-size:13px;outline:none;background:var(--paper);color:var(--ink)}
+.chat-send{font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.14em;text-transform:uppercase;padding:0 16px;background:var(--ink);color:var(--paper);border:none;cursor:pointer;flex-shrink:0}
+.hist-overlay{position:fixed;inset:0;z-index:1000;background:var(--paper);overflow-y:auto;display:flex;flex-direction:column}
+.hist-row{padding:12px 0;border-bottom:1px solid var(--rule);cursor:pointer}
+.hist-row-hdr{display:flex;align-items:baseline;gap:12px}
+.hist-date{font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--dim)}
+.hist-name{font-family:'Playfair Display',serif;font-size:16px;font-weight:700;color:var(--ink);text-transform:capitalize}
+.hist-detail{margin-top:6px;padding-left:12px}
+.hist-ex{font-size:11px;color:var(--dim);font-family:'JetBrains Mono',monospace;margin-bottom:2px}
+.streak-row{display:flex;gap:0;border-top:1px solid var(--rule);border-bottom:1px solid var(--rule);margin:10px 0}
+.streak-cell{flex:1;padding:8px 0;text-align:center;border-right:1px solid var(--rule)}
+.streak-cell:last-child{border-right:none}
+.streak-num{font-family:'Syne',sans-serif;font-weight:800;font-size:22px;line-height:1}
+.streak-lbl{font-size:7px;letter-spacing:.16em;text-transform:uppercase;color:var(--dim);margin-top:2px}
+.sleep-debt-bar{padding:10px 0 6px;border-left:3px solid var(--ember);padding-left:10px;margin:10px 0}
+.notif-row{display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--rule)}
+.scan-preview{width:72px;height:72px;object-fit:cover;border:1px solid var(--rule);flex-shrink:0}
+.scan-preview.analysing{animation:pulse-opacity 1.4s ease-in-out infinite}
+@keyframes pulse-opacity{0%,100%{opacity:1}50%{opacity:.35}}
+.scan-mode-toggle{display:flex;border:1px solid var(--rule);overflow:hidden;margin-bottom:10px}
+.scan-mode-btn{flex:1;font-family:'JetBrains Mono',monospace;font-size:8px;letter-spacing:.12em;text-transform:uppercase;padding:6px;border:none;background:none;cursor:pointer;color:var(--dim)}
+.scan-mode-btn.active{background:var(--ink);color:var(--paper)}
+.portion-row{display:flex;align-items:center;gap:10px;margin:6px 0}
+.portion-btn{width:24px;height:24px;border:1px solid var(--rule);background:none;cursor:pointer;font-family:'JetBrains Mono',monospace;font-size:14px;display:flex;align-items:center;justify-content:center;color:var(--ink)}
 `;
 
 // ── HELPERS ─────────────────────────────────────────────────────────────────
@@ -325,6 +357,44 @@ function Header({ s, onSignOut }) {
 function S1({ s }) {
   const today = s?.today || {};
   const recovery = today.recovery ?? s?.recoveryTrend?.at(-1) ?? null;
+
+  const trainingStreak = useMemo(() => {
+    const dates = new Set((s?.workouts || []).map(w => w.date));
+    let streak = 0; const d = new Date();
+    const todayStr = d.toISOString().slice(0, 10);
+    if (!dates.has(todayStr)) d.setDate(d.getDate() - 1);
+    while (true) {
+      const k = d.toISOString().slice(0, 10);
+      if (!dates.has(k)) break;
+      streak++; d.setDate(d.getDate() - 1);
+    }
+    return streak;
+  }, [s?.workouts]);
+
+  const waterStreak = useMemo(() => {
+    const target = s?.profile?.waterTarget || 7;
+    let streak = 0; const d = new Date();
+    d.setDate(d.getDate() - 1);
+    while (true) {
+      const k = d.toISOString().slice(0, 10);
+      const v = (s?.water || []).find?.(w => w.date === k)?.value ?? (s?.water?.[k]);
+      if (!v || v < target) break;
+      streak++; d.setDate(d.getDate() - 1);
+    }
+    return streak;
+  }, [s?.water, s?.profile?.waterTarget]);
+
+  const sleepStreak = useMemo(() => {
+    const target = s?.sleepTarget || 8;
+    const series = s?.sleepSeries || [];
+    if (!series.length) return 0;
+    let streak = 0;
+    for (let i = series.length - 1; i >= 0; i--) {
+      if (series[i] >= target * 0.9) streak++;
+      else break;
+    }
+    return streak;
+  }, [s?.sleepSeries, s?.sleepTarget]);
   const hrv = today.hrv;
   const rhr = today.rhr;
   const sleep = today.sleepH;
@@ -428,6 +498,37 @@ function S1({ s }) {
         })}
       </div>
 
+      {/* Streaks row */}
+      <div className="streak-row fade" style={{ flexShrink: 0 }}>
+        {[
+          { label: 'Training Streak', val: trainingStreak },
+          { label: 'Water Streak', val: waterStreak },
+          { label: 'Sleep Streak', val: sleepStreak },
+        ].map(({ label, val }) => (
+          <div key={label} className="streak-cell">
+            <div className="streak-num" style={{ color: val > 7 ? 'var(--forest)' : val > 3 ? 'var(--gold)' : 'var(--ink)' }}>{val}</div>
+            <div className="streak-lbl">{label}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Sleep debt */}
+      {sleepDebt > 0 && (
+        <div className="sleep-debt-bar fade" style={{ flexShrink: 0, borderLeftColor: sleepDebt > 1 ? 'var(--red)' : 'var(--gold)' }}>
+          <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 11, fontWeight: 600, color: sleepDebt > 1 ? 'var(--red)' : 'var(--gold)' }}>
+            {sleepDebt.toFixed(1)}h sleep debt
+          </div>
+          <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)', marginTop: 2 }}>
+            {sleepDebt > 1 ? 'Prioritise 9h tonight to recover' : 'Slight deficit — aim for full sleep tonight'}
+          </div>
+        </div>
+      )}
+      {sleepDebt === 0 && (
+        <div className="sleep-debt-bar fade" style={{ flexShrink: 0, borderLeftColor: 'var(--forest)' }}>
+          <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, color: 'var(--forest)' }}>Sleep debt clear</div>
+        </div>
+      )}
+
       {/* Pull quote */}
       <div className="pull fade" style={{ margin: '10px 0 0', fontSize: 'clamp(12px,3vw,15px)' }}
         dangerouslySetInnerHTML={{ __html: thought
@@ -464,10 +565,29 @@ function S2({ s }) {
             : 'Sleep debt cleared. Maintain consistent bedtimes to hold this position.'}
         </div>
       </div>
-      <div className="chart-wrap fade" style={{ flex: 1, minHeight: 0 }}>
-        {series.length
-          ? <AreaChart data={series} color="#1a2f54" id="sleep" />
-          : <div style={{ color: 'var(--dim)', fontStyle: 'italic', fontSize: 13, padding: '20px 0' }}>Sleep data syncing.</div>}
+      <div className="chart-wrap fade" style={{ flex: 1, minHeight: 0, position: 'relative' }}>
+        {series.length ? (
+          <>
+            <AreaChart data={series} color="#1a2f54" id="sleep" />
+            {/* Target reference line overlay */}
+            {(() => {
+              const mn = Math.min(...series), mx = Math.max(...series), rng = (mx - mn) || 1;
+              const lo = mn - rng * 0.07, r = (mx + rng * 0.07) - lo;
+              const tgtY = 100 - ((sleepTarget - lo) / r * 100);
+              if (tgtY < 0 || tgtY > 100) return null;
+              return (
+                <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}>
+                  <svg viewBox="0 0 320 100" style={{ width: '100%', height: '100%', position: 'absolute', inset: 0 }} preserveAspectRatio="none">
+                    <line x1="0" y1={tgtY} x2="320" y2={tgtY} stroke="var(--gold)" strokeWidth="1" strokeDasharray="4,4" opacity="0.7" />
+                    <text x="4" y={tgtY - 3} fontSize="7" fill="var(--gold)" fontFamily="JetBrains Mono,monospace" opacity="0.9">target {sleepTarget}h</text>
+                  </svg>
+                </div>
+              );
+            })()}
+          </>
+        ) : (
+          <div style={{ color: 'var(--dim)', fontStyle: 'italic', fontSize: 13, padding: '20px 0' }}>Sleep data syncing.</div>
+        )}
       </div>
       <div className="fade">
         <div className="stat-cols stat-cols-4" style={{ borderTop: '1px solid var(--rule)', paddingTop: 10 }}>
@@ -1196,8 +1316,76 @@ function HevyImport({ onClose, refresh }) {
   );
 }
 
+// ── WORKOUT HISTORY ───────────────────────────────────────────────────────────
+function WorkoutHistory({ s, onClose }) {
+  const [expanded, setExpanded] = useState(null);
+  const workouts = useMemo(() => {
+    return [...(s?.workouts || [])].sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+  }, [s?.workouts]);
+
+  const lifts = s?.lifts || [];
+
+  const getExerciseSummary = (date) => {
+    const dayLifts = lifts.filter(l => l.date === date);
+    const byEx = {};
+    dayLifts.forEach(l => {
+      if (!byEx[l.exercise]) byEx[l.exercise] = { sets: 0, maxKg: 0 };
+      byEx[l.exercise].sets++;
+      if (l.kg > byEx[l.exercise].maxKg) byEx[l.exercise].maxKg = l.kg;
+    });
+    return Object.entries(byEx).map(([ex, data]) => ({ ex, sets: data.sets, maxKg: data.maxKg }));
+  };
+
+  return (
+    <div className="hist-overlay">
+      <div className="ol-hdr">
+        <div>
+          <div className="kicker" style={{ marginBottom: 2 }}>Training</div>
+          <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 19, fontWeight: 700 }}>Workout History</div>
+        </div>
+        <button className="ol-btn ol-btn-ghost" onClick={onClose}>Close</button>
+      </div>
+      <div style={{ padding: '0 20px 20px', flex: 1 }}>
+        {workouts.length === 0 && (
+          <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 11, color: 'var(--dim)', padding: '24px 0', fontStyle: 'italic' }}>
+            No workouts logged yet.
+          </div>
+        )}
+        {workouts.map((w, i) => {
+          const isOpen = expanded === i;
+          const exercises = getExerciseSummary(w.date);
+          return (
+            <div key={i} className="hist-row" onClick={() => setExpanded(isOpen ? null : i)}>
+              <div className="hist-row-hdr">
+                <span className="hist-date">{w.date}</span>
+                <span className="hist-name">{w.name || 'Session'}</span>
+                {w.duration && <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)' }}>{w.duration}min</span>}
+                <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)', marginLeft: 'auto' }}>{isOpen ? '▲' : '▸'}</span>
+              </div>
+              {isOpen && exercises.length > 0 && (
+                <div className="hist-detail">
+                  {exercises.map(({ ex, sets, maxKg }) => (
+                    <div key={ex} className="hist-ex">
+                      {ex}: {sets} set{sets !== 1 ? 's' : ''}{maxKg > 0 ? ` · ${maxKg}kg peak` : ''}
+                    </div>
+                  ))}
+                </div>
+              )}
+              {isOpen && exercises.length === 0 && (
+                <div className="hist-detail">
+                  <div className="hist-ex" style={{ fontStyle: 'italic' }}>No lift data for this session.</div>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 // ── S3: TRAINING ──────────────────────────────────────────────────────────────
-function S3({ s, onStartWorkout, onImport }) {
+function S3({ s, onStartWorkout, onImport, onHistory }) {
   const workouts = s?.workouts || [];
   const lifts = s?.lifts || [];
   const liftVol = s?.liftVolume || [];
@@ -1291,10 +1479,11 @@ function S3({ s, onStartWorkout, onImport }) {
             <button className="action-btn primary" onClick={() => onStartWorkout(null)}>Start Workout</button>
           </div>
         )}
-        <div style={{ borderTop: '1px solid var(--rule)', paddingTop: 8, marginTop: 4, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <button onClick={onImport} style={{ background: 'none', border: 'none', fontFamily: "'JetBrains Mono',monospace", fontSize: 9, letterSpacing: '.1em', textTransform: 'uppercase', color: 'var(--dim)', cursor: 'pointer', padding: 0 }}>Import from Hevy</button>
+        <div style={{ borderTop: '1px solid var(--rule)', paddingTop: 8, marginTop: 4, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+          <button onClick={onImport} style={{ background: 'none', border: 'none', fontFamily: "'JetBrains Mono',monospace", fontSize: 9, letterSpacing: '.1em', textTransform: 'uppercase', color: 'var(--dim)', cursor: 'pointer', padding: 0 }}>Import Hevy</button>
+          <button onClick={onHistory} style={{ background: 'none', border: 'none', fontFamily: "'JetBrains Mono',monospace", fontSize: 9, letterSpacing: '.1em', textTransform: 'uppercase', color: 'var(--dim)', cursor: 'pointer', padding: 0 }}>History</button>
           {s?.stravaConnected
-            ? <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, letterSpacing: '.08em', color: 'var(--forest)' }}>Strava Connected</span>
+            ? <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, letterSpacing: '.08em', color: 'var(--forest)' }}>Strava</span>
             : <button onClick={() => { window.location.href = `${API_BASE}/strava/auth`; }} style={{ background: 'none', border: '1px solid var(--rule)', fontFamily: "'JetBrains Mono',monospace", fontSize: 8, letterSpacing: '.1em', textTransform: 'uppercase', color: 'var(--dim)', cursor: 'pointer', padding: '4px 10px' }}>Connect Strava</button>
           }
         </div>
@@ -1325,25 +1514,45 @@ function S4({ s, refresh }) {
   const [analysing, setAnalysing] = useState(false);
   const [description, setDescription] = useState('');
   const [logging, setLogging] = useState(false);
+  const [photoPreview, setPhotoPreview] = useState(null);
+  const [scanMode, setScanMode] = useState('meal');
+  const [portion, setPortion] = useState(1);
+  const [analysed, setAnalysed] = useState(false);
   const photoRef = useRef();
+  const baseNutrition = useRef({ calories: 0, protein: 0, carbs: 0, fat: 0 });
+
+  const applyPortion = (mult, base) => {
+    setCalories(base.calories ? String(Math.round(base.calories * mult)) : '');
+    setProtein(base.protein ? String(Math.round(base.protein * mult)) : '');
+    setCarbs(base.carbs ? String(Math.round(base.carbs * mult)) : '');
+    setFat(base.fat ? String(Math.round(base.fat * mult)) : '');
+  };
 
   const handlePhoto = async e => {
     const file = e.target.files?.[0];
     if (!file) return;
-    setAnalysing(true); setDescription('');
+    setAnalysing(true); setDescription(''); setAnalysed(false);
+    const previewUrl = URL.createObjectURL(file);
+    setPhotoPreview(previewUrl);
     const reader = new FileReader();
     reader.onload = async ev => {
       try {
         const data = await api('nutrition/analyze', {
           method: 'POST',
-          body: JSON.stringify({ imageBase64: ev.target.result }),
+          body: JSON.stringify({ imageBase64: ev.target.result, mode: scanMode }),
         });
+        const base = {
+          calories: data.calories || 0,
+          protein: data.protein || 0,
+          carbs: data.carbs || 0,
+          fat: data.fat || 0,
+        };
+        baseNutrition.current = base;
         if (data.description) setDescription(data.description);
-        if (data.calories) setCalories(String(data.calories));
-        if (data.protein)  setProtein(String(data.protein));
-        if (data.carbs)    setCarbs(String(data.carbs));
-        if (data.fat)      setFat(String(data.fat));
+        setPortion(1);
+        applyPortion(1, base);
         if (!label && data.description) setLabel(data.description.slice(0, 40));
+        setAnalysed(true);
       } catch {}
       setAnalysing(false);
     };
@@ -1396,12 +1605,33 @@ function S4({ s, refresh }) {
 
         {/* Photo analysis */}
         <input ref={photoRef} type="file" accept="image/*" capture="environment" style={{ display: 'none' }} onChange={handlePhoto} />
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-          <button className="nutri-photo-btn" onClick={() => photoRef.current?.click()} disabled={analysing}>
-            {analysing ? 'Analysing…' : 'Analyse Photo'}
-          </button>
-          {description && <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{description}</span>}
+        <div className="scan-mode-toggle">
+          <button className={`scan-mode-btn${scanMode === 'meal' ? ' active' : ''}`} onClick={() => setScanMode('meal')}>Meal Photo</button>
+          <button className={`scan-mode-btn${scanMode === 'label' ? ' active' : ''}`} onClick={() => setScanMode('label')}>Nutrition Label</button>
         </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+          {photoPreview && (
+            <img src={photoPreview} className={`scan-preview${analysing ? ' analysing' : ''}`} alt="scan preview" />
+          )}
+          <div style={{ flex: 1 }}>
+            <button className="nutri-photo-btn" onClick={() => photoRef.current?.click()} disabled={analysing}>
+              {analysing ? 'Analysing…' : photoPreview ? 'Scan Again' : 'Scan Photo'}
+            </button>
+            {description && <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)', marginTop: 4, lineHeight: 1.4 }}>{description}</div>}
+          </div>
+        </div>
+        {analysed && (
+          <div className="portion-row">
+            <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)', letterSpacing: '.08em' }}>Portion:</span>
+            {[0.5, 1, 1.5, 2].map(m => (
+              <button key={m} className="portion-btn"
+                style={{ background: portion === m ? 'var(--ink)' : 'none', color: portion === m ? 'var(--paper)' : 'var(--ink)' }}
+                onClick={() => { setPortion(m); applyPortion(m, baseNutrition.current); }}>
+                ×{m}
+              </button>
+            ))}
+          </div>
+        )}
 
         {/* Manual log form */}
         <div className="nutri-log-form">
@@ -1419,6 +1649,11 @@ function S4({ s, refresh }) {
               {logging ? '…' : 'Log'}
             </button>
           </div>
+          {analysed && (
+            <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)', fontStyle: 'italic', marginTop: 4 }}>
+              AI estimate — verify against actual label
+            </div>
+          )}
         </div>
 
         {/* Today's meal log */}
@@ -1634,6 +1869,33 @@ function S6({ s, onSignOut, refresh }) {
   const [weightVal, setWeightVal] = useState('');
   const [bfVal, setBfVal] = useState('');
   const [saving, setSaving] = useState('');
+  const [notifPermission, setNotifPermission] = useState(() =>
+    typeof Notification !== 'undefined' ? Notification.permission : 'unsupported'
+  );
+
+  const enableNotifications = async () => {
+    if (typeof Notification === 'undefined') return;
+    const perm = await Notification.requestPermission();
+    setNotifPermission(perm);
+    if (perm !== 'granted') return;
+    if (!('serviceWorker' in navigator) || !('PushManager' in window)) return;
+    try {
+      const reg = await navigator.serviceWorker.register('/sw.js');
+      const keyRes = await api('push/vapid-public-key');
+      if (!keyRes.key) return;
+      const urlBase64ToUint8Array = b64 => {
+        const padding = '='.repeat((4 - b64.length % 4) % 4);
+        const base64 = (b64 + padding).replace(/-/g, '+').replace(/_/g, '/');
+        const rawData = window.atob(base64);
+        return Uint8Array.from([...rawData].map(c => c.charCodeAt(0)));
+      };
+      const sub = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(keyRes.key),
+      });
+      await api('push/subscribe', { method: 'POST', body: JSON.stringify({ subscription: sub }) });
+    } catch (err) { console.error('push subscribe failed', err); }
+  };
 
   const saveField = async (endpoint, body) => {
     setSaving(endpoint);
@@ -1750,6 +2012,24 @@ function S6({ s, onSignOut, refresh }) {
 
         <div className="rule-thin" />
 
+        {/* Push notifications */}
+        <div className="notif-row">
+          <div>
+            <div className="kicker" style={{ margin: 0 }}>Push Notifications</div>
+            <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)', marginTop: 3 }}>
+              {notifPermission === 'granted' ? 'Enabled' : notifPermission === 'denied' ? 'Blocked in browser settings' : notifPermission === 'unsupported' ? 'Not supported' : 'Not enabled'}
+            </div>
+          </div>
+          {notifPermission !== 'granted' && notifPermission !== 'denied' && notifPermission !== 'unsupported' && (
+            <button className="prof-btn" onClick={enableNotifications}>Enable</button>
+          )}
+          {notifPermission === 'granted' && (
+            <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--forest)' }}>Active</span>
+          )}
+        </div>
+
+        <div className="rule-thin" />
+
         <button className="prof-btn solid" onClick={onSignOut} style={{ width: '100%', marginTop: 8, padding: '10px 0' }}>Sign Out</button>
       </div>
     </section>
@@ -1823,6 +2103,70 @@ function OnboardingOverlay({ onDone }) {
         <li>Personal records, muscle soreness map, and Apple Health / Strava sync</li>
       </ul>
       <button className="onboard-start" onClick={onDone}>Get Started</button>
+    </div>
+  );
+}
+
+// ── MENTOR CHAT ───────────────────────────────────────────────────────────────
+function MentorChat({ onClose }) {
+  const [msgs, setMsgs] = useState([
+    { role: 'assistant', content: 'I\'m your Mentor. Ask me anything about your training, recovery, or nutrition.' }
+  ]);
+  const [input, setInput] = useState('');
+  const [thinking, setThinking] = useState(false);
+  const msgsEndRef = useRef();
+
+  useEffect(() => {
+    msgsEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [msgs, thinking]);
+
+  const send = async () => {
+    const text = input.trim();
+    if (!text || thinking) return;
+    const newMsgs = [...msgs, { role: 'user', content: text }];
+    setMsgs(newMsgs);
+    setInput('');
+    setThinking(true);
+    try {
+      const data = await api('mentor', {
+        method: 'POST',
+        body: JSON.stringify({ messages: newMsgs.filter(m => m.role !== 'assistant' || newMsgs.indexOf(m) > 0).map(m => ({ role: m.role, content: m.content })) }),
+      });
+      setMsgs(p => [...p, { role: 'assistant', content: data.reply || 'No reply.' }]);
+    } catch {
+      setMsgs(p => [...p, { role: 'assistant', content: 'Connection error.' }]);
+    }
+    setThinking(false);
+  };
+
+  return (
+    <div className="chat-panel">
+      <div className="chat-hdr">
+        <div>
+          <div className="kicker" style={{ margin: 0 }}>Your Mentor</div>
+        </div>
+        <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', fontFamily: "'JetBrains Mono',monospace", fontSize: 13, color: 'var(--dim)' }}>×</button>
+      </div>
+      <div className="chat-msgs">
+        {msgs.map((m, i) => (
+          <div key={i} className={m.role === 'user' ? 'chat-msg-user' : 'chat-msg-asst'}>
+            {m.content}
+          </div>
+        ))}
+        {thinking && <div className="chat-msg-thinking">Mentor is thinking…</div>}
+        <div ref={msgsEndRef} />
+      </div>
+      <div className="chat-input-row">
+        <input
+          className="chat-input"
+          placeholder="Ask your mentor…"
+          value={input}
+          onChange={e => setInput(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }}
+          disabled={thinking}
+        />
+        <button className="chat-send" onClick={send} disabled={thinking || !input.trim()}>Send</button>
+      </div>
     </div>
   );
 }
@@ -1927,6 +2271,8 @@ function App() {
   const [loggerPlanDay, setLoggerPlanDay] = useState(undefined);
   const loggerOpen = loggerPlanDay !== undefined;
   const [showImport, setShowImport] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
+  const [chatOpen, setChatOpen] = useState(false);
   const [onboarded, setOnboarded] = useState(() => !!localStorage.getItem('press_onboarded'));
 
   const handleOnboardDone = () => { localStorage.setItem('press_onboarded', '1'); setOnboarded(true); };
@@ -1946,6 +2292,12 @@ function App() {
   useEffect(() => {
     if (user) api('summary').then(setS).catch(console.error);
     else setS(null);
+  }, [user]);
+
+  // Register SW silently on login (permission prompt happens via S6 button)
+  useEffect(() => {
+    if (!user || !('serviceWorker' in navigator)) return;
+    navigator.serviceWorker.register('/sw.js').catch(() => {});
   }, [user]);
 
   useEffect(() => {
@@ -2011,12 +2363,17 @@ function App() {
       <div className="scroll" id="press-scroll">
         <S1 s={s} />
         <S2 s={s} />
-        <S3 s={s} onStartWorkout={planDay => setLoggerPlanDay(planDay ?? null)} onImport={() => setShowImport(true)} />
+        <S3 s={s} onStartWorkout={planDay => setLoggerPlanDay(planDay ?? null)} onImport={() => setShowImport(true)} onHistory={() => setShowHistory(true)} />
         <S4 s={s} refresh={refresh} />
         <S5 s={s} refresh={refresh} />
         <S6 s={s} onSignOut={() => signOut(auth)} refresh={refresh} />
         <S7 s={s} />
       </div>
+      {/* Floating mentor chat bubble */}
+      {!chatOpen && (
+        <button className="chat-bubble" onClick={() => setChatOpen(true)} aria-label="Open mentor chat">M</button>
+      )}
+      {chatOpen && <MentorChat onClose={() => setChatOpen(false)} />}
       {loggerOpen && (
         <WorkoutLogger
           planDay={loggerPlanDay}
@@ -2026,6 +2383,7 @@ function App() {
         />
       )}
       {showImport && <HevyImport onClose={() => setShowImport(false)} refresh={setS} />}
+      {showHistory && <WorkoutHistory s={s} onClose={() => setShowHistory(false)} />}
     </>
   );
 }
