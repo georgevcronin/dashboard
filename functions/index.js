@@ -39,6 +39,37 @@ const MUSCLE_MAP_B = {
   'shrug':['traps'],'forearm':['forearms'],'wrist':['forearms'],
 };
 
+const RECOVERY_H_B = {
+  quads:72, glutes:72, hamstrings:72, calves:48, adductors:72,
+  chest:72, triceps:48, biceps:48, lats:72, rhomboids:48,
+  traps:48, erectors:72, abs:36, 'front-delt':48, 'rear-delt':48, forearms:36,
+};
+
+function computeCurrentFatigueScores(lifts, peaks) {
+  const now = Date.now();
+  const scores = {};
+  for (const l of (lifts || [])) {
+    const t = new Date(l.date).getTime();
+    const hoursAgo = (now - t) / 3_600_000;
+    if (hoursAgo > 336) continue; // ignore anything older than 2 weeks
+    const load = (l.kg || 0) * (l.reps || 1);
+    const name = (l.exercise || '').toLowerCase();
+    for (const [key, muscles] of Object.entries(MUSCLE_MAP_B)) {
+      if (name.includes(key)) {
+        muscles.forEach(m => {
+          const hl = RECOVERY_H_B[m] || 72;
+          const decay = Math.exp(-0.693 * hoursAgo / hl);
+          scores[m] = (scores[m] || 0) + load * decay;
+        });
+        break;
+      }
+    }
+  }
+  const out = {};
+  for (const [m, v] of Object.entries(scores)) out[m] = Math.min(100, Math.round(v / (peaks[m] || 2000) * 100));
+  return out;
+}
+
 function musclePeaksFromLifts(lifts) {
   const byDate = {};
   for (const l of (lifts || [])) {
@@ -601,21 +632,31 @@ app.post("/plan/session-exercises", async (req, res) => {
     `${p.name}: ${p.recentStr} → ${p.note} → USE ${p.suggestKg}kg×${p.suggestReps} for working sets`
   ).join('\n');
 
-  const prompt = `You are building a precise workout plan. The progressive overload targets have been pre-computed from real training data — use them exactly.
+  const peaks = musclePeaksFromLifts(lifts);
+  const currentFatigue = computeCurrentFatigueScores(lifts, peaks);
+  const fatigueStr = Object.entries(currentFatigue).filter(([,v])=>v>15).sort(([,a],[,b])=>b-a)
+    .map(([m,v])=>`${m} ${v}%`).join(', ') || 'none';
+  const avoidMuscles = Object.entries(currentFatigue).filter(([,v])=>v>65).map(([m])=>m);
 
-Session: ${title} (${type}, ${duration})
+  const prompt = `You are writing a complete, precise workout prescription. Progressive overload targets are pre-computed from real training data — use them exactly.
+
+Session type: ${title} (${type})
 Guidance: ${detail}
 Athlete: ${bw}kg bodyweight
 
-PRE-COMPUTED PROGRESSIVE OVERLOAD TARGETS (use these weights exactly):
-${progressionCtx || 'No history yet — estimate beginner weights'}
+CURRENT MUSCLE FATIGUE (avoid loading muscles above 65%):
+${fatigueStr}
+${avoidMuscles.length ? `AVOID exercises that primarily stress: ${avoidMuscles.join(', ')}` : 'All muscle groups available.'}
+
+PRE-COMPUTED PROGRESSIVE OVERLOAD TARGETS:
+${progressionCtx || 'No history yet — use reasonable beginner/intermediate weights'}
 
 Instructions:
-- Select 3-5 exercises appropriate for "${title}" (${type} day)
-- For each chosen exercise, use the exact suggestKg and suggestReps from above
-- Add warm-up sets at ~50% and ~75% of working weight
-- Add 2-4 working sets at the suggested weight
-- If an exercise has no history, estimate reasonable beginner/intermediate weights
+- Select exercises appropriate for "${title}" that do NOT primarily load fatigued muscles
+- Use the exact suggestKg and suggestReps from the targets above
+- 2 warm-up sets per compound lift (~50% and ~75% of working weight)
+- 3-4 working sets at suggested weight
+- Include as many exercises as appropriate — do not limit by time
 
 Return ONLY valid JSON:
 {
@@ -627,13 +668,13 @@ Return ONLY valid JSON:
     }
   ]
 }
-Set types: W=warm-up, N=normal, D=drop, F=failure. Include the note field explaining the progression decision.`;
+Set types: W=warm-up, N=normal, D=drop, F=failure. Include the note field per exercise.`;
 
   try {
     const r = await fetch("https://api.groq.com/openai/v1/chat/completions", {
       method: "POST",
       headers: { "Content-Type": "application/json", "Authorization": "Bearer " + key },
-      body: JSON.stringify({ model: "llama-3.3-70b-versatile", max_tokens: 900, response_format: { type: "json_object" }, messages: [{ role: "user", content: prompt }] }),
+      body: JSON.stringify({ model: "llama-3.3-70b-versatile", max_tokens: 1600, response_format: { type: "json_object" }, messages: [{ role: "user", content: prompt }] }),
     });
     const data = await r.json();
     res.json(JSON.parse(data.choices?.[0]?.message?.content || '{"exercises":[]}'));
@@ -713,35 +754,41 @@ app.post("/plan/week", async (req, res) => {
     return { label, date: d.toISOString().slice(0, 10) };
   });
 
-  const recentWorkouts = (db.workouts || []).slice(-14)
-    .map(w => `${w.date} ${w.name}${w.duration ? " " + w.duration + "min" : ""}${w.kcal ? " " + Math.round(w.kcal) + "kcal" : ""}`).join(", ");
+  const recentWorkouts = [...(db.workouts || [])].sort((a,b)=>(b.date||'').localeCompare(a.date||'')).slice(0, 14)
+    .map(w => `${w.date} ${w.name}`).join(', ');
 
   const byEx = {};
-  for (const l of (db.lifts || []).slice(-80)) (byEx[l.exercise] = byEx[l.exercise] || []).push(l);
-  const liftSummary = Object.entries(byEx).slice(0, 10).map(([ex, sets]) => {
+  for (const l of (db.lifts || []).slice(-120)) (byEx[l.exercise] = byEx[l.exercise] || []).push(l);
+  const liftSummary = Object.entries(byEx).slice(0, 12).map(([ex, sets]) => {
     const sorted = [...sets].sort((a, b) => a.date.localeCompare(b.date));
     return `${ex}: ${sorted[0].kg}→${sorted.at(-1).kg}kg (${sorted.length} sessions)`;
-  }).join("; ");
+  }).join('; ');
+
+  const peaks = musclePeaksFromLifts(db.lifts);
+  const currentFatigue = computeCurrentFatigueScores(db.lifts, peaks);
+  const fatigueStr = Object.entries(currentFatigue).filter(([,v])=>v>15).sort(([,a],[,b])=>b-a)
+    .map(([m,v])=>`${m} ${v}%`).join(', ') || 'fully recovered';
 
   const todayMetrics = (db.metrics || {})[todayStr] || {};
   const bw = Object.values(db.weight || {}).at(-1) || 75;
 
-  const systemPrompt = `You are Mentor, performance coach for ${db.profile?.name || "this athlete"} (${bw}kg bodyweight). Generate a tailored 7-day training plan for the week starting ${weekDates[0].date}. Return ONLY valid JSON matching this exact structure:
+  const systemPrompt = `You are Mentor, performance coach for ${db.profile?.name || "this athlete"} (${bw}kg bodyweight). Generate a tailored 7-day training plan. Return ONLY valid JSON:
 {
   "focus": "one sentence theme for the week",
   "days": [
     { "date": "YYYY-MM-DD", "label": "Mon", "sessions": [
-      { "type": "lift|zone2|hiit|climb|flex|rest", "title": "Short session title", "detail": "2-3 sentences of specific guidance", "duration": "X min" }
+      { "type": "lift|zone2|hiit|climb|flex|rest", "title": "Short session title", "detail": "2-3 sentences of specific guidance" }
     ]}
   ],
   "notes": "1-2 sentences on load management or key cues"
 }
-Rest days: sessions = [{"type":"rest","title":"Rest","detail":"...","duration":""}]. No extra keys.`;
+Rest days: sessions = [{"type":"rest","title":"Rest","detail":"..."}]. No duration field. No extra keys.`;
 
-  const userPrompt = `Recent 2 weeks: ${recentWorkouts || "no data yet"}
-Lift progress: ${liftSummary || "no lift data yet"}
-Today recovery: ${todayMetrics.heart_rate_variability ? "HRV " + todayMetrics.heart_rate_variability + "ms" : "unknown"}
-Plan the week ${weekDates[0].date} to ${weekDates[6].date}. Include strength, zone 2 cardio, and at least one Norwegian 4×4 HIIT. Balance load — no consecutive heavy sessions.`;
+  const userPrompt = `Current muscle fatigue (% of personal peak): ${fatigueStr}
+Recent sessions: ${recentWorkouts || 'no data yet'}
+Lift progression: ${liftSummary || 'no lift data yet'}
+Today recovery: ${todayMetrics.heart_rate_variability ? 'HRV ' + todayMetrics.heart_rate_variability + 'ms' : 'unknown'}
+Plan week ${weekDates[0].date} to ${weekDates[6].date}. Avoid loading muscles currently above 60% fatigue. Include strength, zone2 cardio, at least one Norwegian 4×4 HIIT. No consecutive heavy sessions.`;
 
   try {
     const r = await fetch("https://api.groq.com/openai/v1/chat/completions", {
