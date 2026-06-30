@@ -103,7 +103,8 @@ const DEFAULTS = () => ({
   metrics: {}, workouts: [], water: {}, weight: {}, lifts: [], finance: [],
   thoughts: [], nutrition: {}, nutritionLog: [], waterEvents: [], nwHistory: [],
   strava: null, weeklyPlan: null, soreness: [], muscleSensitivity: {},
-  injuries: [],
+  injuries: [], measurements: [], supplements: [], supplementLog: [],
+  alcoholLog: [], photos: [], experiments: [],
   profile: { name: "George", heightCm: null, sex: null, waterTarget: 7,
     macroTargets: { calories: 2400, protein: 160, carbs: 250, fat: 75 }, macroMode: "manual" },
 });
@@ -225,6 +226,14 @@ app.post("/shortcut", async (req, res) => {
   if (d.sleep) db.metrics[k].sleep_hours = d.sleep;
   if (d.steps) db.metrics[k].step_count = d.steps;
   if (d.weight) { db.metrics[k].body_mass = d.weight; db.weight[k] = d.weight; }
+  if (d.vo2max) db.metrics[k].vo2max = d.vo2max;
+  if (d.hrr_bpm) db.metrics[k].hrr_bpm = d.hrr_bpm;
+  if (d.alcohol_units != null && d.alcohol_units > 0) {
+    db.alcoholLog = db.alcoholLog || [];
+    const existing = db.alcoholLog.find(e => e.date === k);
+    if (existing) existing.units = d.alcohol_units;
+    else db.alcoholLog.push({ date: k, units: d.alcohol_units, ts: Date.now() });
+  }
   if (Array.isArray(d.workouts)) {
     for (const w of d.workouts) {
       // Each workout can carry its own date for bulk/historical uploads
@@ -490,6 +499,44 @@ function computeDay(d, baseHRV, baseRHR, sleepTarget) {
   const sleepScore = sleepH ? Math.min(1, sleepH / sleepTarget) : 0.8;
   return Math.round(Math.min(99, (hrvScore * 0.5 + rhrScore * 0.2 + sleepScore * 0.3) * 100));
 }
+function computeDataMaturity(lifts) {
+  if (!lifts || lifts.length === 0) return { phase: 'experiments', weeksCovered: 0, sessionsCount: 0, hasPatterns: false, exercisesWithPatterns: 0 };
+
+  const sorted = [...lifts].sort((a, b) => a.date.localeCompare(b.date));
+  const firstDate = new Date(sorted[0].date);
+  const lastDate = new Date(sorted[sorted.length - 1].date);
+  const weeksCovered = Math.round((lastDate - firstDate) / (7 * 86400000));
+  const workoutDates = new Set(lifts.map(l => l.date));
+  const sessionsCount = workoutDates.size;
+
+  // Find exercises with clear progressive e1RM trend across 4+ sessions
+  const byEx = {};
+  for (const l of lifts) {
+    if (!l.exercise || !l.kg || !l.reps) continue;
+    const e1rm = l.kg * (1 + l.reps / 30);
+    (byEx[l.exercise] = byEx[l.exercise] || []).push({ date: l.date, e1rm });
+  }
+  const exercisesWithPatterns = Object.values(byEx).filter(sets => {
+    if (sets.length < 4) return false;
+    const s = sets.sort((a, b) => a.date.localeCompare(b.date));
+    const earlyAvg = s.slice(0, Math.ceil(s.length / 2)).reduce((a, x) => a + x.e1rm, 0) / Math.ceil(s.length / 2);
+    const lateAvg = s.slice(Math.floor(s.length / 2)).reduce((a, x) => a + x.e1rm, 0) / Math.ceil(s.length / 2);
+    return lateAvg > earlyAvg * 1.01; // 1%+ improvement = identifiable trend
+  }).length;
+
+  // Established = 4+ weeks of history, 10+ sessions, 3+ exercises showing clear trends
+  const hasEnoughData = weeksCovered >= 4 && sessionsCount >= 10 && exercisesWithPatterns >= 3;
+
+  return {
+    phase: hasEnoughData ? 'established' : 'experiments',
+    weeksCovered,
+    sessionsCount,
+    hasPatterns: exercisesWithPatterns >= 3,
+    hasEnoughData,
+    exercisesWithPatterns,
+  };
+}
+
 function compVerdict(weights, lifts) {
   if (weights.length < 5) return null;
   const wTrend = weights.at(-1).value - weights[0].value;
@@ -535,6 +582,19 @@ app.get("/summary", async (req, res) => {
     for (const e of evs) if (e <= t) lvl += BUMP * Math.pow(0.5, (t - e) / HL);
     hydrationCurve.push(Math.round(Math.min(100, lvl)));
   }
+  // Alcohol
+  const ydayDate = new Date(); ydayDate.setDate(ydayDate.getDate() - 1);
+  const ydayStr = ydayDate.toISOString().slice(0, 10);
+  const alcoholLastNight = (db.alcoholLog || []).find(e => e.date === ydayStr)?.units || 0;
+  const alcoholLast7 = (db.alcoholLog || []).filter(e => {
+    const diff = (Date.now() - new Date(e.date).getTime()) / 864e5;
+    return diff >= 0 && diff <= 7;
+  }).reduce((a, e) => a + (e.units || 0), 0);
+  // VO2 max + HRR series
+  const vo2maxSeries = Object.keys(db.metrics).sort().filter(k => db.metrics[k].vo2max != null).slice(-14).map(k => ({ date: k, value: db.metrics[k].vo2max }));
+  const hrrSeries = Object.keys(db.metrics).sort().filter(k => db.metrics[k].hrr_bpm != null).slice(-14).map(k => ({ date: k, value: db.metrics[k].hrr_bpm }));
+  // Photos (strip base64 for list view to keep payload small)
+  const photosMeta = (db.photos || []).slice(-20).map(p => ({ id: p.id, date: p.date, note: p.note }));
   res.json({
     profile: db.profile, hydrationCurve, hydrationNow: hydrationCurve.at(-1) ?? null,
     liftVolume, nwHistory: db.nwHistory || [],
@@ -563,6 +623,15 @@ app.get("/summary", async (req, res) => {
     stravaConnected: !!db.strava?.refresh_token,
     soreness: (db.soreness || []).filter(e => Date.now() - e.ts < 5 * 24 * 3600000),
     muscleSensitivity: db.muscleSensitivity || {},
+    alcoholLastNight, alcoholLast7,
+    vo2maxSeries, hrrSeries,
+    measurements: (db.measurements || []).slice(-30),
+    supplements: db.supplements || [],
+    supplementLogToday: (db.supplementLog || []).filter(e => e.date === day()),
+    photosMeta,
+    experiments: (db.experiments || []),
+    travelMode: db.profile?.travelMode || false,
+    dataMaturity: computeDataMaturity(db.lifts),
   });
 });
 
@@ -766,7 +835,15 @@ app.post("/plan/session-exercises", async (req, res) => {
   const activeInjuries = (db.injuries || []).filter(i => !i.resolved);
   const injuryStr = activeInjuries.length ? activeInjuries.map(i => `${i.area} (${i.severity}${i.note ? ': ' + i.note : ''})`).join(', ') : '';
 
+  const travelMode = db.profile?.travelMode || false;
+  const maturity = computeDataMaturity(lifts);
+  const maturityCtx = maturity.hasEnoughData
+    ? `PRESCRIPTION MODE: Established athlete — ${maturity.weeksCovered} weeks of data, ${maturity.exercisesWithPatterns} exercises with clear progression patterns. Prescribe confidently based on known response. No experimentation needed — use proven exercises and loads.`
+    : `EXPERIMENT MODE: Limited history (${maturity.weeksCovered} weeks, ${maturity.sessionsCount} sessions). Introduce variety to identify which exercises and rep ranges produce best response for this athlete. Vary stimulus each session.`;
+
   const prompt = `You are writing a complete, precise workout prescription. Progressive overload targets are pre-computed from real training data — use them exactly.
+${travelMode ? '\n⚠️ TRAVEL MODE: Athlete is travelling. Use bodyweight exercises only — no barbells, no dumbbells, no machines. Bodyweight squats, push-up variations, pull-ups (if available), lunges, step-ups, plank holds, dips.\n' : ''}
+${maturityCtx}
 
 Session type: ${title} (${type})
 Guidance: ${detail}
@@ -919,10 +996,16 @@ app.post("/plan/week", async (req, res) => {
 }
 Rest days: sessions = [{"type":"rest","title":"Rest","detail":"..."}]. No duration field. No extra keys.`;
 
+  const travelModeWeek = db.profile?.travelMode || false;
+  const maturityWeek = computeDataMaturity(lifts);
+  const maturityLine = maturityWeek.hasEnoughData
+    ? `Established athlete (${maturityWeek.weeksCovered} wks data, ${maturityWeek.exercisesWithPatterns} tracked exercises). Plan based on proven stimulus — no experimental variation needed.`
+    : `Early-stage athlete (${maturityWeek.weeksCovered} wks data). Vary exercises and rep ranges to build response profile.`;
   const userPrompt = `Current muscle fatigue (% of personal peak): ${fatigueStr}
 Recent sessions: ${recentWorkouts || 'no data yet'}
 Lift progression: ${liftSummary || 'no lift data yet'}
 Today recovery: ${todayMetrics.heart_rate_variability ? 'HRV ' + todayMetrics.heart_rate_variability + 'ms' : 'unknown'}
+${travelModeWeek ? 'TRAVEL MODE ACTIVE: Plan bodyweight-only sessions this week — no gym equipment available.\n' : ''}${maturityLine}
 Plan week ${weekDates[0].date} to ${weekDates[6].date}. Avoid loading muscles currently above 60% fatigue. Include strength, zone2 cardio, at least one Norwegian 4×4 HIIT. No consecutive heavy sessions.`;
 
   try {
@@ -1317,6 +1400,128 @@ strong{font-weight:600}
 </div>
 </body>
 </html>`);
+});
+
+// ---------- Measurements ----------
+app.get('/measurements', async (req, res) => {
+  res.json({ measurements: db.measurements || [] });
+});
+
+app.post('/measurements', async (req, res) => {
+  const { type, value, unit } = req.body;
+  if (!type || value == null) return res.status(400).json({ error: 'type and value required' });
+  db.measurements = db.measurements || [];
+  db.measurements.push({ id: Date.now(), date: day(), type, value: +value, unit: unit || 'cm', ts: Date.now() });
+  db.measurements = db.measurements.slice(-500);
+  await save();
+  res.json({ ok: true });
+});
+
+// ---------- Supplements ----------
+app.get('/supplements', async (req, res) => {
+  res.json({ supplements: db.supplements || [] });
+});
+
+app.post('/supplements', async (req, res) => {
+  const { name, dose, timing, notes } = req.body;
+  if (!name) return res.status(400).json({ error: 'name required' });
+  db.supplements = db.supplements || [];
+  const existing = db.supplements.findIndex(s => s.name.toLowerCase() === name.toLowerCase());
+  const entry = { name, dose: dose || '', timing: timing || 'morning', notes: notes || '' };
+  if (existing >= 0) db.supplements[existing] = entry;
+  else db.supplements.push(entry);
+  await save();
+  res.json({ ok: true });
+});
+
+app.delete('/supplements/:name', async (req, res) => {
+  db.supplements = (db.supplements || []).filter(s => s.name !== decodeURIComponent(req.params.name));
+  await save();
+  res.json({ ok: true });
+});
+
+app.post('/supplement/log', async (req, res) => {
+  const { name, dose } = req.body;
+  if (!name) return res.status(400).json({ error: 'name required' });
+  const k = day();
+  db.supplementLog = db.supplementLog || [];
+  const existing = db.supplementLog.findIndex(e => e.date === k && e.name === name);
+  if (existing >= 0) {
+    db.supplementLog.splice(existing, 1);
+    await save();
+    return res.json({ ok: true, logged: false });
+  }
+  db.supplementLog.push({ date: k, name, dose: dose || '', ts: Date.now() });
+  db.supplementLog = db.supplementLog.slice(-1000);
+  await save();
+  res.json({ ok: true, logged: true });
+});
+
+app.get('/supplement/log', async (req, res) => {
+  const k = day();
+  res.json({ log: (db.supplementLog || []).filter(e => e.date === k) });
+});
+
+// ---------- Alcohol (manual log) ----------
+app.post('/alcohol', async (req, res) => {
+  const { units, date: reqDate } = req.body;
+  if (units == null) return res.status(400).json({ error: 'units required' });
+  const k = reqDate ? reqDate.slice(0, 10) : day();
+  db.alcoholLog = db.alcoholLog || [];
+  const existing = db.alcoholLog.findIndex(e => e.date === k);
+  if (existing >= 0) db.alcoholLog[existing].units = +units;
+  else if (+units > 0) db.alcoholLog.push({ date: k, units: +units, ts: Date.now() });
+  await save();
+  res.json({ ok: true });
+});
+
+// ---------- Experiments ----------
+app.get('/experiments', async (req, res) => {
+  res.json({ experiments: db.experiments || [] });
+});
+
+app.post('/experiments', async (req, res) => {
+  const { hypothesis, startDate, endDate, metric, notes } = req.body;
+  if (!hypothesis) return res.status(400).json({ error: 'hypothesis required' });
+  db.experiments = db.experiments || [];
+  const id = Date.now();
+  db.experiments.push({
+    id, hypothesis,
+    startDate: startDate || day(),
+    endDate: endDate || null,
+    metric: metric || '',
+    notes: notes || '',
+    active: true,
+    outcome: null,
+    concludedAt: null,
+  });
+  await save();
+  res.json({ ok: true, id });
+});
+
+app.post('/experiments/:id/conclude', async (req, res) => {
+  const id = +req.params.id;
+  const exp = (db.experiments || []).find(e => e.id === id);
+  if (!exp) return res.status(404).json({ error: 'not found' });
+  exp.active = false;
+  exp.outcome = req.body.outcome || 'concluded';
+  exp.concludedAt = Date.now();
+  await save();
+  res.json({ ok: true });
+});
+
+app.delete('/experiments/:id', async (req, res) => {
+  db.experiments = (db.experiments || []).filter(e => e.id !== +req.params.id);
+  await save();
+  res.json({ ok: true });
+});
+
+// ---------- Travel mode ----------
+app.post('/travel-mode', async (req, res) => {
+  const { enabled } = req.body;
+  db.profile = { ...(db.profile || {}), travelMode: !!enabled };
+  await save();
+  res.json({ ok: true, travelMode: !!enabled });
 });
 
 exports.api = functions.region("europe-west2").runWith({ timeoutSeconds: 300, memory: "256MB", invoker: "public" }).https.onRequest(app);

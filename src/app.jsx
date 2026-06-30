@@ -1505,19 +1505,27 @@ function HevyImport({ onClose, refresh }) {
       setProgress({ done: 0, total, imported: 0, skipped: 0, current: sessions[0] || null });
     });
 
-    let totalImported = 0, totalSkipped = 0;
+    let totalImported = 0, totalSkipped = 0, totalErrors = 0;
 
     for (let i = 0; i < total; i += IMPORT_BATCH) {
       const batch = sessions.slice(i, i + IMPORT_BATCH);
       setProgress({ done: i, total, current: batch[0], imported: totalImported, skipped: totalSkipped });
 
-      const r = await authFetch(`${API_BASE}/import/hevy`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sessions: batch }),
-      }).then(r => r.json());
-
-      totalImported += r.imported || 0;
-      totalSkipped += r.skipped || 0;
+      try {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 12000);
+        const r = await authFetch(`${API_BASE}/import/hevy`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ sessions: batch }),
+          signal: controller.signal,
+        }).then(r => r.json()).finally(() => clearTimeout(timeout));
+        totalImported += r.imported || 0;
+        totalSkipped += r.skipped || 0;
+      } catch (err) {
+        totalErrors++;
+        setLog(prev => [...prev, { name: batch[0]?.name || '?', date: batch[0]?.date || '?', exCount: 0, error: true }]);
+        continue;
+      }
 
       setLog(prev => {
         const next = [...prev, ...batch.map(s => ({ name: s.name, date: s.date, exCount: s.exercises.length }))];
@@ -1607,10 +1615,10 @@ function HevyImport({ onClose, refresh }) {
               {log.slice().reverse().map((s, i) => (
                 <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', padding: '7px 0', borderBottom: '1px solid var(--rule)', opacity: i === 0 ? 1 : Math.max(0.25, 1 - i * 0.05) }}>
                   <div>
-                    <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 12, fontWeight: 700, textTransform: 'capitalize' }}>{s.name}</div>
-                    <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, color: 'var(--dim)', marginTop: 1 }}>{s.exCount} exercises</div>
+                    <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 12, fontWeight: 700, textTransform: 'capitalize', color: s.error ? 'var(--ember)' : 'var(--ink)' }}>{s.name}</div>
+                    <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, color: s.error ? 'var(--ember)' : 'var(--dim)', marginTop: 1 }}>{s.error ? 'skipped — timeout' : `${s.exCount} exercises`}</div>
                   </div>
-                  <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--forest)' }}>✓ {s.date}</div>
+                  <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: s.error ? 'var(--ember)' : 'var(--forest)' }}>{s.error ? '⚠ ' : '✓ '}{s.date}</div>
                 </div>
               ))}
             </div>
@@ -1916,13 +1924,24 @@ function S3({ s, onStartWorkout, onImport, onHistory, refresh }) {
 
       {/* Experiments */}
       <div className="fade" style={{ borderTop: '2px solid var(--ink)', paddingTop: 12, marginTop: 8, flexShrink: 0 }}>
-        <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 10 }}>
-          <div className="kicker" style={{ margin: 0 }}>Experiments {activeExps.length > 0 ? `· ${activeExps.length} active` : ''}</div>
+        <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: s?.dataMaturity?.hasEnoughData && activeExps.length === 0 ? 6 : 10 }}>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+            <div className="kicker" style={{ margin: 0 }}>Experiments {activeExps.length > 0 ? `· ${activeExps.length} active` : ''}</div>
+            {s?.dataMaturity?.hasEnoughData && activeExps.length === 0 && (
+              <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, color: 'var(--forest)', letterSpacing: '.05em' }}>PATTERN FOUND</span>
+            )}
+          </div>
           <button onClick={() => setShowExpForm(v => !v)}
             style={{ background: 'none', border: 'none', fontFamily: "'JetBrains Mono',monospace", fontSize: 9, letterSpacing: '.1em', textTransform: 'uppercase', color: 'var(--dim)', cursor: 'pointer', padding: 0 }}>
             {showExpForm ? 'Cancel' : '+ New'}
           </button>
         </div>
+
+        {s?.dataMaturity?.hasEnoughData && activeExps.length === 0 && !showExpForm && (
+          <div style={{ fontFamily: 'Times New Roman,serif', fontSize: 12, color: 'var(--forest)', fontStyle: 'italic', padding: '4px 0 8px', lineHeight: 1.5 }}>
+            {s.dataMaturity.exercisesWithPatterns} exercises show clear progression patterns across {s.dataMaturity.weeksCovered} weeks. Press is prescribing from your data — no experiments needed.
+          </div>
+        )}
 
         {showExpForm && (
           <div className="experiment-form" style={{ marginBottom: 14 }}>
@@ -1941,7 +1960,7 @@ function S3({ s, onStartWorkout, onImport, onHistory, refresh }) {
           </div>
         )}
 
-        {experiments.length === 0 && !showExpForm && (
+        {!s?.dataMaturity?.hasEnoughData && experiments.length === 0 && !showExpForm && (
           <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, color: 'var(--dim)', fontStyle: 'italic', padding: '4px 0 8px' }}>
             Track n=1 experiments. Test a protocol 4–8 weeks and record the outcome.
           </div>
