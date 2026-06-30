@@ -932,7 +932,7 @@ app.post("/import/hevy", async (req, res) => {
     }
     imported++;
   }
-  await save();
+  try { await save(); } catch (e) { console.error('[import/hevy] save failed:', e.message); }
   res.json({ ok: true, imported, skipped });
 });
 

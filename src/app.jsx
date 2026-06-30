@@ -1468,7 +1468,7 @@ function parseHevyCSV(text) {
   })).filter(s => s.exercises.length > 0).sort((a, b) => a.date.localeCompare(b.date));
 }
 
-const IMPORT_BATCH = 10;
+const IMPORT_BATCH = 1;
 
 function HevyImport({ onClose, refresh }) {
   const [sessions, setSessions] = useState([]);
@@ -1511,21 +1511,24 @@ function HevyImport({ onClose, refresh }) {
       const batch = sessions.slice(i, i + IMPORT_BATCH);
       setProgress({ done: i, total, current: batch[0], imported: totalImported, skipped: totalSkipped });
 
+      let r;
       try {
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 12000);
-        const r = await authFetch(`${API_BASE}/import/hevy`, {
+        const fetchPromise = authFetch(`${API_BASE}/import/hevy`, {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ sessions: batch }),
-          signal: controller.signal,
-        }).then(r => r.json()).finally(() => clearTimeout(timeout));
-        totalImported += r.imported || 0;
-        totalSkipped += r.skipped || 0;
+        }).then(res => res.ok ? res.json() : Promise.reject(new Error(`HTTP ${res.status}`)));
+
+        r = await Promise.race([
+          fetchPromise,
+          new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 15000)),
+        ]);
       } catch (err) {
         totalErrors++;
         setLog(prev => [...prev, { name: batch[0]?.name || '?', date: batch[0]?.date || '?', exCount: 0, error: true }]);
         continue;
       }
+      totalImported += r?.imported || 0;
+      totalSkipped += r?.skipped || 0;
 
       setLog(prev => {
         const next = [...prev, ...batch.map(s => ({ name: s.name, date: s.date, exCount: s.exercises.length }))];
