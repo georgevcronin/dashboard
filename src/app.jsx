@@ -1468,7 +1468,7 @@ function parseHevyCSV(text) {
   })).filter(s => s.exercises.length > 0).sort((a, b) => a.date.localeCompare(b.date));
 }
 
-const IMPORT_BATCH = 1;
+const IMPORT_BATCH = 10;
 
 function HevyImport({ onClose, refresh }) {
   const [sessions, setSessions] = useState([]);
@@ -1511,30 +1511,42 @@ function HevyImport({ onClose, refresh }) {
       const batch = sessions.slice(i, i + IMPORT_BATCH);
       setProgress({ done: i, total, current: batch[0], imported: totalImported, skipped: totalSkipped });
 
-      let r;
-      try {
-        const fetchPromise = authFetch(`${API_BASE}/import/hevy`, {
+      const importOne = async (sessions) => {
+        const p = authFetch(`${API_BASE}/import/hevy`, {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ sessions: batch }),
+          body: JSON.stringify({ sessions }),
         }).then(res => res.ok ? res.json() : Promise.reject(new Error(`HTTP ${res.status}`)));
+        return Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 15000))]);
+      };
 
-        r = await Promise.race([
-          fetchPromise,
-          new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 15000)),
-        ]);
-      } catch (err) {
-        totalErrors++;
-        setLog(prev => [...prev, { name: batch[0]?.name || '?', date: batch[0]?.date || '?', exCount: 0, error: true }]);
-        continue;
+      let batchOk = false;
+      try {
+        const r = await importOne(batch);
+        totalImported += r?.imported || 0;
+        totalSkipped += r?.skipped || 0;
+        batchOk = true;
+      } catch (_) {
+        // Batch failed — retry each session individually to skip only the bad one
+        for (const session of batch) {
+          try {
+            const r = await importOne([session]);
+            totalImported += r?.imported || 0;
+            totalSkipped += r?.skipped || 0;
+            setLog(prev => [...prev, { name: session.name, date: session.date, exCount: session.exercises.length }]);
+          } catch (_) {
+            totalErrors++;
+            setLog(prev => [...prev, { name: session.name, date: session.date, exCount: 0, error: true }]);
+          }
+        }
       }
-      totalImported += r?.imported || 0;
-      totalSkipped += r?.skipped || 0;
 
-      setLog(prev => {
-        const next = [...prev, ...batch.map(s => ({ name: s.name, date: s.date, exCount: s.exercises.length }))];
-        setTimeout(() => logRef.current?.scrollTo({ top: 0, behavior: 'smooth' }), 50);
-        return next;
-      });
+      if (batchOk) {
+        setLog(prev => {
+          const next = [...prev, ...batch.map(s => ({ name: s.name, date: s.date, exCount: s.exercises.length }))];
+          setTimeout(() => logRef.current?.scrollTo({ top: 0, behavior: 'smooth' }), 50);
+          return next;
+        });
+      }
     }
 
     setProgress({ done: total, total, imported: totalImported, skipped: totalSkipped, current: null });
