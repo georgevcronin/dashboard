@@ -976,24 +976,31 @@ function WorkoutLogger({ planDay, lifts, onClose, refresh }) {
     return out;
   }, [lifts]);
 
-  // Load AI-generated template when starting from plan
+  // Load exercises — use preloaded if available, otherwise fetch from AI
   useEffect(() => {
     if (!planDay) return;
     const session = planDay.sessions?.[0];
     if (!session || session.type === 'rest') { setLoading(false); return; }
+
+    const toExercise = ex => ({
+      name: ex.name.toLowerCase().trim(),
+      bw: false,
+      note: ex.note || '',
+      targetReps: ex.sets?.[0]?.reps || 8,
+      sets: (ex.sets || Array.from({length:3},()=>({type:'N',kg:'',reps:'8'}))).map(s => ({ type: s.type || 'N', kg: String(s.kg || ''), reps: String(s.reps || ''), rpe: '', done: false })),
+    });
+
+    if (planDay.preloadedExercises?.length) {
+      setExercises(planDay.preloadedExercises.map(toExercise));
+      setLoading(false);
+      return;
+    }
+
     authFetch(`${API_BASE}/plan/session-exercises`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ type: session.type, title: session.title, detail: session.detail, duration: session.duration }),
     }).then(r => r.json()).then(data => {
-      if (data.exercises?.length) {
-        setExercises(data.exercises.map(ex => ({
-          name: ex.name.toLowerCase().trim(),
-          bw: false,
-          note: ex.note || '',
-          targetReps: ex.sets[0]?.reps || 8,
-          sets: ex.sets.map(s => ({ type: s.type || 'N', kg: String(s.kg || ''), reps: String(s.reps || ''), rpe: '', done: false })),
-        })));
-      }
+      if (data.exercises?.length) setExercises(data.exercises.map(toExercise));
       setLoading(false);
     }).catch(() => setLoading(false));
   }, []);
@@ -1748,6 +1755,21 @@ function S3({ s, onStartWorkout, onImport, onHistory, refresh }) {
     refresh(null);
   };
 
+  // Pre-fetch today's exercises so they're ready before the user taps Start
+  const [preloadedExercises, setPreloadedExercises] = useState(null);
+  const [preloading, setPreloading] = useState(false);
+  useEffect(() => {
+    if (!todaySession || todaySession.type === 'rest') return;
+    setPreloading(true);
+    authFetch(`${API_BASE}/plan/session-exercises`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type: todaySession.type, title: todaySession.title, detail: todaySession.detail, duration: todaySession.duration }),
+    }).then(r => r.json()).then(data => {
+      if (data.exercises?.length) setPreloadedExercises(data.exercises);
+      setPreloading(false);
+    }).catch(() => setPreloading(false));
+  }, [todaySession?.title]);
+
   const generatePlan = async () => {
     setGenning(true);
     await authFetch(`${API_BASE}/plan/week`, { method: 'POST' });
@@ -1805,15 +1827,29 @@ function S3({ s, onStartWorkout, onImport, onHistory, refresh }) {
         {todaySession ? (
           <div style={{ borderTop: '1px solid var(--rule)', paddingTop: 10 }}>
             <div className="kicker" style={{ marginBottom: 4 }}>{plan.focus}</div>
-            <div style={{ fontFamily: "'Playfair Display',serif", fontStyle: 'italic', fontSize: 13, color: 'var(--dim)', marginBottom: 10, lineHeight: 1.4 }}>
+            <div style={{ fontFamily: "'Playfair Display',serif", fontStyle: 'italic', fontSize: 13, color: 'var(--dim)', marginBottom: 8, lineHeight: 1.4 }}>
               Today — <strong style={{ fontStyle: 'normal', color: 'var(--ink)' }}>{todaySession.title}</strong> · {todaySession.duration}
             </div>
+            {preloadedExercises?.length > 0 && (
+              <div style={{ marginBottom: 10 }}>
+                {preloadedExercises.map((ex, i) => (
+                  <div key={i} style={{ display: 'flex', alignItems: 'baseline', gap: 8, padding: '3px 0', borderBottom: '1px solid var(--rule)' }}>
+                    <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, color: 'var(--ink)', textTransform: 'capitalize', flex: 1 }}>{ex.name}</span>
+                    <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)' }}>{ex.sets?.length ?? 3} sets · {ex.sets?.[0]?.reps ?? 8} reps</span>
+                    {ex.sets?.[0]?.kg ? <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--gold)' }}>{ex.sets[0].kg}kg</span> : null}
+                  </div>
+                ))}
+              </div>
+            )}
+            {preloading && !preloadedExercises && (
+              <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)', marginBottom: 8 }}>Preparing exercises…</div>
+            )}
             <div style={{ display: 'flex', gap: 8 }}>
               {todaySession.type === 'rest' ? (
                 <div style={{ fontSize: 11, color: 'var(--dim)', fontStyle: 'italic' }}>{todaySession.detail}</div>
               ) : (
                 <>
-                  <button className="action-btn primary" onClick={() => onStartWorkout(todayPlan)}>Start Today's Session</button>
+                  <button className="action-btn primary" onClick={() => onStartWorkout({ ...todayPlan, preloadedExercises })}>Start Today's Session</button>
                   <button className="action-btn" onClick={() => onStartWorkout(null)}>Freestyle</button>
                 </>
               )}
