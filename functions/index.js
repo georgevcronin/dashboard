@@ -2,6 +2,7 @@ const functions = require("firebase-functions");
 const admin = require("firebase-admin");
 const express = require("express");
 const webpush = require("web-push");
+const { EXERCISE_DB, EXERCISE_MAP } = require('./exerciseDb');
 
 admin.initializeApp();
 const firestore = admin.firestore();
@@ -102,6 +103,7 @@ const DEFAULTS = () => ({
   metrics: {}, workouts: [], water: {}, weight: {}, lifts: [], finance: [],
   thoughts: [], nutrition: {}, nutritionLog: [], waterEvents: [], nwHistory: [],
   strava: null, weeklyPlan: null, soreness: [], muscleSensitivity: {},
+  injuries: [],
   profile: { name: "George", heightCm: null, sex: null, waterTarget: 7,
     macroTargets: { calories: 2400, protein: 160, carbs: 250, fat: 75 }, macroMode: "manual" },
 });
@@ -545,6 +547,7 @@ app.get("/summary", async (req, res) => {
     composition: compVerdict(weights, db.lifts),
     waterStats: { streak, avg: waterDays.length ? Math.round(avg(waterDays) * 10) / 10 : 0, hitRate: waterDays.length ? Math.round((waterDays.filter(v => v >= target).length / waterDays.length) * 100) : 0, best: waterDays.length ? Math.max(...waterDays) : 0 },
     musclePeaks: musclePeaksFromLifts(db.lifts),
+    injuries: (db.injuries || []).filter(i => !i.resolved),
     weights, workouts: [...db.workouts].sort((a,b)=>(b.date||'').localeCompare(a.date||'')).slice(0,20), workoutsMonth: monthWk.length,
     water: lastN(db.water, 14), waterToday: db.water[day()] || 0,
     weeklyPlan: db.weeklyPlan || null,
@@ -760,6 +763,8 @@ app.post("/plan/session-exercises", async (req, res) => {
   const fatigueStr = Object.entries(currentFatigue).filter(([,v])=>v>15).sort(([,a],[,b])=>b-a)
     .map(([m,v])=>`${m} ${v}%`).join(', ') || 'none';
   const avoidMuscles = Object.entries(currentFatigue).filter(([,v])=>v>65).map(([m])=>m);
+  const activeInjuries = (db.injuries || []).filter(i => !i.resolved);
+  const injuryStr = activeInjuries.length ? activeInjuries.map(i => `${i.area} (${i.severity}${i.note ? ': ' + i.note : ''})`).join(', ') : '';
 
   const prompt = `You are writing a complete, precise workout prescription. Progressive overload targets are pre-computed from real training data — use them exactly.
 
@@ -770,6 +775,7 @@ Athlete: ${bw}kg bodyweight
 CURRENT MUSCLE FATIGUE (avoid loading muscles above 65%):
 ${fatigueStr}
 ${avoidMuscles.length ? `AVOID exercises that primarily stress: ${avoidMuscles.join(', ')}` : 'All muscle groups available.'}
+${injuryStr ? `ACTIVE INJURIES/NIGGLES — modify or avoid exercises stressing these areas: ${injuryStr}` : ''}
 
 PRE-COMPUTED PROGRESSIVE OVERLOAD TARGETS:
 ${progressionCtx || 'No history yet — use reasonable beginner/intermediate weights'}
@@ -802,6 +808,12 @@ Set types: W=warm-up, N=normal, D=drop, F=failure. Include the note field per ex
     const data = await r.json();
     res.json(JSON.parse(data.choices?.[0]?.message?.content || '{"exercises":[]}'));
   } catch (e) { res.json({ exercises: [] }); }
+});
+
+app.get('/progression/:exercise', async (req, res) => {
+  const name = decodeURIComponent(req.params.exercise).toLowerCase();
+  const prog = computeProgression(db.lifts || [], name);
+  res.json({ progression: prog });
 });
 
 app.get("/coach/:exercise", async (req, res) => {
@@ -961,6 +973,32 @@ app.post("/soreness", async (req, res) => {
   res.json({ ok: true, muscleSensitivity: db.muscleSensitivity });
 });
 
+// ---------- Injury / niggle log ----------
+app.get('/injuries', async (req, res) => {
+  res.json({ injuries: (db.injuries || []).filter(i => !i.resolved) });
+});
+
+app.post('/injury', async (req, res) => {
+  const { area, severity, note } = req.body;
+  if (!area) return res.status(400).json({ error: 'area required' });
+  db.injuries = db.injuries || [];
+  const id = Date.now();
+  db.injuries.push({ id, ts: id, area, severity: severity || 'mild', note: note || '', resolved: false });
+  await save();
+  res.json({ ok: true, id });
+});
+
+app.post('/injuries/:id/resolve', async (req, res) => {
+  const id = +req.params.id;
+  db.injuries = db.injuries || [];
+  const injury = db.injuries.find(i => i.id === id);
+  if (!injury) return res.status(404).json({ error: 'not found' });
+  injury.resolved = true;
+  injury.resolvedAt = Date.now();
+  await save();
+  res.json({ ok: true });
+});
+
 // ---------- Push notifications ----------
 app.get("/push/vapid-public-key", (req, res) => {
   res.json({ key: VAPID_PUBLIC || null });
@@ -994,6 +1032,145 @@ app.put("/muscle-sensitivity", async (req, res) => {
   db.muscleSensitivity[muscle] = Math.round(Math.max(0.3, Math.min(3.0, +value)) * 100) / 100;
   await save();
   res.json({ ok: true });
+});
+
+// ---------- Exercise library ----------
+app.get('/exercises', async (req, res) => {
+  const q = (req.query.q || '').toLowerCase();
+  const cat = req.query.category;
+  let results = EXERCISE_DB;
+  if (q) results = results.filter(e =>
+    e.name.toLowerCase().includes(q) ||
+    e.primary.some(m => m.toLowerCase().includes(q)) ||
+    e.secondary.some(m => m.toLowerCase().includes(q))
+  );
+  if (cat) results = results.filter(e => e.category === cat);
+  res.json({ exercises: results.slice(0, 30) });
+});
+
+app.get('/exercises/:id', async (req, res) => {
+  const ex = EXERCISE_MAP[req.params.id] || EXERCISE_DB.find(e => e.name.toLowerCase() === req.params.id.toLowerCase());
+  if (!ex) return res.status(404).json({ error: 'not found' });
+  res.json({ exercise: ex });
+});
+
+// ---------- Session complete ----------
+app.post('/session/complete', async (req, res) => {
+  try {
+    const { workout, sets = [], customExercises = [] } = req.body;
+    if (!workout?.date) return res.status(400).json({ error: 'workout.date required' });
+
+    db.workouts = db.workouts || [];
+    const existing = db.workouts.findIndex(w => w.date === workout.date);
+    const workoutRecord = { name: workout.name || 'Session', date: workout.date, sets: sets.length };
+    if (existing >= 0) db.workouts[existing] = { ...db.workouts[existing], ...workoutRecord };
+    else db.workouts.push(workoutRecord);
+
+    db.lifts = (db.lifts || []).filter(l => !(l.date === workout.date && sets.some(s => s.exercise === l.exercise)));
+    sets.forEach(s => {
+      if (!s.exercise || !s.kg || !s.reps) return;
+      db.lifts.push({ exercise: s.exercise, kg: +s.kg, reps: +s.reps, rpe: s.rpe || null, date: workout.date });
+    });
+
+    if (customExercises.length) {
+      db.customExercises = db.customExercises || [];
+      customExercises.forEach(ce => {
+        if (!db.customExercises.find(e => e.name === ce.name)) db.customExercises.push(ce);
+      });
+    }
+
+    await save();
+
+    let atlasSummary = null;
+    if (process.env.GROQ_API_KEY && sets.length > 0) {
+      try {
+        const topSets = sets.slice(0, 8).map(s => `${s.exercise}: ${s.kg}kg × ${s.reps}${s.rpe ? ' @ RPE ' + s.rpe : ''}`).join('\n');
+        const profile = db.profile || {};
+        const prompt = `You are Atlas, a training analyst for Press — a personal health app. You write post-session analysis. Precise, science-grounded, a touch cold. Gender-ambiguous (never use he/she/him/her). One short paragraph, 2-3 sentences max.
+
+Session: ${workout.name || 'Workout'} on ${workout.date}
+Sets logged:
+${topSets}
+
+Goal: ${profile.goal || 'build muscle'}
+Training age: ${profile.trainingAge || 'unknown'}
+
+Write a brief post-session note highlighting what the numbers say — mechanical fatigue accumulation, any standout load, what to prioritise next. No bullet points. No greetings.`;
+
+        const r = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.GROQ_API_KEY}` },
+          body: JSON.stringify({
+            model: 'llama-3.3-70b-versatile',
+            messages: [{ role: 'user', content: prompt }],
+            temperature: 0.7,
+            max_tokens: 180,
+          }),
+        });
+        const d = await r.json();
+        atlasSummary = d.choices?.[0]?.message?.content?.trim() || null;
+      } catch (_) {}
+    }
+
+    res.json({ ok: true, setsLogged: sets.length, atlasSummary });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ---------- Food ----------
+app.get('/food/recent', async (req, res) => {
+  const log = db.nutritionLog || [];
+  const seen = new Set();
+  const recent = [];
+  for (const entry of [...log].reverse()) {
+    const key = entry.name?.toLowerCase();
+    if (key && !seen.has(key)) { seen.add(key); recent.push(entry); }
+    if (recent.length >= 20) break;
+  }
+  res.json({ recent });
+});
+
+app.get('/food/templates', async (req, res) => {
+  res.json({ templates: db.mealTemplates || [] });
+});
+
+app.post('/food/template', async (req, res) => {
+  const { name, items } = req.body;
+  if (!name || !items?.length) return res.status(400).json({ error: 'name and items required' });
+  db.mealTemplates = db.mealTemplates || [];
+  const existing = db.mealTemplates.findIndex(t => t.name === name);
+  if (existing >= 0) db.mealTemplates[existing] = { name, items };
+  else db.mealTemplates.push({ name, items });
+  await save();
+  res.json({ ok: true });
+});
+
+app.delete('/food/template/:name', async (req, res) => {
+  db.mealTemplates = (db.mealTemplates || []).filter(t => t.name !== req.params.name);
+  await save();
+  res.json({ ok: true });
+});
+
+app.post('/food/barcode', async (req, res) => {
+  const { barcode } = req.body;
+  if (!barcode) return res.status(400).json({ error: 'barcode required' });
+  try {
+    const r = await fetch(`https://world.openfoodfacts.org/api/v0/product/${encodeURIComponent(barcode)}.json`);
+    const d = await r.json();
+    if (d.status !== 1 || !d.product) return res.status(404).json({ error: 'product not found' });
+    const p = d.product;
+    const n = p.nutriments || {};
+    res.json({
+      product: {
+        name: p.product_name || p.product_name_en || 'Unknown product',
+        brand: p.brands || '',
+        calories: Math.round(n['energy-kcal_100g'] || (n.energy_100g || 0) / 4.184),
+        protein: Math.round((n.proteins_100g || 0) * 10) / 10,
+        carbs: Math.round((n.carbohydrates_100g || 0) * 10) / 10,
+        fat: Math.round((n.fat_100g || 0) * 10) / 10,
+        servingSize: p.serving_size || '100g',
+      },
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // ---------- Morning briefing ----------

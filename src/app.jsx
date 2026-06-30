@@ -314,7 +314,32 @@ section.visible .fade:nth-child(6){transition-delay:.56s}
 .briefing-prose{font-family:'Times New Roman',serif;font-size:14px;line-height:1.85;color:var(--ink)}
 .briefing-open-btn{display:block;width:100%;background:var(--ink);color:var(--paper);border:none;padding:14px;font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.18em;text-transform:uppercase;cursor:pointer;margin-top:28px}
 .briefing-preview{border-bottom:1px solid var(--rule);padding:10px 0;cursor:pointer}
+.deload-banner{background:var(--ember);padding:10px 12px;margin:8px 0;border-left:3px solid var(--ink)}
+.week-strip{display:flex;gap:3px;overflow-x:auto;padding:8px 0;border-top:1px solid var(--rule);margin-top:8px;scrollbar-width:none}
+.week-strip::-webkit-scrollbar{display:none}
+.week-day{flex:1 0 0;min-width:34px;padding:6px 3px 5px;border:1px solid var(--rule);text-align:center;cursor:default;position:relative}
+.week-day.today{border:2px solid var(--ink)}
+.week-day.has-session{background:var(--ink)}
+.week-day.clickable{cursor:pointer}
+.week-day-label{font-family:'JetBrains Mono',monospace;font-size:7px;letter-spacing:.08em;color:var(--dim);margin-bottom:3px;text-transform:uppercase}
+.week-day.today .week-day-label{color:var(--ink);font-weight:700}
+.week-day.has-session .week-day-label{color:rgba(245,240,226,.7)}
+.week-day-dot{width:5px;height:5px;background:var(--gold);border-radius:50%;margin:0 auto}
+.week-day-type{font-family:'JetBrains Mono',monospace;font-size:6px;letter-spacing:.06em;color:var(--gold);line-height:1.3;margin-top:2px}
+.week-day-type.past{color:var(--rule)}
+.niggle-list{display:flex;flex-direction:column;gap:10px;margin-top:10px}
+.niggle-card{padding:10px 12px;border-left:3px solid var(--ember)}
+.niggle-area{font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:600;color:var(--ink);text-transform:capitalize}
+.niggle-meta{font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--dim);margin-top:2px}
+.niggle-note{font-family:Times New Roman,serif;font-size:12px;color:var(--ink);margin-top:4px;font-style:italic;line-height:1.5}
+.niggle-resolve{font-family:'JetBrains Mono',monospace;font-size:8px;letter-spacing:.1em;text-transform:uppercase;background:none;border:1px solid var(--rule);color:var(--dim);padding:3px 8px;cursor:pointer;margin-top:6px}
+.niggle-form{margin-top:16px;padding-top:12px;border-top:1px solid var(--rule);display:flex;flex-direction:column;gap:8px}
+.niggle-input{width:100%;border:none;border-bottom:2px solid var(--ink);padding:6px 0;background:transparent;font-family:Times New Roman,serif;font-size:14px;color:var(--ink);outline:none}
+.niggle-sev{display:flex;gap:6px}
+.niggle-sev-btn{flex:1;font-family:'JetBrains Mono',monospace;font-size:8px;letter-spacing:.1em;text-transform:uppercase;padding:5px;border:1px solid var(--rule);background:none;cursor:pointer;color:var(--dim)}
+.niggle-sev-btn.active{background:var(--ink);color:var(--paper);border-color:var(--ink)}
 `;
+
 
 
 // ── HELPERS ─────────────────────────────────────────────────────────────────
@@ -462,6 +487,8 @@ function S1({ s, briefing, onShowBriefing }) {
   const fatigue = useMemo(() => computeFatigue(s?.lifts, s?.musclePeaks), [s?.lifts]);
   const fatigueVals = Object.values(fatigue);
   const overallFatigue = fatigueVals.length ? Math.round(fatigueVals.reduce((a,b) => a+b, 0) / fatigueVals.length) : null;
+  const highFatigueMuscles = Object.values(fatigue).filter(v => v > 70).length;
+  const deloadRecommended = highFatigueMuscles >= 3;
   const steps = today.steps != null ? Math.round(today.steps * 1000) : null;
   const n = s?.nutritionToday || {};
   const mt = s?.macroTargets || {};
@@ -599,6 +626,15 @@ function S1({ s, briefing, onShowBriefing }) {
       {sleepDebt === 0 && (
         <div className="sleep-debt-bar fade" style={{ flexShrink: 0, borderLeftColor: 'var(--forest)' }}>
           <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, color: 'var(--forest)' }}>Sleep debt clear</div>
+        </div>
+      )}
+
+      {deloadRecommended && (
+        <div className="deload-banner fade" style={{ flexShrink: 0 }}>
+          <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, fontWeight: 600, color: 'var(--paper)', letterSpacing: '.04em' }}>Recovery week recommended</div>
+          <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'rgba(245,240,226,0.75)', marginTop: 3, lineHeight: 1.5 }}>
+            {highFatigueMuscles} muscle groups above 70% fatigue. Reduce load 40%, maintain reps — rebuild in 5 days.
+          </div>
         </div>
       )}
 
@@ -799,6 +835,7 @@ function WorkoutLogger({ planDay, lifts, onClose, refresh }) {
   const [elapsed, setElapsed] = useState(0);
   const [rest, setRest] = useState(null);
   const [saving, setSaving] = useState(false);
+  const [summary, setSummary] = useState(null);
   const inputRef = useRef();
 
   const allExercises = useMemo(() => {
@@ -844,7 +881,8 @@ function WorkoutLogger({ planDay, lifts, onClose, refresh }) {
           name: ex.name.toLowerCase().trim(),
           bw: false,
           note: ex.note || '',
-          sets: ex.sets.map(s => ({ type: s.type || 'N', kg: String(s.kg || ''), reps: String(s.reps || ''), rir: '', done: false })),
+          targetReps: ex.sets[0]?.reps || 8,
+          sets: ex.sets.map(s => ({ type: s.type || 'N', kg: String(s.kg || ''), reps: String(s.reps || ''), rpe: '', done: false })),
         })));
       }
       setLoading(false);
@@ -875,17 +913,23 @@ function WorkoutLogger({ planDay, lifts, onClose, refresh }) {
     if (!name.trim()) return;
     const key = name.toLowerCase().trim();
     const prev = prevData[key];
-    const sets = prev?.sets?.map(s => ({ type: 'N', kg: String(s.kg || ''), reps: String(s.reps || ''), rir: '', done: false }))
-      || [{ type: 'N', kg: '', reps: '', rir: '', done: false }];
-    setExercises(p => [...p, { name: key, bw: false, note: '', sets }]);
+    const sets = prev?.sets?.map(s => ({ type: 'N', kg: String(s.kg || ''), reps: String(s.reps || ''), rpe: '', done: false }))
+      || [{ type: 'N', kg: '', reps: '', rpe: '', done: false }];
+    setExercises(p => [...p, { name: key, bw: false, note: '', targetReps: 8, sets }]);
     setNewEx(''); setSuggestions([]);
     setTimeout(() => inputRef.current?.focus(), 50);
+    // Fetch progression note from backend (fire-and-forget)
+    api(`progression/${encodeURIComponent(key)}`).then(d => {
+      if (d.progression?.note) {
+        setExercises(p => p.map(ex => ex.name === key && !ex.note ? { ...ex, note: d.progression.note } : ex));
+      }
+    }).catch(() => {});
   };
 
   const removeExercise = i => setExercises(p => p.filter((_, j) => j !== i));
 
   const addSet = i => setExercises(p => p.map((ex, j) => j !== i ? ex : {
-    ...ex, sets: [...ex.sets, { type: 'N', kg: ex.sets.at(-1)?.kg || '', reps: ex.sets.at(-1)?.reps || '', rir: '', done: false }]
+    ...ex, sets: [...ex.sets, { type: 'N', kg: ex.sets.at(-1)?.kg || '', reps: ex.sets.at(-1)?.reps || '', rpe: '', done: false }]
   }));
 
   const updateSet = (ei, si, field, val) => setExercises(p => p.map((ex, i) =>
@@ -897,8 +941,46 @@ function WorkoutLogger({ planDay, lifts, onClose, refresh }) {
   ));
 
   const completeSet = (ei, si) => {
-    updateSet(ei, si, 'done', true);
-    setRest({ remaining: REST_DEFAULT, total: REST_DEFAULT });
+    const ex = exercises[ei];
+    const set = ex.sets[si];
+    const rpe = parseInt(set.rpe) || null;
+    const reps = parseInt(set.reps) || 0;
+    const kg = parseFloat(set.kg) || 0;
+    const targetReps = ex.targetReps || 8;
+
+    const weekAgo = new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10);
+    const exLifts = (lifts || []).filter(l => l.exercise === ex.name && l.date < weekAgo);
+    const weekOldMax = exLifts.length ? Math.max(...exLifts.map(l => l.kg || 0)) : null;
+    const weekProgressionPct = (weekOldMax && kg) ? ((kg - weekOldMax) / weekOldMax * 100) : 0;
+
+    let feedback = null;
+    let feedbackType = 'neutral';
+    if (rpe !== null && rpe >= 9 && weekProgressionPct > 5) {
+      feedback = 'High effort + rapid load increase — check form before adding weight';
+      feedbackType = 'red';
+      api(`exercises/${encodeURIComponent(ex.name.replace(/\s+/g, '-'))}`).then(d => {
+        if (d.exercise?.form?.[0]) {
+          setExercises(p => p.map((e, i) => i !== ei ? e : {
+            ...e, sets: e.sets.map((s, j) => j !== si ? s : { ...s, feedback: `${d.exercise.form[0]}`, feedbackType: 'red' })
+          }));
+        }
+      }).catch(() => {});
+    } else if (reps < targetReps - 2) {
+      feedback = 'Short of target — hold weight next set';
+      feedbackType = 'amber';
+    } else if (reps > targetReps + 2 && (rpe === null || rpe <= 7)) {
+      feedback = 'Strong set — add 2.5kg next set';
+      feedbackType = 'green';
+    } else if (rpe !== null && rpe >= 7 && rpe <= 8 && reps >= targetReps) {
+      feedback = 'On target — maintain next set';
+      feedbackType = 'green';
+    }
+
+    setExercises(p => p.map((e, i) => i !== ei ? e : {
+      ...e, sets: e.sets.map((s, j) => j !== si ? s : { ...s, done: true, feedback, feedbackType })
+    }));
+    const restDuration = rpe !== null && rpe >= 9 ? 180 : rpe !== null && rpe >= 7 ? 90 : REST_DEFAULT;
+    setRest({ remaining: restDuration, total: restDuration });
   };
 
   const removeSet = (ei, si) => setExercises(p => p.map((ex, i) =>
@@ -920,12 +1002,26 @@ function WorkoutLogger({ planDay, lifts, onClose, refresh }) {
     })).filter(ex => ex.sets.length > 0);
     if (!valid.length) { onClose(); return; }
     setSaving(true);
-    await authFetch(`${API_BASE}/workout/session`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: planDay?.sessions?.[0]?.title || 'Session', exercises: valid, duration: Math.round(elapsed / 60) }),
-    });
-    await api('summary').then(refresh);
-    onClose();
+    const today = new Date().toISOString().slice(0, 10);
+    const allSets = valid.flatMap(ex => ex.sets.map(s => ({
+      exercise: ex.name, kg: parseFloat(s.kg) || 0, reps: parseInt(s.reps) || 0, rpe: parseInt(s.rpe) || null,
+    })));
+    try {
+      const r = await api('session/complete', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ workout: { name: planDay?.sessions?.[0]?.title || 'Session', date: today }, sets: allSets }),
+      });
+      await api('summary').then(refresh);
+      setSummary({
+        name: planDay?.sessions?.[0]?.title || 'Session',
+        duration: Math.round(elapsed / 60),
+        setsLogged: allSets.filter(s => s.kg || s.reps).length,
+        atlasSummary: r.atlasSummary,
+      });
+    } catch (e) {
+      onClose();
+    }
+    setSaving(false);
   };
 
   const session = planDay?.sessions?.[0];
@@ -940,18 +1036,22 @@ function WorkoutLogger({ planDay, lifts, onClose, refresh }) {
       {/* Header */}
       <div className="ol-hdr">
         <div>
-          <div className="kicker" style={{ marginBottom: 2 }}>In Session</div>
+          <div className="kicker" style={{ marginBottom: 2 }}>{summary ? 'Complete' : 'In Session'}</div>
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
             <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 22, fontWeight: 600, letterSpacing: '-.02em' }}>{fmt(elapsed)}</div>
-            {exercises.some(e => e.sets.some(s => s.done)) && (
+            {!summary && exercises.some(e => e.sets.some(s => s.done)) && (
               <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, letterSpacing: '.12em', textTransform: 'uppercase', padding: '2px 7px', background: cns.color, color: 'var(--paper)' }}>{cns.label}</span>
             )}
           </div>
         </div>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <button className="ol-btn ol-btn-ghost" onClick={onClose}>Discard</button>
-          <button className="ol-btn ol-btn-solid" onClick={finish} disabled={saving}>{saving ? 'Saving…' : 'Finish'}</button>
-        </div>
+        {summary ? (
+          <button className="ol-btn ol-btn-solid" onClick={onClose}>Back to Press</button>
+        ) : (
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button className="ol-btn ol-btn-ghost" onClick={onClose}>Discard</button>
+            <button className="ol-btn ol-btn-solid" onClick={finish} disabled={saving}>{saving ? 'Saving…' : 'Finish'}</button>
+          </div>
+        )}
       </div>
 
       {/* Loading template */}
@@ -961,7 +1061,26 @@ function WorkoutLogger({ planDay, lifts, onClose, refresh }) {
         </div>
       )}
 
-      {!loading && (
+      {!loading && summary && (
+        <div style={{ padding: '24px 20px', flex: 1, display: 'flex', flexDirection: 'column', gap: 20 }}>
+          <div>
+            <div className="kicker">Session Complete</div>
+            <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 28, fontWeight: 900, lineHeight: 1.1, margin: '6px 0 4px' }}>{summary.name.toUpperCase()}</div>
+            <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)', letterSpacing: '.1em' }}>
+              {new Date().toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })} · {summary.duration}min · {summary.setsLogged} sets
+            </div>
+          </div>
+          <div style={{ borderTop: '2px solid var(--ink)', paddingTop: 14 }}>
+            <div className="kicker" style={{ marginBottom: 8 }}>Atlas · Training</div>
+            {summary.atlasSummary
+              ? <div style={{ fontFamily: "'Times New Roman',serif", fontSize: 14, lineHeight: 1.85, color: 'var(--ink)' }}>{summary.atlasSummary}</div>
+              : <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, color: 'var(--dim)' }}>Atlas was quiet today.</div>
+            }
+          </div>
+        </div>
+      )}
+
+      {!loading && !summary && (
         <div style={{ padding: '16px 20px', flex: 1, display: 'flex', flexDirection: 'column' }}>
 
           {/* AI plan context */}
@@ -1067,7 +1186,7 @@ function WorkoutLogger({ planDay, lifts, onClose, refresh }) {
                       <th style={{ ...th, width: 56 }}>Prev</th>
                       {!ex.bw && <th style={{ ...th, width: 48 }}>kg</th>}
                       <th style={{ ...th, width: 38 }}>Reps</th>
-                      <th style={{ ...th, width: 28 }}>RIR</th>
+                      <th style={{ ...th, width: 28 }}>RPE</th>
                       <th style={{ ...th, width: 26 }}>✓</th>
                       <th style={{ ...th, width: 16 }} />
                     </tr>
@@ -1078,8 +1197,10 @@ function WorkoutLogger({ planDay, lifts, onClose, refresh }) {
                       const setE1rm = !ex.bw ? e1rm(+set.kg, +set.reps) : null;
                       const setIsPR = setE1rm && setE1rm > (prData[ex.name] || 0);
                       const isWorking = set.type !== 'W';
+                      const fbColor = set.feedbackType === 'green' ? 'var(--forest)' : set.feedbackType === 'red' ? 'var(--red)' : set.feedbackType === 'amber' ? 'var(--gold)' : 'var(--dim)';
                       return (
-                        <tr key={j} style={{ opacity: set.done ? 0.4 : 1 }}>
+                        <React.Fragment key={j}>
+                        <tr style={{ opacity: set.done ? 0.45 : 1 }}>
                           <td style={{ padding: '5px 0', textAlign: 'left' }}>
                             <button onClick={() => cycleType(i, j)} title={SET_LABELS[set.type]}
                               style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, background: set.type === 'W' ? 'var(--navy)' : set.type === 'F' ? 'var(--ember)' : set.type === 'D' ? 'var(--gold)' : 'var(--paper2)', color: set.type !== 'N' ? 'var(--paper)' : 'var(--dim)', border: 'none', padding: '2px 4px', cursor: 'pointer', minWidth: 20, textAlign: 'center' }}>
@@ -1103,7 +1224,7 @@ function WorkoutLogger({ planDay, lifts, onClose, refresh }) {
                           </td>
                           <td style={{ padding: '5px 0', textAlign: 'right' }}>
                             {isWorking
-                              ? <input className="set-input" value={set.rir} onChange={e => updateSet(i, j, 'rir', e.target.value)}
+                              ? <input className="set-input" value={set.rpe} onChange={e => updateSet(i, j, 'rpe', e.target.value)}
                                   inputMode="numeric" placeholder="—" disabled={set.done}
                                   style={{ color: 'var(--dim)', width: 24 }} />
                               : <span style={{ color: 'var(--rule)', fontSize: 10 }}>—</span>
@@ -1119,6 +1240,14 @@ function WorkoutLogger({ planDay, lifts, onClose, refresh }) {
                             <button onClick={() => removeSet(i, j)} style={{ background: 'none', border: 'none', color: 'var(--rule)', cursor: 'pointer', fontSize: 14, lineHeight: 1 }}>×</button>
                           </td>
                         </tr>
+                        {set.done && set.feedback && (
+                          <tr>
+                            <td colSpan={ex.bw ? 5 : 6} style={{ paddingBottom: 4 }}>
+                              <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, letterSpacing: '.09em', color: fbColor }}>↳ {set.feedback}</span>
+                            </td>
+                          </tr>
+                        )}
+                        </React.Fragment>
                       );
                     })}
                   </tbody>
@@ -1552,6 +1681,45 @@ function S3({ s, onStartWorkout, onImport, onHistory }) {
             <button className="action-btn primary" onClick={() => onStartWorkout(null)}>Start Workout</button>
           </div>
         )}
+        {/* Weekly block strip */}
+        {(() => {
+          const now = new Date();
+          const mondayOffset = (now.getDay() + 6) % 7;
+          const monday = new Date(now); monday.setDate(now.getDate() - mondayOffset);
+          const todayStr = now.toISOString().slice(0, 10);
+          const DOW = ['M','T','W','T','F','S','S'];
+          const workoutDates = new Set(workouts.map(w => w.date));
+          return (
+            <div className="week-strip">
+              {DOW.map((label, i) => {
+                const d = new Date(monday); d.setDate(monday.getDate() + i);
+                const dateStr = d.toISOString().slice(0, 10);
+                const isToday = dateStr === todayStr;
+                const isPast = dateStr < todayStr;
+                const hasSession = workoutDates.has(dateStr);
+                const planEntry = plan?.days?.find(pd => pd.date === dateStr);
+                const planSess = planEntry?.sessions?.[0];
+                const isClickable = !hasSession && !isPast && planSess && planSess.type !== 'rest';
+                return (
+                  <div key={i}
+                    className={`week-day${isToday ? ' today' : ''}${hasSession ? ' has-session' : ''}${isClickable ? ' clickable' : ''}`}
+                    onClick={() => isClickable && onStartWorkout(planEntry)}
+                    title={planSess?.title || (hasSession ? 'Done' : '')}
+                  >
+                    <div className="week-day-label">{label}</div>
+                    {hasSession && <div className="week-day-dot" />}
+                    {!hasSession && planSess && (
+                      <div className={`week-day-type${isPast ? ' past' : ''}`}>
+                        {planSess.type === 'rest' ? 'REST' : planSess.type.toUpperCase().slice(0, 4)}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          );
+        })()}
+
         <div style={{ borderTop: '1px solid var(--rule)', paddingTop: 8, marginTop: 4, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
           <button onClick={onImport} style={{ background: 'none', border: 'none', fontFamily: "'JetBrains Mono',monospace", fontSize: 9, letterSpacing: '.1em', textTransform: 'uppercase', color: 'var(--dim)', cursor: 'pointer', padding: 0 }}>Import Hevy</button>
           <button onClick={onHistory} style={{ background: 'none', border: 'none', fontFamily: "'JetBrains Mono',monospace", fontSize: 9, letterSpacing: '.1em', textTransform: 'uppercase', color: 'var(--dim)', cursor: 'pointer', padding: 0 }}>History</button>
@@ -1579,6 +1747,7 @@ function S4({ s, refresh }) {
   const calTarget = mt.calories || 2400;
   const short = calTarget - cal;
 
+  // Form state
   const [label, setLabel] = useState('');
   const [protein, setProtein] = useState('');
   const [carbs, setCarbs] = useState('');
@@ -1591,6 +1760,20 @@ function S4({ s, refresh }) {
   const [scanMode, setScanMode] = useState('meal');
   const [portion, setPortion] = useState(1);
   const [analysed, setAnalysed] = useState(false);
+
+  // Tab + barcode state
+  const [foodTab, setFoodTab] = useState('log');
+  const [barcode, setBarcode] = useState('');
+  const [barcodeLoading, setBarcodeLoading] = useState(false);
+  const [barcodeErr, setBarcodeErr] = useState('');
+  const [grams, setGrams] = useState('100');
+  const [recentFoods, setRecentFoods] = useState([]);
+  const [recentLoaded, setRecentLoaded] = useState(false);
+  const [templates, setTemplates] = useState([]);
+  const [templatesLoaded, setTemplatesLoaded] = useState(false);
+  const [templateName, setTemplateName] = useState('');
+  const [savingTemplate, setSavingTemplate] = useState(false);
+
   const photoRef = useRef();
   const baseNutrition = useRef({ calories: 0, protein: 0, carbs: 0, fat: 0 });
 
@@ -1599,6 +1782,40 @@ function S4({ s, refresh }) {
     setProtein(base.protein ? String(Math.round(base.protein * mult)) : '');
     setCarbs(base.carbs ? String(Math.round(base.carbs * mult)) : '');
     setFat(base.fat ? String(Math.round(base.fat * mult)) : '');
+  };
+
+  const applyGrams = (g, base100) => {
+    const m = (parseFloat(g) || 100) / 100;
+    setCalories(base100.calories ? String(Math.round(base100.calories * m)) : '');
+    setProtein(base100.protein ? String(Math.round(base100.protein * m * 10) / 10) : '');
+    setCarbs(base100.carbs ? String(Math.round(base100.carbs * m * 10) / 10) : '');
+    setFat(base100.fat ? String(Math.round(base100.fat * m * 10) / 10) : '');
+  };
+
+  const fillForm = (food) => {
+    setLabel(food.name || '');
+    setCalories(String(food.calories || ''));
+    setProtein(String(food.protein || ''));
+    setCarbs(String(food.carbs || ''));
+    setFat(String(food.fat || ''));
+    baseNutrition.current = { calories: food.calories || 0, protein: food.protein || 0, carbs: food.carbs || 0, fat: food.fat || 0 };
+    setAnalysed(true);
+    setPortion(1);
+  };
+
+  const handleBarcode = async () => {
+    const b = barcode.trim();
+    if (!b) return;
+    setBarcodeLoading(true); setBarcodeErr('');
+    try {
+      const d = await api('food/barcode', { method: 'POST', body: JSON.stringify({ barcode: b }) });
+      if (d.product) {
+        fillForm(d.product);
+        setGrams('100');
+        setFoodTab('log');
+      } else { setBarcodeErr('Product not found'); }
+    } catch { setBarcodeErr('Lookup failed'); }
+    setBarcodeLoading(false);
   };
 
   const handlePhoto = async e => {
@@ -1614,12 +1831,7 @@ function S4({ s, refresh }) {
           method: 'POST',
           body: JSON.stringify({ imageBase64: ev.target.result, mode: scanMode }),
         });
-        const base = {
-          calories: data.calories || 0,
-          protein: data.protein || 0,
-          carbs: data.carbs || 0,
-          fat: data.fat || 0,
-        };
+        const base = { calories: data.calories || 0, protein: data.protein || 0, carbs: data.carbs || 0, fat: data.fat || 0 };
         baseNutrition.current = base;
         if (data.description) setDescription(data.description);
         setPortion(1);
@@ -1640,10 +1852,62 @@ function S4({ s, refresh }) {
       method: 'POST',
       body: JSON.stringify({ label, protein: +protein || 0, carbs: +carbs || 0, fat: +fat || 0, calories: +calories || 0 }),
     });
-    setLabel(''); setProtein(''); setCarbs(''); setFat(''); setCalories(''); setDescription('');
+    setLabel(''); setProtein(''); setCarbs(''); setFat(''); setCalories(''); setDescription(''); setAnalysed(false);
     setLogging(false);
     refresh(null);
   };
+
+  const logFood = async (food) => {
+    await api('nutrition', {
+      method: 'POST',
+      body: JSON.stringify({ label: food.name || food.label, protein: food.protein || 0, carbs: food.carbs || 0, fat: food.fat || 0, calories: food.calories || 0 }),
+    });
+    refresh(null);
+  };
+
+  const loadRecent = async () => {
+    if (recentLoaded) return;
+    const d = await api('food/recent');
+    setRecentFoods(d.recent || []);
+    setRecentLoaded(true);
+  };
+
+  const loadTemplates = async () => {
+    if (templatesLoaded) return;
+    const d = await api('food/templates');
+    setTemplates(d.templates || []);
+    setTemplatesLoaded(true);
+  };
+
+  const deleteTemplate = async (name) => {
+    await api(`food/template/${encodeURIComponent(name)}`, { method: 'DELETE' });
+    setTemplates(t => t.filter(x => x.name !== name));
+  };
+
+  const saveAsTemplate = async () => {
+    const nm = templateName.trim();
+    if (!nm || (!calories && !protein)) return;
+    setSavingTemplate(true);
+    const item = { name: label || nm, protein: +protein||0, carbs: +carbs||0, fat: +fat||0, calories: +calories||0 };
+    await api('food/template', { method: 'POST', body: JSON.stringify({ name: nm, items: [item] }) });
+    setTemplateName('');
+    setTemplates([]);
+    setTemplatesLoaded(false);
+    setSavingTemplate(false);
+  };
+
+  const switchTab = t => {
+    setFoodTab(t);
+    if (t === 'recent') loadRecent();
+    if (t === 'templates') loadTemplates();
+  };
+
+  const tabStyle = (t) => ({
+    fontFamily: "'JetBrains Mono',monospace", fontSize: 9, letterSpacing: '.12em', textTransform: 'uppercase',
+    padding: '5px 12px', border: 'none', cursor: 'pointer',
+    background: foodTab === t ? 'var(--ink)' : 'none',
+    color: foodTab === t ? 'var(--paper)' : 'var(--dim)',
+  });
 
   return (
     <section id="s4" style={{ display: 'flex', flexDirection: 'column' }}>
@@ -1676,77 +1940,201 @@ function S4({ s, refresh }) {
       <div className="fade" style={{ flex: 1, minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
         <div className="rule-thin" />
 
-        {/* Photo analysis */}
-        <input ref={photoRef} type="file" accept="image/*" capture="environment" style={{ display: 'none' }} onChange={handlePhoto} />
-        <div className="scan-mode-toggle">
-          <button className={`scan-mode-btn${scanMode === 'meal' ? ' active' : ''}`} onClick={() => setScanMode('meal')}>Meal Photo</button>
-          <button className={`scan-mode-btn${scanMode === 'label' ? ' active' : ''}`} onClick={() => setScanMode('label')}>Nutrition Label</button>
+        {/* Tabs */}
+        <div style={{ display: 'flex', borderBottom: '1px solid var(--rule)', marginBottom: 12 }}>
+          {[['log','Log'],['recent','Recent'],['templates','Templates']].map(([t,l]) => (
+            <button key={t} style={tabStyle(t)} onClick={() => switchTab(t)}>{l}</button>
+          ))}
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
-          {photoPreview && (
-            <img src={photoPreview} className={`scan-preview${analysing ? ' analysing' : ''}`} alt="scan preview" />
-          )}
-          <div style={{ flex: 1 }}>
-            <button className="nutri-photo-btn" onClick={() => photoRef.current?.click()} disabled={analysing}>
-              {analysing ? 'Analysing…' : photoPreview ? 'Scan Again' : 'Scan Photo'}
-            </button>
-            {description && <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)', marginTop: 4, lineHeight: 1.4 }}>{description}</div>}
-          </div>
-        </div>
-        {analysed && (
-          <div className="portion-row">
-            <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)', letterSpacing: '.08em' }}>Portion:</span>
-            {[0.5, 1, 1.5, 2].map(m => (
-              <button key={m} className="portion-btn"
-                style={{ background: portion === m ? 'var(--ink)' : 'none', color: portion === m ? 'var(--paper)' : 'var(--ink)' }}
-                onClick={() => { setPortion(m); applyPortion(m, baseNutrition.current); }}>
-                ×{m}
+
+        {/* LOG TAB */}
+        {foodTab === 'log' && (
+          <>
+            {/* Barcode lookup */}
+            <div style={{ display: 'flex', gap: 8, marginBottom: 10, alignItems: 'center' }}>
+              <input
+                style={{ flex: 1, fontFamily: "'JetBrains Mono',monospace", fontSize: 11, padding: '6px 8px', border: '1px solid var(--rule)', background: 'var(--paper)', color: 'var(--ink)' }}
+                placeholder="Barcode number…"
+                value={barcode}
+                onChange={e => setBarcode(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && handleBarcode()}
+                inputMode="numeric"
+              />
+              <button className="nutri-photo-btn" style={{ minWidth: 64, flexShrink: 0 }} onClick={handleBarcode} disabled={barcodeLoading}>
+                {barcodeLoading ? '…' : 'Lookup'}
               </button>
+            </div>
+            {barcodeErr && <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--red)', marginBottom: 6 }}>{barcodeErr}</div>}
+
+            {/* Photo analysis */}
+            <input ref={photoRef} type="file" accept="image/*" capture="environment" style={{ display: 'none' }} onChange={handlePhoto} />
+            <div className="scan-mode-toggle">
+              <button className={`scan-mode-btn${scanMode === 'meal' ? ' active' : ''}`} onClick={() => setScanMode('meal')}>Meal Photo</button>
+              <button className={`scan-mode-btn${scanMode === 'label' ? ' active' : ''}`} onClick={() => setScanMode('label')}>Nutrition Label</button>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+              {photoPreview && (
+                <img src={photoPreview} className={`scan-preview${analysing ? ' analysing' : ''}`} alt="scan preview" />
+              )}
+              <div style={{ flex: 1 }}>
+                <button className="nutri-photo-btn" onClick={() => photoRef.current?.click()} disabled={analysing}>
+                  {analysing ? 'Analysing…' : photoPreview ? 'Scan Again' : 'Scan Photo'}
+                </button>
+                {description && <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)', marginTop: 4, lineHeight: 1.4 }}>{description}</div>}
+              </div>
+            </div>
+
+            {/* Gram calculator (shown after barcode lookup) */}
+            {analysed && baseNutrition.current.calories > 0 && !photoPreview && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)' }}>Grams:</span>
+                <input
+                  style={{ width: 60, fontFamily: "'JetBrains Mono',monospace", fontSize: 11, padding: '4px 6px', border: '1px solid var(--rule)', background: 'var(--paper)', color: 'var(--ink)', textAlign: 'right' }}
+                  value={grams} inputMode="numeric"
+                  onChange={e => { setGrams(e.target.value); applyGrams(e.target.value, baseNutrition.current); }}
+                />
+                <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)' }}>g</span>
+              </div>
+            )}
+
+            {analysed && photoPreview && (
+              <div className="portion-row">
+                <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)', letterSpacing: '.08em' }}>Portion:</span>
+                {[0.5, 1, 1.5, 2].map(m => (
+                  <button key={m} className="portion-btn"
+                    style={{ background: portion === m ? 'var(--ink)' : 'none', color: portion === m ? 'var(--paper)' : 'var(--ink)' }}
+                    onClick={() => { setPortion(m); applyPortion(m, baseNutrition.current); }}>
+                    ×{m}
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {/* Manual log form */}
+            <div className="nutri-log-form">
+              <div className="nutri-log-row">
+                <input className="nutri-input wide" placeholder="Meal name…" value={label} onChange={e => setLabel(e.target.value)} />
+              </div>
+              <div className="nutri-log-row">
+                {[['Protein', protein, setProtein], ['Carbs', carbs, setCarbs], ['Fat', fat, setFat], ['kcal', calories, setCalories]].map(([lbl, val, set]) => (
+                  <div key={lbl} style={{ display: 'flex', flexDirection: 'column', gap: 2, alignItems: 'flex-end' }}>
+                    <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 7, letterSpacing: '.1em', color: 'var(--dim)' }}>{lbl.toUpperCase()}</span>
+                    <input className="nutri-input narrow" type="number" placeholder="0" value={val} onChange={e => set(e.target.value)} inputMode="numeric" />
+                  </div>
+                ))}
+                <button className="nutri-submit-btn" onClick={logMeal} disabled={logging || (!calories && !protein)}>
+                  {logging ? '…' : 'Log'}
+                </button>
+              </div>
+              {analysed && (
+                <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)', fontStyle: 'italic', marginTop: 4 }}>
+                  {photoPreview ? 'AI estimate — verify against actual label' : 'Per 100g values — adjust grams above'}
+                </div>
+              )}
+              {/* Save as template */}
+              {(calories || protein) && (
+                <div style={{ display: 'flex', gap: 8, marginTop: 8, alignItems: 'center' }}>
+                  <input
+                    style={{ flex: 1, fontFamily: "'JetBrains Mono',monospace", fontSize: 10, padding: '5px 8px', border: '1px solid var(--rule)', background: 'var(--paper)', color: 'var(--ink)' }}
+                    placeholder="Save as template…"
+                    value={templateName}
+                    onChange={e => setTemplateName(e.target.value)}
+                  />
+                  <button className="nutri-submit-btn" onClick={saveAsTemplate} disabled={!templateName.trim() || savingTemplate}>
+                    {savingTemplate ? '…' : 'Save'}
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* Today's meal log */}
+            {todayLog.length > 0 && (
+              <>
+                <div className="rule-thin" />
+                <table className="data-table">
+                  <thead><tr><th>Meal</th><th>Time</th><th>Pro</th><th>kcal</th></tr></thead>
+                  <tbody>
+                    {todayLog.map((m, i) => (
+                      <tr key={i}>
+                        <td>{m.label || m.name || 'Meal'}</td>
+                        <td>{m.time || '—'}</td>
+                        <td className="up">{m.protein ? `${m.protein}g` : '—'}</td>
+                        <td className="hi">{m.calories || '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </>
+            )}
+          </>
+        )}
+
+        {/* RECENT TAB */}
+        {foodTab === 'recent' && (
+          <div>
+            {!recentLoaded && <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, color: 'var(--dim)' }}>Loading…</div>}
+            {recentLoaded && recentFoods.length === 0 && (
+              <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, color: 'var(--dim)' }}>No recent foods yet.</div>
+            )}
+            {recentFoods.map((f, i) => (
+              <div key={i} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '9px 0', borderBottom: '1px solid var(--rule)' }}>
+                <div>
+                  <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 11, color: 'var(--ink)' }}>{f.label || f.name || 'Food'}</div>
+                  <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)', marginTop: 2 }}>
+                    {f.protein ? `${f.protein}g P` : ''}{f.carbs ? ` · ${f.carbs}g C` : ''}{f.fat ? ` · ${f.fat}g F` : ''}{f.calories ? ` · ${f.calories}kcal` : ''}
+                  </div>
+                </div>
+                <div style={{ display: 'flex', gap: 6 }}>
+                  <button onClick={() => { fillForm({ name: f.label || f.name, ...f }); switchTab('log'); }}
+                    style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, letterSpacing: '.1em', padding: '4px 8px', border: '1px solid var(--rule)', background: 'none', color: 'var(--dim)', cursor: 'pointer' }}>
+                    Edit
+                  </button>
+                  <button onClick={() => logFood(f)}
+                    style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, letterSpacing: '.1em', padding: '4px 8px', border: 'none', background: 'var(--ink)', color: 'var(--paper)', cursor: 'pointer' }}>
+                    + Log
+                  </button>
+                </div>
+              </div>
             ))}
           </div>
         )}
 
-        {/* Manual log form */}
-        <div className="nutri-log-form">
-          <div className="nutri-log-row">
-            <input className="nutri-input wide" placeholder="Meal name…" value={label} onChange={e => setLabel(e.target.value)} />
-          </div>
-          <div className="nutri-log-row">
-            {[['Protein', protein, setProtein], ['Carbs', carbs, setCarbs], ['Fat', fat, setFat], ['kcal', calories, setCalories]].map(([lbl, val, set]) => (
-              <div key={lbl} style={{ display: 'flex', flexDirection: 'column', gap: 2, alignItems: 'flex-end' }}>
-                <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 7, letterSpacing: '.1em', color: 'var(--dim)' }}>{lbl.toUpperCase()}</span>
-                <input className="nutri-input narrow" type="number" placeholder="0" value={val} onChange={e => set(e.target.value)} inputMode="numeric" />
+        {/* TEMPLATES TAB */}
+        {foodTab === 'templates' && (
+          <div>
+            {!templatesLoaded && <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, color: 'var(--dim)' }}>Loading…</div>}
+            {templatesLoaded && templates.length === 0 && (
+              <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, color: 'var(--dim)' }}>
+                No templates yet — log a meal and save it as a template from the Log tab.
               </div>
-            ))}
-            <button className="nutri-submit-btn" onClick={logMeal} disabled={logging || (!calories && !protein)}>
-              {logging ? '…' : 'Log'}
-            </button>
+            )}
+            {templates.map((t, i) => {
+              const totals = t.items.reduce((a, item) => ({
+                calories: a.calories + (item.calories || 0),
+                protein: a.protein + (item.protein || 0),
+              }), { calories: 0, protein: 0 });
+              return (
+                <div key={i} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '9px 0', borderBottom: '1px solid var(--rule)' }}>
+                  <div>
+                    <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 11, color: 'var(--ink)' }}>{t.name}</div>
+                    <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)', marginTop: 2 }}>
+                      {t.items.length} item{t.items.length !== 1 ? 's' : ''} · {totals.protein}g P · {totals.calories}kcal
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <button onClick={() => deleteTemplate(t.name)}
+                      style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, padding: '4px 8px', border: '1px solid var(--rule)', background: 'none', color: 'var(--dim)', cursor: 'pointer' }}>
+                      ×
+                    </button>
+                    <button onClick={async () => { for (const item of t.items) await logFood(item); refresh(null); }}
+                      style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, letterSpacing: '.1em', padding: '4px 8px', border: 'none', background: 'var(--ink)', color: 'var(--paper)', cursor: 'pointer' }}>
+                      + Log All
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
           </div>
-          {analysed && (
-            <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)', fontStyle: 'italic', marginTop: 4 }}>
-              AI estimate — verify against actual label
-            </div>
-          )}
-        </div>
-
-        {/* Today's meal log */}
-        {todayLog.length > 0 && (
-          <>
-            <div className="rule-thin" />
-            <table className="data-table">
-              <thead><tr><th>Meal</th><th>Time</th><th>Pro</th><th>kcal</th></tr></thead>
-              <tbody>
-                {todayLog.map((m, i) => (
-                  <tr key={i}>
-                    <td>{m.label || m.name || 'Meal'}</td>
-                    <td>{m.time || '—'}</td>
-                    <td className="up">{m.protein ? `${m.protein}g` : '—'}</td>
-                    <td className="hi">{m.calories || '—'}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </>
         )}
       </div>
     </section>
@@ -1764,6 +2152,10 @@ function S5({ s, refresh }) {
   const [selectedMuscle, setSelectedMuscle] = useState(null);
   const [sliderVal, setSliderVal] = useState(5);
   const [soreLogging, setSoreLogging] = useState(false);
+  const [niggleArea, setNiggleArea] = useState('');
+  const [niggleSev, setNiggleSev] = useState('mild');
+  const [niggleNote, setNiggleNote] = useState('');
+  const [niggleLogging, setNiggleLogging] = useState(false);
 
   const fatigue = useMemo(() => computeFatigue(s?.lifts, s?.musclePeaks), [s?.lifts, s?.musclePeaks]);
   const fatigueVals = Object.values(fatigue);
@@ -1821,6 +2213,9 @@ function S5({ s, refresh }) {
       <div className="fade tab-bar" style={{ flexShrink: 0 }}>
         <button className={`tab-btn${tab === 'fatigue' ? ' active' : ''}`} onClick={() => setTab('fatigue')}>Muscle Fatigue</button>
         <button className={`tab-btn${tab === 'soreness' ? ' active' : ''}`} onClick={() => setTab('soreness')}>Soreness</button>
+        <button className={`tab-btn${tab === 'niggles' ? ' active' : ''}`} onClick={() => setTab('niggles')}>
+          Niggles{(s?.injuries?.length > 0) ? ` (${s.injuries.length})` : ''}
+        </button>
       </div>
 
       {tab === 'fatigue' && <>
@@ -1927,6 +2322,78 @@ function S5({ s, refresh }) {
               ))}
             </div>
           )}
+        </div>
+      )}
+
+      {tab === 'niggles' && (
+        <div className="fade" style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0, overflowY: 'auto' }}>
+          <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)', letterSpacing: '.08em', marginBottom: 6 }}>
+            Active injuries and niggles — logged to avoid overloading affected areas
+          </div>
+
+          {/* Active niggles list */}
+          {(s?.injuries || []).length === 0 && (
+            <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, color: 'var(--dim)', fontStyle: 'italic', padding: '12px 0' }}>
+              No active niggles. Log any pain or restriction below.
+            </div>
+          )}
+          <div className="niggle-list">
+            {(s?.injuries || []).map(inj => (
+              <div key={inj.id} className="niggle-card">
+                <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8 }}>
+                  <div>
+                    <div className="niggle-area">{inj.area}</div>
+                    <div className="niggle-meta">
+                      {inj.severity} · {new Date(inj.ts).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
+                    </div>
+                    {inj.note && <div className="niggle-note">{inj.note}</div>}
+                  </div>
+                  <button className="niggle-resolve" onClick={async () => {
+                    await api(`injuries/${inj.id}/resolve`, { method: 'POST' });
+                    refresh(null);
+                  }}>Resolved</button>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Log new niggle form */}
+          <div className="niggle-form">
+            <div className="kicker" style={{ margin: 0 }}>Log a Niggle</div>
+            <input
+              className="niggle-input"
+              placeholder="Area or movement affected (e.g. left knee, shoulder flexion)…"
+              value={niggleArea}
+              onChange={e => setNiggleArea(e.target.value)}
+            />
+            <div>
+              <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, letterSpacing: '.14em', textTransform: 'uppercase', color: 'var(--dim)', marginBottom: 6 }}>Severity</div>
+              <div className="niggle-sev">
+                {['mild','moderate','severe'].map(sev => (
+                  <button key={sev} className={`niggle-sev-btn${niggleSev === sev ? ' active' : ''}`} onClick={() => setNiggleSev(sev)}>
+                    {sev}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <input
+              className="niggle-input"
+              placeholder="Notes (optional)…"
+              value={niggleNote}
+              onChange={e => setNiggleNote(e.target.value)}
+            />
+            <button className="prof-btn solid" disabled={!niggleArea.trim() || niggleLogging}
+              onClick={async () => {
+                setNiggleLogging(true);
+                await api('injury', { method: 'POST', body: JSON.stringify({ area: niggleArea.trim(), severity: niggleSev, note: niggleNote.trim() }) });
+                setNiggleArea(''); setNiggleNote(''); setNiggleSev('mild');
+                setNiggleLogging(false);
+                refresh(null);
+              }}
+              style={{ alignSelf: 'flex-start', padding: '6px 18px' }}>
+              {niggleLogging ? 'Logging…' : 'Log Niggle'}
+            </button>
+          </div>
         </div>
       )}
     </section>
