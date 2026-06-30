@@ -296,7 +296,26 @@ section.visible .fade:nth-child(6){transition-delay:.56s}
 .scan-mode-btn.active{background:var(--ink);color:var(--paper)}
 .portion-row{display:flex;align-items:center;gap:10px;margin:6px 0}
 .portion-btn{width:24px;height:24px;border:1px solid var(--rule);background:none;cursor:pointer;font-family:'JetBrains Mono',monospace;font-size:14px;display:flex;align-items:center;justify-content:center;color:var(--ink)}
+.briefing-overlay{position:fixed;inset:0;z-index:1100;background:var(--paper);display:flex;flex-direction:column;overflow-y:auto}
+.briefing-hdr{background:var(--ink);color:var(--paper);padding:12px 16px;display:flex;justify-content:space-between;align-items:center;flex-shrink:0;position:sticky;top:0;z-index:1}
+.briefing-masthead{font-family:'Playfair Display',serif;font-size:14px;font-weight:700;letter-spacing:.04em}
+.briefing-edition{font-family:'JetBrains Mono',monospace;font-size:8px;letter-spacing:.14em;text-transform:uppercase;color:rgba(245,240,226,.5)}
+.briefing-body{padding:24px 20px 48px;max-width:600px;width:100%;margin:0 auto}
+.briefing-headline{font-family:'Playfair Display',serif;font-size:30px;font-weight:900;color:var(--gold);line-height:1.1;text-transform:uppercase;margin-bottom:8px}
+.briefing-sub{font-family:'Times New Roman',serif;font-size:15px;font-style:italic;color:var(--ink);line-height:1.5;margin-bottom:0}
+.briefing-rule{border:none;border-top:1px solid var(--rule);margin:16px 0}
+.briefing-kicker{font-family:'JetBrains Mono',monospace;font-size:8px;letter-spacing:.18em;text-transform:uppercase;color:var(--dim);margin-bottom:8px}
+.briefing-bullets{display:grid;grid-template-columns:1fr 1fr;gap:4px 16px;margin-bottom:8px}
+.briefing-win{font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--forest);line-height:1.6}
+.briefing-miss{font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--ember);line-height:1.6}
+.briefing-numbers{font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--dim);margin-top:6px;line-height:1.8}
+.briefing-byline{font-family:'JetBrains Mono',monospace;font-size:8px;letter-spacing:.18em;text-transform:uppercase;color:var(--dim);border-top:2px solid var(--ink);padding-top:8px;margin-top:16px;margin-bottom:2px}
+.briefing-byline-role{font-family:'JetBrains Mono',monospace;font-size:7px;color:var(--dim);margin-bottom:8px}
+.briefing-prose{font-family:'Times New Roman',serif;font-size:14px;line-height:1.85;color:var(--ink)}
+.briefing-open-btn{display:block;width:100%;background:var(--ink);color:var(--paper);border:none;padding:14px;font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.18em;text-transform:uppercase;cursor:pointer;margin-top:28px}
+.briefing-preview{border-bottom:1px solid var(--rule);padding:10px 0;cursor:pointer}
 `;
+
 
 // ── HELPERS ─────────────────────────────────────────────────────────────────
 const fmtDate = () => new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
@@ -394,7 +413,7 @@ function Header({ s, onSignOut }) {
 }
 
 // ── S1: FRONT PAGE ───────────────────────────────────────────────────────────
-function S1({ s }) {
+function S1({ s, briefing, onShowBriefing }) {
   const today = s?.today || {};
   const recovery = today.recovery ?? s?.recoveryTrend?.at(-1) ?? null;
 
@@ -469,6 +488,20 @@ function S1({ s }) {
         <div className="kicker">Today's Edition · {fmtDate()} · Recovery &amp; Readiness</div>
         <div className="headline" style={{ fontSize: 'clamp(30px,8vw,52px)', lineHeight: '.96', marginBottom: 0 }}>{hl1}<br />{hl2}</div>
       </div>
+
+      {briefing && (
+        <div className="briefing-preview fade" style={{ flexShrink: 0 }} onClick={onShowBriefing}>
+          <div className="kicker" style={{ marginBottom: 3 }}>Morning Briefing</div>
+          <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 16, fontWeight: 700, color: 'var(--gold)', lineHeight: 1.2 }}>
+            {briefing.headline}
+          </div>
+          {briefing.subheading && (
+            <div style={{ fontFamily: "'Times New Roman',serif", fontSize: 12, color: 'var(--dim)', fontStyle: 'italic', marginTop: 4 }}>
+              {briefing.subheading}
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="fade" style={{ flex: 1, display: 'flex', gap: 0, alignItems: 'stretch', minHeight: 0, borderTop: '2px solid var(--ink)', borderBottom: '2px solid var(--ink)', margin: '12px 0', overflow: 'hidden' }}>
         {/* Left: recovery number + ghost chart */}
@@ -1901,7 +1934,7 @@ function S5({ s, refresh }) {
 }
 
 // ── S6: PROFILE ───────────────────────────────────────────────────────────────
-function S6({ s, onSignOut, refresh }) {
+function S6({ s, onSignOut, refresh, setBriefing }) {
   const [editName, setEditName] = useState(false);
   const [nameVal, setNameVal] = useState('');
   const [editWater, setEditWater] = useState(false);
@@ -2100,6 +2133,22 @@ function S6({ s, onSignOut, refresh }) {
           {notifPermission === 'granted' && (
             <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--forest)' }}>Active</span>
           )}
+        </div>
+
+        <div className="rule-thin" />
+
+        <div className="rule-thin" />
+
+        {/* Morning Briefing */}
+        <div style={{ padding: '10px 0' }}>
+          <div className="kicker" style={{ margin: '0 0 6px' }}>Morning Briefing</div>
+          <p style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, color: 'var(--dim)', lineHeight: 1.7, margin: '0 0 10px' }}>
+            Generated automatically when your Apple Health shortcut syncs. Test it manually below.
+          </p>
+          <button className="prof-btn" onClick={async () => {
+            const r = await api('briefing/generate', { method: 'POST' }).catch(() => ({}));
+            if (r.briefing && setBriefing) setBriefing(r.briefing);
+          }}>Generate Today's Briefing</button>
         </div>
 
         <div className="rule-thin" />
@@ -2549,6 +2598,60 @@ function MentorChat({ onClose }) {
   );
 }
 
+// ── BRIEFING OVERLAY ─────────────────────────────────────────────────────────
+function BriefingOverlay({ briefing, onClose }) {
+  const dateStr = new Date().toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' }).toUpperCase();
+  const wins = briefing?.bullets?.wins || [];
+  const misses = briefing?.bullets?.misses || [];
+  const numbers = briefing?.bullets?.numbers || [];
+
+  return (
+    <div className="briefing-overlay">
+      <div className="briefing-hdr">
+        <div>
+          <div className="briefing-masthead">THE PRESS</div>
+          <div className="briefing-edition">Morning Edition · {dateStr}</div>
+        </div>
+        <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--paper)', cursor: 'pointer', fontFamily: "'JetBrains Mono',monospace", fontSize: 9, letterSpacing: '.12em', textTransform: 'uppercase', opacity: .7 }}>Close ×</button>
+      </div>
+
+      <div className="briefing-body">
+        <div className="briefing-headline">{briefing?.headline || 'YOUR MORNING BRIEFING'}</div>
+        <div className="briefing-sub">{briefing?.subheading}</div>
+
+        <hr className="briefing-rule" />
+
+        <div className="briefing-kicker">At a Glance</div>
+        {(wins.length > 0 || misses.length > 0) && (
+          <div className="briefing-bullets">
+            <div>{wins.map((w, i) => <div key={i} className="briefing-win">+ {w}</div>)}</div>
+            <div>{misses.map((m, i) => <div key={i} className="briefing-miss">- {m}</div>)}</div>
+          </div>
+        )}
+        {numbers.length > 0 && (
+          <div className="briefing-numbers">{numbers.join(' · ')}</div>
+        )}
+
+        <hr className="briefing-rule" />
+
+        <div className="briefing-byline">V</div>
+        <div className="briefing-byline-role">Health &amp; Performance</div>
+        <div className="briefing-prose">{briefing?.v}</div>
+
+        {briefing?.atlas && (
+          <>
+            <div className="briefing-byline" style={{ marginTop: 20 }}>Atlas</div>
+            <div className="briefing-byline-role">Training</div>
+            <div className="briefing-prose">{briefing.atlas}</div>
+          </>
+        )}
+
+        <button className="briefing-open-btn" onClick={onClose}>Open Press</button>
+      </div>
+    </div>
+  );
+}
+
 // ── APP ──────────────────────────────────────────────────────────────────────
 function LoginScreen() {
   const [showEmail, setShowEmail] = useState(false);
@@ -2652,6 +2755,8 @@ function App() {
   const [showHistory, setShowHistory] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
   const [onboarded, setOnboarded] = useState(() => !!localStorage.getItem('press_onboarded'));
+  const [briefing, setBriefing] = useState(null);
+  const [showBriefing, setShowBriefing] = useState(false);
 
   const handleOnboardDone = () => { localStorage.setItem('press_onboarded', '1'); setOnboarded(true); };
 
@@ -2671,6 +2776,20 @@ function App() {
     if (user) api('summary').then(setS).catch(console.error);
     else setS(null);
   }, [user]);
+
+  useEffect(() => {
+    if (!user) return;
+    api('briefing').then(r => { if (r.briefing) setBriefing(r.briefing); }).catch(() => {});
+  }, [user]);
+
+  useEffect(() => {
+    if (!briefing?.date) return;
+    const key = `briefing_seen_${briefing.date}`;
+    if (!sessionStorage.getItem(key)) {
+      setShowBriefing(true);
+      sessionStorage.setItem(key, '1');
+    }
+  }, [briefing]);
 
   // Register SW silently on login (permission prompt happens via S6 button)
   useEffect(() => {
@@ -2739,12 +2858,12 @@ function App() {
         ))}
       </nav>
       <div className="scroll" id="press-scroll">
-        <S1 s={s} />
+        <S1 s={s} briefing={briefing} onShowBriefing={() => setShowBriefing(true)} />
         <S2 s={s} />
         <S3 s={s} onStartWorkout={planDay => setLoggerPlanDay(planDay ?? null)} onImport={() => setShowImport(true)} onHistory={() => setShowHistory(true)} />
         <S4 s={s} refresh={refresh} />
         <S5 s={s} refresh={refresh} />
-        <S6 s={s} onSignOut={() => signOut(auth)} refresh={refresh} />
+        <S6 s={s} onSignOut={() => signOut(auth)} refresh={refresh} setBriefing={setBriefing} />
         <S7 s={s} />
       </div>
       {/* Floating mentor chat bubble */}
@@ -2752,6 +2871,7 @@ function App() {
         <button className="chat-bubble" onClick={() => setChatOpen(true)} aria-label="Open mentor chat">M</button>
       )}
       {chatOpen && <MentorChat onClose={() => setChatOpen(false)} />}
+      {showBriefing && briefing && <BriefingOverlay briefing={briefing} onClose={() => setShowBriefing(false)} />}
       {loggerOpen && (
         <WorkoutLogger
           planDay={loggerPlanDay}

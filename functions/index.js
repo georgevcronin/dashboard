@@ -237,6 +237,23 @@ app.post("/shortcut", async (req, res) => {
   db.lastSyncAt = new Date().toISOString();
   await save();
   res.json({ ok: true, date: k });
+
+  // Non-blocking: generate morning briefing and push notification
+  generateMorningBriefing(db).then(async briefing => {
+    if (!briefing) return;
+    db.todayBriefing = briefing;
+    await save();
+    const subs = db.pushSubscriptions || [];
+    if (subs.length && VAPID_PUBLIC && VAPID_PRIVATE) {
+      await Promise.allSettled(subs.map(sub =>
+        webpush.sendNotification(sub, JSON.stringify({
+          title: briefing.notification || briefing.headline,
+          body: briefing.subheading || '',
+          url: '/',
+        }))
+      ));
+    }
+  }).catch(e => console.error('[briefing] generation failed:', e));
 });
 
 // ---------- Hevy helpers ----------
@@ -977,6 +994,91 @@ app.put("/muscle-sensitivity", async (req, res) => {
   db.muscleSensitivity[muscle] = Math.round(Math.max(0.3, Math.min(3.0, +value)) * 100) / 100;
   await save();
   res.json({ ok: true });
+});
+
+// ---------- Morning briefing ----------
+async function generateMorningBriefing(db) {
+  if (!process.env.GROQ_API_KEY) return null;
+
+  const today = new Date().toISOString().slice(0, 10);
+  const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+
+  const yesterdayWorkout = (db.workouts || []).find(w => w.date === yesterday);
+  const yesterdayLifts = (db.lifts || []).filter(l => l.date === yesterday);
+  const yesterdayNutrition = (db.nutritionLog || []).filter(n => n.date === yesterday);
+  const todayMetrics = db.metrics?.[today] || {};
+  const yesterdayMetrics = db.metrics?.[yesterday] || {};
+
+  const totalCalories = yesterdayNutrition.reduce((s, n) => s + (n.calories || 0), 0);
+  const totalProtein = yesterdayNutrition.reduce((s, n) => s + (n.protein || 0), 0);
+
+  const sleepH = todayMetrics.sleep_hours || yesterdayMetrics.sleep_hours;
+  const hrv = todayMetrics.heart_rate_variability || yesterdayMetrics.heart_rate_variability;
+  const rhr = todayMetrics.resting_heart_rate || yesterdayMetrics.resting_heart_rate;
+
+  const fatigue = computeCurrentFatigueScores(db.lifts || [], musclePeaksFromLifts(db.lifts || []));
+  const topFatigued = Object.entries(fatigue).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([m, v]) => `${m} ${Math.round(v)}%`).join(', ');
+
+  const prompt = `You are generating a morning health briefing for a personal health app called Press. The briefing has two voices:
+
+V — the health editor. Cool, authoritative, deliberate. Treats health data like breaking news. No gender, no backstory, just V. Always writes something even on rest days — rest has a story too. Editorial newspaper voice, punchy and precise.
+
+Atlas — the training analyst. Methodical, precise, science-grounded. Only speaks on training days or to preview tomorrow's session on rest days.
+
+The user's data:
+- Sleep: ${sleepH ? sleepH + 'h' : 'not logged'}
+- HRV: ${hrv ? hrv + 'ms' : 'not logged'}
+- RHR: ${rhr ? rhr + 'bpm' : 'not logged'}
+- Yesterday's workout: ${yesterdayWorkout ? yesterdayWorkout.name + ' — ' + yesterdayLifts.length + ' sets logged' : 'rest day'}
+- Nutrition: ${totalCalories ? totalCalories + 'kcal, ' + totalProtein + 'g protein' : 'not logged'}
+- Top fatigued muscles: ${topFatigued || 'none'}
+- Goal: ${db.profile?.goal || 'build muscle'}
+- Name: ${db.profile?.name || 'Athlete'}
+
+Return ONLY valid JSON in this exact structure:
+{
+  "headline": "PUNCHY HEADLINE IN CAPS — MAX 55 CHARS",
+  "subheading": "One sharp sentence expanding on the headline. Reads like a magazine deck.",
+  "bullets": {
+    "wins": ["win 1", "win 2"],
+    "misses": ["miss 1"],
+    "numbers": ["8.2h sleep", "HRV 68ms", "3,200kcal"]
+  },
+  "v": "2-3 sentences of flowing editorial prose from V. Newspaper voice, no bullet points. Contextualises the data as a narrative.",
+  "atlas": "1-2 sentences from Atlas on training. Null if true rest day with no training context.",
+  "notification": "The headline rephrased for a push notification — under 60 chars, punchy"
+}`;
+
+  const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.GROQ_API_KEY}` },
+    body: JSON.stringify({
+      model: 'llama-3.3-70b-versatile',
+      messages: [{ role: 'user', content: prompt }],
+      response_format: { type: 'json_object' },
+      temperature: 0.8,
+      max_tokens: 600,
+    }),
+  });
+  const data = await response.json();
+  const briefing = JSON.parse(data.choices?.[0]?.message?.content || '{}');
+  briefing.generatedAt = new Date().toISOString();
+  briefing.date = today;
+  return briefing;
+}
+
+app.get('/briefing', async (req, res) => {
+  res.json({ briefing: db.todayBriefing || null });
+});
+
+app.post('/briefing/generate', async (req, res) => {
+  try {
+    const briefing = await generateMorningBriefing(db);
+    if (!briefing) return res.status(400).json({ error: 'GROQ_API_KEY not configured' });
+    db.todayBriefing = briefing;
+    await save();
+    res.json({ briefing });
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // ---------- Setup page ----------
