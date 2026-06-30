@@ -105,9 +105,9 @@ body{font-family:'Times New Roman',Times,Georgia,serif;overflow:hidden;color:var
 .mast-title{font-family:'Playfair Display',Georgia,serif;font-weight:900;font-size:clamp(22px,5vw,30px);letter-spacing:-.01em;text-align:center;color:var(--ink)}
 .mast-right{text-align:right;font-size:8px;letter-spacing:.12em;color:var(--dim);white-space:nowrap}
 .ticker-wrap{background:var(--paper2);overflow:hidden;height:28px;display:flex;align-items:center;border-top:1px solid var(--rule)}
-.ticker-track{display:flex;gap:0;animation:rtl 28s linear infinite;white-space:nowrap}
+.ticker-track{display:flex;gap:0;animation:rtl 40s linear infinite;white-space:nowrap;will-change:transform}
 .ticker-track:hover{animation-play-state:paused}
-@keyframes rtl{0%{transform:translateX(0)}100%{transform:translateX(-50%)}}
+@keyframes rtl{0%{transform:translateX(0)}100%{transform:translateX(-33.333%)}}
 .tick{display:inline-flex;gap:8px;align-items:center;padding:0 20px;font-size:10px;letter-spacing:.06em;border-right:1px solid var(--rule);font-family:'JetBrains Mono',monospace}
 .t-sym{color:var(--rule)}.t-val{color:var(--dim)}.t-up{color:var(--forest)}.t-dn{color:var(--red)}
 .scroll{position:fixed;top:var(--hdr);bottom:0;left:0;right:0;overflow-y:scroll;scroll-snap-type:y mandatory;scroll-behavior:smooth;-webkit-overflow-scrolling:touch}
@@ -294,6 +294,14 @@ section.visible .fade:nth-child(6){transition-delay:.56s}
 .scan-mode-toggle{display:flex;border:1px solid var(--rule);overflow:hidden;margin-bottom:10px}
 .scan-mode-btn{flex:1;font-family:'JetBrains Mono',monospace;font-size:8px;letter-spacing:.12em;text-transform:uppercase;padding:6px;border:none;background:none;cursor:pointer;color:var(--dim)}
 .scan-mode-btn.active{background:var(--ink);color:var(--paper)}
+.cam-overlay{position:fixed;inset:0;z-index:2000;background:#000;display:flex;flex-direction:column}
+.cam-video{flex:1;width:100%;object-fit:cover}
+.cam-frame{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:240px;height:160px;border:2px solid var(--gold);box-shadow:0 0 0 9999px rgba(0,0,0,.55)}
+.cam-frame::before,.cam-frame::after{content:'';position:absolute;width:20px;height:20px;border-color:var(--gold);border-style:solid}
+.cam-frame::before{top:-2px;left:-2px;border-width:3px 0 0 3px}
+.cam-frame::after{bottom:-2px;right:-2px;border-width:0 3px 3px 0}
+.cam-lbl{position:absolute;bottom:100px;left:0;right:0;text-align:center;font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:rgba(255,255,255,.7)}
+.cam-close{position:absolute;top:20px;right:20px;background:rgba(0,0,0,.6);border:1px solid rgba(255,255,255,.3);color:#fff;font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.1em;text-transform:uppercase;padding:8px 14px;cursor:pointer}
 .portion-row{display:flex;align-items:center;gap:10px;margin:6px 0}
 .portion-btn{width:24px;height:24px;border:1px solid var(--rule);background:none;cursor:pointer;font-family:'JetBrains Mono',monospace;font-size:14px;display:flex;align-items:center;justify-content:center;color:var(--ink)}
 .briefing-overlay{position:fixed;inset:0;z-index:1100;background:var(--paper);display:flex;flex-direction:column;overflow-y:auto}
@@ -338,6 +346,25 @@ section.visible .fade:nth-child(6){transition-delay:.56s}
 .niggle-sev{display:flex;gap:6px}
 .niggle-sev-btn{flex:1;font-family:'JetBrains Mono',monospace;font-size:8px;letter-spacing:.1em;text-transform:uppercase;padding:5px;border:1px solid var(--rule);background:none;cursor:pointer;color:var(--dim)}
 .niggle-sev-btn.active{background:var(--ink);color:var(--paper);border-color:var(--ink)}
+.travel-banner{margin:0 0 14px;padding:8px 12px;background:var(--navy);color:var(--paper);font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.12em;text-transform:uppercase;display:flex;align-items:center;justify-content:space-between}
+.experiment-card{padding:10px 12px;border-left:3px solid var(--gold);margin-bottom:10px}
+.experiment-h{font-family:'Playfair Display',serif;font-size:13px;font-weight:700;color:var(--ink);margin-bottom:3px}
+.experiment-meta{font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--dim);margin-bottom:4px}
+.experiment-outcome{font-family:Times New Roman,serif;font-size:12px;font-style:italic;color:var(--forest);margin-top:4px}
+.experiment-form{margin-top:12px;padding-top:12px;border-top:1px solid var(--rule);display:flex;flex-direction:column;gap:8px}
+.experiment-input{width:100%;border:none;border-bottom:2px solid var(--ink);padding:6px 0;background:transparent;font-family:Times New Roman,serif;font-size:14px;color:var(--ink);outline:none}
+.supp-item{display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--rule)}
+.supp-check{width:18px;height:18px;border:2px solid var(--ink);background:none;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:10px}
+.supp-check.done{background:var(--ink);color:var(--paper)}
+.supp-name{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--ink);flex:1;margin:0 10px}
+.supp-meta{font-family:'JetBrains Mono',monospace;font-size:8px;color:var(--dim)}
+.measure-row{display:flex;align-items:baseline;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--rule)}
+.measure-lbl{font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--dim);letter-spacing:.06em;text-transform:uppercase;width:80px;flex-shrink:0}
+.measure-val{font-family:'Playfair Display',serif;font-size:16px;font-weight:700;color:var(--ink)}
+.measure-delta{font-family:'JetBrains Mono',monospace;font-size:8px;margin-left:6px}
+.alcohol-row{display:flex;align-items:center;gap:8px;padding:10px 0}
+.pr-group-hdr{font-family:'JetBrains Mono',monospace;font-size:8px;letter-spacing:.16em;text-transform:uppercase;color:var(--dim);padding:8px 0 4px;border-top:1px solid var(--rule);margin-top:4px}
+.pr-group-hdr:first-child{border-top:none;margin-top:0}
 `;
 
 
@@ -391,6 +418,18 @@ function BarChart({ data, color }) {
   );
 }
 
+// ── SPARKLINE ────────────────────────────────────────────────────────────────
+function Sparkline({ data, color = 'var(--gold)', width = 60, height = 20 }) {
+  if (!data || data.length < 2) return null;
+  const min = Math.min(...data), max = Math.max(...data), range = max - min || 1;
+  const pts = data.map((v, i) => `${(i / (data.length - 1)) * width},${height - ((v - min) / range) * (height - 4)}`).join(' ');
+  return (
+    <svg width={width} height={height} style={{ display: 'block', flexShrink: 0 }}>
+      <polyline points={pts} fill="none" stroke={color} strokeWidth={1.5} strokeLinejoin="round" />
+    </svg>
+  );
+}
+
 // ── HEADER ──────────────────────────────────────────────────────────────────
 function Header({ s, onSignOut }) {
   const today = s?.today || {};
@@ -424,7 +463,7 @@ function Header({ s, onSignOut }) {
       </div>
       <div className="ticker-wrap">
         <div className="ticker-track">
-          {[...items, ...items].map((t, i) => (
+          {[...items, ...items, ...items].map((t, i) => (
             <div key={i} className="tick">
               <span className="t-sym">{t.sym}</span>
               <span className="t-val">{t.val}</span>
@@ -648,17 +687,32 @@ function S1({ s, briefing, onShowBriefing }) {
 }
 
 // ── S2: SLEEP ────────────────────────────────────────────────────────────────
-function S2({ s }) {
+function S2({ s, refresh }) {
   const series = s?.sleepSeries || [];
   const sleepTarget = s?.sleepTarget || 8;
   const debt = s?.sleepDebtH ?? 0;
   const todaySleep = s?.today?.sleepH;
   const eff = s?.today?.sleepEff;
+  const vo2Series = (s?.vo2maxSeries || []).map(p => p.value);
+  const hrrSeries = (s?.hrrSeries || []).map(p => p.value);
+  const alcoholLastNight = s?.alcoholLastNight || 0;
+  const alcoholLast7 = s?.alcoholLast7 || 0;
+  const [alcoholUnits, setAlcoholUnits] = useState('');
+  const [loggingAlcohol, setLoggingAlcohol] = useState(false);
 
   const hi = series.length ? Math.max(...series).toFixed(1) : '—';
   const lo = series.length ? Math.min(...series).toFixed(1) : '—';
   const avg = series.length ? (series.reduce((a,b) => a+b,0) / series.length).toFixed(2) : '—';
-  const effPct = eff != null ? Math.round(eff * 100) : null;
+  const effPct = eff != null ? Math.round(eff) : null;
+
+  const logAlcohol = async () => {
+    if (!alcoholUnits) return;
+    setLoggingAlcohol(true);
+    await api('alcohol', { method: 'POST', body: JSON.stringify({ units: +alcoholUnits }) });
+    setAlcoholUnits('');
+    setLoggingAlcohol(false);
+    refresh(null);
+  };
 
   return (
     <section id="s2">
@@ -674,11 +728,10 @@ function S2({ s }) {
             : 'Sleep debt cleared. Maintain consistent bedtimes to hold this position.'}
         </div>
       </div>
-      <div className="chart-wrap fade" style={{ flex: 1, minHeight: 0, position: 'relative' }}>
+      <div className="chart-wrap fade" style={{ flex: '0 0 90px', position: 'relative' }}>
         {series.length ? (
           <>
             <AreaChart data={series} color="#1a2f54" id="sleep" />
-            {/* Target reference line overlay */}
             {(() => {
               const mn = Math.min(...series), mx = Math.max(...series), rng = (mx - mn) || 1;
               const lo = mn - rng * 0.07, r = (mx + rng * 0.07) - lo;
@@ -704,6 +757,62 @@ function S2({ s }) {
           <div className="stat-cell"><div className="sc-label">{series.length}N Low</div><div className="sc-num red" style={{ fontSize: 22 }}>{lo}<span style={{ fontSize: '.5em', color: 'var(--dim)' }}>h</span></div></div>
           <div className="stat-cell"><div className="sc-label">{series.length}N Avg</div><div className="sc-num" style={{ fontSize: 22 }}>{avg}<span style={{ fontSize: '.5em', color: 'var(--dim)' }}>h</span></div></div>
           <div className="stat-cell"><div className="sc-label">Sleep Debt</div><div className="sc-num red" style={{ fontSize: 22 }}>{debt.toFixed(1)}<span style={{ fontSize: '.5em', color: 'var(--dim)' }}>h</span></div></div>
+        </div>
+      </div>
+
+      {/* VO2 max + HRR trends */}
+      {(vo2Series.length > 0 || hrrSeries.length > 0) && (
+        <div className="fade" style={{ borderTop: '1px solid var(--rule)', paddingTop: 10, flexShrink: 0 }}>
+          <div className="kicker" style={{ marginBottom: 8 }}>Cardiovascular Fitness</div>
+          <div style={{ display: 'flex', gap: 20 }}>
+            {vo2Series.length > 0 && (
+              <div>
+                <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, color: 'var(--dim)', letterSpacing: '.1em', textTransform: 'uppercase', marginBottom: 4 }}>VO2 Max</div>
+                <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8 }}>
+                  <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 22, fontWeight: 700, lineHeight: 1, color: 'var(--forest)' }}>
+                    {vo2Series.at(-1)}<span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)', marginLeft: 2 }}>ml/kg/min</span>
+                  </div>
+                  <Sparkline data={vo2Series} color="var(--forest)" width={56} height={22} />
+                </div>
+              </div>
+            )}
+            {hrrSeries.length > 0 && (
+              <div>
+                <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, color: 'var(--dim)', letterSpacing: '.1em', textTransform: 'uppercase', marginBottom: 4 }}>Heart Rate Recovery</div>
+                <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8 }}>
+                  <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 22, fontWeight: 700, lineHeight: 1, color: 'var(--navy)' }}>
+                    {hrrSeries.at(-1)}<span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)', marginLeft: 2 }}>bpm</span>
+                  </div>
+                  <Sparkline data={hrrSeries} color="var(--navy)" width={56} height={22} />
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Alcohol section */}
+      <div className="fade" style={{ borderTop: '1px solid var(--rule)', paddingTop: 10, flexShrink: 0 }}>
+        <div className="kicker" style={{ marginBottom: 6 }}>Alcohol</div>
+        {alcoholLastNight > 0 && (
+          <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--ember)', marginBottom: 6, letterSpacing: '.06em' }}>
+            {alcoholLastNight} unit{alcoholLastNight !== 1 ? 's' : ''} last night · HRV + sleep likely affected
+          </div>
+        )}
+        <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)', marginBottom: 8 }}>
+          Last 7 days: {alcoholLast7} units
+        </div>
+        <div className="alcohol-row">
+          <input
+            style={{ width: 60, fontFamily: "'JetBrains Mono',monospace", fontSize: 13, padding: '5px 6px', border: '1px solid var(--rule)', background: 'var(--paper)', color: 'var(--ink)', textAlign: 'center' }}
+            type="number" min="0" step="0.5" placeholder="0"
+            value={alcoholUnits} onChange={e => setAlcoholUnits(e.target.value)}
+            inputMode="decimal"
+          />
+          <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)' }}>units tonight</span>
+          <button className="prof-btn solid" onClick={logAlcohol} disabled={!alcoholUnits || loggingAlcohol} style={{ padding: '5px 14px', fontSize: 9 }}>
+            {loggingAlcohol ? '…' : 'Log'}
+          </button>
         </div>
       </div>
     </section>
@@ -1587,7 +1696,7 @@ function WorkoutHistory({ s, onClose }) {
 }
 
 // ── S3: TRAINING ──────────────────────────────────────────────────────────────
-function S3({ s, onStartWorkout, onImport, onHistory }) {
+function S3({ s, onStartWorkout, onImport, onHistory, refresh }) {
   const workouts = s?.workouts || [];
   const lifts = s?.lifts || [];
   const liftVol = s?.liftVolume || [];
@@ -1609,6 +1718,36 @@ function S3({ s, onStartWorkout, onImport, onHistory }) {
   const todayPlan = plan?.days?.find(d => d.date === todayStr) || null;
   const todaySession = todayPlan?.sessions?.[0] || null;
 
+  const experiments = s?.experiments || [];
+  const activeExps = experiments.filter(e => e.active);
+  const [showExpForm, setShowExpForm] = useState(false);
+  const [expHyp, setExpHyp] = useState('');
+  const [expMetric, setExpMetric] = useState('');
+  const [expEnd, setExpEnd] = useState('');
+  const [expSaving, setExpSaving] = useState(false);
+  const [concludeId, setConcludeId] = useState(null);
+  const [concludeOutcome, setConcludeOutcome] = useState('');
+
+  const saveExperiment = async () => {
+    if (!expHyp.trim()) return;
+    setExpSaving(true);
+    await api('experiments', { method: 'POST', body: JSON.stringify({ hypothesis: expHyp.trim(), metric: expMetric.trim(), endDate: expEnd || null }) });
+    setExpHyp(''); setExpMetric(''); setExpEnd(''); setShowExpForm(false);
+    setExpSaving(false);
+    refresh(null);
+  };
+
+  const concludeExperiment = async (id) => {
+    await api(`experiments/${id}/conclude`, { method: 'POST', body: JSON.stringify({ outcome: concludeOutcome }) });
+    setConcludeId(null); setConcludeOutcome('');
+    refresh(null);
+  };
+
+  const deleteExperiment = async (id) => {
+    await api(`experiments/${id}`, { method: 'DELETE' });
+    refresh(null);
+  };
+
   const generatePlan = async () => {
     setGenning(true);
     await authFetch(`${API_BASE}/plan/week`, { method: 'POST' });
@@ -1618,6 +1757,15 @@ function S3({ s, onStartWorkout, onImport, onHistory }) {
 
   return (
     <section id="s3">
+      {s?.travelMode && (
+        <div className="travel-banner">
+          <span>Travel Mode — bodyweight only</span>
+          <button onClick={async () => { await api('travel-mode', { method: 'POST', body: JSON.stringify({ enabled: false }) }); refresh(null); }}
+            style={{ background: 'none', border: '1px solid rgba(255,255,255,.4)', color: 'var(--paper)', fontFamily: "'JetBrains Mono',monospace", fontSize: 8, letterSpacing: '.1em', textTransform: 'uppercase', padding: '3px 8px', cursor: 'pointer' }}>
+            Disable
+          </button>
+        </div>
+      )}
       <div className="fade">
         <div className="kicker">Performance · Strength · {daysAgo != null ? (daysAgo === 0 ? 'Today' : daysAgo === 1 ? 'Yesterday' : `${daysAgo} Days Ago`) : '—'}</div>
         <div className="headline">
@@ -1729,6 +1877,66 @@ function S3({ s, onStartWorkout, onImport, onHistory }) {
           }
         </div>
       </div>
+
+      {/* Experiments */}
+      <div className="fade" style={{ borderTop: '2px solid var(--ink)', paddingTop: 12, marginTop: 8, flexShrink: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 10 }}>
+          <div className="kicker" style={{ margin: 0 }}>Experiments {activeExps.length > 0 ? `· ${activeExps.length} active` : ''}</div>
+          <button onClick={() => setShowExpForm(v => !v)}
+            style={{ background: 'none', border: 'none', fontFamily: "'JetBrains Mono',monospace", fontSize: 9, letterSpacing: '.1em', textTransform: 'uppercase', color: 'var(--dim)', cursor: 'pointer', padding: 0 }}>
+            {showExpForm ? 'Cancel' : '+ New'}
+          </button>
+        </div>
+
+        {showExpForm && (
+          <div className="experiment-form" style={{ marginBottom: 14 }}>
+            <input className="experiment-input" placeholder="Hypothesis (e.g. Creatine adds 5% to squat in 6 weeks)…"
+              value={expHyp} onChange={e => setExpHyp(e.target.value)} />
+            <input className="experiment-input" placeholder="Metric to track (e.g. squat e1RM)…"
+              value={expMetric} onChange={e => setExpMetric(e.target.value)} />
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)' }}>End date:</span>
+              <input type="date" value={expEnd} onChange={e => setExpEnd(e.target.value)}
+                style={{ border: 'none', borderBottom: '1px solid var(--rule)', background: 'transparent', fontFamily: "'JetBrains Mono',monospace", fontSize: 11, color: 'var(--ink)', outline: 'none', padding: '4px 0' }} />
+            </div>
+            <button className="prof-btn solid" onClick={saveExperiment} disabled={!expHyp.trim() || expSaving} style={{ alignSelf: 'flex-start', padding: '6px 18px' }}>
+              {expSaving ? 'Saving…' : 'Start Experiment'}
+            </button>
+          </div>
+        )}
+
+        {experiments.length === 0 && !showExpForm && (
+          <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, color: 'var(--dim)', fontStyle: 'italic', padding: '4px 0 8px' }}>
+            Track n=1 experiments. Test a protocol 4–8 weeks and record the outcome.
+          </div>
+        )}
+
+        {experiments.map(exp => (
+          <div key={exp.id} className="experiment-card" style={{ borderColor: exp.active ? 'var(--gold)' : 'var(--rule)', opacity: exp.active ? 1 : 0.7 }}>
+            <div className="experiment-h">{exp.hypothesis}</div>
+            <div className="experiment-meta">
+              {exp.startDate}{exp.endDate ? ` → ${exp.endDate}` : ''}{exp.metric ? ` · ${exp.metric}` : ''}
+              {!exp.active && exp.concludedAt ? ` · concluded ${new Date(exp.concludedAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}` : ''}
+            </div>
+            {exp.outcome && <div className="experiment-outcome">{exp.outcome}</div>}
+            {exp.active && (
+              concludeId === exp.id ? (
+                <div style={{ display: 'flex', gap: 8, marginTop: 8, alignItems: 'center' }}>
+                  <input style={{ flex: 1, border: 'none', borderBottom: '1px solid var(--rule)', background: 'transparent', fontFamily: 'Times New Roman,serif', fontSize: 13, outline: 'none', padding: '3px 0', color: 'var(--ink)' }}
+                    placeholder="Outcome…" value={concludeOutcome} onChange={e => setConcludeOutcome(e.target.value)} />
+                  <button className="prof-btn solid" onClick={() => concludeExperiment(exp.id)} style={{ fontSize: 8, padding: '4px 10px' }}>Done</button>
+                  <button className="prof-btn" onClick={() => setConcludeId(null)} style={{ fontSize: 8, padding: '4px 10px' }}>×</button>
+                </div>
+              ) : (
+                <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
+                  <button className="prof-btn" onClick={() => setConcludeId(exp.id)} style={{ fontSize: 8, padding: '3px 8px' }}>Conclude</button>
+                  <button onClick={() => deleteExperiment(exp.id)} style={{ background: 'none', border: 'none', fontFamily: "'JetBrains Mono',monospace", fontSize: 8, color: 'var(--dim)', cursor: 'pointer', padding: 0 }}>× Delete</button>
+                </div>
+              )
+            )}
+          </div>
+        ))}
+      </div>
     </section>
   );
 }
@@ -1774,7 +1982,13 @@ function S4({ s, refresh }) {
   const [templateName, setTemplateName] = useState('');
   const [savingTemplate, setSavingTemplate] = useState(false);
 
+  const [camOpen, setCamOpen] = useState(false);
+  const [camErr, setCamErr] = useState('');
   const photoRef = useRef();
+  const videoRef = useRef();
+  const camStreamRef = useRef(null);
+  const camDetectorRef = useRef(null);
+  const camRafRef = useRef(null);
   const baseNutrition = useRef({ calories: 0, protein: 0, carbs: 0, fat: 0 });
 
   const applyPortion = (mult, base) => {
@@ -1801,6 +2015,53 @@ function S4({ s, refresh }) {
     baseNutrition.current = { calories: food.calories || 0, protein: food.protein || 0, carbs: food.carbs || 0, fat: food.fat || 0 };
     setAnalysed(true);
     setPortion(1);
+  };
+
+  const stopCamera = () => {
+    if (camRafRef.current) cancelAnimationFrame(camRafRef.current);
+    if (camStreamRef.current) camStreamRef.current.getTracks().forEach(t => t.stop());
+    camStreamRef.current = null;
+    setCamOpen(false);
+  };
+
+  const onBarcodeDetected = async (code) => {
+    stopCamera();
+    setBarcode(code);
+    setBarcodeLoading(true); setBarcodeErr('');
+    try {
+      const d = await api('food/barcode', { method: 'POST', body: JSON.stringify({ barcode: code }) });
+      if (d.name) { fillForm(d); setGrams('100'); }
+      else setBarcodeErr('Product not found — try entering barcode manually');
+    } catch { setBarcodeErr('Lookup failed'); }
+    setBarcodeLoading(false);
+  };
+
+  const openCameraScanner = async () => {
+    setCamErr(''); setCamOpen(true);
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment', width: { ideal: 1280 } } });
+      camStreamRef.current = stream;
+      if (videoRef.current) videoRef.current.srcObject = stream;
+
+      // Use BarcodeDetector API if available (Chrome/Edge on Android)
+      if ('BarcodeDetector' in window) {
+        const detector = new window.BarcodeDetector({ formats: ['ean_13','ean_8','upc_a','upc_e','code_128','code_39','itf','qr_code'] });
+        camDetectorRef.current = detector;
+        const scan = async () => {
+          if (!videoRef.current || !camStreamRef.current) return;
+          try {
+            const barcodes = await detector.detect(videoRef.current);
+            if (barcodes.length > 0) { onBarcodeDetected(barcodes[0].rawValue); return; }
+          } catch {}
+          camRafRef.current = requestAnimationFrame(scan);
+        };
+        videoRef.current?.addEventListener('loadedmetadata', () => { camRafRef.current = requestAnimationFrame(scan); }, { once: true });
+      }
+      // iOS Safari fallback: no BarcodeDetector — show camera, user taps capture button
+    } catch (e) {
+      setCamOpen(false);
+      setCamErr('Camera access denied — enter barcode manually');
+    }
   };
 
   const handleBarcode = async () => {
@@ -1951,19 +2212,48 @@ function S4({ s, refresh }) {
         {foodTab === 'log' && (
           <>
             {/* Barcode lookup */}
-            <div style={{ display: 'flex', gap: 8, marginBottom: 10, alignItems: 'center' }}>
+            {camOpen && (
+              <div className="cam-overlay">
+                <video ref={videoRef} className="cam-video" autoPlay playsInline muted />
+                <div className="cam-frame" />
+                <div className="cam-lbl">
+                  {'BarcodeDetector' in window ? 'Point at barcode — auto-detecting' : 'Point at barcode then tap Capture'}
+                </div>
+                {'BarcodeDetector' in window ? null : (
+                  <button
+                    style={{ position: 'absolute', bottom: 60, left: '50%', transform: 'translateX(-50%)', background: 'var(--gold)', color: '#fff', border: 'none', padding: '12px 32px', fontFamily: "'JetBrains Mono',monospace", fontSize: 10, letterSpacing: '.14em', textTransform: 'uppercase', cursor: 'pointer' }}
+                    onClick={async () => {
+                      const canvas = document.createElement('canvas');
+                      canvas.width = videoRef.current.videoWidth;
+                      canvas.height = videoRef.current.videoHeight;
+                      canvas.getContext('2d').drawImage(videoRef.current, 0, 0);
+                      // iOS fallback: use file input to let user take photo instead
+                      stopCamera();
+                      photoRef.current?.click();
+                    }}>
+                    Capture
+                  </button>
+                )}
+                <button className="cam-close" onClick={stopCamera}>Close</button>
+              </div>
+            )}
+            <div style={{ display: 'flex', gap: 6, marginBottom: 10, alignItems: 'center' }}>
+              <button className="nutri-photo-btn" style={{ flexShrink: 0, background: 'var(--ink)', color: 'var(--paper)', borderColor: 'var(--ink)' }} onClick={openCameraScanner}>
+                Scan
+              </button>
               <input
                 style={{ flex: 1, fontFamily: "'JetBrains Mono',monospace", fontSize: 11, padding: '6px 8px', border: '1px solid var(--rule)', background: 'var(--paper)', color: 'var(--ink)' }}
-                placeholder="Barcode number…"
+                placeholder="or enter barcode…"
                 value={barcode}
                 onChange={e => setBarcode(e.target.value)}
                 onKeyDown={e => e.key === 'Enter' && handleBarcode()}
                 inputMode="numeric"
               />
-              <button className="nutri-photo-btn" style={{ minWidth: 64, flexShrink: 0 }} onClick={handleBarcode} disabled={barcodeLoading}>
-                {barcodeLoading ? '…' : 'Lookup'}
+              <button className="nutri-photo-btn" style={{ minWidth: 52, flexShrink: 0 }} onClick={handleBarcode} disabled={barcodeLoading}>
+                {barcodeLoading ? '…' : 'Go'}
               </button>
             </div>
+            {camErr && <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)', marginBottom: 6 }}>{camErr}</div>}
             {barcodeErr && <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--red)', marginBottom: 6 }}>{barcodeErr}</div>}
 
             {/* Photo analysis */}
@@ -2414,6 +2704,63 @@ function S6({ s, onSignOut, refresh, setBriefing }) {
   const [notifPermission, setNotifPermission] = useState(() =>
     typeof Notification !== 'undefined' ? Notification.permission : 'unsupported'
   );
+
+  // Measurements
+  const MEASURE_TYPES = ['neck','chest','waist','hips','left arm','right arm','left thigh','right thigh'];
+  const [measureType, setMeasureType] = useState('waist');
+  const [measureVal, setMeasureVal] = useState('');
+  const [measureUnit, setMeasureUnit] = useState('cm');
+  const [savingMeasure, setSavingMeasure] = useState(false);
+  const measurements = s?.measurements || [];
+
+  const getLatest = (type) => {
+    const entries = measurements.filter(m => m.type === type).sort((a,b) => a.ts - b.ts);
+    return entries.at(-1) || null;
+  };
+  const getPrev = (type) => {
+    const entries = measurements.filter(m => m.type === type).sort((a,b) => a.ts - b.ts);
+    return entries.length >= 2 ? entries.at(-2) : null;
+  };
+
+  const logMeasurement = async () => {
+    if (!measureVal) return;
+    setSavingMeasure(true);
+    await api('measurements', { method: 'POST', body: JSON.stringify({ type: measureType, value: parseFloat(measureVal), unit: measureUnit }) });
+    setMeasureVal('');
+    setSavingMeasure(false);
+    refresh(null);
+  };
+
+  // Supplements
+  const supplements = s?.supplements || [];
+  const suppLogToday = s?.supplementLogToday || [];
+  const suppLoggedSet = new Set(suppLogToday.map(e => e.name));
+  const [newSuppName, setNewSuppName] = useState('');
+  const [newSuppDose, setNewSuppDose] = useState('');
+  const [newSuppTiming, setNewSuppTiming] = useState('morning');
+  const [savingSupp, setSavingSupp] = useState(false);
+  const [togglingSupp, setTogglingSupp] = useState('');
+
+  const addSupplement = async () => {
+    if (!newSuppName.trim()) return;
+    setSavingSupp(true);
+    await api('supplements', { method: 'POST', body: JSON.stringify({ name: newSuppName.trim(), dose: newSuppDose.trim(), timing: newSuppTiming }) });
+    setNewSuppName(''); setNewSuppDose('');
+    setSavingSupp(false);
+    refresh(null);
+  };
+
+  const toggleSuppLog = async (supp) => {
+    setTogglingSupp(supp.name);
+    await api('supplement/log', { method: 'POST', body: JSON.stringify({ name: supp.name, dose: supp.dose }) });
+    setTogglingSupp('');
+    refresh(null);
+  };
+
+  const deleteSupp = async (name) => {
+    await api(`supplements/${encodeURIComponent(name)}`, { method: 'DELETE' });
+    refresh(null);
+  };
   const shortcutUrl = `${API_BASE}/shortcut`;
   const copyShortcutUrl = () => {
     navigator.clipboard.writeText(shortcutUrl).then(() => { setUrlCopied(true); setTimeout(() => setUrlCopied(false), 2000); });
@@ -2620,6 +2967,114 @@ function S6({ s, onSignOut, refresh, setBriefing }) {
 
         <div className="rule-thin" />
 
+        {/* Travel Mode */}
+        <div style={{ padding: '10px 0', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div>
+            <div className="kicker" style={{ margin: 0 }}>Travel Mode</div>
+            <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)', marginTop: 3, lineHeight: 1.5 }}>
+              Switches AI workout plans to bodyweight-only exercises
+            </div>
+          </div>
+          <button className="prof-btn" style={s?.travelMode ? { background: 'var(--navy)', color: 'var(--paper)', borderColor: 'var(--navy)' } : {}}
+            onClick={async () => { await api('travel-mode', { method: 'POST', body: JSON.stringify({ enabled: !s?.travelMode }) }); refresh(null); }}>
+            {s?.travelMode ? 'On' : 'Off'}
+          </button>
+        </div>
+
+        <div className="rule-thin" />
+
+        {/* Body Measurements */}
+        <div style={{ padding: '10px 0' }}>
+          <div className="kicker" style={{ margin: '0 0 8px' }}>Body Measurements</div>
+
+          {/* Latest readings */}
+          {MEASURE_TYPES.some(t => getLatest(t)) && (
+            <div style={{ marginBottom: 12 }}>
+              {MEASURE_TYPES.filter(t => getLatest(t)).map(type => {
+                const latest = getLatest(type);
+                const prev = getPrev(type);
+                const delta = prev ? Math.round((latest.value - prev.value) * 10) / 10 : null;
+                return (
+                  <div key={type} className="measure-row">
+                    <span className="measure-lbl">{type}</span>
+                    <div style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
+                      <span className="measure-val">{latest.value}</span>
+                      <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)' }}>{latest.unit}</span>
+                      {delta !== null && (
+                        <span className="measure-delta" style={{ color: delta === 0 ? 'var(--dim)' : delta < 0 ? 'var(--forest)' : 'var(--ember)' }}>
+                          {delta > 0 ? '+' : ''}{delta}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Log new measurement */}
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+            <select value={measureType} onChange={e => setMeasureType(e.target.value)}
+              style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, border: '1px solid var(--rule)', background: 'var(--paper)', color: 'var(--ink)', padding: '5px 8px', outline: 'none', flex: 1, minWidth: 100 }}>
+              {MEASURE_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+            </select>
+            <input className="prof-input" type="number" step="0.1" inputMode="decimal" placeholder="value" value={measureVal} onChange={e => setMeasureVal(e.target.value)} style={{ width: 70 }} />
+            <select value={measureUnit} onChange={e => setMeasureUnit(e.target.value)}
+              style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, border: '1px solid var(--rule)', background: 'var(--paper)', color: 'var(--ink)', padding: '5px 6px', outline: 'none' }}>
+              <option value="cm">cm</option>
+              <option value="in">in</option>
+            </select>
+            <button className="prof-btn solid" disabled={!measureVal || savingMeasure} onClick={logMeasurement}>
+              {savingMeasure ? '…' : 'Log'}
+            </button>
+          </div>
+        </div>
+
+        <div className="rule-thin" />
+
+        {/* Supplements */}
+        <div style={{ padding: '10px 0' }}>
+          <div className="kicker" style={{ margin: '0 0 8px' }}>Supplements</div>
+          {supplements.length === 0 && (
+            <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, color: 'var(--dim)', fontStyle: 'italic', marginBottom: 10 }}>
+              Add your supplements to track daily adherence.
+            </div>
+          )}
+          {supplements.map(supp => {
+            const logged = suppLoggedSet.has(supp.name);
+            const toggling = togglingSupp === supp.name;
+            return (
+              <div key={supp.name} className="supp-item">
+                <button className={`supp-check${logged ? ' done' : ''}`} onClick={() => toggleSuppLog(supp)} disabled={toggling}>
+                  {logged ? '✓' : ''}
+                </button>
+                <div className="supp-name">{supp.name}</div>
+                <div className="supp-meta">{supp.dose && `${supp.dose} · `}{supp.timing}</div>
+                <button onClick={() => deleteSupp(supp.name)} style={{ background: 'none', border: 'none', color: 'var(--rule)', cursor: 'pointer', fontSize: 14, marginLeft: 8, lineHeight: 1, flexShrink: 0 }}>×</button>
+              </div>
+            );
+          })}
+          {suppLogToday.length > 0 && (
+            <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--forest)', marginTop: 6, letterSpacing: '.06em' }}>
+              {suppLogToday.length}/{supplements.length} taken today
+            </div>
+          )}
+          {/* Add supplement form */}
+          <div style={{ display: 'flex', gap: 8, marginTop: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+            <input className="prof-input" placeholder="Supplement name…" value={newSuppName} onChange={e => setNewSuppName(e.target.value)} style={{ flex: 1, minWidth: 100 }} />
+            <input className="prof-input" placeholder="Dose…" value={newSuppDose} onChange={e => setNewSuppDose(e.target.value)} style={{ width: 60 }} />
+            <select value={newSuppTiming} onChange={e => setNewSuppTiming(e.target.value)}
+              style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, border: '1px solid var(--rule)', background: 'var(--paper)', color: 'var(--ink)', padding: '5px 6px', outline: 'none' }}>
+              {['morning','pre-workout','post-workout','evening','with food'].map(t => <option key={t} value={t}>{t}</option>)}
+            </select>
+            <button className="prof-btn solid" disabled={!newSuppName.trim() || savingSupp} onClick={addSupplement}>
+              {savingSupp ? '…' : 'Add'}
+            </button>
+          </div>
+        </div>
+
+        <div className="rule-thin" />
+
         <button className="prof-btn solid" onClick={onSignOut} style={{ width: '100%', marginTop: 8, padding: '10px 0' }}>Sign Out</button>
       </div>
     </section>
@@ -2627,21 +3082,55 @@ function S6({ s, onSignOut, refresh, setBriefing }) {
 }
 
 // ── S7: PERSONAL RECORDS ──────────────────────────────────────────────────────
+const MOVEMENT_GROUPS = [
+  { label: 'Lower Push', keys: ['squat','leg press','lunge','hack squat','bulgarian','step up','leg extension'] },
+  { label: 'Lower Pull', keys: ['deadlift','rdl','hip thrust','glute','leg curl','nordic','hamstring'] },
+  { label: 'Upper Push', keys: ['bench','chest press','overhead press','shoulder press','dip','fly','push up'] },
+  { label: 'Upper Pull', keys: ['pull','row','pulldown','lat','face pull','shrug','trap'] },
+  { label: 'Arms', keys: ['curl','bicep','tricep','extension','pushdown','preacher','hammer'] },
+  { label: 'Calves & Core', keys: ['calf','raise','abs','crunch','plank','oblique'] },
+];
+
+function groupExercise(name) {
+  const n = name.toLowerCase();
+  for (const g of MOVEMENT_GROUPS) if (g.keys.some(k => n.includes(k))) return g.label;
+  return 'Other';
+}
+
 function S7({ s }) {
   const [search, setSearch] = useState('');
-  const prs = useMemo(() => {
+  const { prs, e1rmHistory } = useMemo(() => {
     const byEx = {};
-    for (const l of (s?.lifts || [])) {
-      const e1rm = l.kg > 0 && l.reps > 0 ? Math.round(l.kg * (1 + l.reps / 30)) : 0;
-      if (!byEx[l.exercise] || e1rm > byEx[l.exercise].e1rm)
-        byEx[l.exercise] = { exercise: l.exercise, kg: l.kg, reps: l.reps, e1rm, date: l.date };
+    const history = {};
+    const lifts = [...(s?.lifts || [])].sort((a,b) => a.date.localeCompare(b.date));
+    for (const l of lifts) {
+      const e1 = l.kg > 0 && l.reps > 0 ? Math.round(l.kg * (1 + l.reps / 30)) : 0;
+      if (!e1) continue;
+      if (!history[l.exercise]) history[l.exercise] = [];
+      history[l.exercise].push(e1);
+      if (!byEx[l.exercise] || e1 > byEx[l.exercise].e1rm)
+        byEx[l.exercise] = { exercise: l.exercise, kg: l.kg, reps: l.reps, e1rm: e1, date: l.date };
     }
-    return Object.values(byEx).sort((a, b) => b.e1rm - a.e1rm);
+    return {
+      prs: Object.values(byEx).sort((a, b) => b.e1rm - a.e1rm),
+      e1rmHistory: history,
+    };
   }, [s?.lifts]);
 
-  const filtered = search
-    ? prs.filter(p => p.exercise.toLowerCase().includes(search.toLowerCase()))
-    : prs;
+  const cutoff14 = new Date(Date.now() - 14 * 864e5).toISOString().slice(0,10);
+  const filtered = search ? prs.filter(p => p.exercise.toLowerCase().includes(search.toLowerCase())) : prs;
+
+  const grouped = useMemo(() => {
+    const map = {};
+    for (const pr of filtered) {
+      const g = groupExercise(pr.exercise);
+      if (!map[g]) map[g] = [];
+      map[g].push(pr);
+    }
+    return map;
+  }, [filtered]);
+
+  const groupOrder = [...MOVEMENT_GROUPS.map(g => g.label), 'Other'].filter(g => grouped[g]);
 
   return (
     <section id="s7" style={{ display: 'flex', flexDirection: 'column' }}>
@@ -2654,26 +3143,42 @@ function S7({ s }) {
         <input className="pr-search" placeholder="Filter exercise…" value={search} onChange={e => setSearch(e.target.value)} />
       </div>
       <div className="fade" style={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>
-        <table className="data-table">
-          <thead>
-            <tr><th>Exercise</th><th>Best Set</th><th>e1RM</th><th>Date</th></tr>
-          </thead>
-          <tbody>
-            {filtered.map((pr, i) => (
-              <tr key={i}>
-                <td style={{ textTransform: 'capitalize' }}>{pr.exercise}</td>
-                <td>{pr.kg}kg × {pr.reps}</td>
-                <td className="gld">{pr.e1rm}kg</td>
-                <td>{pr.date}</td>
-              </tr>
-            ))}
-            {!filtered.length && (
-              <tr><td colSpan={4} style={{ textAlign: 'center', fontStyle: 'italic', color: 'var(--dim)', padding: '24px 0' }}>
-                {prs.length ? 'No matches.' : 'No records yet — log some lifts.'}
-              </td></tr>
-            )}
-          </tbody>
-        </table>
+        {!prs.length && (
+          <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 11, color: 'var(--dim)', fontStyle: 'italic', padding: '24px 0' }}>No records yet — log some lifts.</div>
+        )}
+        {prs.length > 0 && filtered.length === 0 && (
+          <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 11, color: 'var(--dim)', fontStyle: 'italic', padding: '12px 0' }}>No matches.</div>
+        )}
+        {groupOrder.map(group => (
+          <div key={group}>
+            <div className="pr-group-hdr">{group}</div>
+            {grouped[group].map((pr, i) => {
+              const hist = e1rmHistory[pr.exercise] || [];
+              const sparkData = hist.slice(-10);
+              const isNew = pr.date >= cutoff14;
+              return (
+                <div key={i} style={{ display: 'flex', alignItems: 'center', padding: '9px 0', borderBottom: '1px solid var(--rule)', gap: 8 }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
+                      <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, textTransform: 'capitalize', color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{pr.exercise}</span>
+                      {isNew && <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 7, letterSpacing: '.1em', background: 'var(--gold)', color: 'var(--paper)', padding: '1px 4px', flexShrink: 0 }}>NEW</span>}
+                    </div>
+                    <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)' }}>
+                      {pr.kg}kg × {pr.reps} · {pr.date}
+                    </div>
+                  </div>
+                  <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                    <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 16, fontWeight: 700, color: 'var(--gold)', lineHeight: 1 }}>{pr.e1rm}<span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, color: 'var(--dim)', marginLeft: 2 }}>kg</span></div>
+                    <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 7, color: 'var(--dim)', marginTop: 1 }}>e1RM</div>
+                  </div>
+                  {sparkData.length >= 2 && (
+                    <Sparkline data={sparkData} color={isNew ? 'var(--gold)' : 'var(--dim)'} width={48} height={20} />
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        ))}
       </div>
     </section>
   );
@@ -3326,8 +3831,8 @@ function App() {
       </nav>
       <div className="scroll" id="press-scroll">
         <S1 s={s} briefing={briefing} onShowBriefing={() => setShowBriefing(true)} />
-        <S2 s={s} />
-        <S3 s={s} onStartWorkout={planDay => setLoggerPlanDay(planDay ?? null)} onImport={() => setShowImport(true)} onHistory={() => setShowHistory(true)} />
+        <S2 s={s} refresh={refresh} />
+        <S3 s={s} onStartWorkout={planDay => setLoggerPlanDay(planDay ?? null)} onImport={() => setShowImport(true)} onHistory={() => setShowHistory(true)} refresh={refresh} />
         <S4 s={s} refresh={refresh} />
         <S5 s={s} refresh={refresh} />
         <S6 s={s} onSignOut={() => signOut(auth)} refresh={refresh} setBriefing={setBriefing} />
