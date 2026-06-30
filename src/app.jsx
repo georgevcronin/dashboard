@@ -291,6 +291,7 @@ section.visible .fade:nth-child(6){transition-delay:.56s}
 .scan-preview{width:72px;height:72px;object-fit:cover;border:1px solid var(--rule);flex-shrink:0}
 .scan-preview.analysing{animation:pulse-opacity 1.4s ease-in-out infinite}
 @keyframes pulse-opacity{0%,100%{opacity:1}50%{opacity:.35}}
+@keyframes pulse-bar{0%,100%{opacity:.4}50%{opacity:1}}
 .scan-mode-toggle{display:flex;border:1px solid var(--rule);overflow:hidden;margin-bottom:10px}
 .scan-mode-btn{flex:1;font-family:'JetBrains Mono',monospace;font-size:8px;letter-spacing:.12em;text-transform:uppercase;padding:6px;border:none;background:none;cursor:pointer;color:var(--dim)}
 .scan-mode-btn.active{background:var(--ink);color:var(--paper)}
@@ -1505,48 +1506,21 @@ function HevyImport({ onClose, refresh }) {
       setProgress({ done: 0, total, imported: 0, skipped: 0, current: sessions[0] || null });
     });
 
-    let totalImported = 0, totalSkipped = 0, totalErrors = 0;
+    setProgress({ done: 0, total, current: sessions[0], imported: 0, skipped: 0 });
 
-    for (let i = 0; i < total; i += IMPORT_BATCH) {
-      const batch = sessions.slice(i, i + IMPORT_BATCH);
-      setProgress({ done: i, total, current: batch[0], imported: totalImported, skipped: totalSkipped });
-
-      const importOne = async (sessions) => {
-        const p = authFetch(`${API_BASE}/import/hevy`, {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ sessions }),
-        }).then(res => res.ok ? res.json() : Promise.reject(new Error(`HTTP ${res.status}`)));
-        return Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 15000))]);
-      };
-
-      let batchOk = false;
-      try {
-        const r = await importOne(batch);
-        totalImported += r?.imported || 0;
-        totalSkipped += r?.skipped || 0;
-        batchOk = true;
-      } catch (_) {
-        // Batch failed — retry each session individually to skip only the bad one
-        for (const session of batch) {
-          try {
-            const r = await importOne([session]);
-            totalImported += r?.imported || 0;
-            totalSkipped += r?.skipped || 0;
-            setLog(prev => [...prev, { name: session.name, date: session.date, exCount: session.exercises.length }]);
-          } catch (_) {
-            totalErrors++;
-            setLog(prev => [...prev, { name: session.name, date: session.date, exCount: 0, error: true }]);
-          }
-        }
-      }
-
-      if (batchOk) {
-        setLog(prev => {
-          const next = [...prev, ...batch.map(s => ({ name: s.name, date: s.date, exCount: s.exercises.length }))];
-          setTimeout(() => logRef.current?.scrollTo({ top: 0, behavior: 'smooth' }), 50);
-          return next;
-        });
-      }
+    let totalImported = 0, totalSkipped = 0;
+    try {
+      const r = await authFetch(`${API_BASE}/import/hevy`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessions }),
+      }).then(res => res.ok ? res.json() : Promise.reject(new Error(`HTTP ${res.status}`)));
+      totalImported = r?.imported || 0;
+      totalSkipped = r?.skipped || 0;
+      setLog(sessions.map(s => ({ name: s.name, date: s.date, exCount: s.exercises.length })));
+    } catch (err) {
+      setResult({ ok: false, error: err.message });
+      setStatus('done');
+      return;
     }
 
     setProgress({ done: total, total, imported: totalImported, skipped: totalSkipped, current: null });
@@ -1606,22 +1580,15 @@ function HevyImport({ onClose, refresh }) {
 
         {status === 'importing' && (
           <>
-            {/* Progress bar */}
             <div style={{ marginBottom: 16 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)', letterSpacing: '.08em', marginBottom: 8 }}>
-                <span>{progress.done} of {progress.total} sessions</span>
-                <span>{pct}%</span>
+              <div style={{ fontFamily: "'Playfair Display',serif", fontStyle: 'italic', fontSize: 15, color: 'var(--ink)', marginBottom: 10 }}>
+                Importing {progress.total} sessions…
               </div>
-              <div style={{ height: 4, background: 'var(--rule)', borderRadius: 2 }}>
-                <div style={{ height: '100%', background: 'var(--ink)', borderRadius: 2, width: `${pct}%`, transition: 'width .4s ease' }} />
+              <div style={{ height: 3, background: 'var(--rule)', borderRadius: 2, overflow: 'hidden' }}>
+                <div style={{ height: '100%', background: 'var(--ink)', borderRadius: 2, width: '100%', animation: 'pulse-bar 1.4s ease-in-out infinite' }} />
               </div>
-              {progress.current && (
-                <div style={{ fontFamily: "'Playfair Display',serif", fontStyle: 'italic', fontSize: 13, color: 'var(--dim)', marginTop: 8 }}>
-                  {progress.current.name} · {progress.current.date}
-                </div>
-              )}
-              <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)', marginTop: 4 }}>
-                {progress.imported} saved · {progress.skipped} skipped (already existed)
+              <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)', marginTop: 6 }}>
+                Sending to server — this takes a few seconds
               </div>
             </div>
 
@@ -1642,13 +1609,19 @@ function HevyImport({ onClose, refresh }) {
 
         {status === 'done' && (
           <>
-            <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 22, fontWeight: 700, marginBottom: 6 }}>
-              {result?.imported} sessions saved to Firestore.
-            </div>
-            {result?.skipped > 0 && <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, color: 'var(--dim)', marginBottom: 16 }}>{result.skipped} already existed — skipped.</div>}
-            <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--forest)', marginBottom: 20, letterSpacing: '.06em' }}>
-              ✓ Saved · Progressive overload + fatigue models updated
-            </div>
+            {result?.ok ? (
+              <>
+                <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 22, fontWeight: 700, marginBottom: 6 }}>
+                  {result.imported} sessions imported.
+                </div>
+                {result.skipped > 0 && <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, color: 'var(--dim)', marginBottom: 16 }}>{result.skipped} already existed — skipped.</div>}
+                <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--forest)', marginBottom: 20, letterSpacing: '.06em' }}>✓ Progressive overload + fatigue models updated</div>
+              </>
+            ) : (
+              <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 11, color: 'var(--ember)', marginBottom: 16 }}>
+                Import failed: {result?.error || 'unknown error'}. Try again.
+              </div>
+            )}
             <button className="ol-btn ol-btn-solid" onClick={onClose}>Done</button>
           </>
         )}
