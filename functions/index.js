@@ -758,28 +758,43 @@ app.delete("/lift/:i", async (req, res) => { db.lifts.splice(+req.params.i, 1); 
 app.post("/profile", async (req, res) => { db.profile = { ...db.profile, ...req.body }; await save(); res.json(db.profile); });
 
 // ---------- Mentor ----------
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
 app.post("/mentor", async (req, res) => {
   const key = process.env.GROQ_API_KEY;
   if (!key) return res.json({ reply: "Add GROQ_API_KEY to functions/.env to enable the mentor." });
   const s = db;
-  const system = "You are Mentor, " + (s.profile?.name || "the user") + "'s personal peak-performance coach. Be direct, concise (2-4 short sentences). Live data: " + JSON.stringify({ recovery: s.metrics, weights: s.weight, lifts: s.lifts?.slice(-20), water: s.water, workouts: s.workouts?.slice(-10), thoughts: s.thoughts });
-  try {
-    const r = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "Authorization": "Bearer " + key },
-      body: JSON.stringify({
-        model: "llama-3.3-70b-versatile",
-        max_tokens: 800,
-        messages: [{ role: "system", content: system }, ...req.body.messages],
-      }),
-    });
-    const data = await r.json();
-    if (!r.ok || !data.choices?.[0]?.message?.content) {
-      console.error("Groq mentor error:", r.status, JSON.stringify(data));
-      return res.json({ reply: "Mentor error: " + (data.error?.message || `Groq returned ${r.status}`) });
+  const recentWeights = Object.fromEntries(Object.entries(s.weight || {}).slice(-14));
+  const system = "You are Mentor, " + (s.profile?.name || "the user") + "'s personal peak-performance coach. Be direct, concise (2-4 short sentences). Live data: " + JSON.stringify({ recovery: s.metrics, weights: recentWeights, lifts: s.lifts?.slice(-10), water: s.water, workouts: s.workouts?.slice(-5), thoughts: s.thoughts?.slice(-5) });
+  const recentMessages = req.body.messages.slice(-10);
+
+  let data, status;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const r = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": "Bearer " + key },
+        body: JSON.stringify({
+          model: "llama-3.3-70b-versatile",
+          max_tokens: 400,
+          messages: [{ role: "system", content: system }, ...recentMessages],
+        }),
+      });
+      data = await r.json();
+      status = r.status;
+      if (r.ok && data.choices?.[0]?.message?.content) {
+        return res.json({ reply: data.choices[0].message.content });
+      }
+      if (status !== 429) break;
+      const waitSec = parseFloat(data.error?.message?.match(/try again in ([\d.]+)s/)?.[1]) || (2 * (attempt + 1));
+      await sleep(Math.min(waitSec, 20) * 1000 + 250);
+    } catch (e) {
+      console.error("Groq mentor exception:", e);
+      return res.json({ reply: "Mentor error: " + e.message });
     }
-    res.json({ reply: data.choices[0].message.content });
-  } catch (e) { console.error("Groq mentor exception:", e); res.json({ reply: "Mentor error: " + e.message }); }
+  }
+  console.error("Groq mentor error:", status, JSON.stringify(data));
+  res.json({ reply: "Mentor error: " + (data.error?.message || `Groq returned ${status}`) });
 });
 
 function computeProgression(lifts, name) {
