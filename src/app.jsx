@@ -40,7 +40,8 @@ const authFetch = async (url, opts = {}) => {
   });
 };
 
-// ── MUSCLE FATIGUE ──────────────────────────────────────────────────────────
+// ── FATIGUE MODELS ───────────────────────────────────────────────────────────
+const CNS_EXERCISES_FE = ['deadlift','squat','hack squat','bench press','overhead press','leg press'];
 const MUSCLE_MAP = {
   'hack squat': ['quads','glutes'], 'squat': ['quads','glutes','hamstrings'],
   'leg press': ['quads','glutes'], 'leg curl': ['hamstrings'], 'leg extension': ['quads'],
@@ -64,7 +65,7 @@ const RECOVERY_H = {
   traps: 48, erectors: 72, abs: 36, obliques: 36,
   'front-delt': 48, 'rear-delt': 48, forearms: 36, neck: 24,
 };
-function computeFatigue(lifts, musclePeaks) {
+function computeStructuralFatigue(lifts, musclePeaks, soreness = []) {
   if (!lifts?.length) return {};
   const now = Date.now();
   const scores = {};
@@ -84,35 +85,73 @@ function computeFatigue(lifts, musclePeaks) {
       }
     }
   });
+  const sorenessMap = {};
+  soreness.filter(e => Date.now() - e.ts < 5 * 24 * 3600000)
+    .forEach(e => { sorenessMap[e.muscle] = Math.max(sorenessMap[e.muscle] || 0, e.score); });
   const out = {};
   Object.entries(scores).forEach(([m, v]) => {
-    const peak = musclePeaks?.[m] || 2000;
-    out[m] = Math.min(100, Math.round(v / peak * 100));
+    const soreAdj = sorenessMap[m] ? 1 + sorenessMap[m] / 20 : 1;
+    out[m] = Math.min(100, Math.round(v / (musclePeaks?.[m] || 2000) * 100 * soreAdj));
   });
   return out;
+}
+
+function computeMetabolicFatigue(lifts, carbsToday = 0) {
+  const now = Date.now();
+  let volume = 0;
+  (lifts || []).forEach(l => {
+    const t = new Date(l.start || l.date).getTime();
+    const hoursAgo = (now - t) / 3_600_000;
+    if (hoursAgo > 48) return;
+    const decay = Math.exp(-0.693 * hoursAgo / 12);
+    volume += (l.kg || 0) * (l.reps || 1) * decay;
+  });
+  const carbReduction = Math.min(40, Math.floor(carbsToday / 50) * 10);
+  return Math.max(0, Math.min(100, Math.round(volume / 500)) - carbReduction);
+}
+
+function computeCNSFatigue(lifts) {
+  const now = Date.now();
+  let score = 0;
+  (lifts || []).forEach(l => {
+    const t = new Date(l.start || l.date).getTime();
+    const hoursAgo = (now - t) / 3_600_000;
+    if (hoursAgo > 96) return;
+    const name = (l.exercise || '').toLowerCase();
+    if (!CNS_EXERCISES_FE.some(ex => name.includes(ex))) return;
+    const decay = Math.exp(-0.693 * hoursAgo / 36);
+    score += (l.kg || 0) * (l.reps || 1) * decay;
+  });
+  return Math.min(100, Math.round(score / 5000 * 100));
+}
+
+function computeFatigue(lifts, musclePeaks, soreness) {
+  return computeStructuralFatigue(lifts, musclePeaks, soreness);
 }
 
 // ── CSS ─────────────────────────────────────────────────────────────────────
 const PRESS_CSS = `
 @import url('https://fonts.googleapis.com/css2?family=Syne:wght@800&family=Playfair+Display:ital,wght@0,700;0,900;1,400;1,700&family=JetBrains+Mono:wght@400;600&display=swap');
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
-:root{--paper:#f5f0e2;--paper2:#ede8d4;--ink:#0d0b08;--rule:#c4b898;--dim:#8a7a5c;--gold:#6b5800;--navy:#1a2f54;--forest:#1a4f2a;--ember:#7a3400;--red:#7a1414;--hdr:72px}
+:root{--paper:#f5f0e2;--paper2:#ede8d4;--ink:#0d0b08;--rule:#c4b898;--dim:#6b5d44;--gold:#6b5800;--navy:#1a2f54;--forest:#1a4f2a;--ember:#7a3400;--red:#7a1414;--plum:#3d2452;--hdr:72px}
 html,body{height:100%;background:var(--paper)}
-body{font-family:'Times New Roman',Times,Georgia,serif;overflow:hidden;color:var(--ink)}
+body{font-family:'Times New Roman',Times,Georgia,serif;color:var(--ink)}
 .hdr{position:fixed;top:0;left:0;right:0;z-index:100;background:var(--paper);border-bottom:3px solid var(--ink)}
 .masthead{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;padding:8px 20px 6px;border-bottom:1px solid var(--rule)}
 .mast-left{font-size:8px;letter-spacing:.16em;text-transform:uppercase;color:var(--dim)}
 .mast-title{font-family:'Playfair Display',Georgia,serif;font-weight:900;font-size:clamp(22px,5vw,30px);letter-spacing:-.01em;text-align:center;color:var(--ink)}
 .mast-right{text-align:right;font-size:8px;letter-spacing:.12em;color:var(--dim);white-space:nowrap}
+.mast-right-stack{display:flex;flex-direction:column;align-items:flex-end;gap:3px}
+.mast-right-row{display:flex;gap:10px;align-items:center}
 .ticker-wrap{background:var(--paper2);overflow:hidden;height:28px;display:flex;align-items:center;border-top:1px solid var(--rule)}
 .ticker-track{display:flex;gap:0;animation:rtl 40s linear infinite;white-space:nowrap;will-change:transform}
 .ticker-track:hover{animation-play-state:paused}
 @keyframes rtl{0%{transform:translateX(0)}100%{transform:translateX(-33.333%)}}
 .tick{display:inline-flex;gap:8px;align-items:center;padding:0 20px;font-size:10px;letter-spacing:.06em;border-right:1px solid var(--rule);font-family:'JetBrains Mono',monospace}
 .t-sym{color:var(--rule)}.t-val{color:var(--dim)}.t-up{color:var(--forest)}.t-dn{color:var(--red)}
-.scroll{position:fixed;top:var(--hdr);bottom:0;left:0;right:0;overflow-y:scroll;scroll-snap-type:y mandatory;scroll-behavior:smooth;-webkit-overflow-scrolling:touch}
-.scroll::-webkit-scrollbar{display:none}
-section{height:calc(100svh - var(--hdr));scroll-snap-align:start;overflow:hidden;position:relative;border-bottom:3px solid var(--ink);padding:24px 20px 20px;display:flex;flex-direction:column}
+.scroll{padding-top:var(--hdr);column-width:360px;column-gap:0;column-rule:1px solid var(--rule)}
+@media(min-width:481px){.scroll{padding-right:40px}}
+section{break-inside:avoid;-webkit-column-break-inside:avoid;page-break-inside:avoid;overflow:visible;position:relative;border-bottom:3px solid var(--ink);padding:24px 20px 20px;display:flex;flex-direction:column}
 .fade{opacity:0;transform:translateY(18px);transition:opacity .55s ease,transform .55s ease}
 section.visible .fade{opacity:1;transform:translateY(0)}
 section.visible .fade:nth-child(2){transition-delay:.10s}
@@ -135,7 +174,7 @@ section.visible .fade:nth-child(6){transition-delay:.56s}
 .stat-cell+.stat-cell{padding-left:14px}
 .sc-label{font-size:8px;letter-spacing:.16em;text-transform:uppercase;color:var(--dim);margin-bottom:3px}
 .sc-num{font-family:'Syne',sans-serif;font-weight:800;font-size:clamp(22px,5vw,32px);letter-spacing:-.03em;line-height:1;color:var(--ink)}
-.sc-num.gold{color:var(--gold)}.sc-num.navy{color:var(--navy)}.sc-num.forest{color:var(--forest)}.sc-num.red{color:var(--red)}
+.sc-num.gold{color:var(--gold)}.sc-num.navy{color:var(--navy)}.sc-num.forest{color:var(--forest)}.sc-num.red{color:var(--red)}.sc-num.plum{color:var(--plum)}
 .sc-delta{font-size:9px;margin-top:3px}.up{color:var(--forest)}.dn{color:var(--red)}
 .chart-wrap{flex:1;min-height:0;position:relative;margin:0 -20px;padding:0 20px}
 .ch{width:100%;height:100%;display:block;overflow:visible}
@@ -152,8 +191,8 @@ section.visible .fade:nth-child(6){transition-delay:.56s}
 .macro-track{height:5px;background:var(--paper2);border-radius:1px}
 .macro-fill{height:100%;border-radius:1px}
 .sec-nav{position:fixed;right:14px;top:50%;transform:translateY(-50%);display:flex;flex-direction:column;gap:10px;z-index:200}
-.sn-dot{width:5px;height:5px;border-radius:50%;background:var(--rule);cursor:pointer;transition:all .3s}
-.sn-dot.active{background:var(--ink);transform:scale(1.6)}
+.sn-dot{width:5px;height:5px;border-radius:50%;background:var(--rule);transition:all .3s;pointer-events:none}
+.sn-dot.active{background:var(--ink);transform:scale(2.2);box-shadow:0 0 0 4px rgba(13,11,8,.08)}
 .prog-head{font-size:8px;letter-spacing:.2em;text-transform:uppercase;color:var(--dim);margin-bottom:9px}
 .prog-row{display:flex;align-items:center;gap:9px;margin-bottom:8px}
 .prog-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
@@ -188,7 +227,7 @@ section.visible .fade:nth-child(6){transition-delay:.56s}
 .auth-err{font-size:10px;color:var(--red);font-family:'JetBrains Mono',monospace;text-align:center;border:1px solid var(--red);padding:8px}
 .auth-rule-bottom{width:100%;max-width:380px;height:1px;background:var(--rule);margin-top:24px}
 .tab-bar{display:flex;border-bottom:2px solid var(--ink);margin-bottom:12px;gap:0}
-.tab-btn{font-family:'JetBrains Mono',monospace;font-size:8px;letter-spacing:.18em;text-transform:uppercase;padding:7px 16px;cursor:pointer;background:none;border:none;color:var(--dim);border-bottom:2px solid transparent;margin-bottom:-2px}
+.tab-btn{font-family:'JetBrains Mono',monospace;font-size:8px;letter-spacing:.18em;text-transform:uppercase;padding:7px 16px;cursor:pointer;background:none;border:none;color:var(--dim);border-bottom:2px solid transparent;margin-bottom:-2px;min-height:44px;display:flex;align-items:center}
 .tab-btn.active{color:var(--ink);border-bottom-color:var(--ink)}
 .muscle-scroll{flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch}
 .muscle-scroll::-webkit-scrollbar{width:3px}.muscle-scroll::-webkit-scrollbar-track{background:var(--paper2)}.muscle-scroll::-webkit-scrollbar-thumb{background:var(--rule)}
@@ -326,15 +365,15 @@ section.visible .fade:nth-child(6){transition-delay:.56s}
 .deload-banner{background:var(--ember);padding:10px 12px;margin:8px 0;border-left:3px solid var(--ink)}
 .week-strip{display:flex;gap:3px;overflow-x:auto;padding:8px 0;border-top:1px solid var(--rule);margin-top:8px;scrollbar-width:none}
 .week-strip::-webkit-scrollbar{display:none}
-.week-day{flex:1 0 0;min-width:34px;padding:6px 3px 5px;border:1px solid var(--rule);text-align:center;cursor:default;position:relative}
+.week-day{flex:1 0 0;min-width:34px;min-height:44px;padding:6px 3px 5px;border:1px solid var(--rule);text-align:center;cursor:default;position:relative;display:flex;flex-direction:column;justify-content:center;align-items:center}
 .week-day.today{border:2px solid var(--ink)}
 .week-day.has-session{background:var(--ink)}
 .week-day.clickable{cursor:pointer}
-.week-day-label{font-family:'JetBrains Mono',monospace;font-size:7px;letter-spacing:.08em;color:var(--dim);margin-bottom:3px;text-transform:uppercase}
+.week-day-label{font-family:'JetBrains Mono',monospace;font-size:8px;letter-spacing:.08em;color:var(--dim);margin-bottom:3px;text-transform:uppercase}
 .week-day.today .week-day-label{color:var(--ink);font-weight:700}
 .week-day.has-session .week-day-label{color:rgba(245,240,226,.7)}
 .week-day-dot{width:5px;height:5px;background:var(--gold);border-radius:50%;margin:0 auto}
-.week-day-type{font-family:'JetBrains Mono',monospace;font-size:6px;letter-spacing:.06em;color:var(--gold);line-height:1.3;margin-top:2px}
+.week-day-type{font-family:'JetBrains Mono',monospace;font-size:8px;letter-spacing:.06em;color:var(--gold);line-height:1.3;margin-top:2px}
 .week-day-type.past{color:var(--rule)}
 .niggle-list{display:flex;flex-direction:column;gap:10px;margin-top:10px}
 .niggle-card{padding:10px 12px;border-left:3px solid var(--ember)}
@@ -366,9 +405,40 @@ section.visible .fade:nth-child(6){transition-delay:.56s}
 .alcohol-row{display:flex;align-items:center;gap:8px;padding:10px 0}
 .pr-group-hdr{font-family:'JetBrains Mono',monospace;font-size:8px;letter-spacing:.16em;text-transform:uppercase;color:var(--dim);padding:8px 0 4px;border-top:1px solid var(--rule);margin-top:4px}
 .pr-group-hdr:first-child{border-top:none;margin-top:0}
+.settings-overlay{position:fixed;inset:0;z-index:1200;background:var(--paper);display:flex;flex-direction:column;overflow:hidden}
+.settings-hdr{background:var(--ink);color:var(--paper);padding:14px 20px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0;position:sticky;top:0;z-index:1}
+.settings-hdr-title{font-family:'Playfair Display',serif;font-size:18px;font-weight:900;letter-spacing:-.01em}
+.settings-close{background:none;border:none;color:rgba(245,240,226,.7);cursor:pointer;font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.12em;text-transform:uppercase;padding:0}
+.settings-body{flex:1;overflow-y:auto;padding:0 20px 80px;-webkit-overflow-scrolling:touch}
+.settings-sec{padding:20px 0 4px;border-top:2px solid var(--ink);margin-top:8px}
+.settings-sec:first-child{border-top:none;margin-top:0;padding-top:20px}
+.settings-sh{font-family:'JetBrains Mono',monospace;font-size:8px;letter-spacing:.22em;text-transform:uppercase;color:var(--dim);margin-bottom:14px}
+.settings-open-btn{width:100%;background:none;border:1px solid var(--ink);color:var(--ink);font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.14em;text-transform:uppercase;padding:11px 14px;cursor:pointer;display:flex;align-items:center;justify-content:space-between;margin-top:12px;box-sizing:border-box}
+.echelon-card{width:100%;padding:12px 14px;border:1px solid var(--rule);cursor:pointer;text-align:left;background:none;margin-bottom:8px;display:flex;align-items:flex-start;gap:12px;box-sizing:border-box}
+.echelon-card.selected{border-color:var(--ink);background:rgba(0,0,0,.04)}
+.echelon-card-dot{width:8px;height:8px;border-radius:50%;border:2px solid var(--rule);flex-shrink:0;margin-top:5px;transition:all .15s}
+.echelon-card.selected .echelon-card-dot{border-color:var(--ink);background:var(--ink)}
+.echelon-card-title{font-family:'Playfair Display',serif;font-size:14px;font-weight:700;color:var(--ink);margin-bottom:3px}
+.echelon-card-desc{font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--dim);line-height:1.6}
+@media(max-width:480px){
+:root{--hdr:138px}
+.masthead{grid-template-columns:1fr;row-gap:6px;text-align:center;padding:10px 14px 8px}
+.mast-left{order:2}
+.mast-title{order:1}
+.mast-right{order:3}
+.mast-right-stack{align-items:center}
+.mast-right-row{justify-content:center}
+.week-day{min-width:44px}
+}
 `;
 
 
+
+const ECHELONS = [
+  { key: 'workout', title: 'Training', desc: 'Workout logging, fatigue model, personal records, and AI-planned sessions.' },
+  { key: 'workout_sleep', title: 'Training + Recovery', desc: 'Adds sleep tracking, HRV analysis, and recovery-aware planning via Apple Health.' },
+  { key: 'full', title: 'Full System', desc: 'Everything — nutrition logging, macro tracking, meal photo scanning, and daily fuel briefings.' },
+];
 
 // ── HELPERS ─────────────────────────────────────────────────────────────────
 const fmtDate = () => new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
@@ -405,15 +475,16 @@ function AreaChart({ data, color, id }) {
 }
 
 function BarChart({ data, color }) {
-  if (!data?.filter(Boolean).length) return null;
+  if (data?.filter(Boolean).length < 2) return null;
   const W = 320, H = 60;
   const mx = Math.max(...data) * 1.12 || 1;
   const bw = W / data.length;
   return (
     <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', height: '100%', display: 'block' }} preserveAspectRatio="none">
+      <line x1={0} y1={H - 0.5} x2={W} y2={H - 0.5} stroke="var(--rule)" strokeWidth={1} />
       {data.map((v, i) => {
         const h = (v / mx) * H;
-        return <rect key={i} x={i*bw+1.5} y={H-h} width={bw-3} height={Math.max(h,0)} fill={i===data.length-1 ? color : color+'60'} rx={1} />;
+        return <rect key={i} x={i*bw+1.5} y={H-h} width={bw-3} height={Math.max(h,0)} fill={i===data.length-1 ? color : color+'a0'} rx={1} />;
       })}
     </svg>
   );
@@ -454,9 +525,9 @@ function Header({ s, onSignOut }) {
       <div className="masthead">
         <div className="mast-left">Vol. I &nbsp;·&nbsp; Est. 2026</div>
         <div className="mast-title">PRESS</div>
-        <div className="mast-right" style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 3 }}>
+        <div className="mast-right mast-right-stack">
           <span>{fmtDateShort()}</span>
-          <span style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+          <span className="mast-right-row">
             <span>{s?.profile?.name || 'George'} V. Cronin</span>
             {onSignOut && <button onClick={onSignOut} style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 7, letterSpacing: '.14em', textTransform: 'uppercase', background: 'none', border: '1px solid var(--rule)', color: 'var(--dim)', padding: '2px 6px', cursor: 'pointer', lineHeight: 1.4 }}>Sign out</button>}
           </span>
@@ -478,7 +549,7 @@ function Header({ s, onSignOut }) {
 }
 
 // ── S1: FRONT PAGE ───────────────────────────────────────────────────────────
-function S1({ s, briefing, onShowBriefing }) {
+function S1({ s, briefing, onShowBriefing, onShowAfternoon, onShowNight, afternoonLoaded, nightLoaded, newscastLoading }) {
   const today = s?.today || {};
   const recovery = today.recovery ?? s?.recoveryTrend?.at(-1) ?? null;
 
@@ -524,7 +595,7 @@ function S1({ s, briefing, onShowBriefing }) {
   const sleep = today.sleepH;
   const sleepEff = today.sleepEff;
   const sleepDebt = s?.sleepDebtH ?? 0;
-  const fatigue = useMemo(() => computeFatigue(s?.lifts, s?.musclePeaks), [s?.lifts]);
+  const fatigue = useMemo(() => computeFatigue(s?.lifts, s?.musclePeaks, s?.soreness), [s?.lifts, s?.soreness]);
   const fatigueVals = Object.values(fatigue);
   const overallFatigue = fatigueVals.length ? Math.round(fatigueVals.reduce((a,b) => a+b, 0) / fatigueVals.length) : null;
   const highFatigueMuscles = Object.values(fatigue).filter(v => v > 70).length;
@@ -548,6 +619,9 @@ function S1({ s, briefing, onShowBriefing }) {
   const recoveryTrend = s?.recoveryTrend || [];
 
   const thought = s?.thoughts?.[0]?.text;
+  const hour = new Date().getHours();
+  const canAfternoon = hour >= 12;
+  const canNight = hour >= 18;
 
   return (
     <section id="s1" style={{ padding: '18px 20px 16px', justifyContent: 'space-between' }}>
@@ -570,10 +644,28 @@ function S1({ s, briefing, onShowBriefing }) {
         </div>
       )}
 
+      {canAfternoon && (
+        <div className="briefing-preview fade" style={{ flexShrink: 0, cursor: newscastLoading ? 'default' : 'pointer', opacity: newscastLoading ? 0.6 : 1 }} onClick={onShowAfternoon}>
+          <div className="kicker" style={{ marginBottom: 3 }}>Mid-Day Update</div>
+          <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 11, color: 'var(--dim)', fontStyle: 'italic' }}>
+            {newscastLoading ? 'Generating…' : afternoonLoaded ? 'Read mid-day update' : 'Generate mid-day report'}
+          </div>
+        </div>
+      )}
+
+      {canNight && (
+        <div className="briefing-preview fade" style={{ flexShrink: 0, cursor: newscastLoading ? 'default' : 'pointer', opacity: newscastLoading ? 0.6 : 1 }} onClick={onShowNight}>
+          <div className="kicker" style={{ marginBottom: 3 }}>Tonight's Report</div>
+          <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 11, color: 'var(--dim)', fontStyle: 'italic' }}>
+            {newscastLoading ? 'Generating…' : nightLoaded ? "Read tonight's report" : 'Generate evening report'}
+          </div>
+        </div>
+      )}
+
       <div className="fade" style={{ flex: 1, display: 'flex', gap: 0, alignItems: 'stretch', minHeight: 0, borderTop: '2px solid var(--ink)', borderBottom: '2px solid var(--ink)', margin: '12px 0', overflow: 'hidden' }}>
         {/* Left: recovery number + ghost chart */}
         <div style={{ width: '44%', flexShrink: 0, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', padding: '14px 16px 14px 0', borderRight: '1px solid var(--rule)', position: 'relative', overflow: 'hidden' }}>
-          <div style={{ position: 'absolute', inset: 0, opacity: 0.22, pointerEvents: 'none' }}>
+          <div style={{ position: 'absolute', inset: 0, opacity: 0.45, pointerEvents: 'none' }}>
             <AreaChart data={recoveryTrend.length ? recoveryTrend : s?.sleepSeries || []} color="#6b5800" id="ghost" />
           </div>
           <div style={{ position: 'relative', zIndex: 1 }}>
@@ -601,7 +693,7 @@ function S1({ s, briefing, onShowBriefing }) {
           </div>
           <div style={{ borderTop: '1px solid var(--rule)', paddingTop: 10 }}>
             <div className="sc-label">Sleep</div>
-            <div className="sc-num" style={{ fontSize: 'clamp(26px,6vw,40px)' }}>{sleep != null ? sleep.toFixed(1) : '—'}<span style={{ fontSize: '.4em', color: 'var(--dim)' }}>h</span></div>
+            <div className="sc-num plum" style={{ fontSize: 'clamp(26px,6vw,40px)' }}>{sleep != null ? sleep.toFixed(1) : '—'}<span style={{ fontSize: '.4em', color: 'var(--dim)' }}>h</span></div>
             <div className="sc-delta" style={{ color: 'var(--dim)' }}>
               {sleep != null ? `${sleepEff != null ? `${Math.round(sleepEff * 100)}% eff · ` : ''}${sleepDebt.toFixed(1)}h debt` : `Target: ${sleepTarget}h`}
             </div>
@@ -618,7 +710,7 @@ function S1({ s, briefing, onShowBriefing }) {
       <div className="fade" style={{ flexShrink: 0 }}>
         <div className="prog-head">Daily Progress</div>
         {[
-          { label: 'Sleep',    color: '#1a2f54', val: sleep,                       target: sleepTarget,   fmt: v => `${v.toFixed(1)}h`,                 tgt: `${sleepTarget}` },
+          { label: 'Sleep',    color: '#3d2452', val: sleep,                       target: sleepTarget,   fmt: v => `${v.toFixed(1)}h`,                 tgt: `${sleepTarget}` },
           { label: 'Recovery', color: '#6b5800', val: recovery,                    target: 100,           fmt: v => `${Math.round(v)}`,                   tgt: '100' },
           { label: 'Steps',    color: '#1a4f2a', val: steps ? steps/1000 : null,   target: 10,            fmt: v => `${Math.round(v*1000).toLocaleString()}`, tgt: '10k' },
           { label: 'Protein',  color: '#7a3400', val: protein,                     target: proteinTarget, fmt: v => `${Math.round(v)}g`,                  tgt: `${proteinTarget}g` },
@@ -720,8 +812,8 @@ function S2({ s, refresh }) {
       <div className="fade">
         <div className="kicker">Health · Sleep Analysis · {series.length}‑Night</div>
         <div className="headline">
-          {todaySleep != null ? `${todaySleep.toFixed(1)} Hours —` : 'Sleep'}<br />
-          {effPct != null ? `${effPct}% Efficiency` : 'Trend Analysis'}
+          {todaySleep != null ? `${todaySleep.toFixed(1)} Hours —` : 'Lights Out —'}<br />
+          {effPct != null ? `${effPct}% Efficiency` : 'Nothing on Record'}
         </div>
         <div className="deck">
           {debt > 0
@@ -732,7 +824,7 @@ function S2({ s, refresh }) {
       <div className="chart-wrap fade" style={{ flex: '0 0 90px', position: 'relative' }}>
         {series.length ? (
           <>
-            <AreaChart data={series} color="#1a2f54" id="sleep" />
+            <AreaChart data={series} color="#3d2452" id="sleep" />
             {(() => {
               const mn = Math.min(...series), mx = Math.max(...series), rng = (mx - mn) || 1;
               const lo = mn - rng * 0.07, r = (mx + rng * 0.07) - lo;
@@ -1787,8 +1879,8 @@ function S3({ s, onStartWorkout, onImport, onHistory, refresh }) {
       <div className="fade">
         <div className="kicker">Performance · Strength · {daysAgo != null ? (daysAgo === 0 ? 'Today' : daysAgo === 1 ? 'Yesterday' : `${daysAgo} Days Ago`) : '—'}</div>
         <div className="headline">
-          {topLift ? `${sessionName} Day —` : 'Training'}<br />
-          {topLift ? `${topLift.kg > 0 ? `${topLift.kg} kg` : 'BW'} ${topLift.exercise[0].toUpperCase() + topLift.exercise.slice(1)}` : 'No Recent Session'}
+          {topLift ? `${sessionName} Day —` : 'Quiet Gym —'}<br />
+          {topLift ? `${topLift.kg > 0 ? `${topLift.kg} kg` : 'BW'} ${topLift.exercise[0].toUpperCase() + topLift.exercise.slice(1)}` : 'Nothing on the Card'}
         </div>
       </div>
       {rows.length > 0 && (
@@ -1807,7 +1899,7 @@ function S3({ s, onStartWorkout, onImport, onHistory, refresh }) {
           </table>
         </div>
       )}
-      {liftVol.some(Boolean) && (
+      {liftVol.filter(Boolean).length >= 2 && (
         <div className="chart-wrap fade" style={{ flex: 1, minHeight: 60, maxHeight: 90 }}>
           <BarChart data={liftVol} color="#0d0b08" />
         </div>
@@ -2218,8 +2310,8 @@ function S4({ s, refresh }) {
       <div className="fade" style={{ flexShrink: 0 }}>
         <div className="kicker">Nutrition · Today</div>
         <div className="headline">
-          {cal > 0 ? `${cal.toLocaleString()} kcal —` : 'Fuel'}<br />
-          {cal > 0 ? (short > 0 ? `${short.toLocaleString()} Short` : 'On Target') : 'Awaiting Log'}
+          {cal > 0 ? `${cal.toLocaleString()} kcal —` : 'Empty Plate —'}<br />
+          {cal > 0 ? (short > 0 ? `${short.toLocaleString()} Short` : 'On Target') : 'Nothing on the Docket'}
         </div>
       </div>
 
@@ -2490,7 +2582,9 @@ function S5({ s, refresh }) {
   const [niggleNote, setNiggleNote] = useState('');
   const [niggleLogging, setNiggleLogging] = useState(false);
 
-  const fatigue = useMemo(() => computeFatigue(s?.lifts, s?.musclePeaks), [s?.lifts, s?.musclePeaks]);
+  const fatigue = useMemo(() => computeFatigue(s?.lifts, s?.musclePeaks, s?.soreness), [s?.lifts, s?.musclePeaks, s?.soreness]);
+  const metabolic = useMemo(() => computeMetabolicFatigue(s?.lifts, s?.nutritionToday?.carbs || 0), [s?.lifts, s?.nutritionToday?.carbs]);
+  const cns = useMemo(() => computeCNSFatigue(s?.lifts), [s?.lifts]);
   const fatigueVals = Object.values(fatigue);
   const overallFatigue = fatigueVals.length ? Math.round(fatigueVals.reduce((a,b)=>a+b,0)/fatigueVals.length) : null;
   const sortedFatigue = Object.entries(fatigue).filter(([,v]) => v > 0).sort(([,a],[,b]) => b-a);
@@ -2544,7 +2638,8 @@ function S5({ s, refresh }) {
       </div>
 
       <div className="fade tab-bar" style={{ flexShrink: 0 }}>
-        <button className={`tab-btn${tab === 'fatigue' ? ' active' : ''}`} onClick={() => setTab('fatigue')}>Muscle Fatigue</button>
+        <button className={`tab-btn${tab === 'fatigue' ? ' active' : ''}`} onClick={() => setTab('fatigue')}>Structural</button>
+        <button className={`tab-btn${tab === 'types' ? ' active' : ''}`} onClick={() => setTab('types')}>Types</button>
         <button className={`tab-btn${tab === 'soreness' ? ' active' : ''}`} onClick={() => setTab('soreness')}>Soreness</button>
         <button className={`tab-btn${tab === 'niggles' ? ' active' : ''}`} onClick={() => setTab('niggles')}>
           Niggles{(s?.injuries?.length > 0) ? ` (${s.injuries.length})` : ''}
@@ -2614,6 +2709,34 @@ function S5({ s, refresh }) {
           ))}
         </div>
       </>}
+
+      {tab === 'types' && (
+        <div className="fade" style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 16, overflowY: 'auto', paddingTop: 8 }}>
+          {[
+            { label: 'Structural', value: overallFatigue, desc: 'Mechanical tissue damage — per muscle, decays 48–72h. Adjusted by logged soreness.', color: overallFatigue > 60 ? 'var(--red)' : overallFatigue > 30 ? 'var(--gold)' : 'var(--forest)' },
+            { label: 'Metabolic', value: metabolic, desc: `Glycogen & energy system depletion — 12h half-life. Reduced by carb intake (${s?.nutritionToday?.carbs || 0}g today).`, color: metabolic > 60 ? 'var(--red)' : metabolic > 30 ? 'var(--gold)' : 'var(--forest)' },
+            { label: 'CNS', value: cns, desc: 'Central nervous system load from heavy compounds (deadlift, squat, press) — 36h half-life.', color: cns > 60 ? 'var(--red)' : cns > 30 ? 'var(--gold)' : 'var(--forest)' },
+          ].map(({ label, value, desc, color }) => (
+            <div key={label} style={{ borderBottom: '1px solid var(--rule)', paddingBottom: 14 }}>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, marginBottom: 4 }}>
+                <div className="sc-label" style={{ width: 80, flexShrink: 0 }}>{label}</div>
+                <div style={{ fontFamily: "'Syne',sans-serif", fontWeight: 800, fontSize: 28, letterSpacing: '-.03em', color, lineHeight: 1 }}>
+                  {value ?? '—'}{value != null && <span style={{ fontSize: '.4em', color: 'var(--dim)', fontWeight: 700 }}>/100</span>}
+                </div>
+              </div>
+              {value != null && (
+                <div style={{ height: 5, background: 'var(--paper2)', borderRadius: 1, margin: '6px 0', overflow: 'hidden' }}>
+                  <div style={{ width: '100%', height: '100%', background: color, borderRadius: 1, transform: `scaleX(${value / 100})`, transformOrigin: 'left', transition: 'transform .4s ease' }} />
+                </div>
+              )}
+              <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)', lineHeight: 1.6 }}>{desc}</div>
+            </div>
+          ))}
+          <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)', fontStyle: 'italic', paddingBottom: 8 }}>
+            Recovery times are defaults and will personalise as your data accumulates.
+          </div>
+        </div>
+      )}
 
       {tab === 'soreness' && (
         <div className="fade" style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0, overflowY: 'auto' }}>
@@ -2734,21 +2857,15 @@ function S5({ s, refresh }) {
 }
 
 // ── S6: PROFILE ───────────────────────────────────────────────────────────────
-function S6({ s, onSignOut, refresh, setBriefing }) {
-  const [editName, setEditName] = useState(false);
-  const [nameVal, setNameVal] = useState('');
-  const [editWater, setEditWater] = useState(false);
-  const [waterVal, setWaterVal] = useState('');
+function S6({ s, onOpenSettings, refresh }) {
+  const supplements = s?.supplements || [];
+  const suppLogToday = s?.supplementLogToday || [];
+  const suppLoggedSet = new Set(suppLogToday.map(e => e.name));
+  const [togglingSupp, setTogglingSupp] = useState('');
   const [weightVal, setWeightVal] = useState('');
   const [bfVal, setBfVal] = useState('');
-  const [saving, setSaving] = useState('');
-  const [healthGuideOpen, setHealthGuideOpen] = useState(false);
-  const [urlCopied, setUrlCopied] = useState(false);
-  const [notifPermission, setNotifPermission] = useState(() =>
-    typeof Notification !== 'undefined' ? Notification.permission : 'unsupported'
-  );
+  const [savingWeight, setSavingWeight] = useState(false);
 
-  // Measurements
   const MEASURE_TYPES = ['neck','chest','waist','hips','left arm','right arm','left thigh','right thigh'];
   const [measureType, setMeasureType] = useState('waist');
   const [measureVal, setMeasureVal] = useState('');
@@ -2774,351 +2891,141 @@ function S6({ s, onSignOut, refresh, setBriefing }) {
     refresh(null);
   };
 
-  // Supplements
-  const supplements = s?.supplements || [];
-  const suppLogToday = s?.supplementLogToday || [];
-  const suppLoggedSet = new Set(suppLogToday.map(e => e.name));
-  const [newSuppName, setNewSuppName] = useState('');
-  const [newSuppDose, setNewSuppDose] = useState('');
-  const [newSuppTiming, setNewSuppTiming] = useState('morning');
-  const [savingSupp, setSavingSupp] = useState(false);
-  const [togglingSupp, setTogglingSupp] = useState('');
-
-  const addSupplement = async () => {
-    if (!newSuppName.trim()) return;
-    setSavingSupp(true);
-    await api('supplements', { method: 'POST', body: JSON.stringify({ name: newSuppName.trim(), dose: newSuppDose.trim(), timing: newSuppTiming }) });
-    setNewSuppName(''); setNewSuppDose('');
-    setSavingSupp(false);
-    refresh(null);
-  };
-
   const toggleSuppLog = async (supp) => {
     setTogglingSupp(supp.name);
     await api('supplement/log', { method: 'POST', body: JSON.stringify({ name: supp.name, dose: supp.dose }) });
     setTogglingSupp('');
     refresh(null);
   };
-
-  const deleteSupp = async (name) => {
-    await api(`supplements/${encodeURIComponent(name)}`, { method: 'DELETE' });
-    refresh(null);
-  };
-  const shortcutUrl = `${API_BASE}/shortcut`;
-  const copyShortcutUrl = () => {
-    navigator.clipboard.writeText(shortcutUrl).then(() => { setUrlCopied(true); setTimeout(() => setUrlCopied(false), 2000); });
-  };
-
-  const enableNotifications = async () => {
-    if (typeof Notification === 'undefined') return;
-    const perm = await Notification.requestPermission();
-    setNotifPermission(perm);
-    if (perm !== 'granted') return;
-    if (!('serviceWorker' in navigator) || !('PushManager' in window)) return;
-    try {
-      const reg = await navigator.serviceWorker.register('/sw.js');
-      const keyRes = await api('push/vapid-public-key');
-      if (!keyRes.key) return;
-      const urlBase64ToUint8Array = b64 => {
-        const padding = '='.repeat((4 - b64.length % 4) % 4);
-        const base64 = (b64 + padding).replace(/-/g, '+').replace(/_/g, '/');
-        const rawData = window.atob(base64);
-        return Uint8Array.from([...rawData].map(c => c.charCodeAt(0)));
-      };
-      const sub = await reg.pushManager.subscribe({
-        userVisibleOnly: true,
-        applicationServerKey: urlBase64ToUint8Array(keyRes.key),
-      });
-      await api('push/subscribe', { method: 'POST', body: JSON.stringify({ subscription: sub }) });
-    } catch (err) { console.error('push subscribe failed', err); }
-  };
-
-  const saveField = async (endpoint, body) => {
-    setSaving(endpoint);
-    await api(endpoint, { method: 'POST', body: JSON.stringify(body) });
-    setSaving('');
-    refresh(null);
-  };
-
   return (
     <section id="s6" style={{ display: 'flex', flexDirection: 'column' }}>
       <div className="fade" style={{ flexShrink: 0 }}>
-        <div className="kicker">Your Profile</div>
+        <div className="kicker">Profile</div>
         <div className="headline" style={{ fontSize: 'clamp(24px,6vw,44px)', lineHeight: '.96' }}>{s?.profile?.name || 'Profile'}</div>
+        <button className="settings-open-btn" onClick={onOpenSettings}>
+          <span>Settings</span>
+          <span>→</span>
+        </button>
       </div>
 
       <div className="fade" style={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>
-        {/* Name */}
-        <div className="prof-field">
-          <span className="prof-lbl">Display Name</span>
-          {editName
-            ? <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                <input className="prof-input" value={nameVal} onChange={e => setNameVal(e.target.value)} autoFocus />
-                <button className="prof-btn solid" onClick={() => { saveField('profile', { name: nameVal }); setEditName(false); }}>Save</button>
-                <button className="prof-btn" onClick={() => setEditName(false)}>✕</button>
-              </div>
-            : <span className="prof-val" style={{ cursor: 'pointer' }} onClick={() => { setNameVal(s?.profile?.name || ''); setEditName(true); }}>
-                {s?.profile?.name || '—'} ✎
-              </span>
-          }
-        </div>
-
-        {/* Water target */}
-        <div className="prof-field">
-          <span className="prof-lbl">Water Target</span>
-          {editWater
-            ? <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                <input className="prof-input" type="number" value={waterVal} onChange={e => setWaterVal(e.target.value)} autoFocus style={{ width: 60 }} />
-                <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, color: 'var(--dim)' }}>glasses</span>
-                <button className="prof-btn solid" onClick={() => { saveField('profile', { waterTarget: +waterVal }); setEditWater(false); }}>Save</button>
-                <button className="prof-btn" onClick={() => setEditWater(false)}>✕</button>
-              </div>
-            : <span className="prof-val" style={{ cursor: 'pointer' }} onClick={() => { setWaterVal(s?.profile?.waterTarget || 8); setEditWater(true); }}>
-                {s?.profile?.waterTarget || 8} glasses ✎
-              </span>
-          }
-        </div>
-
-        {/* Macro goal */}
-        <div className="prof-field">
-          <span className="prof-lbl">Macro Goal</span>
-          <div style={{ display: 'flex', gap: 6 }}>
-            {['cut','recomp','bulk'].map(g => (
-              <button key={g} className="prof-btn" onClick={() => saveField('macro-auto', { goal: g })}
-                style={{ textTransform: 'capitalize', ...(s?.macroGoal === g ? { background: 'var(--ink)', color: 'var(--paper)', borderColor: 'var(--ink)' } : {}) }}>
-                {g}
-              </button>
-            ))}
+        {supplements.length > 0 && (
+          <div style={{ marginBottom: 16 }}>
+            <div className="kicker" style={{ margin: '0 0 8px' }}>Today's Supplements</div>
+            {supplements.map(sup => {
+              const done = suppLoggedSet.has(sup.name);
+              return (
+                <div key={sup.name} className="supp-item">
+                  <button className={`supp-check${done ? ' done' : ''}`}
+                    onClick={() => toggleSuppLog(sup)} disabled={togglingSupp === sup.name}>
+                    {done ? '✓' : ''}
+                  </button>
+                  <span className="supp-name">{sup.name}</span>
+                  <span className="supp-meta">{[sup.dose, sup.timing].filter(Boolean).join(' · ')}</span>
+                </div>
+              );
+            })}
           </div>
-        </div>
+        )}
 
         <div className="rule-thin" />
 
-        {/* Weight log */}
-        <div className="prof-field">
-          <span className="prof-lbl">Log Weight</span>
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-            <input className="prof-input" type="number" step="0.1" inputMode="decimal"
-              placeholder={s?.weights?.[0]?.value ? `${s.weights[0].value}kg` : 'kg'}
-              value={weightVal} onChange={e => setWeightVal(e.target.value)} style={{ width: 70 }} />
-            <button className="prof-btn solid" disabled={!weightVal || saving === 'weight'}
-              onClick={() => { saveField('weight', { kg: parseFloat(weightVal) }); setWeightVal(''); }}>
-              {saving === 'weight' ? '…' : 'Log'}
-            </button>
-          </div>
-        </div>
-
-        {/* Body fat log */}
-        <div className="prof-field">
-          <span className="prof-lbl">Log Body Fat %</span>
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-            <input className="prof-input" type="number" step="0.1" inputMode="decimal"
-              placeholder={s?.bodyFatToday ? `${s.bodyFatToday}%` : '%'}
-              value={bfVal} onChange={e => setBfVal(e.target.value)} style={{ width: 70 }} />
-            <button className="prof-btn solid" disabled={!bfVal || saving === 'bodyfat'}
-              onClick={() => { saveField('bodyfat', { pct: parseFloat(bfVal) }); setBfVal(''); }}>
-              {saving === 'bodyfat' ? '…' : 'Log'}
-            </button>
-          </div>
-        </div>
-
-        <div className="rule-thin" />
-
-        {/* Apple Health */}
-        <div style={{ padding: '10px 0' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-            <div className="kicker" style={{ margin: 0 }}>Apple Health Sync</div>
-            <button className="prof-btn" onClick={() => setHealthGuideOpen(v => !v)}>
-              {healthGuideOpen ? 'Hide' : 'Setup Guide'}
-            </button>
-          </div>
-          <p style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, color: 'var(--dim)', lineHeight: 1.7, margin: 0 }}>
-            Sync HRV, sleep, steps, and weight automatically from your iPhone via iOS Shortcuts.
-          </p>
-          {healthGuideOpen && (
-            <div style={{ marginTop: 14, borderLeft: '3px solid var(--gold)', paddingLeft: 14 }}>
-              <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, color: 'var(--ink)', lineHeight: 2 }}>
-                <div><strong>1.</strong> Open <strong>Shortcuts</strong> on your iPhone</div>
-                <div><strong>2.</strong> Tap <strong>Automation</strong> → <strong>New Automation</strong></div>
-                <div><strong>3.</strong> Choose trigger: <strong>Time of Day — 8:00 AM, Daily</strong></div>
-                <div><strong>4.</strong> Add action: <strong>Get Contents of URL</strong></div>
-                <div style={{ margin: '6px 0' }}>
-                  <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 4 }}>Your sync URL</div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'var(--ink)', padding: '8px 10px' }}
-                    onClick={copyShortcutUrl}>
-                    <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--paper)', flex: 1, wordBreak: 'break-all', lineHeight: 1.5 }}>{shortcutUrl}</span>
-                    <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, color: 'var(--gold)', letterSpacing: '0.12em', textTransform: 'uppercase', flexShrink: 0, cursor: 'pointer' }}>
-                      {urlCopied ? 'Copied' : 'Copy'}
-                    </span>
+        <div className="kicker" style={{ margin: '16px 0 10px' }}>Body Data</div>
+        {(() => {
+          const latestWeight = s?.weights?.at(-1) ?? null;
+          const prevWeight = s?.weights?.length >= 2 ? s.weights.at(-2) : null;
+          const weightDelta = latestWeight && prevWeight ? parseFloat((latestWeight.value - prevWeight.value).toFixed(1)) : null;
+          const bf = s?.bodyFatToday ?? null;
+          return (latestWeight || bf != null) ? (
+            <div style={{ display: 'flex', gap: 12, marginBottom: 8 }}>
+              {latestWeight && (
+                <div className="measure-row" style={{ flex: 1, border: 'none' }}>
+                  <span className="measure-lbl">Weight</span>
+                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
+                    <span className="measure-val">{latestWeight.value}</span>
+                    <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)' }}>kg</span>
+                    {weightDelta !== null && (
+                      <span className="measure-delta" style={{ color: weightDelta < 0 ? 'var(--forest)' : weightDelta > 0 ? 'var(--ember)' : 'var(--dim)' }}>
+                        {weightDelta > 0 ? '+' : ''}{weightDelta}
+                      </span>
+                    )}
                   </div>
                 </div>
-                <div><strong>5.</strong> Method: <strong>POST</strong> · Body: <strong>JSON</strong></div>
-                <div><strong>6.</strong> Add keys: <code style={{ background: 'rgba(0,0,0,.07)', padding: '1px 4px', fontSize: 9 }}>sleep_hours</code> <code style={{ background: 'rgba(0,0,0,.07)', padding: '1px 4px', fontSize: 9 }}>hrv</code> <code style={{ background: 'rgba(0,0,0,.07)', padding: '1px 4px', fontSize: 9 }}>rhr</code> <code style={{ background: 'rgba(0,0,0,.07)', padding: '1px 4px', fontSize: 9 }}>steps</code></div>
-                <div><strong>7.</strong> Set each value from <strong>Health</strong> actions (Find Health Samples → limit 1)</div>
-                <div><strong>8.</strong> Enable <strong>Run Automatically</strong> — done</div>
+              )}
+              {bf != null && (
+                <div className="measure-row" style={{ flex: 1, border: 'none' }}>
+                  <span className="measure-lbl">Body Fat</span>
+                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
+                    <span className="measure-val">{bf.toFixed(1)}</span>
+                    <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)' }}>%</span>
+                  </div>
+                </div>
+              )}
+            </div>
+          ) : null;
+        })()}
+        <div style={{ display: 'flex', gap: 12, marginBottom: 10 }}>
+          <input className="prof-input" type="number" step="0.1" inputMode="decimal"
+            placeholder="Weight kg" value={weightVal} onChange={e => setWeightVal(e.target.value)} style={{ flex: 1 }} />
+          <input className="prof-input" type="number" step="0.1" inputMode="decimal"
+            placeholder="Body fat %" value={bfVal} onChange={e => setBfVal(e.target.value)} style={{ flex: 1 }} />
+          <button className="prof-btn solid" style={{ padding: '6px 14px' }}
+            disabled={(!weightVal && !bfVal) || savingWeight}
+            onClick={async () => {
+              setSavingWeight(true);
+              if (weightVal) await api('weight', { method: 'POST', body: JSON.stringify({ kg: parseFloat(weightVal) }) });
+              if (bfVal) await api('bodyfat', { method: 'POST', body: JSON.stringify({ pct: parseFloat(bfVal) }) });
+              setWeightVal(''); setBfVal('');
+              setSavingWeight(false);
+              refresh(null);
+            }}>
+            {savingWeight ? '…' : 'Log'}
+          </button>
+        </div>
+        <div className="rule-thin" style={{ margin: '16px 0' }} />
+
+        <div className="kicker" style={{ margin: '0 0 10px' }}>Measurements</div>
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 10 }}>
+          {MEASURE_TYPES.map(t => (
+            <button key={t} className={`prof-btn${measureType === t ? ' solid' : ''}`}
+              onClick={() => setMeasureType(t)} style={{ fontSize: 8, padding: '4px 8px', textTransform: 'capitalize', marginBottom: 4 }}>
+              {t}
+            </button>
+          ))}
+        </div>
+        {(() => {
+          const latest = getLatest(measureType);
+          const prev = getPrev(measureType);
+          const delta = latest && prev ? parseFloat((latest.value - prev.value).toFixed(1)) : null;
+          return latest ? (
+            <div className="measure-row" style={{ marginBottom: 8 }}>
+              <span className="measure-lbl">{measureType}</span>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
+                <span className="measure-val">{latest.value}</span>
+                <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)' }}>{latest.unit}</span>
+                {delta !== null && (
+                  <span className="measure-delta" style={{ color: delta < 0 ? 'var(--forest)' : delta > 0 ? 'var(--ember)' : 'var(--dim)' }}>
+                    {delta > 0 ? '+' : ''}{delta}
+                  </span>
+                )}
               </div>
             </div>
-          )}
-        </div>
-
-        <div className="rule-thin" />
-
-        {/* Strava */}
-        <div style={{ padding: '10px 0', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <div>
-            <div className="kicker" style={{ margin: 0 }}>Strava</div>
-            {s?.stravaConnected && <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--forest)', marginTop: 3 }}>Connected</div>}
+          ) : null;
+        })()}
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <input className="prof-input" type="number" step="0.1" inputMode="decimal"
+            placeholder="Value" value={measureVal} onChange={e => setMeasureVal(e.target.value)} style={{ width: 90 }} />
+          <div className="ob-unit-toggle">
+            {['cm','in'].map(u => (
+              <button key={u} className={`ob-unit-btn${measureUnit === u ? ' active' : ''}`} onClick={() => setMeasureUnit(u)}>{u}</button>
+            ))}
           </div>
-          {!s?.stravaConnected && (
-            <button className="prof-btn" onClick={() => { window.location.href = `${API_BASE}/strava/auth`; }}>Connect Strava</button>
-          )}
-        </div>
-
-        <div className="rule-thin" />
-
-        {/* Push notifications */}
-        <div className="notif-row">
-          <div>
-            <div className="kicker" style={{ margin: 0 }}>Push Notifications</div>
-            <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)', marginTop: 3 }}>
-              {notifPermission === 'granted' ? 'Enabled' : notifPermission === 'denied' ? 'Blocked in browser settings' : notifPermission === 'unsupported' ? 'Not supported' : 'Not enabled'}
-            </div>
-          </div>
-          {notifPermission !== 'granted' && notifPermission !== 'denied' && notifPermission !== 'unsupported' && (
-            <button className="prof-btn" onClick={enableNotifications}>Enable</button>
-          )}
-          {notifPermission === 'granted' && (
-            <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--forest)' }}>Active</span>
-          )}
-        </div>
-
-        <div className="rule-thin" />
-
-        <div className="rule-thin" />
-
-        {/* Morning Briefing */}
-        <div style={{ padding: '10px 0' }}>
-          <div className="kicker" style={{ margin: '0 0 6px' }}>Morning Briefing</div>
-          <p style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, color: 'var(--dim)', lineHeight: 1.7, margin: '0 0 10px' }}>
-            Generated automatically when your Apple Health shortcut syncs. Test it manually below.
-          </p>
-          <button className="prof-btn" onClick={async () => {
-            const r = await api('briefing/generate', { method: 'POST' }).catch(() => ({}));
-            if (r.briefing && setBriefing) setBriefing(r.briefing);
-          }}>Generate Today's Briefing</button>
-        </div>
-
-        <div className="rule-thin" />
-
-        {/* Travel Mode */}
-        <div style={{ padding: '10px 0', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <div>
-            <div className="kicker" style={{ margin: 0 }}>Travel Mode</div>
-            <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)', marginTop: 3, lineHeight: 1.5 }}>
-              Switches AI workout plans to bodyweight-only exercises
-            </div>
-          </div>
-          <button className="prof-btn" style={s?.travelMode ? { background: 'var(--navy)', color: 'var(--paper)', borderColor: 'var(--navy)' } : {}}
-            onClick={async () => { await api('travel-mode', { method: 'POST', body: JSON.stringify({ enabled: !s?.travelMode }) }); refresh(null); }}>
-            {s?.travelMode ? 'On' : 'Off'}
+          <button className="prof-btn solid" style={{ padding: '6px 14px' }}
+            onClick={logMeasurement} disabled={!measureVal || savingMeasure}>
+            {savingMeasure ? '…' : 'Log'}
           </button>
         </div>
 
-        <div className="rule-thin" />
-
-        {/* Body Measurements */}
-        <div style={{ padding: '10px 0' }}>
-          <div className="kicker" style={{ margin: '0 0 8px' }}>Body Measurements</div>
-
-          {/* Latest readings */}
-          {MEASURE_TYPES.some(t => getLatest(t)) && (
-            <div style={{ marginBottom: 12 }}>
-              {MEASURE_TYPES.filter(t => getLatest(t)).map(type => {
-                const latest = getLatest(type);
-                const prev = getPrev(type);
-                const delta = prev ? Math.round((latest.value - prev.value) * 10) / 10 : null;
-                return (
-                  <div key={type} className="measure-row">
-                    <span className="measure-lbl">{type}</span>
-                    <div style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
-                      <span className="measure-val">{latest.value}</span>
-                      <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)' }}>{latest.unit}</span>
-                      {delta !== null && (
-                        <span className="measure-delta" style={{ color: delta === 0 ? 'var(--dim)' : delta < 0 ? 'var(--forest)' : 'var(--ember)' }}>
-                          {delta > 0 ? '+' : ''}{delta}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-
-          {/* Log new measurement */}
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-            <select value={measureType} onChange={e => setMeasureType(e.target.value)}
-              style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, border: '1px solid var(--rule)', background: 'var(--paper)', color: 'var(--ink)', padding: '5px 8px', outline: 'none', flex: 1, minWidth: 100 }}>
-              {MEASURE_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
-            </select>
-            <input className="prof-input" type="number" step="0.1" inputMode="decimal" placeholder="value" value={measureVal} onChange={e => setMeasureVal(e.target.value)} style={{ width: 70 }} />
-            <select value={measureUnit} onChange={e => setMeasureUnit(e.target.value)}
-              style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, border: '1px solid var(--rule)', background: 'var(--paper)', color: 'var(--ink)', padding: '5px 6px', outline: 'none' }}>
-              <option value="cm">cm</option>
-              <option value="in">in</option>
-            </select>
-            <button className="prof-btn solid" disabled={!measureVal || savingMeasure} onClick={logMeasurement}>
-              {savingMeasure ? '…' : 'Log'}
-            </button>
-          </div>
-        </div>
-
-        <div className="rule-thin" />
-
-        {/* Supplements */}
-        <div style={{ padding: '10px 0' }}>
-          <div className="kicker" style={{ margin: '0 0 8px' }}>Supplements</div>
-          {supplements.length === 0 && (
-            <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, color: 'var(--dim)', fontStyle: 'italic', marginBottom: 10 }}>
-              Add your supplements to track daily adherence.
-            </div>
-          )}
-          {supplements.map(supp => {
-            const logged = suppLoggedSet.has(supp.name);
-            const toggling = togglingSupp === supp.name;
-            return (
-              <div key={supp.name} className="supp-item">
-                <button className={`supp-check${logged ? ' done' : ''}`} onClick={() => toggleSuppLog(supp)} disabled={toggling}>
-                  {logged ? '✓' : ''}
-                </button>
-                <div className="supp-name">{supp.name}</div>
-                <div className="supp-meta">{supp.dose && `${supp.dose} · `}{supp.timing}</div>
-                <button onClick={() => deleteSupp(supp.name)} style={{ background: 'none', border: 'none', color: 'var(--rule)', cursor: 'pointer', fontSize: 14, marginLeft: 8, lineHeight: 1, flexShrink: 0 }}>×</button>
-              </div>
-            );
-          })}
-          {suppLogToday.length > 0 && (
-            <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--forest)', marginTop: 6, letterSpacing: '.06em' }}>
-              {suppLogToday.length}/{supplements.length} taken today
-            </div>
-          )}
-          {/* Add supplement form */}
-          <div style={{ display: 'flex', gap: 8, marginTop: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-            <input className="prof-input" placeholder="Supplement name…" value={newSuppName} onChange={e => setNewSuppName(e.target.value)} style={{ flex: 1, minWidth: 100 }} />
-            <input className="prof-input" placeholder="Dose…" value={newSuppDose} onChange={e => setNewSuppDose(e.target.value)} style={{ width: 60 }} />
-            <select value={newSuppTiming} onChange={e => setNewSuppTiming(e.target.value)}
-              style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, border: '1px solid var(--rule)', background: 'var(--paper)', color: 'var(--ink)', padding: '5px 6px', outline: 'none' }}>
-              {['morning','pre-workout','post-workout','evening','with food'].map(t => <option key={t} value={t}>{t}</option>)}
-            </select>
-            <button className="prof-btn solid" disabled={!newSuppName.trim() || savingSupp} onClick={addSupplement}>
-              {savingSupp ? '…' : 'Add'}
-            </button>
-          </div>
-        </div>
-
-        <div className="rule-thin" />
-
-        <button className="prof-btn solid" onClick={onSignOut} style={{ width: '100%', marginTop: 8, padding: '10px 0' }}>Sign Out</button>
       </div>
     </section>
   );
@@ -3229,8 +3136,9 @@ function S7({ s }) {
 
 // ── ONBOARDING ────────────────────────────────────────────────────────────────
 function Onboarding({ onComplete, onOpenImport }) {
-  const TOTAL = 5;
+  const TOTAL = 6;
   const [step, setStep] = useState(0);
+  const [echelon, setEchelon] = useState('full');
 
   // Step 1
   const [name, setName] = useState('');
@@ -3285,6 +3193,7 @@ function Onboarding({ onComplete, onOpenImport }) {
     try {
       if (step === 1) await saveStep1();
       if (step === 2) await saveStep2();
+      if (step === 3) await api('profile', { method: 'POST', body: JSON.stringify({ trackingLevel: echelon }) }).catch(() => {});
     } catch {}
     setSaving(false);
     setStep(s => s + 1);
@@ -3429,8 +3338,30 @@ function Onboarding({ onComplete, onOpenImport }) {
           </>
         )}
 
-        {/* ── STEP 3: CONNECT SERVICES ── */}
+        {/* ── STEP 3: TRACKING LEVEL ── */}
         {step === 3 && (
+          <>
+            <div className="ob-h">How deep do you want to go?</div>
+            <div className="ob-deck">Pick your tracking level. You can always change this in Settings.</div>
+            {ECHELONS.map(e => (
+              <button key={e.key} className={`echelon-card${echelon === e.key ? ' selected' : ''}`}
+                onClick={() => setEchelon(e.key)}>
+                <div className="echelon-card-dot" />
+                <div style={{ flex: 1 }}>
+                  <div className="echelon-card-title">{e.title}</div>
+                  <div className="echelon-card-desc">{e.desc}</div>
+                </div>
+              </button>
+            ))}
+            <div className="ob-nav">
+              <button className="ob-back" onClick={() => setStep(2)}>← Back</button>
+              <button className="ob-next" onClick={advance} disabled={saving}>{saving ? 'Saving…' : 'Continue'}</button>
+            </div>
+          </>
+        )}
+
+        {/* ── STEP 4: CONNECT SERVICES ── */}
+        {step === 4 && (
           <>
             <div className="ob-h">Connect Services</div>
             <div className="ob-deck">Optional — you can always connect these later from the Profile page.</div>
@@ -3513,14 +3444,14 @@ function Onboarding({ onComplete, onOpenImport }) {
             </div>
 
             <div className="ob-nav">
-              <button className="ob-back" onClick={() => setStep(2)}>← Back</button>
-              <button className="ob-next" onClick={() => setStep(4)}>Continue</button>
+              <button className="ob-back" onClick={() => setStep(3)}>← Back</button>
+              <button className="ob-next" onClick={() => setStep(5)}>Continue</button>
             </div>
           </>
         )}
 
-        {/* ── STEP 4: ALL SET ── */}
-        {step === 4 && (
+        {/* ── STEP 5: ALL SET ── */}
+        {step === 5 && (
           <>
             <div className="ob-logo" style={{ fontSize: 'clamp(36px,9vw,60px)' }}>You're set up.</div>
             <div className="ob-sub" style={{ marginBottom: 6 }}>Press is ready.</div>
@@ -3530,6 +3461,7 @@ function Onboarding({ onComplete, onOpenImport }) {
               {[
                 [!!name, name ? `${name}${goal ? ` · ${goal}` : ''}` : 'Profile skipped'],
                 [!!goal, `${sleepTarget}h sleep · ${waterTarget} glasses water · ${trainingDays} training days`],
+                [true, ECHELONS.find(e => e.key === echelon)?.title || 'Full System'],
                 [stravaStarted, 'Strava'],
                 [healthGuideOpen, 'Apple Health setup viewed'],
                 [hevyKeySaved, 'Hevy API key saved'],
@@ -3544,6 +3476,302 @@ function Onboarding({ onComplete, onOpenImport }) {
             <button className="ob-next" style={{ width: '100%', padding: '14px 0' }} onClick={onComplete}>Open Press</button>
           </>
         )}
+      </div>
+    </div>
+  );
+}
+
+// ── SETTINGS OVERLAY ─────────────────────────────────────────────────────────
+function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, setBriefing }) {
+  const [nameVal, setNameVal] = useState(s?.profile?.name || '');
+  const [sleepTarget, setSleepTarget] = useState(s?.profile?.sleepTarget || 8);
+  const [waterTarget, setWaterTarget] = useState(s?.profile?.waterTarget || 8);
+  const [trainingDays, setTrainingDays] = useState(s?.profile?.trainingDaysPerWeek || 4);
+  const [trackingLevel, setTrackingLevel] = useState(s?.profile?.trackingLevel || 'full');
+  const [healthGuideOpen, setHealthGuideOpen] = useState(false);
+  const [urlCopied, setUrlCopied] = useState(false);
+  const [stravaStarted, setStravaStarted] = useState(false);
+  const [hevyKeyMode, setHevyKeyMode] = useState(null);
+  const [hevyKeyVal, setHevyKeyVal] = useState('');
+  const [hevyKeySaved, setHevyKeySaved] = useState(false);
+  const [savingTargets, setSavingTargets] = useState(false);
+  const [regenLoading, setRegenLoading] = useState(false);
+  const [notifPermission, setNotifPermission] = useState(() =>
+    typeof Notification !== 'undefined' ? Notification.permission : 'unsupported'
+  );
+  const [newSuppName, setNewSuppName] = useState('');
+  const [newSuppDose, setNewSuppDose] = useState('');
+  const [newSuppTiming, setNewSuppTiming] = useState('morning');
+  const [savingSupp, setSavingSupp] = useState(false);
+
+  const SHORTCUT_URL = `${API_BASE}/shortcut`;
+  const supplements = s?.supplements || [];
+  const inputStyle = { width: '100%', border: 'none', borderBottom: '2px solid var(--ink)', padding: '8px 0', background: 'transparent', fontFamily: 'Times New Roman,serif', fontSize: 16, outline: 'none', color: 'var(--ink)', boxSizing: 'border-box' };
+
+  const saveLevel = async (level) => {
+    setTrackingLevel(level);
+    await api('profile', { method: 'POST', body: JSON.stringify({ trackingLevel: level }) });
+    refresh(null);
+  };
+
+  const saveTargets = async () => {
+    setSavingTargets(true);
+    await api('profile', { method: 'POST', body: JSON.stringify({ sleepTarget, waterTarget, trainingDaysPerWeek: trainingDays }) });
+    setSavingTargets(false);
+    refresh(null);
+  };
+
+  const addSupplement = async () => {
+    if (!newSuppName.trim()) return;
+    setSavingSupp(true);
+    await api('supplements', { method: 'POST', body: JSON.stringify({ name: newSuppName.trim(), dose: newSuppDose.trim(), timing: newSuppTiming }) });
+    setNewSuppName(''); setNewSuppDose('');
+    setSavingSupp(false);
+    refresh(null);
+  };
+
+  const deleteSupp = async (name) => {
+    await api(`supplements/${encodeURIComponent(name)}`, { method: 'DELETE' });
+    refresh(null);
+  };
+
+  const enableNotifications = async () => {
+    if (typeof Notification === 'undefined') return;
+    const perm = await Notification.requestPermission();
+    setNotifPermission(perm);
+    if (perm !== 'granted') return;
+    if (!('serviceWorker' in navigator) || !('PushManager' in window)) return;
+    try {
+      const reg = await navigator.serviceWorker.register('/sw.js');
+      const keyRes = await api('push/vapid-public-key');
+      if (!keyRes.key) return;
+      const urlBase64ToUint8Array = b64 => {
+        const padding = '='.repeat((4 - b64.length % 4) % 4);
+        const base64 = (b64 + padding).replace(/-/g, '+').replace(/_/g, '/');
+        const rawData = window.atob(base64);
+        return Uint8Array.from([...rawData].map(c => c.charCodeAt(0)));
+      };
+      const sub = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(keyRes.key),
+      });
+      await api('push/subscribe', { method: 'POST', body: JSON.stringify({ subscription: sub }) });
+    } catch {}
+  };
+
+  return (
+    <div className="settings-overlay">
+      <div className="settings-hdr">
+        <div className="settings-hdr-title">Settings</div>
+        <button className="settings-close" onClick={onClose}>Close ×</button>
+      </div>
+      <div className="settings-body">
+
+        {/* ── PROFILE ── */}
+        <div className="settings-sec">
+          <div className="settings-sh">Profile</div>
+          <div className="prof-field">
+            <span className="prof-lbl">Name</span>
+            <input className="prof-input" value={nameVal} onChange={e => setNameVal(e.target.value)}
+              onBlur={() => nameVal !== (s?.profile?.name || '') && api('profile', { method: 'POST', body: JSON.stringify({ name: nameVal }) }).then(() => refresh(null))}
+              placeholder="Your name" style={{ flex: 1, minWidth: 0 }} />
+          </div>
+          <div className="prof-field">
+            <span className="prof-lbl">Goal</span>
+            <div style={{ display: 'flex', gap: 6 }}>
+              {['cut','recomp','bulk'].map(g => (
+                <button key={g} className="prof-btn"
+                  onClick={() => api('macro-auto', { method: 'POST', body: JSON.stringify({ goal: g }) }).then(() => refresh(null))}
+                  style={{ textTransform: 'capitalize', ...(s?.macroGoal === g ? { background: 'var(--ink)', color: 'var(--paper)', borderColor: 'var(--ink)' } : {}) }}>
+                  {g}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* ── TRACKING LEVEL ── */}
+        <div className="settings-sec">
+          <div className="settings-sh">Tracking Level</div>
+          {ECHELONS.map(e => (
+            <button key={e.key} className={`echelon-card${trackingLevel === e.key ? ' selected' : ''}`}
+              onClick={() => saveLevel(e.key)}>
+              <div className="echelon-card-dot" />
+              <div style={{ flex: 1 }}>
+                <div className="echelon-card-title">{e.title}</div>
+                <div className="echelon-card-desc">{e.desc}</div>
+              </div>
+            </button>
+          ))}
+        </div>
+
+        {/* ── TARGETS ── */}
+        <div className="settings-sec">
+          <div className="settings-sh">Targets</div>
+          {[
+            ['Sleep Target', sleepTarget, v => setSleepTarget(v), .5, 5, 12, v => `${v}h`],
+            ['Water Target', waterTarget, v => setWaterTarget(v), 1, 2, 16, v => `${v} gl`],
+            ['Training Days / Week', trainingDays, v => setTrainingDays(v), 1, 1, 7, v => `${v} days`],
+          ].map(([label, val, set, step, min, max, fmt]) => (
+            <div key={label} style={{ marginBottom: 14 }}>
+              <label className="ob-label" style={{ marginTop: 0 }}>{label}</label>
+              <div className="ob-stepper" style={{ margin: '8px 0' }}>
+                <button className="ob-stepper-btn" onClick={() => set(v => Math.max(min, parseFloat((v - step).toFixed(1))))}>−</button>
+                <div className="ob-stepper-val">{fmt(val)}</div>
+                <button className="ob-stepper-btn" onClick={() => set(v => Math.min(max, parseFloat((v + step).toFixed(1))))}>+</button>
+              </div>
+            </div>
+          ))}
+          <button className="prof-btn solid" style={{ padding: '7px 20px' }}
+            onClick={saveTargets} disabled={savingTargets}>
+            {savingTargets ? 'Saving…' : 'Save Targets'}
+          </button>
+        </div>
+
+        {/* ── CONNECTED SERVICES ── */}
+        <div className="settings-sec">
+          <div className="settings-sh">Connected Services</div>
+
+          <div className="ob-service-row">
+            <div className="ob-svc-top">
+              <div>
+                <div className="ob-svc-title">Apple Health</div>
+                <div className="ob-svc-desc">Stream sleep, HRV, steps, and heart rate from your iPhone</div>
+              </div>
+              <button className={`ob-svc-btn${healthGuideOpen ? ' done' : ''}`} onClick={() => setHealthGuideOpen(v => !v)}>
+                {healthGuideOpen ? 'Hide' : 'Setup'}
+              </button>
+            </div>
+            {healthGuideOpen && (
+              <div className="ob-guide">
+                <strong>1.</strong> Open <strong>Shortcuts</strong> on your iPhone<br />
+                <strong>2.</strong> Create a new <strong>Personal Automation</strong><br />
+                <strong>3.</strong> Trigger: <strong>Daily at 6:00 AM</strong><br />
+                <strong>4.</strong> Add action: <strong>Get Contents of URL</strong><br />
+                <strong>5.</strong> URL (tap to copy):
+                <div className="ob-copy-url" onClick={() => navigator.clipboard?.writeText(SHORTCUT_URL).then(() => { setUrlCopied(true); setTimeout(() => setUrlCopied(false), 2000); })}>
+                  <span>{SHORTCUT_URL}</span>
+                  <button>{urlCopied ? 'Copied!' : 'Copy'}</button>
+                </div>
+                <strong>6.</strong> Method: <strong>POST</strong> · Body: <strong>JSON</strong><br />
+                <strong>7.</strong> Fields: <code>sleep_hours</code>, <code>hrv</code>, <code>rhr</code> from Health actions
+              </div>
+            )}
+          </div>
+
+          <div className="ob-service-row">
+            <div className="ob-svc-top">
+              <div>
+                <div className="ob-svc-title">Strava</div>
+                <div className="ob-svc-desc">Import runs, rides, and activities automatically</div>
+              </div>
+              <button className={`ob-svc-btn${stravaStarted ? ' done' : ''}`}
+                onClick={() => { setStravaStarted(true); window.open(`${API_BASE}/strava/auth`, '_blank'); }}>
+                {stravaStarted ? 'Connecting…' : 'Connect'}
+              </button>
+            </div>
+          </div>
+
+          <div className="ob-service-row">
+            <div className="ob-svc-top">
+              <div>
+                <div className="ob-svc-title">Hevy</div>
+                <div className="ob-svc-desc">Import your lifting history from Hevy</div>
+              </div>
+            </div>
+            <div className="ob-hevy-modes">
+              <button className="ob-svc-btn" onClick={() => { onOpenImport(); onClose(); }}>Import CSV</button>
+              <button className={`ob-svc-btn${hevyKeyMode === 'api' ? ' done' : ''}`}
+                onClick={() => setHevyKeyMode(m => m === 'api' ? null : 'api')}>API Key</button>
+            </div>
+            {hevyKeyMode === 'api' && (
+              <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                <input style={{ ...inputStyle, flex: 1, width: 'auto', fontSize: 12, fontFamily: 'JetBrains Mono,monospace' }}
+                  placeholder="Hevy API key…" value={hevyKeyVal} onChange={e => setHevyKeyVal(e.target.value)} />
+                <button className="ob-svc-btn"
+                  style={hevyKeySaved ? { background: 'var(--forest)', borderColor: 'var(--forest)', color: 'var(--paper)' } : {}}
+                  onClick={async () => {
+                    if (!hevyKeyVal.trim()) return;
+                    await api('hevy/key', { method: 'POST', body: JSON.stringify({ key: hevyKeyVal.trim() }) }).catch(() => {});
+                    setHevyKeySaved(true);
+                  }}>{hevyKeySaved ? 'Saved' : 'Save'}</button>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* ── SUPPLEMENT STACK ── */}
+        <div className="settings-sec">
+          <div className="settings-sh">Supplement Stack</div>
+          {supplements.length > 0 && (
+            <div style={{ marginBottom: 14 }}>
+              {supplements.map(sup => (
+                <div key={sup.name} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '7px 0', borderBottom: '1px solid var(--rule)' }}>
+                  <div>
+                    <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 11, color: 'var(--ink)' }}>{sup.name}</div>
+                    {(sup.dose || sup.timing) && (
+                      <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, color: 'var(--dim)', marginTop: 1 }}>{[sup.dose, sup.timing].filter(Boolean).join(' · ')}</div>
+                    )}
+                  </div>
+                  <button onClick={() => deleteSupp(sup.name)} style={{ background: 'none', border: 'none', color: 'var(--dim)', cursor: 'pointer', fontFamily: "'JetBrains Mono',monospace", fontSize: 11, padding: '4px 8px' }}>✕</button>
+                </div>
+              ))}
+            </div>
+          )}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <input style={inputStyle} placeholder="Supplement name" value={newSuppName} onChange={e => setNewSuppName(e.target.value)} />
+            <input style={inputStyle} placeholder="Dose (optional)" value={newSuppDose} onChange={e => setNewSuppDose(e.target.value)} />
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+              {['morning','evening','pre-workout','post-workout'].map(t => (
+                <button key={t} className={`prof-btn${newSuppTiming === t ? ' solid' : ''}`} onClick={() => setNewSuppTiming(t)}
+                  style={{ fontSize: 8, padding: '4px 8px', textTransform: 'capitalize' }}>{t}</button>
+              ))}
+            </div>
+            <button className="prof-btn solid" style={{ alignSelf: 'flex-start', padding: '7px 20px' }}
+              onClick={addSupplement} disabled={savingSupp || !newSuppName.trim()}>
+              {savingSupp ? 'Adding…' : 'Add'}
+            </button>
+          </div>
+        </div>
+
+        {/* ── APP ── */}
+        <div className="settings-sec">
+          <div className="settings-sh">App</div>
+          <div className="prof-field" style={{ marginBottom: 14 }}>
+            <span className="prof-lbl">Morning Briefing</span>
+            <button className="prof-btn" style={{ padding: '5px 14px' }}
+              onClick={async () => {
+                setRegenLoading(true);
+                const r = await api('briefing/generate', { method: 'POST' }).catch(() => null);
+                if (r?.briefing) setBriefing(r.briefing);
+                setRegenLoading(false);
+              }} disabled={regenLoading}>
+              {regenLoading ? 'Generating…' : 'Regenerate'}
+            </button>
+          </div>
+          <div className="prof-field" style={{ marginBottom: 14 }}>
+            <span className="prof-lbl">Push Notifications</span>
+            {notifPermission === 'granted'
+              ? <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, color: 'var(--forest)' }}>Enabled</span>
+              : notifPermission === 'unsupported'
+              ? <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, color: 'var(--dim)' }}>Not supported</span>
+              : <button className="prof-btn" style={{ padding: '5px 14px' }} onClick={enableNotifications}>Enable</button>
+            }
+          </div>
+          {s?.profile?.travelMode && (
+            <div className="prof-field">
+              <span className="prof-lbl">Travel Mode</span>
+              <button className="prof-btn" onClick={() => api('profile', { method: 'POST', body: JSON.stringify({ travelMode: false }) }).then(() => refresh(null))}>Disable</button>
+            </div>
+          )}
+        </div>
+
+        {/* ── ACCOUNT ── */}
+        <div className="settings-sec">
+          <div className="settings-sh">Account</div>
+          <button className="prof-btn" style={{ width: '100%', padding: '11px', textAlign: 'center', marginTop: 4 }} onClick={onSignOut}>Sign Out</button>
+        </div>
+
       </div>
     </div>
   );
@@ -3613,6 +3841,42 @@ function MentorChat({ onClose }) {
   );
 }
 
+// ── NEWSCAST OVERLAY ─────────────────────────────────────────────────────────
+function NewscastOverlay({ newscast, onClose }) {
+  const period = newscast?.period;
+  const label = period === 'afternoon' ? 'Mid-Day Update' : "Tonight's Report";
+  const dateStr = new Date().toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' }).toUpperCase();
+
+  return (
+    <div className="briefing-overlay">
+      <div className="briefing-hdr">
+        <div>
+          <div className="briefing-masthead">THE PRESS</div>
+          <div className="briefing-edition">{label} · {dateStr}</div>
+        </div>
+        <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--paper)', cursor: 'pointer', fontFamily: "'JetBrains Mono',monospace", fontSize: 9, letterSpacing: '.12em', textTransform: 'uppercase', opacity: .7 }}>Close ×</button>
+      </div>
+      <div className="briefing-body">
+        <div className="briefing-headline">{newscast?.headline || label.toUpperCase()}</div>
+        <div className="briefing-sub">{newscast?.subheading}</div>
+        <hr className="briefing-rule" />
+        <div className="briefing-byline">V</div>
+        <div className="briefing-byline-role">Health &amp; Performance</div>
+        <div className="briefing-prose">{newscast?.v}</div>
+        {newscast?.nutritionNote && (
+          <>
+            <hr className="briefing-rule" />
+            <div className="briefing-byline" style={{ borderTopColor: 'var(--gold)' }}>Fuel</div>
+            <div className="briefing-byline-role">Nutrition</div>
+            <div className="briefing-prose" style={{ fontStyle: 'italic', color: 'var(--gold)' }}>{newscast.nutritionNote}</div>
+          </>
+        )}
+        <button className="briefing-open-btn" onClick={onClose}>Back to Press</button>
+      </div>
+    </div>
+  );
+}
+
 // ── BRIEFING OVERLAY ─────────────────────────────────────────────────────────
 function BriefingOverlay({ briefing, onClose }) {
   const dateStr = new Date().toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' }).toUpperCase();
@@ -3658,6 +3922,14 @@ function BriefingOverlay({ briefing, onClose }) {
             <div className="briefing-byline" style={{ marginTop: 20 }}>Atlas</div>
             <div className="briefing-byline-role">Training</div>
             <div className="briefing-prose">{briefing.atlas}</div>
+          </>
+        )}
+
+        {briefing?.fuel && (
+          <>
+            <div className="briefing-byline" style={{ marginTop: 20, borderTopColor: 'var(--gold)' }}>Fuel</div>
+            <div className="briefing-byline-role">Nutrition</div>
+            <div className="briefing-prose" style={{ fontStyle: 'italic' }}>{briefing.fuel}</div>
           </>
         )}
 
@@ -3772,6 +4044,25 @@ function App() {
   const [onboarded, setOnboarded] = useState(() => !!localStorage.getItem('press_onboarded'));
   const [briefing, setBriefing] = useState(null);
   const [showBriefing, setShowBriefing] = useState(false);
+  const [afternoonNewscast, setAfternoonNewscast] = useState(null);
+  const [nightNewscast, setNightNewscast] = useState(null);
+  const [showAfternoonNewscast, setShowAfternoonNewscast] = useState(false);
+  const [showNightNewscast, setShowNightNewscast] = useState(false);
+  const [newscastLoading, setNewscastLoading] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
+
+  const fetchNewscast = async (period) => {
+    if (newscastLoading) return;
+    setNewscastLoading(true);
+    try {
+      const data = await api(`newscast?period=${period}`);
+      if (data.newscast) {
+        if (period === 'afternoon') { setAfternoonNewscast(data.newscast); setShowAfternoonNewscast(true); }
+        else { setNightNewscast(data.newscast); setShowNightNewscast(true); }
+      }
+    } catch {}
+    setNewscastLoading(false);
+  };
 
   const handleOnboardDone = () => { localStorage.setItem('press_onboarded', '1'); setOnboarded(true); };
 
@@ -3820,6 +4111,9 @@ function App() {
     return () => el.remove();
   }, []);
 
+  // Scrollspy: reveal each section's .fade content once it enters the viewport, and mark its
+  // nav dot active while visible. Keyed to [user] (not [s]) so a failed data fetch can never
+  // leave the observer unattached — the section DOM exists as soon as the user is signed in.
   useEffect(() => {
     const scroll = document.getElementById('press-scroll');
     if (!scroll) return;
@@ -3831,27 +4125,15 @@ function App() {
 
     const obs = new IntersectionObserver(entries => {
       entries.forEach(e => {
-        if (!e.isIntersecting) return;
-        e.target.classList.add('visible');
         const idx = sections.indexOf(e.target);
-        dots.forEach((d, j) => d.classList.toggle('active', j === idx));
+        if (e.isIntersecting) e.target.classList.add('visible');
+        if (dots[idx]) dots[idx].classList.toggle('active', e.isIntersecting);
       });
-    }, { root: scroll, threshold: 0.45 });
+    }, { threshold: 0.35 });
     sections.forEach(sec => obs.observe(sec));
 
-    const onKey = e => {
-      if (!['ArrowDown','ArrowUp'].includes(e.key)) return;
-      e.preventDefault();
-      const curr = sections.findIndex(sec => {
-        const r = sec.getBoundingClientRect();
-        return r.top > -10 && r.top < window.innerHeight * 0.6;
-      });
-      const next = e.key === 'ArrowDown' ? Math.min(curr + 1, sections.length - 1) : Math.max(curr - 1, 0);
-      sections[next]?.scrollIntoView({ behavior: 'smooth' });
-    };
-    window.addEventListener('keydown', onKey);
-    return () => { obs.disconnect(); window.removeEventListener('keydown', onKey); };
-  }, [s]);
+    return () => obs.disconnect();
+  }, [user]);
 
   if (user === undefined) return (
     <div style={{ minHeight: '100svh', background: '#f5f0e2', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -3861,24 +4143,29 @@ function App() {
 
   if (!user) return <LoginScreen />;
 
+  const trackingLevel = s?.profile?.trackingLevel || 'full';
+  const showSleep = trackingLevel !== 'workout';
+  const showFuel = trackingLevel === 'full';
+  const sectionIds = ['s1', ...(showSleep ? ['s2'] : []), 's3', ...(showFuel ? ['s4'] : []), 's5', 's6', 's7'];
+
   return (
     <>
       {!onboarded && <Onboarding onComplete={handleOnboardDone} onOpenImport={() => { handleOnboardDone(); setShowImport(true); }} />}
       <Header s={s} onSignOut={() => signOut(auth)} />
-      <nav className="sec-nav" id="sec-nav">
-        {[0,1,2,3,4,5,6].map(i => (
-          <div key={i} className="sn-dot" onClick={() => {
-            document.getElementById('press-scroll')?.querySelectorAll('section')[i]?.scrollIntoView({ behavior: 'smooth' });
-          }} />
-        ))}
+      <nav className="sec-nav" id="sec-nav" aria-hidden="true">
+        {sectionIds.map(id => <div key={id} className="sn-dot" />)}
       </nav>
       <div className="scroll" id="press-scroll">
-        <S1 s={s} briefing={briefing} onShowBriefing={() => setShowBriefing(true)} />
-        <S2 s={s} refresh={refresh} />
+        <S1 s={s} briefing={briefing} onShowBriefing={() => setShowBriefing(true)}
+            onShowAfternoon={() => afternoonNewscast ? setShowAfternoonNewscast(true) : fetchNewscast('afternoon')}
+            onShowNight={() => nightNewscast ? setShowNightNewscast(true) : fetchNewscast('night')}
+            afternoonLoaded={!!afternoonNewscast} nightLoaded={!!nightNewscast}
+            newscastLoading={newscastLoading} />
+        {showSleep && <S2 s={s} refresh={refresh} />}
         <S3 s={s} onStartWorkout={planDay => setLoggerPlanDay(planDay ?? null)} onImport={() => setShowImport(true)} onHistory={() => setShowHistory(true)} refresh={refresh} />
-        <S4 s={s} refresh={refresh} />
+        {showFuel && <S4 s={s} refresh={refresh} />}
         <S5 s={s} refresh={refresh} />
-        <S6 s={s} onSignOut={() => signOut(auth)} refresh={refresh} setBriefing={setBriefing} />
+        <S6 s={s} onOpenSettings={() => setShowSettings(true)} refresh={refresh} />
         <S7 s={s} />
       </div>
       {/* Floating personal journalist chat bubble */}
@@ -3886,7 +4173,10 @@ function App() {
         <button className="chat-bubble" onClick={() => setChatOpen(true)} aria-label="Open personal journalist chat">PJ</button>
       )}
       {chatOpen && <MentorChat onClose={() => setChatOpen(false)} />}
+      {showSettings && <SettingsOverlay s={s} onClose={() => setShowSettings(false)} refresh={refresh} onSignOut={() => signOut(auth)} onOpenImport={() => { setShowSettings(false); setShowImport(true); }} setBriefing={setBriefing} />}
       {showBriefing && briefing && <BriefingOverlay briefing={briefing} onClose={() => setShowBriefing(false)} />}
+      {showAfternoonNewscast && afternoonNewscast && <NewscastOverlay newscast={afternoonNewscast} onClose={() => setShowAfternoonNewscast(false)} />}
+      {showNightNewscast && nightNewscast && <NewscastOverlay newscast={nightNewscast} onClose={() => setShowNightNewscast(false)} />}
       {loggerOpen && (
         <WorkoutLogger
           planDay={loggerPlanDay}
