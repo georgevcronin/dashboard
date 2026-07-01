@@ -3552,7 +3552,7 @@ function Onboarding({ onComplete, onOpenImport }) {
 // ── MENTOR CHAT ───────────────────────────────────────────────────────────────
 function MentorChat({ onClose }) {
   const [msgs, setMsgs] = useState([
-    { role: 'assistant', content: 'I\'m your Mentor. Ask me anything about your training, recovery, or nutrition.' }
+    { role: 'assistant', content: 'I\'m your Personal Journalist. Ask me anything about your training, recovery, or nutrition.' }
   ]);
   const [input, setInput] = useState('');
   const [thinking, setThinking] = useState(false);
@@ -3585,7 +3585,7 @@ function MentorChat({ onClose }) {
     <div className="chat-panel">
       <div className="chat-hdr">
         <div>
-          <div className="kicker" style={{ margin: 0 }}>Your Mentor</div>
+          <div className="kicker" style={{ margin: 0 }}>Your Personal Journalist</div>
         </div>
         <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', fontFamily: "'JetBrains Mono',monospace", fontSize: 13, color: 'var(--dim)' }}>×</button>
       </div>
@@ -3595,13 +3595,13 @@ function MentorChat({ onClose }) {
             {m.content}
           </div>
         ))}
-        {thinking && <div className="chat-msg-thinking">Mentor is thinking…</div>}
+        {thinking && <div className="chat-msg-thinking">Personal Journalist is thinking…</div>}
         <div ref={msgsEndRef} />
       </div>
       <div className="chat-input-row">
         <input
           className="chat-input"
-          placeholder="Ask your mentor…"
+          placeholder="Ask your personal journalist…"
           value={input}
           onChange={e => setInput(e.target.value)}
           onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }}
@@ -3881,9 +3881,9 @@ function App() {
         <S6 s={s} onSignOut={() => signOut(auth)} refresh={refresh} setBriefing={setBriefing} />
         <S7 s={s} />
       </div>
-      {/* Floating mentor chat bubble */}
+      {/* Floating personal journalist chat bubble */}
       {!chatOpen && (
-        <button className="chat-bubble" onClick={() => setChatOpen(true)} aria-label="Open mentor chat">M</button>
+        <button className="chat-bubble" onClick={() => setChatOpen(true)} aria-label="Open personal journalist chat">PJ</button>
       )}
       {chatOpen && <MentorChat onClose={() => setChatOpen(false)} />}
       {showBriefing && briefing && <BriefingOverlay briefing={briefing} onClose={() => setShowBriefing(false)} />}
