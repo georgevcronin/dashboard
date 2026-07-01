@@ -3,6 +3,7 @@ const admin = require("firebase-admin");
 const express = require("express");
 const webpush = require("web-push");
 const { EXERCISE_DB, EXERCISE_MAP } = require('./exerciseDb');
+const { generateWeeklyStructure } = require('./weeklyPlanner');
 
 admin.initializeApp();
 const firestore = admin.firestore();
@@ -72,9 +73,48 @@ function computeCurrentFatigueScores(lifts, peaks) {
       }
     }
   }
+  const sorenessMap = {};
+  soreness.filter(e => Date.now() - e.ts < 5 * 24 * 3600000)
+    .forEach(e => { sorenessMap[e.muscle] = Math.max(sorenessMap[e.muscle] || 0, e.score); });
   const out = {};
-  for (const [m, v] of Object.entries(scores)) out[m] = Math.min(100, Math.round(v / (peaks[m] || 2000) * 100));
+  for (const [m, v] of Object.entries(scores)) {
+    const soreAdj = sorenessMap[m] ? 1 + sorenessMap[m] / 20 : 1;
+    out[m] = Math.min(100, Math.round(v / (peaks[m] || 2000) * 100 * soreAdj));
+  }
   return out;
+}
+
+function computeMetabolicFatigue(lifts, carbsToday = 0) {
+  const now = Date.now();
+  let volume = 0;
+  for (const l of (lifts || [])) {
+    const t = new Date(l.date).getTime();
+    const hoursAgo = (now - t) / 3_600_000;
+    if (hoursAgo > 48) continue;
+    const decay = Math.exp(-0.693 * hoursAgo / 12);
+    volume += (l.kg || 0) * (l.reps || 1) * decay;
+  }
+  const carbReduction = Math.min(40, Math.floor(carbsToday / 50) * 10);
+  return Math.max(0, Math.min(100, Math.round(volume / 500)) - carbReduction);
+}
+
+function computeCNSFatigue(lifts) {
+  const now = Date.now();
+  let score = 0;
+  for (const l of (lifts || [])) {
+    const t = new Date(l.date).getTime();
+    const hoursAgo = (now - t) / 3_600_000;
+    if (hoursAgo > 96) continue;
+    const name = (l.exercise || '').toLowerCase();
+    if (!CNS_COMPOUND.some(ex => name.includes(ex))) continue;
+    const decay = Math.exp(-0.693 * hoursAgo / 36);
+    score += (l.kg || 0) * (l.reps || 1) * decay;
+  }
+  return Math.min(100, Math.round(score / 5000 * 100));
+}
+
+function computeCurrentFatigueScores(lifts, peaks, soreness = []) {
+  return computeStructuralFatigue(lifts, peaks, soreness);
 }
 
 function musclePeaksFromLifts(lifts) {
@@ -760,12 +800,14 @@ app.post("/profile", async (req, res) => { db.profile = { ...db.profile, ...req.
 // ---------- Personal Journalist ----------
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
+const TRAINING_ETHOS = "Training philosophy: hold opinions loosely and non-dogmatically, synthesized from several science-based coaches who often disagree with each other and are fine with that. Core agreements: effort (proximity to true failure) matters more than hitting an exact number of sets, reps, or following a specific split; no program should be copied wholesale — build around the individual's recovery, goals, and response; a caloric surplus without real training stimulus adds fat, not muscle. Where reasonable coaches disagree (volume vs. frequency, rigid templates vs. feel-based flexibility, basic compound lifts vs. novel exercise variations, narrow vs. flexible rep ranges), present both legitimate sides plainly rather than picking a winner, then note what would tip a specific person toward one side (available time, joint health, recovery capacity, adherence, experience level). Flag clearly which things are genuinely settled (training close to failure, progressive overload) versus genuinely just preference (exact rep range, split structure, exercise selection).";
+
 app.post("/mentor", async (req, res) => {
   const key = process.env.GROQ_API_KEY;
   if (!key) return res.json({ reply: "Add GROQ_API_KEY to functions/.env to enable the Personal Journalist." });
   const s = db;
   const recentWeights = Object.fromEntries(Object.entries(s.weight || {}).slice(-14));
-  const system = "You are Personal Journalist, " + (s.profile?.name || "the user") + "'s personal peak-performance coach. Be direct, concise (2-4 short sentences). Live data: " + JSON.stringify({ recovery: s.metrics, weights: recentWeights, lifts: s.lifts?.slice(-10), water: s.water, workouts: s.workouts?.slice(-5), thoughts: s.thoughts?.slice(-5) });
+  const system = "You are Personal Journalist, " + (s.profile?.name || "the user") + "'s personal peak-performance coach. Be direct, concise (2-4 short sentences). " + TRAINING_ETHOS + " Live data: " + JSON.stringify({ recovery: s.metrics, weights: recentWeights, lifts: s.lifts?.slice(-10), water: s.water, workouts: s.workouts?.slice(-5), thoughts: s.thoughts?.slice(-5) });
   const recentMessages = req.body.messages.slice(-10);
 
   let data, status;
@@ -969,10 +1011,21 @@ app.get("/plan/week", async (req, res) => {
   res.json(db.weeklyPlan || null);
 });
 
-app.post("/plan/week", async (req, res) => {
-  const key = process.env.GROQ_API_KEY;
-  if (!key) return res.json({ error: "GROQ_API_KEY not set — add it to GitHub secrets" });
+// Deterministic fallback text (no LLM): plain but accurate, used if GROQ_API_KEY
+// is unset or the text-writing call fails, so the plan itself never depends on
+// Groq being available or rate-limited.
+function templateSessionText(day) {
+  if (day.type === 'lift') {
+    const title = day.targetMuscles.slice(0, 2).map(m => m.replace('-', ' ')).join(' & ');
+    const backbone = day.backboneExercises.length ? ` Backbone lifts: ${day.backboneExercises.join(', ')}.` : '';
+    return { title: title[0].toUpperCase() + title.slice(1), detail: day.rationale + backbone };
+  }
+  if (day.type === 'hiit') return { title: 'Norwegian 4×4', detail: day.rationale };
+  if (day.type === 'zone2') return { title: 'Zone 2', detail: day.rationale };
+  return { title: 'Rest', detail: day.rationale };
+}
 
+app.post("/plan/week", async (req, res) => {
   const today = new Date();
   const todayStr = today.toISOString().slice(0, 10);
   const dow = today.getDay(); // 0=Sun
@@ -985,47 +1038,48 @@ app.post("/plan/week", async (req, res) => {
     return { label, date: d.toISOString().slice(0, 10) };
   });
 
-  const recentWorkouts = [...(db.workouts || [])].sort((a,b)=>(b.date||'').localeCompare(a.date||'')).slice(0, 14)
-    .map(w => `${w.date} ${w.name}`).join(', ');
-
-  const byEx = {};
-  for (const l of (db.lifts || []).slice(-120)) (byEx[l.exercise] = byEx[l.exercise] || []).push(l);
-  const liftSummary = Object.entries(byEx).slice(0, 12).map(([ex, sets]) => {
-    const sorted = [...sets].sort((a, b) => a.date.localeCompare(b.date));
-    return `${ex}: ${sorted[0].kg}→${sorted.at(-1).kg}kg (${sorted.length} sessions)`;
-  }).join('; ');
-
   const peaks = musclePeaksFromLifts(db.lifts);
-  const currentFatigue = computeCurrentFatigueScores(db.lifts, peaks);
-  const fatigueStr = Object.entries(currentFatigue).filter(([,v])=>v>15).sort(([,a],[,b])=>b-a)
-    .map(([m,v])=>`${m} ${v}%`).join(', ') || 'fully recovered';
-
-  const todayMetrics = (db.metrics || {})[todayStr] || {};
-  const bw = Object.values(db.weight || {}).at(-1) || 75;
-
-  const systemPrompt = `You are Personal Journalist, performance coach for ${db.profile?.name || "this athlete"} (${bw}kg bodyweight). Generate a tailored 7-day training plan. Return ONLY valid JSON:
-{
-  "focus": "one sentence theme for the week",
-  "days": [
-    { "date": "YYYY-MM-DD", "label": "Mon", "sessions": [
-      { "type": "lift|zone2|hiit|climb|flex|rest", "title": "Short session title", "detail": "2-3 sentences of specific guidance" }
-    ]}
-  ],
-  "notes": "1-2 sentences on load management or key cues"
-}
-Rest days: sessions = [{"type":"rest","title":"Rest","detail":"..."}]. No duration field. No extra keys.`;
-
+  const currentFatigue = computeStructuralFatigue(db.lifts, peaks, db.soreness || []);
+  const weekMetabolic = computeMetabolicFatigue(db.lifts, (db.nutrition || {})[todayStr]?.carbs || 0);
+  const weekCNS = computeCNSFatigue(db.lifts);
+  const weekOfflineMuscles = (db.injuries || []).filter(i => !i.resolved).flatMap(i => i.muscles || []);
   const travelModeWeek = db.profile?.travelMode || false;
-  const maturityWeek = computeDataMaturity(lifts);
-  const maturityLine = maturityWeek.hasEnoughData
-    ? `Established athlete (${maturityWeek.weeksCovered} wks data, ${maturityWeek.exercisesWithPatterns} tracked exercises). Plan based on proven stimulus — no experimental variation needed.`
-    : `Early-stage athlete (${maturityWeek.weeksCovered} wks data). Vary exercises and rep ranges to build response profile.`;
-  const userPrompt = `Current muscle fatigue (% of personal peak): ${fatigueStr}
-Recent sessions: ${recentWorkouts || 'no data yet'}
-Lift progression: ${liftSummary || 'no lift data yet'}
-Today recovery: ${todayMetrics.heart_rate_variability ? 'HRV ' + todayMetrics.heart_rate_variability + 'ms' : 'unknown'}
-${travelModeWeek ? 'TRAVEL MODE ACTIVE: Plan bodyweight-only sessions this week — no gym equipment available.\n' : ''}${maturityLine}
-Plan week ${weekDates[0].date} to ${weekDates[6].date}. Avoid loading muscles currently above 60% fatigue. Include strength, zone2 cardio, at least one Norwegian 4×4 HIIT. No consecutive heavy sessions.`;
+  const maturityWeek = computeDataMaturity(db.lifts);
+
+  // The algorithm decides WHAT (session type, target muscles, backbone exercises,
+  // frequency vs. fatigue trade-off) — the ethos rules as real code, not LLM judgment.
+  const structure = generateWeeklyStructure({
+    weekDates, currentFatigue, weekMetabolic, weekCNS,
+    offlineMuscles: weekOfflineMuscles, travelMode: travelModeWeek,
+    dataMature: maturityWeek.hasEnoughData,
+  });
+
+  const buildPlan = (dayTexts, focus, notes) => ({
+    focus,
+    days: structure.map((day, i) => ({
+      date: day.date, label: day.label,
+      sessions: [{ type: day.type, title: dayTexts[i].title, detail: dayTexts[i].detail, duration: day.duration }],
+    })),
+    notes,
+    generatedAt: new Date().toISOString(),
+  });
+
+  const key = process.env.GROQ_API_KEY;
+  if (!key) {
+    const plan = buildPlan(structure.map(templateSessionText), 'A week built around what your fatigue data can actually absorb.', 'No Groq key configured — this plan is template-generated, not LLM-written.');
+    db.weeklyPlan = plan;
+    await save();
+    return res.json(plan);
+  }
+
+  // The LLM's only job now: turn the already-decided structure into readable
+  // prose. It cannot change session type, target muscles, or exercise choice.
+  const writerPrompt = `Write copy for ${db.profile?.name || "this athlete"}'s weekly training plan. For each day below, write a short session "title" (a few words) and "detail" (2-3 sentences, specific, no fluff) explaining the session using the given rationale — do not invent different muscles, exercises, or session types than what's given. Also write one "focus" sentence (weekly theme) and one "notes" sentence (load management cue). ${TRAINING_ETHOS}
+
+Days:
+${JSON.stringify(structure.map(d => ({ label: d.label, type: d.type, targetMuscles: d.targetMuscles, backboneExercises: d.backboneExercises, rationale: d.rationale })))}
+
+Return ONLY valid JSON: { "focus": "...", "notes": "...", "days": [{ "title": "...", "detail": "..." }, ... one per day, same order as given] }`;
 
   try {
     const r = await fetch("https://api.groq.com/openai/v1/chat/completions", {
@@ -1033,22 +1087,27 @@ Plan week ${weekDates[0].date} to ${weekDates[6].date}. Avoid loading muscles cu
       headers: { "Content-Type": "application/json", "Authorization": "Bearer " + key },
       body: JSON.stringify({
         model: "llama-3.3-70b-versatile",
-        max_tokens: 1400,
+        max_tokens: 700,
         response_format: { type: "json_object" },
-        messages: [{ role: "system", content: systemPrompt }, { role: "user", content: userPrompt }],
+        messages: [{ role: "user", content: writerPrompt }],
       }),
     });
-    if (!r.ok) return res.status(500).json({ error: "Groq API error " + r.status });
     const data = await r.json();
     const content = data.choices?.[0]?.message?.content;
-    let plan;
-    try { plan = JSON.parse(content); } catch { return res.status(500).json({ error: "AI returned invalid JSON" }); }
-    plan.generatedAt = new Date().toISOString();
+    let written;
+    try { written = JSON.parse(content); } catch { written = null; }
+    const dayTexts = (written?.days?.length === structure.length)
+      ? written.days
+      : structure.map(templateSessionText);
+    const plan = buildPlan(dayTexts, written?.focus || 'A week built around what your fatigue data can actually absorb.', written?.notes || '');
     db.weeklyPlan = plan;
     await save();
     res.json(plan);
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    const plan = buildPlan(structure.map(templateSessionText), 'A week built around what your fatigue data can actually absorb.', '');
+    db.weeklyPlan = plan;
+    await save();
+    res.json(plan);
   }
 });
 
