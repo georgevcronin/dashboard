@@ -774,8 +774,12 @@ app.post("/mentor", async (req, res) => {
       }),
     });
     const data = await r.json();
-    res.json({ reply: data.choices?.[0]?.message?.content || "no reply" });
-  } catch (e) { res.json({ reply: "mentor error: " + e.message }); }
+    if (!r.ok || !data.choices?.[0]?.message?.content) {
+      console.error("Groq mentor error:", r.status, JSON.stringify(data));
+      return res.json({ reply: "Mentor error: " + (data.error?.message || `Groq returned ${r.status}`) });
+    }
+    res.json({ reply: data.choices[0].message.content });
+  } catch (e) { console.error("Groq mentor exception:", e); res.json({ reply: "Mentor error: " + e.message }); }
 });
 
 function computeProgression(lifts, name) {
