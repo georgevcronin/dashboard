@@ -208,10 +208,15 @@ async function loadForUser(uid) {
   const snap = await userDocRef(uid).get();
   if (snap.exists) {
     userDbs[uid] = { ...DEFAULTS(), ...snap.data() };
-  } else {
-    // First login: auto-migrate from legacy single-user peak/state document
+  } else if (uid === process.env.PRESS_OWNER_UID) {
+    // First login for the original owner only: one-time migration from the
+    // legacy single-user peak/state document. Any other new account must
+    // NOT inherit this data.
     const legacy = await firestore.collection('peak').doc('state').get();
     userDbs[uid] = legacy.exists ? { ...DEFAULTS(), ...legacy.data() } : DEFAULTS();
+    await userDocRef(uid).set(userDbs[uid]);
+  } else {
+    userDbs[uid] = DEFAULTS();
     await userDocRef(uid).set(userDbs[uid]);
   }
   return userDbs[uid];
