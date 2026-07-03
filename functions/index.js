@@ -8,6 +8,53 @@ const { generateWeeklyStructure } = require('./weeklyPlanner');
 admin.initializeApp();
 const firestore = admin.firestore();
 
+// ---------- Shared Gemini helper (used by every LLM-backed endpoint below) ----------
+const GEMINI_MODEL = "gemini-2.0-flash";
+
+async function callGemini({ messages, maxTokens = 800, jsonMode = false, image = null, temperature }) {
+  const key = process.env.GEMINI_API_KEY;
+  if (!key) return { ok: false, status: 0, error: { message: "GEMINI_API_KEY not set" } };
+
+  const systemText = messages.filter(m => m.role === "system").map(m => m.content).join("\n\n");
+  const turns = messages.filter(m => m.role !== "system").map(m => ({
+    role: m.role === "assistant" ? "model" : "user",
+    parts: [{ text: m.content }],
+  }));
+  if (image && turns.length) {
+    turns[turns.length - 1].parts.push({ inline_data: { mime_type: image.mimeType, data: image.data } });
+  }
+
+  const generationConfig = { maxOutputTokens: maxTokens };
+  if (jsonMode) generationConfig.responseMimeType = "application/json";
+  if (temperature != null) generationConfig.temperature = temperature;
+
+  const body = { contents: turns, generationConfig };
+  if (systemText) body.systemInstruction = { parts: [{ text: systemText }] };
+
+  let r, data;
+  try {
+    r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${key}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    data = await r.json();
+  } catch (e) {
+    return { ok: false, status: 0, error: { message: e.message } };
+  }
+  if (!r.ok) return { ok: false, status: r.status, error: data.error || { message: `Gemini returned ${r.status}` } };
+  const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+  if (!text) return { ok: false, status: r.status, error: { message: "Gemini returned no content" } };
+  return { ok: true, status: r.status, content: text };
+}
+
+// Parses Gemini's rate-limit retry hint (RetryInfo.retryDelay, e.g. "13s") when present.
+function geminiRetryDelaySec(error) {
+  const detail = error?.details?.find(d => d["@type"]?.includes("RetryInfo"));
+  const match = detail?.retryDelay?.match(/^([\d.]+)s$/);
+  return match ? parseFloat(match[1]) : null;
+}
+
 const VAPID_PUBLIC = process.env.VAPID_PUBLIC_KEY;
 const VAPID_PRIVATE = process.env.VAPID_PRIVATE_KEY;
 if (VAPID_PUBLIC && VAPID_PRIVATE) {
@@ -53,13 +100,15 @@ const RECOVERY_H_B = {
   traps:48, erectors:72, abs:36, 'front-delt':48, 'rear-delt':48, forearms:36,
 };
 
-function computeCurrentFatigueScores(lifts, peaks) {
+const CNS_COMPOUND = ['deadlift','squat','hack squat','bench press','overhead press','leg press'];
+
+function computeStructuralFatigue(lifts, peaks, soreness = []) {
   const now = Date.now();
   const scores = {};
   for (const l of (lifts || [])) {
     const t = new Date(l.date).getTime();
     const hoursAgo = (now - t) / 3_600_000;
-    if (hoursAgo > 336) continue; // ignore anything older than 2 weeks
+    if (hoursAgo > 336) continue;
     const load = (l.kg || 0) * (l.reps || 1);
     const name = (l.exercise || '').toLowerCase();
     for (const [key, muscles] of Object.entries(MUSCLE_MAP_B)) {
@@ -716,36 +765,23 @@ app.post("/nutrition", async (req, res) => {
   await save(); res.json(db.nutrition[k]);
 });
 app.post("/nutrition/analyze", async (req, res) => {
-  const key = process.env.GROQ_API_KEY;
-  if (!key) return res.status(400).json({ error: 'GROQ_API_KEY not set' });
+  if (!process.env.GEMINI_API_KEY) return res.status(400).json({ error: 'GEMINI_API_KEY not set' });
   const { imageBase64, mode } = req.body;
   if (!imageBase64) return res.status(400).json({ error: 'imageBase64 required' });
   const mimeMatch = imageBase64.match(/^data:(image\/\w+);base64,/);
-  const dataUrl = mimeMatch ? imageBase64 : `data:image/jpeg;base64,${imageBase64}`;
+  const mimeType = mimeMatch ? mimeMatch[1] : 'image/jpeg';
+  const rawBase64 = imageBase64.replace(/^data:image\/\w+;base64,/, '');
   const labelPrompt = 'Read this nutrition label precisely. Return ONLY valid JSON: {"description":"product name","calories":0,"protein":0,"carbs":0,"fat":0}. Use per-serving values. All numbers as integers.';
   const mealPrompt = 'Analyse this meal photo. Estimate nutritional content for the whole plate. Return ONLY valid JSON: {"description":"brief meal description","calories":0,"protein":0,"carbs":0,"fat":0}. All numbers as integers.';
   const promptText = mode === 'label' ? labelPrompt : mealPrompt;
-  try {
-    const r = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + key },
-      body: JSON.stringify({
-        model: 'meta-llama/llama-4-scout-17b-16e-instruct',
-        max_tokens: 300,
-        response_format: { type: 'json_object' },
-        messages: [{
-          role: 'user',
-          content: [
-            { type: 'image_url', image_url: { url: dataUrl } },
-            { type: 'text', text: promptText }
-          ]
-        }]
-      })
-    });
-    const data = await r.json();
-    const content = data.choices?.[0]?.message?.content;
-    res.json(JSON.parse(content || '{}'));
-  } catch (e) { res.status(500).json({ error: e.message }); }
+  const result = await callGemini({
+    messages: [{ role: 'user', content: promptText }],
+    image: { mimeType, data: rawBase64 },
+    maxTokens: 300,
+    jsonMode: true,
+  });
+  if (!result.ok) return res.status(500).json({ error: result.error?.message || `Gemini returned ${result.status}` });
+  try { res.json(JSON.parse(result.content)); } catch { res.status(500).json({ error: 'Gemini returned invalid JSON' }); }
 });
 
 app.post("/macro-targets", async (req, res) => {
@@ -803,40 +839,22 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 const TRAINING_ETHOS = "Training philosophy: hold opinions loosely and non-dogmatically, synthesized from several science-based coaches who often disagree with each other and are fine with that. Core agreements: effort (proximity to true failure) matters more than hitting an exact number of sets, reps, or following a specific split; no program should be copied wholesale — build around the individual's recovery, goals, and response; a caloric surplus without real training stimulus adds fat, not muscle. Where reasonable coaches disagree (volume vs. frequency, rigid templates vs. feel-based flexibility, basic compound lifts vs. novel exercise variations, narrow vs. flexible rep ranges), present both legitimate sides plainly rather than picking a winner, then note what would tip a specific person toward one side (available time, joint health, recovery capacity, adherence, experience level). Flag clearly which things are genuinely settled (training close to failure, progressive overload) versus genuinely just preference (exact rep range, split structure, exercise selection).";
 
 app.post("/mentor", async (req, res) => {
-  const key = process.env.GROQ_API_KEY;
-  if (!key) return res.json({ reply: "Add GROQ_API_KEY to functions/.env to enable the Personal Journalist." });
+  if (!process.env.GEMINI_API_KEY) return res.json({ reply: "Add GEMINI_API_KEY to functions/.env to enable the Personal Journalist." });
   const s = db;
   const recentWeights = Object.fromEntries(Object.entries(s.weight || {}).slice(-14));
   const system = "You are Personal Journalist, " + (s.profile?.name || "the user") + "'s personal peak-performance coach. Be direct, concise (2-4 short sentences). " + TRAINING_ETHOS + " Live data: " + JSON.stringify({ recovery: s.metrics, weights: recentWeights, lifts: s.lifts?.slice(-10), water: s.water, workouts: s.workouts?.slice(-5), thoughts: s.thoughts?.slice(-5) });
   const recentMessages = req.body.messages.slice(-10);
 
-  let data, status;
+  let result;
   for (let attempt = 0; attempt < 3; attempt++) {
-    try {
-      const r = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "Authorization": "Bearer " + key },
-        body: JSON.stringify({
-          model: "llama-3.3-70b-versatile",
-          max_tokens: 400,
-          messages: [{ role: "system", content: system }, ...recentMessages],
-        }),
-      });
-      data = await r.json();
-      status = r.status;
-      if (r.ok && data.choices?.[0]?.message?.content) {
-        return res.json({ reply: data.choices[0].message.content });
-      }
-      if (status !== 429) break;
-      const waitSec = parseFloat(data.error?.message?.match(/try again in ([\d.]+)s/)?.[1]) || (2 * (attempt + 1));
-      await sleep(Math.min(waitSec, 20) * 1000 + 250);
-    } catch (e) {
-      console.error("Groq mentor exception:", e);
-      return res.json({ reply: "Personal Journalist error: " + e.message });
-    }
+    result = await callGemini({ messages: [{ role: "system", content: system }, ...recentMessages], maxTokens: 400 });
+    if (result.ok) return res.json({ reply: result.content });
+    if (result.status !== 429) break;
+    const waitSec = geminiRetryDelaySec(result.error) || (2 * (attempt + 1));
+    await sleep(Math.min(waitSec, 20) * 1000 + 250);
   }
-  console.error("Groq mentor error:", status, JSON.stringify(data));
-  res.json({ reply: "Personal Journalist error: " + (data.error?.message || `Groq returned ${status}`) });
+  console.error("Gemini mentor error:", result.status, JSON.stringify(result.error));
+  res.json({ reply: "Personal Journalist error: " + (result.error?.message || `Gemini returned ${result.status}`) });
 });
 
 function computeProgression(lifts, name) {
@@ -876,8 +894,7 @@ function computeProgression(lifts, name) {
 }
 
 app.post("/plan/session-exercises", async (req, res) => {
-  const key = process.env.GROQ_API_KEY;
-  if (!key) return res.json({ exercises: [] });
+  if (!process.env.GEMINI_API_KEY) return res.json({ exercises: [] });
   const { type, title, detail, duration } = req.body;
   const bw = Object.values(db.weight || {}).at(-1) || 75;
   const lifts = db.lifts || [];
@@ -889,12 +906,15 @@ app.post("/plan/session-exercises", async (req, res) => {
   ).join('\n');
 
   const peaks = musclePeaksFromLifts(lifts);
-  const currentFatigue = computeCurrentFatigueScores(lifts, peaks);
+  const currentFatigue = computeStructuralFatigue(lifts, peaks, db.soreness || []);
+  const metabolicFatigue = computeMetabolicFatigue(lifts, (db.nutrition || {})[day()]?.carbs || 0);
+  const cnsFatigue = computeCNSFatigue(lifts);
   const fatigueStr = Object.entries(currentFatigue).filter(([,v])=>v>15).sort(([,a],[,b])=>b-a)
     .map(([m,v])=>`${m} ${v}%`).join(', ') || 'none';
   const avoidMuscles = Object.entries(currentFatigue).filter(([,v])=>v>65).map(([m])=>m);
   const activeInjuries = (db.injuries || []).filter(i => !i.resolved);
-  const injuryStr = activeInjuries.length ? activeInjuries.map(i => `${i.area} (${i.severity}${i.note ? ': ' + i.note : ''})`).join(', ') : '';
+  const offlineMuscles = activeInjuries.flatMap(i => i.muscles || []);
+  const injuryStr = activeInjuries.length ? activeInjuries.map(i => `${i.area} (${i.severity}${i.muscles?.length ? ' — blocks: ' + i.muscles.join(', ') : ''}${i.note ? ': ' + i.note : ''})`).join(', ') : '';
 
   const travelMode = db.profile?.travelMode || false;
   const maturity = computeDataMaturity(lifts);
@@ -910,10 +930,13 @@ Session type: ${title} (${type})
 Guidance: ${detail}
 Athlete: ${bw}kg bodyweight
 
-CURRENT MUSCLE FATIGUE (avoid loading muscles above 65%):
+STRUCTURAL FATIGUE — per muscle (avoid loading above 65%):
 ${fatigueStr}
-${avoidMuscles.length ? `AVOID exercises that primarily stress: ${avoidMuscles.join(', ')}` : 'All muscle groups available.'}
-${injuryStr ? `ACTIVE INJURIES/NIGGLES — modify or avoid exercises stressing these areas: ${injuryStr}` : ''}
+${avoidMuscles.length ? `AVOID exercises primarily stressing: ${avoidMuscles.join(', ')}` : 'All muscle groups available.'}
+METABOLIC FATIGUE: ${metabolicFatigue}% — ${metabolicFatigue > 60 ? 'reduce session volume, glycogen depleted' : metabolicFatigue > 30 ? 'moderate volume only' : 'good energy availability'}
+CNS FATIGUE: ${cnsFatigue}% — ${cnsFatigue > 70 ? 'AVOID heavy compound lifts — use machine/isolation substitutes' : cnsFatigue > 40 ? 'limit heavy compound sets to 2-3' : 'full compound loading available'}
+${offlineMuscles.length ? `OFFLINE MUSCLES (injury — do not load at all): ${offlineMuscles.join(', ')}` : ''}
+${injuryStr ? `ACTIVE INJURIES/NIGGLES: ${injuryStr}` : ''}
 
 PRE-COMPUTED PROGRESSIVE OVERLOAD TARGETS:
 ${progressionCtx || 'No history yet — use reasonable beginner/intermediate weights'}
@@ -937,15 +960,9 @@ Return ONLY valid JSON:
 }
 Set types: W=warm-up, N=normal, D=drop, F=failure. Include the note field per exercise.`;
 
-  try {
-    const r = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "Authorization": "Bearer " + key },
-      body: JSON.stringify({ model: "llama-3.3-70b-versatile", max_tokens: 1600, response_format: { type: "json_object" }, messages: [{ role: "user", content: prompt }] }),
-    });
-    const data = await r.json();
-    res.json(JSON.parse(data.choices?.[0]?.message?.content || '{"exercises":[]}'));
-  } catch (e) { res.json({ exercises: [] }); }
+  const result = await callGemini({ messages: [{ role: "user", content: prompt }], maxTokens: 1600, jsonMode: true });
+  if (!result.ok) return res.json({ exercises: [] });
+  try { res.json(JSON.parse(result.content)); } catch { res.json({ exercises: [] }); }
 });
 
 app.get('/progression/:exercise', async (req, res) => {
@@ -955,23 +972,15 @@ app.get('/progression/:exercise', async (req, res) => {
 });
 
 app.get("/coach/:exercise", async (req, res) => {
-  const key = process.env.GROQ_API_KEY;
-  if (!key) return res.json({ note: null });
+  if (!process.env.GEMINI_API_KEY) return res.json({ note: null });
   const ex = decodeURIComponent(req.params.exercise);
   const sets = (db.lifts || []).filter(l => l.exercise === ex).slice(-30);
   const byDate = {};
   for (const l of sets) { if (!byDate[l.date]) byDate[l.date] = []; byDate[l.date].push(l); }
   const ctx = Object.keys(byDate).sort().slice(-5).map(d => `${d}: ${byDate[d].map(s => `${s.kg}kg×${s.reps}`).join(', ')}`).join('; ');
   const prompt = `One specific coaching cue for ${ex}. History: ${ctx || 'no data'}. Max 14 words. Evidence-based, specific to their numbers. No intro words.`;
-  try {
-    const r = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "Authorization": "Bearer " + key },
-      body: JSON.stringify({ model: "llama-3.3-70b-versatile", max_tokens: 60, messages: [{ role: "user", content: prompt }] }),
-    });
-    const data = await r.json();
-    res.json({ note: data.choices?.[0]?.message?.content?.trim() || null });
-  } catch (e) { res.json({ note: null }); }
+  const result = await callGemini({ messages: [{ role: "user", content: prompt }], maxTokens: 60 });
+  res.json({ note: result.ok ? result.content.trim() : null });
 });
 
 app.post("/import/hevy", async (req, res) => {
@@ -1011,9 +1020,9 @@ app.get("/plan/week", async (req, res) => {
   res.json(db.weeklyPlan || null);
 });
 
-// Deterministic fallback text (no LLM): plain but accurate, used if GROQ_API_KEY
+// Deterministic fallback text (no LLM): plain but accurate, used if GEMINI_API_KEY
 // is unset or the text-writing call fails, so the plan itself never depends on
-// Groq being available or rate-limited.
+// Gemini being available or rate-limited.
 function templateSessionText(day) {
   if (day.type === 'lift') {
     const title = day.targetMuscles.slice(0, 2).map(m => m.replace('-', ' ')).join(' & ');
@@ -1064,9 +1073,8 @@ app.post("/plan/week", async (req, res) => {
     generatedAt: new Date().toISOString(),
   });
 
-  const key = process.env.GROQ_API_KEY;
-  if (!key) {
-    const plan = buildPlan(structure.map(templateSessionText), 'A week built around what your fatigue data can actually absorb.', 'No Groq key configured — this plan is template-generated, not LLM-written.');
+  if (!process.env.GEMINI_API_KEY) {
+    const plan = buildPlan(structure.map(templateSessionText), 'A week built around what your fatigue data can actually absorb.', 'No Gemini key configured — this plan is template-generated, not LLM-written.');
     db.weeklyPlan = plan;
     await save();
     return res.json(plan);
@@ -1081,34 +1089,14 @@ ${JSON.stringify(structure.map(d => ({ label: d.label, type: d.type, targetMuscl
 
 Return ONLY valid JSON: { "focus": "...", "notes": "...", "days": [{ "title": "...", "detail": "..." }, ... one per day, same order as given] }`;
 
-  try {
-    const r = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "Authorization": "Bearer " + key },
-      body: JSON.stringify({
-        model: "llama-3.3-70b-versatile",
-        max_tokens: 700,
-        response_format: { type: "json_object" },
-        messages: [{ role: "user", content: writerPrompt }],
-      }),
-    });
-    const data = await r.json();
-    const content = data.choices?.[0]?.message?.content;
-    let written;
-    try { written = JSON.parse(content); } catch { written = null; }
-    const dayTexts = (written?.days?.length === structure.length)
-      ? written.days
-      : structure.map(templateSessionText);
-    const plan = buildPlan(dayTexts, written?.focus || 'A week built around what your fatigue data can actually absorb.', written?.notes || '');
-    db.weeklyPlan = plan;
-    await save();
-    res.json(plan);
-  } catch (e) {
-    const plan = buildPlan(structure.map(templateSessionText), 'A week built around what your fatigue data can actually absorb.', '');
-    db.weeklyPlan = plan;
-    await save();
-    res.json(plan);
-  }
+  const result = await callGemini({ messages: [{ role: "user", content: writerPrompt }], maxTokens: 700, jsonMode: true });
+  let written = null;
+  if (result.ok) { try { written = JSON.parse(result.content); } catch { written = null; } }
+  const dayTexts = (written?.days?.length === structure.length) ? written.days : structure.map(templateSessionText);
+  const plan = buildPlan(dayTexts, written?.focus || 'A week built around what your fatigue data can actually absorb.', written?.notes || '');
+  db.weeklyPlan = plan;
+  await save();
+  res.json(plan);
 });
 
 // ---------- Soreness logging + personal sensitivity ----------
@@ -1140,11 +1128,11 @@ app.get('/injuries', async (req, res) => {
 });
 
 app.post('/injury', async (req, res) => {
-  const { area, severity, note } = req.body;
+  const { area, severity, note, muscles } = req.body;
   if (!area) return res.status(400).json({ error: 'area required' });
   db.injuries = db.injuries || [];
   const id = Date.now();
-  db.injuries.push({ id, ts: id, area, severity: severity || 'mild', note: note || '', resolved: false });
+  db.injuries.push({ id, ts: id, area, severity: severity || 'mild', note: note || '', muscles: Array.isArray(muscles) ? muscles : [], resolved: false });
   await save();
   res.json({ ok: true, id });
 });
@@ -1243,11 +1231,10 @@ app.post('/session/complete', async (req, res) => {
     await save();
 
     let atlasSummary = null;
-    if (process.env.GROQ_API_KEY && sets.length > 0) {
-      try {
-        const topSets = sets.slice(0, 8).map(s => `${s.exercise}: ${s.kg}kg × ${s.reps}${s.rpe ? ' @ RPE ' + s.rpe : ''}`).join('\n');
-        const profile = db.profile || {};
-        const prompt = `You are Atlas, a training analyst for Press — a personal health app. You write post-session analysis. Precise, science-grounded, a touch cold. Gender-ambiguous (never use he/she/him/her). One short paragraph, 2-3 sentences max.
+    if (process.env.GEMINI_API_KEY && sets.length > 0) {
+      const topSets = sets.slice(0, 8).map(s => `${s.exercise}: ${s.kg}kg × ${s.reps}${s.rpe ? ' @ RPE ' + s.rpe : ''}`).join('\n');
+      const profile = db.profile || {};
+      const prompt = `You are Atlas, a training analyst for Press — a personal health app. You write post-session analysis. Precise, science-grounded, a touch cold. Gender-ambiguous (never use he/she/him/her). One short paragraph, 2-3 sentences max.
 
 Session: ${workout.name || 'Workout'} on ${workout.date}
 Sets logged:
@@ -1258,19 +1245,8 @@ Training age: ${profile.trainingAge || 'unknown'}
 
 Write a brief post-session note highlighting what the numbers say — mechanical fatigue accumulation, any standout load, what to prioritise next. No bullet points. No greetings.`;
 
-        const r = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.GROQ_API_KEY}` },
-          body: JSON.stringify({
-            model: 'llama-3.3-70b-versatile',
-            messages: [{ role: 'user', content: prompt }],
-            temperature: 0.7,
-            max_tokens: 180,
-          }),
-        });
-        const d = await r.json();
-        atlasSummary = d.choices?.[0]?.message?.content?.trim() || null;
-      } catch (_) {}
+      const result = await callGemini({ messages: [{ role: 'user', content: prompt }], maxTokens: 180, temperature: 0.7 });
+      atlasSummary = result.ok ? result.content.trim() : null;
     }
 
     res.json({ ok: true, setsLogged: sets.length, atlasSummary });
@@ -1336,7 +1312,7 @@ app.post('/food/barcode', async (req, res) => {
 
 // ---------- Morning briefing ----------
 async function generateMorningBriefing(db) {
-  if (!process.env.GROQ_API_KEY) return null;
+  if (!process.env.GEMINI_API_KEY) return null;
 
   const today = new Date().toISOString().slice(0, 10);
   const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
@@ -1357,21 +1333,32 @@ async function generateMorningBriefing(db) {
   const fatigue = computeCurrentFatigueScores(db.lifts || [], musclePeaksFromLifts(db.lifts || []));
   const topFatigued = Object.entries(fatigue).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([m, v]) => `${m} ${Math.round(v)}%`).join(', ');
 
-  const prompt = `You are generating a morning health briefing for a personal health app called Press. The briefing has two voices:
+  const briefingFatigue = computeStructuralFatigue(db.lifts || [], musclePeaksFromLifts(db.lifts || []), db.soreness || []);
+  const briefingMetabolic = computeMetabolicFatigue(db.lifts || [], (db.nutrition || {})[today]?.carbs || 0);
+  const briefingCNS = computeCNSFatigue(db.lifts || []);
+  const macroTargets = db.macroTargets || { protein: 160, calories: 2400 };
+  const nutritionNotLogged = !totalCalories && !totalProtein;
+
+  const prompt = `You are generating a morning health briefing for a personal health app called Press. The briefing has three voices:
 
 V — the health editor. Cool, authoritative, deliberate. Treats health data like breaking news. No gender, no backstory, just V. Always writes something even on rest days — rest has a story too. Editorial newspaper voice, punchy and precise.
 
 Atlas — the training analyst. Methodical, precise, science-grounded. Only speaks on training days or to preview tomorrow's session on rest days.
+
+Fuel — the nutrition editor. Precise, no-nonsense. Prescribes today's nutrition based on training demands and recovery needs. One short paragraph.
 
 The user's data:
 - Sleep: ${sleepH ? sleepH + 'h' : 'not logged'}
 - HRV: ${hrv ? hrv + 'ms' : 'not logged'}
 - RHR: ${rhr ? rhr + 'bpm' : 'not logged'}
 - Yesterday's workout: ${yesterdayWorkout ? yesterdayWorkout.name + ' — ' + yesterdayLifts.length + ' sets logged' : 'rest day'}
-- Nutrition: ${totalCalories ? totalCalories + 'kcal, ' + totalProtein + 'g protein' : 'not logged'}
-- Top fatigued muscles: ${topFatigued || 'none'}
+- Yesterday's nutrition: ${totalCalories ? totalCalories + 'kcal, ' + totalProtein + 'g protein' : 'NOT LOGGED — flag this'}
+- Structural fatigue: ${topFatigued || 'none'}
+- Metabolic fatigue: ${briefingMetabolic}%
+- CNS fatigue: ${briefingCNS}%
 - Goal: ${db.profile?.goal || 'build muscle'}
-- Name: ${db.profile?.name || 'Athlete'}
+- Protein target: ${macroTargets.protein}g/day, Calorie target: ${macroTargets.calories}kcal/day
+- Supplements: ${(db.supplements || []).map(s => s.name).join(', ') || 'none logged'}
 
 Return ONLY valid JSON in this exact structure:
 {
@@ -1379,31 +1366,75 @@ Return ONLY valid JSON in this exact structure:
   "subheading": "One sharp sentence expanding on the headline. Reads like a magazine deck.",
   "bullets": {
     "wins": ["win 1", "win 2"],
-    "misses": ["miss 1"],
+    "misses": ["miss 1${nutritionNotLogged ? ', nutrition not logged yesterday' : ''}"],
     "numbers": ["8.2h sleep", "HRV 68ms", "3,200kcal"]
   },
   "v": "2-3 sentences of flowing editorial prose from V. Newspaper voice, no bullet points. Contextualises the data as a narrative.",
   "atlas": "1-2 sentences from Atlas on training. Null if true rest day with no training context.",
+  "fuel": "Fuel's prescription for today. Based on today's training demands, metabolic state (${briefingMetabolic}% depleted), and goal. Specific: name protein sources, carb timing around training, total targets. 2-3 sentences max.",
   "notification": "The headline rephrased for a push notification — under 60 chars, punchy"
 }`;
 
-  const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.GROQ_API_KEY}` },
-    body: JSON.stringify({
-      model: 'llama-3.3-70b-versatile',
-      messages: [{ role: 'user', content: prompt }],
-      response_format: { type: 'json_object' },
-      temperature: 0.8,
-      max_tokens: 600,
-    }),
-  });
-  const data = await response.json();
-  const briefing = JSON.parse(data.choices?.[0]?.message?.content || '{}');
+  const result = await callGemini({ messages: [{ role: 'user', content: prompt }], maxTokens: 600, jsonMode: true, temperature: 0.8 });
+  if (!result.ok) { console.error('Gemini briefing error:', result.status, JSON.stringify(result.error)); return null; }
+  let briefing;
+  try { briefing = JSON.parse(result.content); } catch { return null; }
   briefing.generatedAt = new Date().toISOString();
   briefing.date = today;
   return briefing;
 }
+
+async function generateNewscast(db, period) {
+  if (!process.env.GEMINI_API_KEY) return null;
+  const today = new Date().toISOString().slice(0, 10);
+  const todayNutrition = (db.nutritionLog || []).filter(n => n.date === today);
+  const totalCals = todayNutrition.reduce((s, n) => s + (n.calories || 0), 0);
+  const totalProtein = todayNutrition.reduce((s, n) => s + (n.protein || 0), 0);
+  const todayWorkout = (db.workouts || []).find(w => w.date === today);
+  const nutritionLogged = todayNutrition.length > 0;
+  const macroTargets = db.macroTargets || { calories: 2400, protein: 160 };
+  const timeLabel = period === 'afternoon' ? 'Mid-Day Update' : "Tonight's Report";
+
+  const prompt = `You are generating a ${timeLabel} for a personal health app called Press. Same editorial voice as the morning edition — V, cool newspaper prose, no hand-holding.
+
+Today's data so far:
+- Workout: ${todayWorkout ? todayWorkout.name + ' — completed' : 'not yet logged'}
+- Nutrition logged: ${nutritionLogged ? `${totalCals}kcal, ${totalProtein}g protein (target: ${macroTargets.calories}kcal, ${macroTargets.protein}g protein)` : 'NOTHING LOGGED'}
+- Time of day: ${period === 'afternoon' ? 'mid-afternoon' : 'evening'}
+
+Return ONLY valid JSON:
+{
+  "headline": "HEADLINE IN CAPS — MAX 55 CHARS",
+  "subheading": "One sharp sentence.",
+  "v": "${period === 'afternoon' ? 'Check-in tone — how is the day building. 2-3 sentences.' : 'Closing note — what the day amounted to. 2-3 sentences.'}${!nutritionLogged ? ' Address the missing nutrition log directly and briefly — frame it as a data gap, not a nag.' : ''}",
+  "nutritionNote": ${nutritionLogged ? 'null' : '"A single direct sentence prompting the user to log their nutrition today."'}
+}`;
+
+  const result = await callGemini({ messages: [{ role: 'user', content: prompt }], maxTokens: 300, jsonMode: true, temperature: 0.75 });
+  if (!result.ok) { console.error('Gemini newscast error:', result.status, JSON.stringify(result.error)); return null; }
+  let newscast;
+  try { newscast = JSON.parse(result.content); } catch { return null; }
+  newscast.period = period;
+  newscast.generatedAt = new Date().toISOString();
+  newscast.date = today;
+  return newscast;
+}
+
+app.get('/newscast', async (req, res) => {
+  try {
+    const period = req.query.period === 'night' ? 'night' : 'afternoon';
+    const cached = db[`${period}Newscast`];
+    const twoHoursAgo = Date.now() - 2 * 3600 * 1000;
+    if (cached?.date === new Date().toISOString().slice(0, 10) && new Date(cached.generatedAt).getTime() > twoHoursAgo) {
+      return res.json({ newscast: cached });
+    }
+    const newscast = await generateNewscast(db, period);
+    if (!newscast) return res.json({ newscast: null });
+    db[`${period}Newscast`] = newscast;
+    await save();
+    res.json({ newscast });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
 
 app.get('/briefing', async (req, res) => {
   res.json({ briefing: db.todayBriefing || null });
@@ -1412,7 +1443,7 @@ app.get('/briefing', async (req, res) => {
 app.post('/briefing/generate', async (req, res) => {
   try {
     const briefing = await generateMorningBriefing(db);
-    if (!briefing) return res.status(400).json({ error: 'GROQ_API_KEY not configured' });
+    if (!briefing) return res.status(400).json({ error: 'GEMINI_API_KEY not configured or Gemini request failed' });
     db.todayBriefing = briefing;
     await save();
     res.json({ briefing });
