@@ -20,8 +20,8 @@ const MUSCLE_GROUPS = {
   push: ['chest', 'front-delt', 'triceps'],
   pull: ['lats', 'rhomboids', 'traps', 'rear-delt', 'biceps', 'forearms'],
   legs: ['quads', 'hamstrings', 'glutes', 'calves', 'adductors'],
+  core: ['abs', 'obliques', 'erectors', 'neck'],
 };
-const CORE_MUSCLES = ['abs', 'obliques', 'erectors', 'neck'];
 
 const FATIGUE_CEILING = 65; // ethos: don't load a muscle already this fatigued
 
@@ -150,4 +150,4 @@ function generateWeeklyStructure({ weekDates, currentFatigue, weekMetabolic, wee
   });
 }
 
-module.exports = { generateWeeklyStructure, ALL_MUSCLES, MUSCLE_GROUPS, CORE_MUSCLES, FATIGUE_CEILING };
+module.exports = { generateWeeklyStructure, ALL_MUSCLES, MUSCLE_GROUPS, FATIGUE_CEILING };

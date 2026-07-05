@@ -65,7 +65,9 @@ const RECOVERY_H = {
   traps: 48, erectors: 72, abs: 36, obliques: 36,
   'front-delt': 48, 'rear-delt': 48, forearms: 36, neck: 24,
 };
-function computeStructuralFatigue(lifts, musclePeaks, soreness = []) {
+const avgFE = (a) => (a.length ? a.reduce((x, y) => x + y, 0) / a.length : null);
+
+function computeStructuralFatigue(lifts, musclePeaks, soreness = [], sensitivity = {}) {
   if (!lifts?.length) return {};
   const now = Date.now();
   const scores = {};
@@ -91,9 +93,47 @@ function computeStructuralFatigue(lifts, musclePeaks, soreness = []) {
   const out = {};
   Object.entries(scores).forEach(([m, v]) => {
     const soreAdj = sorenessMap[m] ? 1 + sorenessMap[m] / 20 : 1;
-    out[m] = Math.min(100, Math.round(v / (musclePeaks?.[m] || 2000) * 100 * soreAdj));
+    const sensAdj = sensitivity[m] || 1.0;
+    out[m] = Math.min(100, Math.round(v / (musclePeaks?.[m] || 2000) * 100 * soreAdj * sensAdj));
   });
   return out;
+}
+
+// Acute:chronic workload ratio (Gabbett/Hulin) — mirrors functions/index.js computeACWR.
+function computeACWR(lifts) {
+  const now = Date.now();
+  let acute = 0, chronic = 0;
+  (lifts || []).forEach(l => {
+    const daysAgo = (now - new Date(l.start || l.date).getTime()) / 86_400_000;
+    if (daysAgo < 0 || daysAgo > 28) return;
+    const load = (l.kg || 0) * (l.reps || 1);
+    chronic += load;
+    if (daysAgo <= 7) acute += load;
+  });
+  const chronicWeekly = chronic / 4;
+  return chronicWeekly < 1 ? null : acute / chronicWeekly;
+}
+
+// Per-exercise estimated-1RM (Epley) trend — mirrors functions/index.js computePerformanceTrend.
+function computePerformanceTrend(lifts) {
+  const byEx = {};
+  (lifts || []).forEach(l => {
+    if (!l.exercise || !l.kg || !l.reps) return;
+    const daysAgo = (Date.now() - new Date(l.start || l.date).getTime()) / 86_400_000;
+    if (daysAgo < 0 || daysAgo > 21) return;
+    const date = l.date || l.start;
+    const e1rm = l.kg * (1 + l.reps / 30);
+    (byEx[l.exercise] = byEx[l.exercise] || {})[date] = Math.max((byEx[l.exercise] || {})[date] || 0, e1rm);
+  });
+  const decrements = [];
+  Object.values(byEx).forEach(byDate => {
+    const dates = Object.keys(byDate).sort();
+    if (dates.length < 4) return;
+    const recentAvg = avgFE(dates.slice(-2).map(d => byDate[d]));
+    const priorAvg = avgFE(dates.slice(-4, -2).map(d => byDate[d]));
+    if (priorAvg > 0) decrements.push((priorAvg - recentAvg) / priorAvg);
+  });
+  return decrements.length ? avgFE(decrements) : null;
 }
 
 function computeMetabolicFatigue(lifts, carbsToday = 0) {
@@ -107,10 +147,20 @@ function computeMetabolicFatigue(lifts, carbsToday = 0) {
     volume += (l.kg || 0) * (l.reps || 1) * decay;
   });
   const carbReduction = Math.min(40, Math.floor(carbsToday / 50) * 10);
-  return Math.max(0, Math.min(100, Math.round(volume / 500)) - carbReduction);
+  const acuteScore = Math.max(0, Math.min(100, Math.round(volume / 500)) - carbReduction);
+
+  const acwr = computeACWR(lifts);
+  const acwrScore = acwr == null ? null : Math.max(0, Math.min(100, Math.round((acwr - 0.8) / (1.8 - 0.8) * 100)));
+
+  const trend = computePerformanceTrend(lifts);
+  const trendScore = trend == null ? null : Math.max(0, Math.min(100, Math.round(trend * 500)));
+
+  const parts = [[acuteScore, 0.5], ...(acwrScore != null ? [[acwrScore, 0.3]] : []), ...(trendScore != null ? [[trendScore, 0.2]] : [])];
+  const totalWeight = parts.reduce((s, [, w]) => s + w, 0);
+  return Math.round(parts.reduce((s, [v, w]) => s + v * w, 0) / totalWeight);
 }
 
-function computeCNSFatigue(lifts) {
+function computeCNSFatigue(lifts, sensitivity = 1.0, recoveryScore = null) {
   const now = Date.now();
   let score = 0;
   (lifts || []).forEach(l => {
@@ -122,11 +172,16 @@ function computeCNSFatigue(lifts) {
     const decay = Math.exp(-0.693 * hoursAgo / 36);
     score += (l.kg || 0) * (l.reps || 1) * decay;
   });
-  return Math.min(100, Math.round(score / 5000 * 100));
+  let out = Math.min(100, Math.round(score / 5000 * 100 * sensitivity));
+  if (recoveryScore != null) {
+    const recoveryFactor = Math.max(0.7, Math.min(1.4, 1 + (55 - recoveryScore) / 110));
+    out = Math.min(100, Math.round(out * recoveryFactor));
+  }
+  return out;
 }
 
-function computeFatigue(lifts, musclePeaks, soreness) {
-  return computeStructuralFatigue(lifts, musclePeaks, soreness);
+function computeFatigue(lifts, musclePeaks, soreness, sensitivity) {
+  return computeStructuralFatigue(lifts, musclePeaks, soreness, sensitivity);
 }
 
 // ── CSS ─────────────────────────────────────────────────────────────────────
@@ -566,18 +621,7 @@ function S1({ s, briefing, onShowBriefing, onShowAfternoon, onShowNight, afterno
     return streak;
   }, [s?.workouts]);
 
-  const waterStreak = useMemo(() => {
-    const target = s?.profile?.waterTarget || 7;
-    let streak = 0; const d = new Date();
-    d.setDate(d.getDate() - 1);
-    while (true) {
-      const k = d.toISOString().slice(0, 10);
-      const v = (s?.water || []).find?.(w => w.date === k)?.value ?? (s?.water?.[k]);
-      if (!v || v < target) break;
-      streak++; d.setDate(d.getDate() - 1);
-    }
-    return streak;
-  }, [s?.water, s?.profile?.waterTarget]);
+  const waterStreak = s?.waterStats?.streak ?? 0;
 
   const sleepStreak = useMemo(() => {
     const target = s?.sleepTarget || 8;
@@ -595,7 +639,7 @@ function S1({ s, briefing, onShowBriefing, onShowAfternoon, onShowNight, afterno
   const sleep = today.sleepH;
   const sleepEff = today.sleepEff;
   const sleepDebt = s?.sleepDebtH ?? 0;
-  const fatigue = useMemo(() => computeFatigue(s?.lifts, s?.musclePeaks, s?.soreness), [s?.lifts, s?.soreness]);
+  const fatigue = useMemo(() => computeFatigue(s?.lifts, s?.musclePeaks, s?.soreness, s?.muscleSensitivity), [s?.lifts, s?.soreness, s?.muscleSensitivity]);
   const fatigueVals = Object.values(fatigue);
   const overallFatigue = fatigueVals.length ? Math.round(fatigueVals.reduce((a,b) => a+b, 0) / fatigueVals.length) : null;
   const highFatigueMuscles = Object.values(fatigue).filter(v => v > 70).length;
@@ -1025,7 +1069,7 @@ function ExHistoryChart({ name, lifts }) {
   );
 }
 
-function WorkoutLogger({ planDay, lifts, onClose, refresh }) {
+function WorkoutLogger({ planDay, lifts, customExercises, onClose, refresh }) {
   const [exercises, setExercises] = useState([]);
   const [loading, setLoading] = useState(!!planDay);
   const [expandedEx, setExpandedEx] = useState(null);
@@ -1038,12 +1082,14 @@ function WorkoutLogger({ planDay, lifts, onClose, refresh }) {
   const [rest, setRest] = useState(null);
   const [saving, setSaving] = useState(false);
   const [summary, setSummary] = useState(null);
+  const [newCustomExercises, setNewCustomExercises] = useState([]);
   const inputRef = useRef();
 
   const allExercises = useMemo(() => {
     const fromLifts = [...new Set((lifts || []).map(l => l.exercise).filter(Boolean))];
-    return [...new Set([...fromLifts, ...BASE_EXERCISES])].sort();
-  }, [lifts]);
+    const fromCustom = (customExercises || []).map(ce => ce.name).filter(Boolean);
+    return [...new Set([...fromLifts, ...fromCustom, ...BASE_EXERCISES])].sort();
+  }, [lifts, customExercises]);
 
   const prevData = useMemo(() => {
     const byEx = {};
@@ -1121,6 +1167,9 @@ function WorkoutLogger({ planDay, lifts, onClose, refresh }) {
   const addExercise = name => {
     if (!name.trim()) return;
     const key = name.toLowerCase().trim();
+    if (!allExercises.includes(key)) {
+      setNewCustomExercises(p => p.some(ce => ce.name === key) ? p : [...p, { name: key }]);
+    }
     const prev = prevData[key];
     const sets = prev?.sets?.map(s => ({ type: 'N', kg: String(s.kg || ''), reps: String(s.reps || ''), rpe: '', done: false }))
       || [{ type: 'N', kg: '', reps: '', rpe: '', done: false }];
@@ -1218,7 +1267,7 @@ function WorkoutLogger({ planDay, lifts, onClose, refresh }) {
     try {
       const r = await api('session/complete', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ workout: { name: planDay?.sessions?.[0]?.title || 'Session', date: today }, sets: allSets }),
+        body: JSON.stringify({ workout: { name: planDay?.sessions?.[0]?.title || 'Session', date: today }, sets: allSets, customExercises: newCustomExercises }),
       });
       await api('summary').then(refresh);
       setSummary({
@@ -2333,6 +2382,18 @@ function S4({ s, refresh }) {
         })}
       </div>
 
+      {s?.hydrationCurve?.length > 1 && (
+        <div className="fade" style={{ flexShrink: 0, marginTop: 2 }}>
+          <div className="chart-wrap" style={{ flex: '0 0 44px', position: 'relative' }}>
+            <AreaChart data={s.hydrationCurve} color="var(--navy)" id="hydration" />
+          </div>
+          <div className="sc-delta" style={{ color: 'var(--dim)', marginTop: 2 }}>
+            Hydration now: {s.hydrationNow ?? '—'}%
+            {s?.waterStats ? ` · ${s.waterStats.streak}d streak · ${s.waterStats.hitRate}% hit rate` : ''}
+          </div>
+        </div>
+      )}
+
       <div className="fade" style={{ flex: 1, minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
         <div className="rule-thin" />
 
@@ -2582,9 +2643,9 @@ function S5({ s, refresh }) {
   const [niggleNote, setNiggleNote] = useState('');
   const [niggleLogging, setNiggleLogging] = useState(false);
 
-  const fatigue = useMemo(() => computeFatigue(s?.lifts, s?.musclePeaks, s?.soreness), [s?.lifts, s?.musclePeaks, s?.soreness]);
+  const fatigue = useMemo(() => computeFatigue(s?.lifts, s?.musclePeaks, s?.soreness, s?.muscleSensitivity), [s?.lifts, s?.musclePeaks, s?.soreness, s?.muscleSensitivity]);
   const metabolic = useMemo(() => computeMetabolicFatigue(s?.lifts, s?.nutritionToday?.carbs || 0), [s?.lifts, s?.nutritionToday?.carbs]);
-  const cns = useMemo(() => computeCNSFatigue(s?.lifts), [s?.lifts]);
+  const cns = useMemo(() => computeCNSFatigue(s?.lifts, s?.cnsSensitivity, s?.today?.recovery), [s?.lifts, s?.cnsSensitivity, s?.today?.recovery]);
   const fatigueVals = Object.values(fatigue);
   const overallFatigue = fatigueVals.length ? Math.round(fatigueVals.reduce((a,b)=>a+b,0)/fatigueVals.length) : null;
   const sortedFatigue = Object.entries(fatigue).filter(([,v]) => v > 0).sort(([,a],[,b]) => b-a);
@@ -2897,6 +2958,31 @@ function S6({ s, onOpenSettings, refresh }) {
     setTogglingSupp('');
     refresh(null);
   };
+
+  const photos = s?.photosMeta || [];
+  const [photoNote, setPhotoNote] = useState('');
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const photoInputRef = useRef();
+
+  const handleAddPhoto = e => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    setUploadingPhoto(true);
+    const reader = new FileReader();
+    reader.onload = async () => {
+      await api('photos', { method: 'POST', body: JSON.stringify({ image: reader.result, note: photoNote }) });
+      setPhotoNote('');
+      setUploadingPhoto(false);
+      refresh(null);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const deletePhoto = async id => {
+    await api(`photos/${id}`, { method: 'DELETE' });
+    refresh(null);
+  };
   return (
     <section id="s6" style={{ display: 'flex', flexDirection: 'column' }}>
       <div className="fade" style={{ flexShrink: 0 }}>
@@ -2964,6 +3050,11 @@ function S6({ s, onOpenSettings, refresh }) {
             </div>
           ) : null;
         })()}
+        {s?.composition && (
+          <div className="pull" style={{ margin: '2px 0 14px' }}>
+            <strong>{s.composition.word}</strong> — {s.composition.note}
+          </div>
+        )}
         <div style={{ display: 'flex', gap: 12, marginBottom: 10 }}>
           <input className="prof-input" type="number" step="0.1" inputMode="decimal"
             placeholder="Weight kg" value={weightVal} onChange={e => setWeightVal(e.target.value)} style={{ flex: 1 }} />
@@ -3023,6 +3114,31 @@ function S6({ s, onOpenSettings, refresh }) {
           <button className="prof-btn solid" style={{ padding: '6px 14px' }}
             onClick={logMeasurement} disabled={!measureVal || savingMeasure}>
             {savingMeasure ? '…' : 'Log'}
+          </button>
+        </div>
+
+        <div className="rule-thin" style={{ margin: '16px 0' }} />
+        <div className="kicker" style={{ margin: '0 0 10px' }}>Progress Photos</div>
+        {photos.length > 0 && (
+          <div style={{ display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 8, marginBottom: 10 }}>
+            {photos.map(p => (
+              <div key={p.id} style={{ position: 'relative', flexShrink: 0, width: 84 }}>
+                <img src={p.url} alt={p.note || p.date} style={{ width: 84, height: 84, objectFit: 'cover', border: '1px solid var(--rule)', display: 'block' }} />
+                <div style={{ fontSize: 8, color: 'var(--dim)', marginTop: 2, fontFamily: "'JetBrains Mono',monospace" }}>{p.date}</div>
+                <button onClick={() => deletePhoto(p.id)}
+                  style={{ position: 'absolute', top: 2, right: 2, background: 'var(--ink)', color: 'var(--paper)', border: 'none', width: 16, height: 16, fontSize: 9, lineHeight: '16px', cursor: 'pointer', padding: 0 }}>
+                  ×
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <input className="prof-input" placeholder="Note (optional)" value={photoNote} onChange={e => setPhotoNote(e.target.value)} style={{ flex: 1 }} />
+          <input ref={photoInputRef} type="file" accept="image/*" capture="environment" style={{ display: 'none' }} onChange={handleAddPhoto} />
+          <button className="prof-btn solid" style={{ padding: '6px 14px' }}
+            disabled={uploadingPhoto} onClick={() => photoInputRef.current?.click()}>
+            {uploadingPhoto ? '…' : 'Add Photo'}
           </button>
         </div>
 
@@ -4181,6 +4297,7 @@ function App() {
         <WorkoutLogger
           planDay={loggerPlanDay}
           lifts={s?.lifts || []}
+          customExercises={s?.customExercises || []}
           onClose={() => setLoggerPlanDay(undefined)}
           refresh={setS}
         />
