@@ -250,11 +250,11 @@ function musclePeaksFromLifts(lifts) {
 
 // ---------- Firestore-backed state — per user ----------
 const DEFAULTS = () => ({
-  metrics: {}, workouts: [], water: {}, weight: {}, lifts: [], finance: [],
-  thoughts: [], nutrition: {}, nutritionLog: [], waterEvents: [], nwHistory: [],
+  metrics: {}, workouts: [], water: {}, weight: {}, lifts: [],
+  thoughts: [], nutrition: {}, nutritionLog: [], waterEvents: [],
   strava: null, weeklyPlan: null, soreness: [], muscleSensitivity: {}, cnsSensitivity: 1.0,
   injuries: [], measurements: [], supplements: [], supplementLog: [],
-  alcoholLog: [], photos: [], experiments: [],
+  alcoholLog: [], photos: [], experiments: [], customExercises: [],
   profile: { name: "George", heightCm: null, sex: null, waterTarget: 7,
     macroTargets: { calories: 2400, protein: 160, carbs: 250, fat: 75 }, macroMode: "manual" },
 });
@@ -759,11 +759,14 @@ app.get("/summary", async (req, res) => {
   // VO2 max + HRR series
   const vo2maxSeries = Object.keys(db.metrics).sort().filter(k => db.metrics[k].vo2max != null).slice(-14).map(k => ({ date: k, value: db.metrics[k].vo2max }));
   const hrrSeries = Object.keys(db.metrics).sort().filter(k => db.metrics[k].hrr_bpm != null).slice(-14).map(k => ({ date: k, value: db.metrics[k].hrr_bpm }));
-  // Photos (strip base64 for list view to keep payload small)
-  const photosMeta = (db.photos || []).slice(-20).map(p => ({ id: p.id, date: p.date, note: p.note }));
+  // Photos: metadata lives in Firestore, image bytes live in Cloud Storage — sign a
+  // fresh read URL per request since signed URLs cap out at 7 days.
+  const photosMeta = await Promise.all((db.photos || []).slice(-20).map(async p => ({
+    id: p.id, date: p.date, note: p.note, url: await signedPhotoUrl(p.path),
+  })));
   res.json({
     profile: db.profile, hydrationCurve, hydrationNow: hydrationCurve.at(-1) ?? null,
-    liftVolume, nwHistory: db.nwHistory || [],
+    liftVolume,
     today: { recovery, hrv: today.heart_rate_variability ?? null, rhr: today.resting_heart_rate ?? null, sleepH: today.sleep_hours ?? null, sleepEff: today.sleep_eff ?? null, steps: today.step_count ?? null },
     sleepTarget: sleep.target, sleepTargetLearned: sleep.learned,
     sleepDebtH: Math.round(sleepDebtH * 10) / 10,
@@ -777,7 +780,7 @@ app.get("/summary", async (req, res) => {
     weights, workouts: [...db.workouts].sort((a,b)=>(b.date||'').localeCompare(a.date||'')).slice(0,20), workoutsMonth: monthWk.length,
     water: lastN(db.water, 14), waterToday: db.water[day()] || 0,
     weeklyPlan: db.weeklyPlan || null,
-    lifts: [...db.lifts].sort((a,b)=>(b.date||'').localeCompare(a.date||'')).slice(0,200), finance: db.finance, thoughts: db.thoughts,
+    lifts: [...db.lifts].sort((a,b)=>(b.date||'').localeCompare(a.date||'')).slice(0,200), thoughts: db.thoughts,
     nutritionToday: (db.nutrition || {})[day()] || { protein: 0, carbs: 0, fat: 0, calories: 0 },
     nutrition14: Object.keys(db.nutrition || {}).sort().slice(-14).map(k => ({ date: k, ...(db.nutrition[k]) })),
     nutritionLog: (db.nutritionLog || []).filter(l => l.date === day()),
@@ -789,6 +792,7 @@ app.get("/summary", async (req, res) => {
     stravaConnected: !!db.strava?.refresh_token,
     soreness: (db.soreness || []).filter(e => Date.now() - e.ts < 5 * 24 * 3600000),
     muscleSensitivity: db.muscleSensitivity || {}, cnsSensitivity: db.cnsSensitivity || 1.0,
+    customExercises: db.customExercises || [],
     alcoholLastNight, alcoholLast7,
     vo2maxSeries, hrrSeries,
     measurements: (db.measurements || []).slice(-30),
@@ -875,15 +879,6 @@ app.post("/macro-auto", async (req, res) => {
   db.profile.macroTargets = { calories: cals, protein, carbs, fat }; db.profile.macroMode = "auto";
   await save(); res.json({ goal, targets: db.profile.macroTargets });
 });
-app.post("/finance", async (req, res) => {
-  db.finance.push({ date: day(), name: req.body.name, type: req.body.type, amount: req.body.amount });
-  const total = db.finance.reduce((a, e) => a + e.amount, 0);
-  db.nwHistory = db.nwHistory || []; const k = day();
-  const last = db.nwHistory.at(-1);
-  if (last && last.date === k) last.total = total; else db.nwHistory.push({ date: k, total });
-  await save(); res.json({ ok: true });
-});
-app.delete("/finance/:i", async (req, res) => { db.finance.splice(+req.params.i, 1); await save(); res.json({ ok: true }); });
 app.post("/thought", async (req, res) => { db.thoughts.push({ date: day(), text: req.body.text }); await save(); res.json({ ok: true }); });
 app.post("/workout/session", async (req, res) => {
   const { name, exercises, duration } = req.body;
@@ -1427,7 +1422,7 @@ async function generateMorningBriefing(db) {
   const briefingFatigue = fatigue;
   const briefingMetabolic = computeMetabolicFatigue(db.lifts || [], (db.nutrition || {})[today]?.carbs || 0);
   const briefingCNS = computeCNSFatigue(db.lifts || [], db.cnsSensitivity || 1.0, getRecoveryScore(db));
-  const macroTargets = db.macroTargets || { protein: 160, calories: 2400 };
+  const macroTargets = db.profile?.macroTargets || { protein: 160, calories: 2400 };
   const nutritionNotLogged = !totalCalories && !totalProtein;
 
   const prompt = `You are generating a morning health briefing for a personal health app called Press. The briefing has three voices:
@@ -1483,7 +1478,7 @@ async function generateNewscast(db, period) {
   const totalProtein = todayNutrition.reduce((s, n) => s + (n.protein || 0), 0);
   const todayWorkout = (db.workouts || []).find(w => w.date === today);
   const nutritionLogged = todayNutrition.length > 0;
-  const macroTargets = db.macroTargets || { calories: 2400, protein: 160 };
+  const macroTargets = db.profile?.macroTargets || { calories: 2400, protein: 160 };
   const timeLabel = period === 'afternoon' ? 'Mid-Day Update' : "Tonight's Report";
 
   const prompt = `You are generating a ${timeLabel} for a personal health app called Press. Same editorial voice as the morning edition — V, cool newspaper prose, no hand-holding.
@@ -1614,6 +1609,51 @@ app.post('/measurements', async (req, res) => {
   db.measurements.push({ id: Date.now(), date: day(), type, value: +value, unit: unit || 'cm', ts: Date.now() });
   db.measurements = db.measurements.slice(-500);
   await save();
+  res.json({ ok: true });
+});
+
+// ---------- Progress photos ----------
+// Images live in Cloud Storage, not Firestore (a doc has a 1MB cap and a photo
+// history would blow past it fast). Firestore only keeps {id, date, note, path};
+// read URLs are signed on demand since a 7-day signed URL is the practical max.
+async function signedPhotoUrl(path) {
+  try {
+    const [url] = await admin.storage().bucket().file(path).getSignedUrl({ action: 'read', expires: Date.now() + 7 * 24 * 3600 * 1000 });
+    return url;
+  } catch (e) {
+    console.error('[photos] signed URL failed:', e.message);
+    return null;
+  }
+}
+
+app.post('/photos', async (req, res) => {
+  const { image, note } = req.body;
+  if (!image) return res.status(400).json({ error: 'image required' });
+  const mimeMatch = image.match(/^data:(image\/\w+);base64,/);
+  const mimeType = mimeMatch ? mimeMatch[1] : 'image/jpeg';
+  const ext = mimeType.split('/')[1] || 'jpg';
+  const buffer = Buffer.from(image.replace(/^data:image\/\w+;base64,/, ''), 'base64');
+  const id = Date.now();
+  const path = `progress-photos/${req.uid}/${id}.${ext}`;
+  try {
+    await admin.storage().bucket().file(path).save(buffer, { metadata: { contentType: mimeType } });
+  } catch (e) {
+    return res.status(500).json({ error: 'upload failed: ' + e.message });
+  }
+  db.photos = db.photos || [];
+  db.photos.push({ id, date: day(), note: note || '', path });
+  db.photos = db.photos.slice(-200);
+  await save();
+  res.json({ ok: true, id, url: await signedPhotoUrl(path) });
+});
+
+app.delete('/photos/:id', async (req, res) => {
+  db.photos = db.photos || [];
+  const idx = db.photos.findIndex(p => String(p.id) === req.params.id);
+  if (idx === -1) return res.status(404).json({ error: 'not found' });
+  const [photo] = db.photos.splice(idx, 1);
+  await save();
+  try { await admin.storage().bucket().file(photo.path).delete(); } catch (e) { console.error('[photos] delete failed:', e.message); }
   res.json({ ok: true });
 });
 

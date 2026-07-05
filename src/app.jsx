@@ -621,18 +621,7 @@ function S1({ s, briefing, onShowBriefing, onShowAfternoon, onShowNight, afterno
     return streak;
   }, [s?.workouts]);
 
-  const waterStreak = useMemo(() => {
-    const target = s?.profile?.waterTarget || 7;
-    let streak = 0; const d = new Date();
-    d.setDate(d.getDate() - 1);
-    while (true) {
-      const k = d.toISOString().slice(0, 10);
-      const v = (s?.water || []).find?.(w => w.date === k)?.value ?? (s?.water?.[k]);
-      if (!v || v < target) break;
-      streak++; d.setDate(d.getDate() - 1);
-    }
-    return streak;
-  }, [s?.water, s?.profile?.waterTarget]);
+  const waterStreak = s?.waterStats?.streak ?? 0;
 
   const sleepStreak = useMemo(() => {
     const target = s?.sleepTarget || 8;
@@ -1080,7 +1069,7 @@ function ExHistoryChart({ name, lifts }) {
   );
 }
 
-function WorkoutLogger({ planDay, lifts, onClose, refresh }) {
+function WorkoutLogger({ planDay, lifts, customExercises, onClose, refresh }) {
   const [exercises, setExercises] = useState([]);
   const [loading, setLoading] = useState(!!planDay);
   const [expandedEx, setExpandedEx] = useState(null);
@@ -1093,12 +1082,14 @@ function WorkoutLogger({ planDay, lifts, onClose, refresh }) {
   const [rest, setRest] = useState(null);
   const [saving, setSaving] = useState(false);
   const [summary, setSummary] = useState(null);
+  const [newCustomExercises, setNewCustomExercises] = useState([]);
   const inputRef = useRef();
 
   const allExercises = useMemo(() => {
     const fromLifts = [...new Set((lifts || []).map(l => l.exercise).filter(Boolean))];
-    return [...new Set([...fromLifts, ...BASE_EXERCISES])].sort();
-  }, [lifts]);
+    const fromCustom = (customExercises || []).map(ce => ce.name).filter(Boolean);
+    return [...new Set([...fromLifts, ...fromCustom, ...BASE_EXERCISES])].sort();
+  }, [lifts, customExercises]);
 
   const prevData = useMemo(() => {
     const byEx = {};
@@ -1176,6 +1167,9 @@ function WorkoutLogger({ planDay, lifts, onClose, refresh }) {
   const addExercise = name => {
     if (!name.trim()) return;
     const key = name.toLowerCase().trim();
+    if (!allExercises.includes(key)) {
+      setNewCustomExercises(p => p.some(ce => ce.name === key) ? p : [...p, { name: key }]);
+    }
     const prev = prevData[key];
     const sets = prev?.sets?.map(s => ({ type: 'N', kg: String(s.kg || ''), reps: String(s.reps || ''), rpe: '', done: false }))
       || [{ type: 'N', kg: '', reps: '', rpe: '', done: false }];
@@ -1273,7 +1267,7 @@ function WorkoutLogger({ planDay, lifts, onClose, refresh }) {
     try {
       const r = await api('session/complete', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ workout: { name: planDay?.sessions?.[0]?.title || 'Session', date: today }, sets: allSets }),
+        body: JSON.stringify({ workout: { name: planDay?.sessions?.[0]?.title || 'Session', date: today }, sets: allSets, customExercises: newCustomExercises }),
       });
       await api('summary').then(refresh);
       setSummary({
@@ -2388,6 +2382,18 @@ function S4({ s, refresh }) {
         })}
       </div>
 
+      {s?.hydrationCurve?.length > 1 && (
+        <div className="fade" style={{ flexShrink: 0, marginTop: 2 }}>
+          <div className="chart-wrap" style={{ flex: '0 0 44px', position: 'relative' }}>
+            <AreaChart data={s.hydrationCurve} color="var(--navy)" id="hydration" />
+          </div>
+          <div className="sc-delta" style={{ color: 'var(--dim)', marginTop: 2 }}>
+            Hydration now: {s.hydrationNow ?? '—'}%
+            {s?.waterStats ? ` · ${s.waterStats.streak}d streak · ${s.waterStats.hitRate}% hit rate` : ''}
+          </div>
+        </div>
+      )}
+
       <div className="fade" style={{ flex: 1, minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
         <div className="rule-thin" />
 
@@ -2952,6 +2958,31 @@ function S6({ s, onOpenSettings, refresh }) {
     setTogglingSupp('');
     refresh(null);
   };
+
+  const photos = s?.photosMeta || [];
+  const [photoNote, setPhotoNote] = useState('');
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const photoInputRef = useRef();
+
+  const handleAddPhoto = e => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    setUploadingPhoto(true);
+    const reader = new FileReader();
+    reader.onload = async () => {
+      await api('photos', { method: 'POST', body: JSON.stringify({ image: reader.result, note: photoNote }) });
+      setPhotoNote('');
+      setUploadingPhoto(false);
+      refresh(null);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const deletePhoto = async id => {
+    await api(`photos/${id}`, { method: 'DELETE' });
+    refresh(null);
+  };
   return (
     <section id="s6" style={{ display: 'flex', flexDirection: 'column' }}>
       <div className="fade" style={{ flexShrink: 0 }}>
@@ -3019,6 +3050,11 @@ function S6({ s, onOpenSettings, refresh }) {
             </div>
           ) : null;
         })()}
+        {s?.composition && (
+          <div className="pull" style={{ margin: '2px 0 14px' }}>
+            <strong>{s.composition.word}</strong> — {s.composition.note}
+          </div>
+        )}
         <div style={{ display: 'flex', gap: 12, marginBottom: 10 }}>
           <input className="prof-input" type="number" step="0.1" inputMode="decimal"
             placeholder="Weight kg" value={weightVal} onChange={e => setWeightVal(e.target.value)} style={{ flex: 1 }} />
@@ -3078,6 +3114,31 @@ function S6({ s, onOpenSettings, refresh }) {
           <button className="prof-btn solid" style={{ padding: '6px 14px' }}
             onClick={logMeasurement} disabled={!measureVal || savingMeasure}>
             {savingMeasure ? '…' : 'Log'}
+          </button>
+        </div>
+
+        <div className="rule-thin" style={{ margin: '16px 0' }} />
+        <div className="kicker" style={{ margin: '0 0 10px' }}>Progress Photos</div>
+        {photos.length > 0 && (
+          <div style={{ display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 8, marginBottom: 10 }}>
+            {photos.map(p => (
+              <div key={p.id} style={{ position: 'relative', flexShrink: 0, width: 84 }}>
+                <img src={p.url} alt={p.note || p.date} style={{ width: 84, height: 84, objectFit: 'cover', border: '1px solid var(--rule)', display: 'block' }} />
+                <div style={{ fontSize: 8, color: 'var(--dim)', marginTop: 2, fontFamily: "'JetBrains Mono',monospace" }}>{p.date}</div>
+                <button onClick={() => deletePhoto(p.id)}
+                  style={{ position: 'absolute', top: 2, right: 2, background: 'var(--ink)', color: 'var(--paper)', border: 'none', width: 16, height: 16, fontSize: 9, lineHeight: '16px', cursor: 'pointer', padding: 0 }}>
+                  ×
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <input className="prof-input" placeholder="Note (optional)" value={photoNote} onChange={e => setPhotoNote(e.target.value)} style={{ flex: 1 }} />
+          <input ref={photoInputRef} type="file" accept="image/*" capture="environment" style={{ display: 'none' }} onChange={handleAddPhoto} />
+          <button className="prof-btn solid" style={{ padding: '6px 14px' }}
+            disabled={uploadingPhoto} onClick={() => photoInputRef.current?.click()}>
+            {uploadingPhoto ? '…' : 'Add Photo'}
           </button>
         </div>
 
@@ -4236,6 +4297,7 @@ function App() {
         <WorkoutLogger
           planDay={loggerPlanDay}
           lifts={s?.lifts || []}
+          customExercises={s?.customExercises || []}
           onClose={() => setLoggerPlanDay(undefined)}
           refresh={setS}
         />
