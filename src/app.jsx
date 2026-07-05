@@ -65,7 +65,9 @@ const RECOVERY_H = {
   traps: 48, erectors: 72, abs: 36, obliques: 36,
   'front-delt': 48, 'rear-delt': 48, forearms: 36, neck: 24,
 };
-function computeStructuralFatigue(lifts, musclePeaks, soreness = []) {
+const avgFE = (a) => (a.length ? a.reduce((x, y) => x + y, 0) / a.length : null);
+
+function computeStructuralFatigue(lifts, musclePeaks, soreness = [], sensitivity = {}) {
   if (!lifts?.length) return {};
   const now = Date.now();
   const scores = {};
@@ -91,9 +93,47 @@ function computeStructuralFatigue(lifts, musclePeaks, soreness = []) {
   const out = {};
   Object.entries(scores).forEach(([m, v]) => {
     const soreAdj = sorenessMap[m] ? 1 + sorenessMap[m] / 20 : 1;
-    out[m] = Math.min(100, Math.round(v / (musclePeaks?.[m] || 2000) * 100 * soreAdj));
+    const sensAdj = sensitivity[m] || 1.0;
+    out[m] = Math.min(100, Math.round(v / (musclePeaks?.[m] || 2000) * 100 * soreAdj * sensAdj));
   });
   return out;
+}
+
+// Acute:chronic workload ratio (Gabbett/Hulin) — mirrors functions/index.js computeACWR.
+function computeACWR(lifts) {
+  const now = Date.now();
+  let acute = 0, chronic = 0;
+  (lifts || []).forEach(l => {
+    const daysAgo = (now - new Date(l.start || l.date).getTime()) / 86_400_000;
+    if (daysAgo < 0 || daysAgo > 28) return;
+    const load = (l.kg || 0) * (l.reps || 1);
+    chronic += load;
+    if (daysAgo <= 7) acute += load;
+  });
+  const chronicWeekly = chronic / 4;
+  return chronicWeekly < 1 ? null : acute / chronicWeekly;
+}
+
+// Per-exercise estimated-1RM (Epley) trend — mirrors functions/index.js computePerformanceTrend.
+function computePerformanceTrend(lifts) {
+  const byEx = {};
+  (lifts || []).forEach(l => {
+    if (!l.exercise || !l.kg || !l.reps) return;
+    const daysAgo = (Date.now() - new Date(l.start || l.date).getTime()) / 86_400_000;
+    if (daysAgo < 0 || daysAgo > 21) return;
+    const date = l.date || l.start;
+    const e1rm = l.kg * (1 + l.reps / 30);
+    (byEx[l.exercise] = byEx[l.exercise] || {})[date] = Math.max((byEx[l.exercise] || {})[date] || 0, e1rm);
+  });
+  const decrements = [];
+  Object.values(byEx).forEach(byDate => {
+    const dates = Object.keys(byDate).sort();
+    if (dates.length < 4) return;
+    const recentAvg = avgFE(dates.slice(-2).map(d => byDate[d]));
+    const priorAvg = avgFE(dates.slice(-4, -2).map(d => byDate[d]));
+    if (priorAvg > 0) decrements.push((priorAvg - recentAvg) / priorAvg);
+  });
+  return decrements.length ? avgFE(decrements) : null;
 }
 
 function computeMetabolicFatigue(lifts, carbsToday = 0) {
@@ -107,10 +147,20 @@ function computeMetabolicFatigue(lifts, carbsToday = 0) {
     volume += (l.kg || 0) * (l.reps || 1) * decay;
   });
   const carbReduction = Math.min(40, Math.floor(carbsToday / 50) * 10);
-  return Math.max(0, Math.min(100, Math.round(volume / 500)) - carbReduction);
+  const acuteScore = Math.max(0, Math.min(100, Math.round(volume / 500)) - carbReduction);
+
+  const acwr = computeACWR(lifts);
+  const acwrScore = acwr == null ? null : Math.max(0, Math.min(100, Math.round((acwr - 0.8) / (1.8 - 0.8) * 100)));
+
+  const trend = computePerformanceTrend(lifts);
+  const trendScore = trend == null ? null : Math.max(0, Math.min(100, Math.round(trend * 500)));
+
+  const parts = [[acuteScore, 0.5], ...(acwrScore != null ? [[acwrScore, 0.3]] : []), ...(trendScore != null ? [[trendScore, 0.2]] : [])];
+  const totalWeight = parts.reduce((s, [, w]) => s + w, 0);
+  return Math.round(parts.reduce((s, [v, w]) => s + v * w, 0) / totalWeight);
 }
 
-function computeCNSFatigue(lifts) {
+function computeCNSFatigue(lifts, sensitivity = 1.0, recoveryScore = null) {
   const now = Date.now();
   let score = 0;
   (lifts || []).forEach(l => {
@@ -122,11 +172,16 @@ function computeCNSFatigue(lifts) {
     const decay = Math.exp(-0.693 * hoursAgo / 36);
     score += (l.kg || 0) * (l.reps || 1) * decay;
   });
-  return Math.min(100, Math.round(score / 5000 * 100));
+  let out = Math.min(100, Math.round(score / 5000 * 100 * sensitivity));
+  if (recoveryScore != null) {
+    const recoveryFactor = Math.max(0.7, Math.min(1.4, 1 + (55 - recoveryScore) / 110));
+    out = Math.min(100, Math.round(out * recoveryFactor));
+  }
+  return out;
 }
 
-function computeFatigue(lifts, musclePeaks, soreness) {
-  return computeStructuralFatigue(lifts, musclePeaks, soreness);
+function computeFatigue(lifts, musclePeaks, soreness, sensitivity) {
+  return computeStructuralFatigue(lifts, musclePeaks, soreness, sensitivity);
 }
 
 // ── CSS ─────────────────────────────────────────────────────────────────────
@@ -595,7 +650,7 @@ function S1({ s, briefing, onShowBriefing, onShowAfternoon, onShowNight, afterno
   const sleep = today.sleepH;
   const sleepEff = today.sleepEff;
   const sleepDebt = s?.sleepDebtH ?? 0;
-  const fatigue = useMemo(() => computeFatigue(s?.lifts, s?.musclePeaks, s?.soreness), [s?.lifts, s?.soreness]);
+  const fatigue = useMemo(() => computeFatigue(s?.lifts, s?.musclePeaks, s?.soreness, s?.muscleSensitivity), [s?.lifts, s?.soreness, s?.muscleSensitivity]);
   const fatigueVals = Object.values(fatigue);
   const overallFatigue = fatigueVals.length ? Math.round(fatigueVals.reduce((a,b) => a+b, 0) / fatigueVals.length) : null;
   const highFatigueMuscles = Object.values(fatigue).filter(v => v > 70).length;
@@ -2582,9 +2637,9 @@ function S5({ s, refresh }) {
   const [niggleNote, setNiggleNote] = useState('');
   const [niggleLogging, setNiggleLogging] = useState(false);
 
-  const fatigue = useMemo(() => computeFatigue(s?.lifts, s?.musclePeaks, s?.soreness), [s?.lifts, s?.musclePeaks, s?.soreness]);
+  const fatigue = useMemo(() => computeFatigue(s?.lifts, s?.musclePeaks, s?.soreness, s?.muscleSensitivity), [s?.lifts, s?.musclePeaks, s?.soreness, s?.muscleSensitivity]);
   const metabolic = useMemo(() => computeMetabolicFatigue(s?.lifts, s?.nutritionToday?.carbs || 0), [s?.lifts, s?.nutritionToday?.carbs]);
-  const cns = useMemo(() => computeCNSFatigue(s?.lifts), [s?.lifts]);
+  const cns = useMemo(() => computeCNSFatigue(s?.lifts, s?.cnsSensitivity, s?.today?.recovery), [s?.lifts, s?.cnsSensitivity, s?.today?.recovery]);
   const fatigueVals = Object.values(fatigue);
   const overallFatigue = fatigueVals.length ? Math.round(fatigueVals.reduce((a,b)=>a+b,0)/fatigueVals.length) : null;
   const sortedFatigue = Object.entries(fatigue).filter(([,v]) => v > 0).sort(([,a],[,b]) => b-a);
