@@ -32,15 +32,20 @@ async function callGemini({ messages, maxTokens = 800, jsonMode = false, image =
   if (systemText) body.systemInstruction = { parts: [{ text: systemText }] };
 
   let r, data;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 25_000);
   try {
     r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${key}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
+      signal: controller.signal,
     });
     data = await r.json();
   } catch (e) {
-    return { ok: false, status: 0, error: { message: e.message } };
+    return { ok: false, status: 0, error: { message: e.name === "AbortError" ? "Gemini request timed out after 25s" : e.message } };
+  } finally {
+    clearTimeout(timeout);
   }
   if (!r.ok) return { ok: false, status: r.status, error: data.error || { message: `Gemini returned ${r.status}` } };
   const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
