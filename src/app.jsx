@@ -3914,13 +3914,16 @@ function MentorChat({ onClose }) {
     setInput('');
     setThinking(true);
     try {
-      const data = await api('mentor', {
-        method: 'POST',
-        body: JSON.stringify({ messages: newMsgs.filter(m => m.role !== 'assistant' || newMsgs.indexOf(m) > 0).map(m => ({ role: m.role, content: m.content })) }),
-      });
+      const data = await Promise.race([
+        api('mentor', {
+          method: 'POST',
+          body: JSON.stringify({ messages: newMsgs.filter(m => m.role !== 'assistant' || newMsgs.indexOf(m) > 0).map(m => ({ role: m.role, content: m.content })) }),
+        }),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 45_000)),
+      ]);
       setMsgs(p => [...p, { role: 'assistant', content: data.reply || 'No reply.' }]);
     } catch {
-      setMsgs(p => [...p, { role: 'assistant', content: 'Connection error.' }]);
+      setMsgs(p => [...p, { role: 'assistant', content: 'Connection error — try again.' }]);
     }
     setThinking(false);
   };
