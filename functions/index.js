@@ -11,8 +11,11 @@ const firestore = admin.firestore();
 // ---------- Shared Gemini helper (used by every LLM-backed endpoint below) ----------
 // gemini-2.0-flash was retired June 1, 2026 — migrated to the stable GA replacement.
 const GEMINI_MODEL = "gemini-2.5-flash-lite";
+// Flash-Lite has been hitting widely-reported capacity-constrained 503s; full Flash
+// gets more capacity priority, used as a fallback when Flash-Lite stays overloaded.
+const GEMINI_FALLBACK_MODEL = "gemini-2.5-flash";
 
-async function callGemini({ messages, maxTokens = 800, jsonMode = false, image = null, temperature }) {
+async function callGemini({ messages, maxTokens = 800, jsonMode = false, image = null, temperature, model = GEMINI_MODEL }) {
   const key = process.env.GEMINI_API_KEY;
   if (!key) return { ok: false, status: 0, error: { message: "GEMINI_API_KEY not set" } };
 
@@ -36,7 +39,7 @@ async function callGemini({ messages, maxTokens = 800, jsonMode = false, image =
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 25_000);
   try {
-    r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${key}`, {
+    r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
@@ -923,13 +926,22 @@ app.post("/mentor", async (req, res) => {
   const system = "You are Personal Journalist, " + (s.profile?.name || "the user") + "'s personal peak-performance coach. Be direct, concise (2-4 short sentences). " + TRAINING_ETHOS + " Live data: " + JSON.stringify({ recovery: s.metrics, weights: recentWeights, lifts: s.lifts?.slice(-10), water: s.water, workouts: s.workouts?.slice(-5), thoughts: s.thoughts?.slice(-5) });
   const recentMessages = req.body.messages.slice(-10);
 
+  const mentorMessages = [{ role: "system", content: system }, ...recentMessages];
   let result;
   for (let attempt = 0; attempt < 3; attempt++) {
-    result = await callGemini({ messages: [{ role: "system", content: system }, ...recentMessages], maxTokens: 400 });
+    result = await callGemini({ messages: mentorMessages, maxTokens: 400 });
     if (result.ok) return res.json({ reply: result.content });
     if (result.status !== 429 && result.status !== 503) break;
     const waitSec = geminiRetryDelaySec(result.error) || (2 * (attempt + 1));
     await sleep(Math.min(waitSec, 10) * 1000 + 250);
+  }
+  if (result.status === 503) {
+    // Primary model stayed overloaded through the retries — try the fallback model
+    // once rather than failing outright on what's often a capacity issue specific
+    // to one model, not Gemini as a whole.
+    const fallback = await callGemini({ messages: mentorMessages, maxTokens: 400, model: GEMINI_FALLBACK_MODEL });
+    if (fallback.ok) return res.json({ reply: fallback.content });
+    result = fallback;
   }
   console.error("Gemini mentor error:", result.status, JSON.stringify(result.error));
   res.json({ reply: "Personal Journalist error: " + (result.error?.message || `Gemini returned ${result.status}`) });
