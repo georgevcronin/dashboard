@@ -927,7 +927,7 @@ app.post("/mentor", async (req, res) => {
   for (let attempt = 0; attempt < 3; attempt++) {
     result = await callGemini({ messages: [{ role: "system", content: system }, ...recentMessages], maxTokens: 400 });
     if (result.ok) return res.json({ reply: result.content });
-    if (result.status !== 429) break;
+    if (result.status !== 429 && result.status !== 503) break;
     const waitSec = geminiRetryDelaySec(result.error) || (2 * (attempt + 1));
     await sleep(Math.min(waitSec, 10) * 1000 + 250);
   }
