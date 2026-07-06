@@ -9,7 +9,8 @@ admin.initializeApp();
 const firestore = admin.firestore();
 
 // ---------- Shared Gemini helper (used by every LLM-backed endpoint below) ----------
-const GEMINI_MODEL = "gemini-2.0-flash";
+// gemini-2.0-flash was retired June 1, 2026 — migrated to the stable GA replacement.
+const GEMINI_MODEL = "gemini-2.5-flash-lite";
 
 async function callGemini({ messages, maxTokens = 800, jsonMode = false, image = null, temperature }) {
   const key = process.env.GEMINI_API_KEY;
