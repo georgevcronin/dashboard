@@ -928,7 +928,7 @@ app.post("/mentor", async (req, res) => {
     if (result.ok) return res.json({ reply: result.content });
     if (result.status !== 429) break;
     const waitSec = geminiRetryDelaySec(result.error) || (2 * (attempt + 1));
-    await sleep(Math.min(waitSec, 20) * 1000 + 250);
+    await sleep(Math.min(waitSec, 10) * 1000 + 250);
   }
   console.error("Gemini mentor error:", result.status, JSON.stringify(result.error));
   res.json({ reply: "Personal Journalist error: " + (result.error?.message || `Gemini returned ${result.status}`) });
