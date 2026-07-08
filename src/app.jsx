@@ -403,19 +403,29 @@ section.visible .fade:nth-child(6){transition-delay:.56s}
 .briefing-hdr{background:var(--ink);color:var(--paper);padding:12px 16px;display:flex;justify-content:space-between;align-items:center;flex-shrink:0;position:sticky;top:0;z-index:1}
 .briefing-masthead{font-family:'Playfair Display',serif;font-size:14px;font-weight:700;letter-spacing:.04em}
 .briefing-edition{font-family:'JetBrains Mono',monospace;font-size:8px;letter-spacing:.14em;text-transform:uppercase;color:rgba(245,240,226,.5)}
-.briefing-body{padding:24px 20px 48px;max-width:600px;width:100%;margin:0 auto}
-.briefing-headline{font-family:'Playfair Display',serif;font-size:30px;font-weight:900;color:var(--gold);line-height:1.1;text-transform:uppercase;margin-bottom:8px}
-.briefing-sub{font-family:'Times New Roman',serif;font-size:15px;font-style:italic;color:var(--ink);line-height:1.5;margin-bottom:0}
+.briefing-body{padding:24px 20px 48px;max-width:1000px;width:100%;margin:0 auto}
+.briefing-headline{font-family:'Playfair Display',serif;font-size:clamp(28px,5vw,40px);font-weight:900;color:var(--gold);line-height:1.05;text-transform:uppercase;margin-bottom:8px;break-inside:avoid}
+.briefing-sub{font-family:'Times New Roman',serif;font-size:15px;font-style:italic;color:var(--ink);line-height:1.5;margin-bottom:0;break-inside:avoid}
+.briefing-top{margin-bottom:16px}
 .briefing-rule{border:none;border-top:1px solid var(--rule);margin:16px 0}
+.briefing-columns{column-width:420px;column-gap:36px;column-rule:1px solid var(--rule)}
+.briefing-section{break-inside:avoid;-webkit-column-break-inside:avoid;margin-bottom:20px}
 .briefing-kicker{font-family:'JetBrains Mono',monospace;font-size:8px;letter-spacing:.18em;text-transform:uppercase;color:var(--dim);margin-bottom:8px}
 .briefing-bullets{display:grid;grid-template-columns:1fr 1fr;gap:4px 16px;margin-bottom:8px}
 .briefing-win{font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--forest);line-height:1.6}
 .briefing-miss{font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--ember);line-height:1.6}
-.briefing-numbers{font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--dim);margin-top:6px;line-height:1.8}
-.briefing-byline{font-family:'JetBrains Mono',monospace;font-size:8px;letter-spacing:.18em;text-transform:uppercase;color:var(--dim);border-top:2px solid var(--ink);padding-top:8px;margin-top:16px;margin-bottom:2px}
+.briefing-stat-grid{display:grid;grid-auto-flow:column;grid-auto-columns:1fr;gap:0;margin-top:10px}
+.briefing-stat{border-right:1px solid var(--rule);padding:0 12px 0 0}
+.briefing-stat:first-child{padding-left:0}
+.briefing-stat+.briefing-stat{padding-left:12px}
+.briefing-stat:last-child{border-right:none}
+.briefing-stat-val{font-family:'Syne',sans-serif;font-weight:800;font-size:clamp(18px,3.5vw,24px);letter-spacing:-.02em;color:var(--ink);line-height:1}
+.briefing-stat-lbl{font-family:'JetBrains Mono',monospace;font-size:7px;letter-spacing:.14em;text-transform:uppercase;color:var(--dim);margin-top:4px}
+.briefing-pull{font-family:'Playfair Display',serif;font-style:italic;font-size:clamp(16px,3vw,20px);line-height:1.4;color:var(--dim);border-top:1px solid var(--rule);border-bottom:1px solid var(--rule);padding:14px 0;margin:20px 0}
+.briefing-byline{font-family:'JetBrains Mono',monospace;font-size:8px;letter-spacing:.18em;text-transform:uppercase;color:var(--dim);border-top:2px solid var(--ink);padding-top:8px;margin-top:0;margin-bottom:2px}
 .briefing-byline-role{font-family:'JetBrains Mono',monospace;font-size:7px;color:var(--dim);margin-bottom:8px}
 .briefing-prose{font-family:'Times New Roman',serif;font-size:14px;line-height:1.85;color:var(--ink)}
-.briefing-open-btn{display:block;width:100%;background:var(--ink);color:var(--paper);border:none;padding:14px;font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.18em;text-transform:uppercase;cursor:pointer;margin-top:28px}
+.briefing-open-btn{display:block;width:100%;background:var(--ink);color:var(--paper);border:none;padding:14px;font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.18em;text-transform:uppercase;cursor:pointer;margin-top:28px;break-inside:avoid}
 .briefing-preview{border-bottom:1px solid var(--rule);padding:10px 0;cursor:pointer}
 .deload-banner{background:var(--ember);padding:10px 12px;margin:8px 0;border-left:3px solid var(--ink)}
 .week-strip{display:flex;gap:3px;overflow-x:auto;padding:8px 0;border-top:1px solid var(--rule);margin-top:8px;scrollbar-width:none}
@@ -845,10 +855,10 @@ function S2({ s, refresh }) {
   const logAlcohol = async () => {
     if (!alcoholUnits) return;
     setLoggingAlcohol(true);
-    await api('alcohol', { method: 'POST', body: JSON.stringify({ units: +alcoholUnits }) });
+    const data = await api('alcohol', { method: 'POST', body: JSON.stringify({ units: +alcoholUnits }) });
     setAlcoholUnits('');
     setLoggingAlcohol(false);
-    refresh(null);
+    refresh({ ...s, alcoholLastNight: data.alcoholLastNight, alcoholLast7: data.alcoholLast7 });
   };
 
   return (
@@ -1875,21 +1885,24 @@ function S3({ s, onStartWorkout, onImport, onHistory, refresh }) {
   const saveExperiment = async () => {
     if (!expHyp.trim()) return;
     setExpSaving(true);
-    await api('experiments', { method: 'POST', body: JSON.stringify({ hypothesis: expHyp.trim(), metric: expMetric.trim(), endDate: expEnd || null }) });
+    const hypothesis = expHyp.trim(), metric = expMetric.trim(), endDate = expEnd || null;
+    const data = await api('experiments', { method: 'POST', body: JSON.stringify({ hypothesis, metric, endDate }) });
     setExpHyp(''); setExpMetric(''); setExpEnd(''); setShowExpForm(false);
     setExpSaving(false);
-    refresh(null);
+    refresh({ ...s, experiments: [...(s?.experiments || []), {
+      id: data.id, hypothesis, startDate: new Date().toISOString().slice(0, 10), endDate, metric, notes: '', active: true, outcome: null, concludedAt: null,
+    }] });
   };
 
   const concludeExperiment = async (id) => {
     await api(`experiments/${id}/conclude`, { method: 'POST', body: JSON.stringify({ outcome: concludeOutcome }) });
     setConcludeId(null); setConcludeOutcome('');
-    refresh(null);
+    refresh({ ...s, experiments: (s?.experiments || []).map(e => e.id === id ? { ...e, active: false, outcome: concludeOutcome || 'concluded', concludedAt: Date.now() } : e) });
   };
 
   const deleteExperiment = async (id) => {
     await api(`experiments/${id}`, { method: 'DELETE' });
-    refresh(null);
+    refresh({ ...s, experiments: (s?.experiments || []).filter(e => e.id !== id) });
   };
 
   // Pre-fetch today's exercises so they're ready before the user taps Start
@@ -1919,7 +1932,7 @@ function S3({ s, onStartWorkout, onImport, onHistory, refresh }) {
       {s?.travelMode && (
         <div className="travel-banner">
           <span>Travel Mode — bodyweight only</span>
-          <button onClick={async () => { await api('travel-mode', { method: 'POST', body: JSON.stringify({ enabled: false }) }); refresh(null); }}
+          <button onClick={async () => { const data = await api('travel-mode', { method: 'POST', body: JSON.stringify({ enabled: false }) }); refresh({ ...s, travelMode: data.travelMode }); }}
             style={{ background: 'none', border: '1px solid rgba(255,255,255,.4)', color: 'var(--paper)', fontFamily: "'JetBrains Mono',monospace", fontSize: 8, letterSpacing: '.1em', textTransform: 'uppercase', padding: '3px 8px', cursor: 'pointer' }}>
             Disable
           </button>
@@ -2290,24 +2303,27 @@ function S4({ s, refresh }) {
     e.target.value = '';
   };
 
+  // Posts a meal and returns {entry, nutritionToday} without touching app state — callers
+  // decide when to refresh, so a loop of several posts can accumulate and refresh once
+  // instead of each call clobbering the previous one with a stale s.nutritionLog closure.
+  const postMeal = async (body) => {
+    const nutritionToday = await api('nutrition', { method: 'POST', body: JSON.stringify(body) });
+    const entry = { date: new Date().toISOString().slice(0, 10), time: new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }), ...body };
+    return { entry, nutritionToday };
+  };
+
   const logMeal = async () => {
     if (!calories && !protein) return;
     setLogging(true);
-    await api('nutrition', {
-      method: 'POST',
-      body: JSON.stringify({ label, protein: +protein || 0, carbs: +carbs || 0, fat: +fat || 0, calories: +calories || 0 }),
-    });
+    const { entry, nutritionToday } = await postMeal({ label, protein: +protein || 0, carbs: +carbs || 0, fat: +fat || 0, calories: +calories || 0 });
     setLabel(''); setProtein(''); setCarbs(''); setFat(''); setCalories(''); setDescription(''); setAnalysed(false);
     setLogging(false);
-    refresh(null);
+    refresh({ ...s, nutritionToday, nutritionLog: [...(s?.nutritionLog || []), entry] });
   };
 
   const logFood = async (food) => {
-    await api('nutrition', {
-      method: 'POST',
-      body: JSON.stringify({ label: food.name || food.label, protein: food.protein || 0, carbs: food.carbs || 0, fat: food.fat || 0, calories: food.calories || 0 }),
-    });
-    refresh(null);
+    const { entry, nutritionToday } = await postMeal({ label: food.name || food.label, protein: food.protein || 0, carbs: food.carbs || 0, fat: food.fat || 0, calories: food.calories || 0 });
+    refresh({ ...s, nutritionToday, nutritionLog: [...(s?.nutritionLog || []), entry] });
   };
 
   const loadRecent = async () => {
@@ -2612,7 +2628,14 @@ function S4({ s, refresh }) {
                       style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, padding: '4px 8px', border: '1px solid var(--rule)', background: 'none', color: 'var(--dim)', cursor: 'pointer' }}>
                       ×
                     </button>
-                    <button onClick={async () => { for (const item of t.items) await logFood(item); refresh(null); }}
+                    <button onClick={async () => {
+                        let log = s?.nutritionLog || [], today = s?.nutritionToday;
+                        for (const item of t.items) {
+                          const r = await postMeal({ label: item.name || item.label, protein: item.protein || 0, carbs: item.carbs || 0, fat: item.fat || 0, calories: item.calories || 0 });
+                          log = [...log, r.entry]; today = r.nutritionToday;
+                        }
+                        refresh({ ...s, nutritionToday: today, nutritionLog: log });
+                      }}
                       style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, letterSpacing: '.1em', padding: '4px 8px', border: 'none', background: 'var(--ink)', color: 'var(--paper)', cursor: 'pointer' }}>
                       + Log All
                     </button>
@@ -2685,10 +2708,16 @@ function S5({ s, refresh }) {
   const logSoreness = async () => {
     if (!selectedMuscle) return;
     setSoreLogging(true);
-    await api('soreness', { method: 'POST', body: JSON.stringify({ muscle: selectedMuscle, score: sliderVal }) });
+    const data = await api('soreness', { method: 'POST', body: JSON.stringify({ muscle: selectedMuscle, score: sliderVal }) });
+    // Update locally instead of a full /summary refetch — that recomputes hydration
+    // curves, composition verdicts, and signed photo URLs, none of which changed here.
+    refresh({
+      ...s,
+      soreness: [...(s?.soreness || []), { ts: Date.now(), muscle: selectedMuscle, score: sliderVal }],
+      muscleSensitivity: data.muscleSensitivity ?? s?.muscleSensitivity,
+    });
     setSelectedMuscle(null);
     setSoreLogging(false);
-    refresh(null);
   };
 
   return (
@@ -2867,7 +2896,7 @@ function S5({ s, refresh }) {
                   </div>
                   <button className="niggle-resolve" onClick={async () => {
                     await api(`injuries/${inj.id}/resolve`, { method: 'POST' });
-                    refresh(null);
+                    refresh({ ...s, injuries: (s?.injuries || []).filter(i => i.id !== inj.id) });
                   }}>Resolved</button>
                 </div>
               </div>
@@ -2902,10 +2931,11 @@ function S5({ s, refresh }) {
             <button className="prof-btn solid" disabled={!niggleArea.trim() || niggleLogging}
               onClick={async () => {
                 setNiggleLogging(true);
-                await api('injury', { method: 'POST', body: JSON.stringify({ area: niggleArea.trim(), severity: niggleSev, note: niggleNote.trim() }) });
+                const area = niggleArea.trim(), severity = niggleSev, note = niggleNote.trim();
+                const data = await api('injury', { method: 'POST', body: JSON.stringify({ area, severity, note }) });
                 setNiggleArea(''); setNiggleNote(''); setNiggleSev('mild');
                 setNiggleLogging(false);
-                refresh(null);
+                refresh({ ...s, injuries: [...(s?.injuries || []), { id: data.id, ts: data.id, area, severity, note, muscles: [], resolved: false }] });
               }}
               style={{ alignSelf: 'flex-start', padding: '6px 18px' }}>
               {niggleLogging ? 'Logging…' : 'Log Niggle'}
@@ -2946,17 +2976,22 @@ function S6({ s, onOpenSettings, refresh }) {
   const logMeasurement = async () => {
     if (!measureVal) return;
     setSavingMeasure(true);
-    await api('measurements', { method: 'POST', body: JSON.stringify({ type: measureType, value: parseFloat(measureVal), unit: measureUnit }) });
+    const type = measureType, value = parseFloat(measureVal), unit = measureUnit;
+    await api('measurements', { method: 'POST', body: JSON.stringify({ type, value, unit }) });
     setMeasureVal('');
     setSavingMeasure(false);
-    refresh(null);
+    const now = Date.now();
+    refresh({ ...s, measurements: [...(s?.measurements || []), { id: now, date: new Date().toISOString().slice(0, 10), type, value, unit, ts: now }] });
   };
 
   const toggleSuppLog = async (supp) => {
     setTogglingSupp(supp.name);
-    await api('supplement/log', { method: 'POST', body: JSON.stringify({ name: supp.name, dose: supp.dose }) });
+    const data = await api('supplement/log', { method: 'POST', body: JSON.stringify({ name: supp.name, dose: supp.dose }) });
     setTogglingSupp('');
-    refresh(null);
+    const today = new Date().toISOString().slice(0, 10);
+    refresh({ ...s, supplementLogToday: data.logged
+      ? [...(s?.supplementLogToday || []), { date: today, name: supp.name, dose: supp.dose || '', ts: Date.now() }]
+      : (s?.supplementLogToday || []).filter(e => e.name !== supp.name) });
   };
 
   const photos = s?.photosMeta || [];
@@ -2971,17 +3006,18 @@ function S6({ s, onOpenSettings, refresh }) {
     setUploadingPhoto(true);
     const reader = new FileReader();
     reader.onload = async () => {
-      await api('photos', { method: 'POST', body: JSON.stringify({ image: reader.result, note: photoNote }) });
+      const note = photoNote;
+      const data = await api('photos', { method: 'POST', body: JSON.stringify({ image: reader.result, note }) });
       setPhotoNote('');
       setUploadingPhoto(false);
-      refresh(null);
+      refresh({ ...s, photosMeta: [...(s?.photosMeta || []), { id: data.id, date: new Date().toISOString().slice(0, 10), note, url: data.url }] });
     };
     reader.readAsDataURL(file);
   };
 
   const deletePhoto = async id => {
     await api(`photos/${id}`, { method: 'DELETE' });
-    refresh(null);
+    refresh({ ...s, photosMeta: (s?.photosMeta || []).filter(p => p.id !== id) });
   };
   return (
     <section id="s6" style={{ display: 'flex', flexDirection: 'column' }}>
@@ -3064,11 +3100,18 @@ function S6({ s, onOpenSettings, refresh }) {
             disabled={(!weightVal && !bfVal) || savingWeight}
             onClick={async () => {
               setSavingWeight(true);
-              if (weightVal) await api('weight', { method: 'POST', body: JSON.stringify({ kg: parseFloat(weightVal) }) });
-              if (bfVal) await api('bodyfat', { method: 'POST', body: JSON.stringify({ pct: parseFloat(bfVal) }) });
+              const patch = {};
+              if (weightVal) {
+                const r = await api('weight', { method: 'POST', body: JSON.stringify({ kg: parseFloat(weightVal) }) });
+                patch.weights = r.weights; patch.composition = r.composition;
+              }
+              if (bfVal) {
+                const r = await api('bodyfat', { method: 'POST', body: JSON.stringify({ pct: parseFloat(bfVal) }) });
+                patch.bodyFatToday = r.bodyFatToday; patch.bodyFat30 = r.bodyFat30;
+              }
               setWeightVal(''); setBfVal('');
               setSavingWeight(false);
-              refresh(null);
+              refresh({ ...s, ...patch });
             }}>
             {savingWeight ? '…' : 'Log'}
           </button>
@@ -3626,29 +3669,33 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, setBrie
 
   const saveLevel = async (level) => {
     setTrackingLevel(level);
-    await api('profile', { method: 'POST', body: JSON.stringify({ trackingLevel: level }) });
-    refresh(null);
+    const profile = await api('profile', { method: 'POST', body: JSON.stringify({ trackingLevel: level }) });
+    refresh({ ...s, profile });
   };
 
   const saveTargets = async () => {
     setSavingTargets(true);
-    await api('profile', { method: 'POST', body: JSON.stringify({ sleepTarget, waterTarget, trainingDaysPerWeek: trainingDays }) });
+    const profile = await api('profile', { method: 'POST', body: JSON.stringify({ sleepTarget, waterTarget, trainingDaysPerWeek: trainingDays }) });
     setSavingTargets(false);
-    refresh(null);
+    refresh({ ...s, profile });
   };
 
   const addSupplement = async () => {
     if (!newSuppName.trim()) return;
     setSavingSupp(true);
-    await api('supplements', { method: 'POST', body: JSON.stringify({ name: newSuppName.trim(), dose: newSuppDose.trim(), timing: newSuppTiming }) });
+    const name = newSuppName.trim(), dose = newSuppDose.trim(), timing = newSuppTiming;
+    await api('supplements', { method: 'POST', body: JSON.stringify({ name, dose, timing }) });
     setNewSuppName(''); setNewSuppDose('');
     setSavingSupp(false);
-    refresh(null);
+    const entry = { name, dose, timing, notes: '' };
+    const existing = supplements.findIndex(sp => sp.name.toLowerCase() === name.toLowerCase());
+    const nextSupplements = existing >= 0 ? supplements.map((sp, i) => i === existing ? entry : sp) : [...supplements, entry];
+    refresh({ ...s, supplements: nextSupplements });
   };
 
   const deleteSupp = async (name) => {
     await api(`supplements/${encodeURIComponent(name)}`, { method: 'DELETE' });
-    refresh(null);
+    refresh({ ...s, supplements: supplements.filter(sp => sp.name !== name) });
   };
 
   const enableNotifications = async () => {
@@ -3689,7 +3736,7 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, setBrie
           <div className="prof-field">
             <span className="prof-lbl">Name</span>
             <input className="prof-input" value={nameVal} onChange={e => setNameVal(e.target.value)}
-              onBlur={() => nameVal !== (s?.profile?.name || '') && api('profile', { method: 'POST', body: JSON.stringify({ name: nameVal }) }).then(() => refresh(null))}
+              onBlur={() => nameVal !== (s?.profile?.name || '') && api('profile', { method: 'POST', body: JSON.stringify({ name: nameVal }) }).then(profile => refresh({ ...s, profile }))}
               placeholder="Your name" style={{ flex: 1, minWidth: 0 }} />
           </div>
           <div className="prof-field">
@@ -3697,7 +3744,7 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, setBrie
             <div style={{ display: 'flex', gap: 6 }}>
               {['cut','recomp','bulk'].map(g => (
                 <button key={g} className="prof-btn"
-                  onClick={() => api('macro-auto', { method: 'POST', body: JSON.stringify({ goal: g }) }).then(() => refresh(null))}
+                  onClick={() => api('macro-auto', { method: 'POST', body: JSON.stringify({ goal: g }) }).then(data => refresh({ ...s, macroGoal: data.goal, macroTargets: data.targets, macroMode: 'auto' }))}
                   style={{ textTransform: 'capitalize', ...(s?.macroGoal === g ? { background: 'var(--ink)', color: 'var(--paper)', borderColor: 'var(--ink)' } : {}) }}>
                   {g}
                 </button>
@@ -3877,7 +3924,7 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, setBrie
           {s?.profile?.travelMode && (
             <div className="prof-field">
               <span className="prof-lbl">Travel Mode</span>
-              <button className="prof-btn" onClick={() => api('profile', { method: 'POST', body: JSON.stringify({ travelMode: false }) }).then(() => refresh(null))}>Disable</button>
+              <button className="prof-btn" onClick={() => api('profile', { method: 'POST', body: JSON.stringify({ travelMode: false }) }).then(profile => refresh({ ...s, profile, travelMode: profile.travelMode }))}>Disable</button>
             </div>
           )}
         </div>
@@ -3965,6 +4012,7 @@ function NewscastOverlay({ newscast, onClose }) {
   const period = newscast?.period;
   const label = period === 'afternoon' ? 'Mid-Day Update' : "Tonight's Report";
   const dateStr = new Date().toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' }).toUpperCase();
+  const numbers = newscast?.bullets?.numbers || [];
 
   return (
     <div className="briefing-overlay">
@@ -3976,20 +4024,51 @@ function NewscastOverlay({ newscast, onClose }) {
         <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--paper)', cursor: 'pointer', fontFamily: "'JetBrains Mono',monospace", fontSize: 9, letterSpacing: '.12em', textTransform: 'uppercase', opacity: .7 }}>Close ×</button>
       </div>
       <div className="briefing-body">
-        <div className="briefing-headline">{newscast?.headline || label.toUpperCase()}</div>
-        <div className="briefing-sub">{newscast?.subheading}</div>
-        <hr className="briefing-rule" />
-        <div className="briefing-byline">V</div>
-        <div className="briefing-byline-role">Health &amp; Performance</div>
-        <div className="briefing-prose">{newscast?.v}</div>
-        {newscast?.nutritionNote && (
-          <>
-            <hr className="briefing-rule" />
-            <div className="briefing-byline" style={{ borderTopColor: 'var(--gold)' }}>Fuel</div>
-            <div className="briefing-byline-role">Nutrition</div>
-            <div className="briefing-prose" style={{ fontStyle: 'italic', color: 'var(--gold)' }}>{newscast.nutritionNote}</div>
-          </>
-        )}
+        <div className="briefing-top">
+          <div className="briefing-headline">{newscast?.headline || label.toUpperCase()}</div>
+          <div className="briefing-sub">{newscast?.subheading}</div>
+        </div>
+        <div className="briefing-columns">
+          {numbers.length > 0 && (
+            <div className="briefing-section">
+              <div className="briefing-kicker">At a Glance</div>
+              <div className="briefing-stat-grid">
+                {numbers.map((n, i) => (
+                  <div key={i} className="briefing-stat">
+                    <div className="briefing-stat-val">{n.value}</div>
+                    <div className="briefing-stat-lbl">{n.label}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {newscast?.pullQuote && (
+            <div className="briefing-section"><div className="briefing-pull">{newscast.pullQuote}</div></div>
+          )}
+
+          <div className="briefing-section">
+            <div className="briefing-byline">V</div>
+            <div className="briefing-byline-role">Health &amp; Performance</div>
+            <div className="briefing-prose">{newscast?.v}</div>
+          </div>
+
+          {newscast?.atlas && (
+            <div className="briefing-section">
+              <div className="briefing-byline">Atlas</div>
+              <div className="briefing-byline-role">Training</div>
+              <div className="briefing-prose">{newscast.atlas}</div>
+            </div>
+          )}
+
+          {newscast?.nutritionNote && (
+            <div className="briefing-section">
+              <div className="briefing-byline" style={{ borderTopColor: 'var(--gold)' }}>Fuel</div>
+              <div className="briefing-byline-role">Nutrition</div>
+              <div className="briefing-prose" style={{ fontStyle: 'italic', color: 'var(--gold)' }}>{newscast.nutritionNote}</div>
+            </div>
+          )}
+        </div>
         <button className="briefing-open-btn" onClick={onClose}>Back to Press</button>
       </div>
     </div>
@@ -4014,43 +4093,60 @@ function BriefingOverlay({ briefing, onClose }) {
       </div>
 
       <div className="briefing-body">
-        <div className="briefing-headline">{briefing?.headline || 'YOUR MORNING BRIEFING'}</div>
-        <div className="briefing-sub">{briefing?.subheading}</div>
+        <div className="briefing-top">
+          <div className="briefing-headline">{briefing?.headline || 'YOUR MORNING BRIEFING'}</div>
+          <div className="briefing-sub">{briefing?.subheading}</div>
+        </div>
 
-        <hr className="briefing-rule" />
+        <div className="briefing-columns">
+          {(wins.length > 0 || misses.length > 0 || numbers.length > 0) && (
+            <div className="briefing-section">
+              <div className="briefing-kicker">At a Glance</div>
+              {(wins.length > 0 || misses.length > 0) && (
+                <div className="briefing-bullets">
+                  <div>{wins.map((w, i) => <div key={i} className="briefing-win">+ {w}</div>)}</div>
+                  <div>{misses.map((m, i) => <div key={i} className="briefing-miss">- {m}</div>)}</div>
+                </div>
+              )}
+              {numbers.length > 0 && (
+                <div className="briefing-stat-grid">
+                  {numbers.map((n, i) => (
+                    <div key={i} className="briefing-stat">
+                      <div className="briefing-stat-val">{n.value}</div>
+                      <div className="briefing-stat-lbl">{n.label}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
 
-        <div className="briefing-kicker">At a Glance</div>
-        {(wins.length > 0 || misses.length > 0) && (
-          <div className="briefing-bullets">
-            <div>{wins.map((w, i) => <div key={i} className="briefing-win">+ {w}</div>)}</div>
-            <div>{misses.map((m, i) => <div key={i} className="briefing-miss">- {m}</div>)}</div>
+          {briefing?.pullQuote && (
+            <div className="briefing-section"><div className="briefing-pull">{briefing.pullQuote}</div></div>
+          )}
+
+          <div className="briefing-section">
+            <div className="briefing-byline">V</div>
+            <div className="briefing-byline-role">Health &amp; Performance</div>
+            <div className="briefing-prose">{briefing?.v}</div>
           </div>
-        )}
-        {numbers.length > 0 && (
-          <div className="briefing-numbers">{numbers.join(' · ')}</div>
-        )}
 
-        <hr className="briefing-rule" />
+          {briefing?.atlas && (
+            <div className="briefing-section">
+              <div className="briefing-byline">Atlas</div>
+              <div className="briefing-byline-role">Training</div>
+              <div className="briefing-prose">{briefing.atlas}</div>
+            </div>
+          )}
 
-        <div className="briefing-byline">V</div>
-        <div className="briefing-byline-role">Health &amp; Performance</div>
-        <div className="briefing-prose">{briefing?.v}</div>
-
-        {briefing?.atlas && (
-          <>
-            <div className="briefing-byline" style={{ marginTop: 20 }}>Atlas</div>
-            <div className="briefing-byline-role">Training</div>
-            <div className="briefing-prose">{briefing.atlas}</div>
-          </>
-        )}
-
-        {briefing?.fuel && (
-          <>
-            <div className="briefing-byline" style={{ marginTop: 20, borderTopColor: 'var(--gold)' }}>Fuel</div>
-            <div className="briefing-byline-role">Nutrition</div>
-            <div className="briefing-prose" style={{ fontStyle: 'italic' }}>{briefing.fuel}</div>
-          </>
-        )}
+          {briefing?.fuel && (
+            <div className="briefing-section">
+              <div className="briefing-byline" style={{ borderTopColor: 'var(--gold)' }}>Fuel</div>
+              <div className="briefing-byline-role">Nutrition</div>
+              <div className="briefing-prose" style={{ fontStyle: 'italic' }}>{briefing.fuel}</div>
+            </div>
+          )}
+        </div>
 
         <button className="briefing-open-btn" onClick={onClose}>Open Press</button>
       </div>

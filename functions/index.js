@@ -265,6 +265,17 @@ function musclePeaksFromLifts(lifts) {
   return peaks;
 }
 
+function alcoholStats(alcoholLog) {
+  const ydayDate = new Date(); ydayDate.setDate(ydayDate.getDate() - 1);
+  const ydayStr = ydayDate.toISOString().slice(0, 10);
+  const alcoholLastNight = (alcoholLog || []).find(e => e.date === ydayStr)?.units || 0;
+  const alcoholLast7 = (alcoholLog || []).filter(e => {
+    const diff = (Date.now() - new Date(e.date).getTime()) / 864e5;
+    return diff >= 0 && diff <= 7;
+  }).reduce((a, e) => a + (e.units || 0), 0);
+  return { alcoholLastNight, alcoholLast7 };
+}
+
 // ---------- Firestore-backed state — per user ----------
 const DEFAULTS = () => ({
   metrics: {}, workouts: [], water: {}, weight: {}, lifts: [],
@@ -766,13 +777,7 @@ app.get("/summary", async (req, res) => {
     hydrationCurve.push(Math.round(Math.min(100, lvl)));
   }
   // Alcohol
-  const ydayDate = new Date(); ydayDate.setDate(ydayDate.getDate() - 1);
-  const ydayStr = ydayDate.toISOString().slice(0, 10);
-  const alcoholLastNight = (db.alcoholLog || []).find(e => e.date === ydayStr)?.units || 0;
-  const alcoholLast7 = (db.alcoholLog || []).filter(e => {
-    const diff = (Date.now() - new Date(e.date).getTime()) / 864e5;
-    return diff >= 0 && diff <= 7;
-  }).reduce((a, e) => a + (e.units || 0), 0);
+  const { alcoholLastNight, alcoholLast7 } = alcoholStats(db.alcoholLog);
   // VO2 max + HRR series
   const vo2maxSeries = Object.keys(db.metrics).sort().filter(k => db.metrics[k].vo2max != null).slice(-14).map(k => ({ date: k, value: db.metrics[k].vo2max }));
   const hrrSeries = Object.keys(db.metrics).sort().filter(k => db.metrics[k].hrr_bpm != null).slice(-14).map(k => ({ date: k, value: db.metrics[k].hrr_bpm }));
@@ -845,14 +850,23 @@ app.post("/water", async (req, res) => {
   db.waterEvents = db.waterEvents.slice(-200);
   await save(); res.json({ today: db.water[k] });
 });
-app.post("/weight", async (req, res) => { db.weight[day()] = req.body.kg; await save(); res.json({ ok: true }); });
+app.post("/weight", async (req, res) => {
+  db.weight[day()] = req.body.kg;
+  await save();
+  const weights = lastN(db.weight, 30);
+  res.json({ ok: true, weights, composition: compVerdict(weights, db.lifts) });
+});
 app.post("/bodyfat", async (req, res) => {
   const { pct } = req.body;
   const k = day();
   db.metrics[k] = db.metrics[k] || {};
   db.metrics[k].body_fat_percentage = pct;
   await save();
-  res.json({ ok: true });
+  res.json({
+    ok: true,
+    bodyFatToday: pct,
+    bodyFat30: Object.keys(db.metrics).sort().slice(-30).filter(kk => db.metrics[kk].body_fat_percentage != null).map(kk => ({ date: kk, pct: db.metrics[kk].body_fat_percentage })),
+  });
 });
 app.post("/nutrition", async (req, res) => {
   const k = day(); db.nutrition = db.nutrition || {};
@@ -925,7 +939,7 @@ app.post("/profile", async (req, res) => { db.profile = { ...db.profile, ...req.
 // ---------- Personal Journalist ----------
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
-const TRAINING_ETHOS = "Training philosophy: hold opinions loosely and non-dogmatically on most things, synthesized from several science-based coaches who often disagree with each other and are fine with that — except effort, where you push hard and specifically. Effort (proximity to true failure) matters more than hitting an exact number of sets, reps, or following a specific split, and it is the lever most people leave on the table — default to recommending harder, closer-to-failure training unless fatigue data or an injury says otherwise. Always express intensity in concrete RIR (reps in reserve) terms, never vague language: say things like 'take that last set to RIR 0-1' or 'RIR 3-4 is too far out — add weight or another rep next time', not 'push yourself' or 'go hard'. Other core agreements: no program should be copied wholesale — build around the individual's recovery, goals, and response; a caloric surplus without real training stimulus adds fat, not muscle. Where reasonable coaches disagree (volume vs. frequency, rigid templates vs. feel-based flexibility, basic compound lifts vs. novel exercise variations, narrow vs. flexible rep ranges), present both legitimate sides plainly rather than picking a winner, then note what would tip a specific person toward one side (available time, joint health, recovery capacity, adherence, experience level). Flag clearly which things are genuinely settled (training at low RIR near failure, progressive overload) versus genuinely just preference (exact rep range, split structure, exercise selection).";
+const TRAINING_ETHOS = "Training philosophy — this is the standing stance, not a menu of options to present neutrally: Effort is non-negotiable. Push hard for training close to true failure, always expressed in concrete RIR (reps in reserve) terms — 'take that set to RIR 0-1', 'RIR 3-4 is too far out, add weight or a rep next time' — never vague language like 'push yourself' or 'go hard'. On any exercise with more than one working set, RIR always decreases set to set — the first working set leaves more in reserve, each subsequent set gets closer to true failure, with the last set at RIR 0-1; never repeat the same RIR across sets of the same exercise. Full-body sessions, 2-4x/week: frequency over volume — fewer working sets per session, volume spread across the week rather than stacked into one session. Fully autoregulated: no rigid periodized templates — adjust load, sets, and exercise choice session to session based on real fatigue and performance, and trigger deloads purely from fatigue/performance data, never a fixed schedule. Progress via double progression — climb reps to the top of the rep range at target RIR, then add weight and drop back down in reps. Reps run 1-9, biased toward the higher end (up to 8-9), since 1-2 reps rarely deliver enough stimulus per set to be worth defaulting to. Favor stable, structured movements (machines, fixed-path, cables) over free-weight variations specifically because they let effort be pushed to true failure without technical form breakdown becoming the limiter — not dogma against barbells, just a preference for whatever lets intensity go higher safely; stick with an exercise as long as double progression keeps working, only rotate it out once progress stalls. Prioritize lagging muscle groups with extra frequency or volume over strong points. Warm up with a couple of ramping sets (roughly 60% then 85% of the working weight) before working sets, adjusted by how the day feels, and rest fully between working sets (about 3-4 minutes) to protect effort quality over session speed. When something hurts or flares up, work around it — swap the offending movement or angle and keep training everything else hard, rather than broadly backing off. Keep cardio/conditioning sessions separate from strength sessions so lifting stimulus never gets diluted by concurrent-training interference. No program should be copied wholesale — build around the individual's recovery, goals, and response. A caloric surplus without real training stimulus adds fat, not muscle.";
 
 app.post("/mentor", async (req, res) => {
   if (!process.env.GEMINI_API_KEY) return res.json({ reply: "Add GEMINI_API_KEY to functions/.env to enable the Personal Journalist." });
@@ -985,8 +999,8 @@ function computeProgression(lifts, name) {
   } else {
     trend = 'recovering'; note = `recovering — hold ${last.kg}kg×${last.reps}`;
   }
-  const warmup1kg = Math.round(suggestKg * 0.5 / 2.5) * 2.5;
-  const warmup2kg = Math.round(suggestKg * 0.75 / 2.5) * 2.5;
+  const warmup1kg = Math.round(suggestKg * 0.6 / 2.5) * 2.5;
+  const warmup2kg = Math.round(suggestKg * 0.85 / 2.5) * 2.5;
   const recentStr = sessions.slice(-3).map(s => `${s.date}: ${s.kg}kg×${s.reps} (e1RM ${s.e1rm})`).join(', ');
   return { name, trend, note, suggestKg, suggestReps, warmup1kg, warmup2kg, setCount: last.setCount, recentStr };
 }
@@ -1476,10 +1490,11 @@ Return ONLY valid JSON in this exact structure:
 {
   "headline": "PUNCHY HEADLINE IN CAPS — MAX 55 CHARS",
   "subheading": "One sharp sentence expanding on the headline. Reads like a magazine deck.",
+  "pullQuote": "One standalone, quotable sentence pulled from the day's most important insight — the kind of line a newspaper pulls out and sets in large type between columns. Not a repeat of the headline or subheading.",
   "bullets": {
     "wins": ["win 1", "win 2"],
     "misses": ["miss 1${nutritionNotLogged ? ', nutrition not logged yesterday' : ''}"],
-    "numbers": ["8.2h sleep", "HRV 68ms", "3,200kcal"]
+    "numbers": [{"label": "Sleep", "value": "8.2h"}, {"label": "HRV", "value": "68ms"}, {"label": "Calories", "value": "3,200"}]
   },
   "v": "2-3 sentences of flowing editorial prose from V. Newspaper voice, no bullet points. Contextualises the data as a narrative.",
   "atlas": "1-2 sentences from Atlas on training. Null if true rest day with no training context.",
@@ -1487,7 +1502,7 @@ Return ONLY valid JSON in this exact structure:
   "notification": "The headline rephrased for a push notification — under 60 chars, punchy"
 }`;
 
-  const result = await callGemini({ messages: [{ role: 'user', content: prompt }], maxTokens: 600, jsonMode: true, temperature: 0.8 });
+  const result = await callGemini({ messages: [{ role: 'user', content: prompt }], maxTokens: 750, jsonMode: true, temperature: 0.8 });
   if (!result.ok) { console.error('Gemini briefing error:', result.status, JSON.stringify(result.error)); return null; }
   let briefing;
   try { briefing = JSON.parse(result.content); } catch { return null; }
@@ -1506,23 +1521,31 @@ async function generateNewscast(db, period) {
   const nutritionLogged = todayNutrition.length > 0;
   const macroTargets = db.profile?.macroTargets || { calories: 2400, protein: 160 };
   const timeLabel = period === 'afternoon' ? 'Mid-Day Update' : "Tonight's Report";
+  const fatigue = computeCurrentFatigueScores(db.lifts || [], musclePeaksFromLifts(db.lifts || []), db.soreness || [], db.muscleSensitivity || {});
+  const topFatigued = Object.entries(fatigue).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([m, v]) => `${m} ${Math.round(v)}%`).join(', ') || 'none';
+  const cns = computeCNSFatigue(db.lifts || [], db.cnsSensitivity || 1.0, getRecoveryScore(db));
 
-  const prompt = `You are generating a ${timeLabel} for a personal health app called Press. Same editorial voice as the morning edition — V, cool newspaper prose, no hand-holding.
+  const prompt = `You are generating a ${timeLabel} for a personal health app called Press. Same editorial voices as the morning edition — V (health editor, cool newspaper prose, no hand-holding) and Atlas (training analyst, methodical, science-grounded).
 
 Today's data so far:
 - Workout: ${todayWorkout ? todayWorkout.name + ' — completed' : 'not yet logged'}
 - Nutrition logged: ${nutritionLogged ? `${totalCals}kcal, ${totalProtein}g protein (target: ${macroTargets.calories}kcal, ${macroTargets.protein}g protein)` : 'NOTHING LOGGED'}
+- Structural fatigue: ${topFatigued}
+- CNS fatigue: ${cns}%
 - Time of day: ${period === 'afternoon' ? 'mid-afternoon' : 'evening'}
 
 Return ONLY valid JSON:
 {
   "headline": "HEADLINE IN CAPS — MAX 55 CHARS",
   "subheading": "One sharp sentence.",
+  "pullQuote": "One standalone, quotable sentence pulled from today's most important thread so far — not a repeat of the headline or subheading.",
+  "bullets": { "numbers": [{"label": "Calories", "value": "1,850"}, {"label": "Protein", "value": "120g"}] },
   "v": "${period === 'afternoon' ? 'Check-in tone — how is the day building. 2-3 sentences.' : 'Closing note — what the day amounted to. 2-3 sentences.'}${!nutritionLogged ? ' Address the missing nutrition log directly and briefly — frame it as a data gap, not a nag.' : ''}",
+  "atlas": "1-2 sentences from Atlas on today's training/fatigue state. Null if there's genuinely nothing training-relevant to say (e.g. true rest day, nothing logged yet).",
   "nutritionNote": ${nutritionLogged ? 'null' : '"A single direct sentence prompting the user to log their nutrition today."'}
 }`;
 
-  const result = await callGemini({ messages: [{ role: 'user', content: prompt }], maxTokens: 300, jsonMode: true, temperature: 0.75 });
+  const result = await callGemini({ messages: [{ role: 'user', content: prompt }], maxTokens: 500, jsonMode: true, temperature: 0.75 });
   if (!result.ok) { console.error('Gemini newscast error:', result.status, JSON.stringify(result.error)); return null; }
   let newscast;
   try { newscast = JSON.parse(result.content); } catch { return null; }
@@ -1738,7 +1761,7 @@ app.post('/alcohol', async (req, res) => {
   if (existing >= 0) db.alcoholLog[existing].units = +units;
   else if (+units > 0) db.alcoholLog.push({ date: k, units: +units, ts: Date.now() });
   await save();
-  res.json({ ok: true });
+  res.json({ ok: true, ...alcoholStats(db.alcoholLog) });
 });
 
 // ---------- Experiments ----------
