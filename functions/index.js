@@ -435,6 +435,9 @@ app.post("/shortcut", async (req, res) => {
   if (d.weight) { db.metrics[k].body_mass = d.weight; db.weight[k] = d.weight; }
   if (d.vo2max) db.metrics[k].vo2max = d.vo2max;
   if (d.hrr_bpm) db.metrics[k].hrr_bpm = d.hrr_bpm;
+  if (d.wrist) db.metrics[k].wrist_temperature = d.wrist;
+  if (d.hr) db.metrics[k].heart_rate = d.hr;
+  if (d.bloodoxygen) db.metrics[k].blood_oxygen = d.bloodoxygen;
   if (d.alcohol_units != null && d.alcohol_units > 0) {
     db.alcoholLog = db.alcoholLog || [];
     const existing = db.alcoholLog.find(e => e.date === k);
@@ -698,24 +701,40 @@ function personalSleepTarget(days) {
   const t = avg(top.map((d) => d.sleep_hours));
   return { target: Math.min(9.5, Math.max(6.5, Math.round(t * 10) / 10)), learned: true };
 }
-function computeDay(d, baseHRV, baseRHR, sleepTarget) {
+function computeDay(d, baseHRV, baseRHR, sleepTarget, baseWristTemp, baseHR) {
   const hrv = d.heart_rate_variability, rhr = d.resting_heart_rate, sleepH = d.sleep_hours;
+  const wristTemp = d.wrist_temperature, hr = d.heart_rate, spo2 = d.blood_oxygen;
   if (!hrv || !baseHRV) return null;
   const hrvScore = Math.max(0, Math.min(1, hrv / baseHRV - 0.5));
   const rhrScore = rhr && baseRHR ? Math.max(0, Math.min(1, 1 - (rhr / baseRHR - 1) * 5)) : 0.8;
   const sleepScore = sleepH ? Math.min(1, sleepH / sleepTarget) : 0.8;
-  return Math.round(Math.min(99, (hrvScore * 0.5 + rhrScore * 0.2 + sleepScore * 0.3) * 100));
+  // Wrist skin temperature deviation from personal baseline — elevated temp is a
+  // well-established illness/overreaching signal, penalized more steeply than a
+  // below-baseline reading.
+  const tempDev = wristTemp != null && baseWristTemp != null ? wristTemp - baseWristTemp : null;
+  const wristScore = tempDev == null ? 0.8 : tempDev <= 0
+    ? Math.max(0.5, 1 - Math.abs(tempDev) * 0.15)
+    : Math.max(0, 1 - tempDev * 0.4);
+  // Blood oxygen saturation — healthy range is ~96-100%; below that increasingly
+  // signals poor sleep quality or respiratory strain.
+  const spo2Score = spo2 != null ? Math.max(0, Math.min(1, (spo2 - 90) / 8)) : 0.8;
+  // Current/instant heart rate vs. personal baseline — noisier than true resting HR
+  // since it depends on activity at sampling time, so weighted lightly.
+  const hrScore = hr && baseHR ? Math.max(0, Math.min(1, 1 - (hr / baseHR - 1) * 3)) : 0.8;
+  return Math.round(Math.min(99, (hrvScore * 0.40 + rhrScore * 0.15 + sleepScore * 0.20 + wristScore * 0.10 + spo2Score * 0.10 + hrScore * 0.05) * 100));
 }
-// Today's HRV/RHR/sleep-derived recovery score, used to modulate CNS fatigue. Returns
-// null when there isn't enough HRV history to establish a personal baseline.
+// Today's recovery score (HRV/RHR/sleep/wrist-temp/SpO2/HR-derived), used to modulate
+// CNS fatigue. Returns null when there isn't enough HRV history for a personal baseline.
 function getRecoveryScore(db) {
   const days = lastN(db.metrics || {}, 30);
   const last14 = days.slice(-14);
   const today = days.at(-1) || {};
   const baseHRV = avg(last14.map(d => d.heart_rate_variability).filter(Boolean));
   const baseRHR = avg(last14.map(d => d.resting_heart_rate).filter(Boolean));
+  const baseWristTemp = avg(last14.map(d => d.wrist_temperature).filter(Boolean));
+  const baseHR = avg(last14.map(d => d.heart_rate).filter(Boolean));
   const sleep = personalSleepTarget(days);
-  return computeDay(today, baseHRV, baseRHR, sleep.target);
+  return computeDay(today, baseHRV, baseRHR, sleep.target, baseWristTemp, baseHR);
 }
 function computeDataMaturity(lifts) {
   if (!lifts || lifts.length === 0) return { phase: 'experiments', weeksCovered: 0, sessionsCount: 0, hasPatterns: false, exercisesWithPatterns: 0 };
@@ -776,9 +795,11 @@ app.get("/summary", async (req, res) => {
   const today = days.at(-1) || {};
   const baseHRV = avg(last14.map(d => d.heart_rate_variability).filter(Boolean));
   const baseRHR = avg(last14.map(d => d.resting_heart_rate).filter(Boolean));
+  const baseWristTemp = avg(last14.map(d => d.wrist_temperature).filter(Boolean));
+  const baseHR = avg(last14.map(d => d.heart_rate).filter(Boolean));
   const sleep = personalSleepTarget(days);
-  const recovery = computeDay(today, baseHRV, baseRHR, sleep.target);
-  const recoveryTrend = last14.map(d => computeDay(d, baseHRV, baseRHR, sleep.target)).filter(x => x != null);
+  const recovery = computeDay(today, baseHRV, baseRHR, sleep.target, baseWristTemp, baseHR);
+  const recoveryTrend = last14.map(d => computeDay(d, baseHRV, baseRHR, sleep.target, baseWristTemp, baseHR)).filter(x => x != null);
   const weights = lastN(db.weight, 30);
   const monthWk = db.workouts.filter(w => w.date >= day(new Date(Date.now() - 30 * 864e5)));
   const sleepDebtH = last14.slice(-2).reduce((s, d) => s + (d.sleep_hours ? Math.max(0, sleep.target - d.sleep_hours) : 0), 0);
@@ -813,12 +834,12 @@ app.get("/summary", async (req, res) => {
   res.json({
     profile: db.profile, hydrationCurve, hydrationNow: hydrationCurve.at(-1) ?? null,
     liftVolume,
-    today: { recovery, hrv: today.heart_rate_variability ?? null, rhr: today.resting_heart_rate ?? null, sleepH: today.sleep_hours ?? null, sleepEff: today.sleep_eff ?? null, steps: today.step_count ?? null },
+    today: { recovery, hrv: today.heart_rate_variability ?? null, rhr: today.resting_heart_rate ?? null, sleepH: today.sleep_hours ?? null, sleepEff: today.sleep_eff ?? null, steps: today.step_count ?? null, wristTemp: today.wrist_temperature ?? null, hr: today.heart_rate ?? null, spo2: today.blood_oxygen ?? null },
     sleepTarget: sleep.target, sleepTargetLearned: sleep.learned,
     sleepDebtH: Math.round(sleepDebtH * 10) / 10,
     recoveryTrend, sleepSeries: last14.map(d => d.sleep_hours).filter(Boolean),
     rhrSeries: last14.map(d => d.resting_heart_rate).filter(Boolean),
-    baselines: { hrv: baseHRV && Math.round(baseHRV), rhr: baseRHR && Math.round(baseRHR) },
+    baselines: { hrv: baseHRV && Math.round(baseHRV), rhr: baseRHR && Math.round(baseRHR), wristTemp: baseWristTemp && Math.round(baseWristTemp * 10) / 10, hr: baseHR && Math.round(baseHR) },
     composition: compVerdict(weights, db.lifts),
     waterStats: { streak, avg: waterDays.length ? Math.round(avg(waterDays) * 10) / 10 : 0, hitRate: waterDays.length ? Math.round((waterDays.filter(v => v >= target).length / waterDays.length) * 100) : 0, best: waterDays.length ? Math.max(...waterDays) : 0 },
     musclePeaks: musclePeaksFromLifts(db.lifts),
@@ -1647,14 +1668,18 @@ strong{font-weight:600}
   <li><span>Open <strong>Shortcuts</strong> on your iPhone and tap <strong>Automation</strong></span></li>
   <li><span>Tap <strong>New Automation</strong> → <strong>Time of Day</strong> → set to <strong>8:00 AM, Daily</strong></span></li>
   <li><span>Add action: <strong>Find Health Samples</strong> — type: <strong>Heart Rate Variability</strong>, limit 1 → <strong>Set Variable</strong>: <code>hrv</code></span></li>
-  <li><span>Repeat for <strong>Resting Heart Rate</strong> → <code>rhr</code>, <strong>Steps</strong> (today) → <code>steps</code>, <strong>Sleep Analysis</strong> → <code>sleep_hours</code></span></li>
+  <li><span>Repeat for <strong>Resting Heart Rate</strong> → <code>rhr</code>, <strong>Steps</strong> (today) → <code>steps</code>, <strong>Sleep Analysis</strong> → <code>sleep</code></span></li>
   <li><span>Add action: <strong>Get Contents of URL</strong>. Paste your sync URL above. Method: <strong>POST</strong>, Body: <strong>JSON</strong></span></li>
-  <li><span>Add the four keys to the JSON body: <code>hrv</code>, <code>rhr</code>, <code>steps</code>, <code>sleep_hours</code> — set each to the variable from step 3–4</span></li>
+  <li><span>Add the four keys to the JSON body: <code>hrv</code>, <code>rhr</code>, <code>steps</code>, <code>sleep</code> — set each to the variable from step 3–4</span></li>
   <li><span>Toggle <strong>Run Automatically</strong> on. Done — Press receives your health data every morning.</span></li>
 </ol>
 
 <div class="note">
   <strong>Tip:</strong> You can add a second automation at 9 PM for an evening sync — duplicate the shortcut and change the time.
+</div>
+
+<div class="note">
+  <strong>Optional recovery signals:</strong> Press also folds these into your recovery score if you add them the same way: <code>wrist</code> (Sleep Wrist Temperature, °C), <code>hr</code> (Heart Rate), <code>bloodoxygen</code> (Blood Oxygen Saturation, %). Not required — everything works fine without them.
 </div>
 </body>
 </html>`);
