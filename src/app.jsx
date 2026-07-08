@@ -403,19 +403,29 @@ section.visible .fade:nth-child(6){transition-delay:.56s}
 .briefing-hdr{background:var(--ink);color:var(--paper);padding:12px 16px;display:flex;justify-content:space-between;align-items:center;flex-shrink:0;position:sticky;top:0;z-index:1}
 .briefing-masthead{font-family:'Playfair Display',serif;font-size:14px;font-weight:700;letter-spacing:.04em}
 .briefing-edition{font-family:'JetBrains Mono',monospace;font-size:8px;letter-spacing:.14em;text-transform:uppercase;color:rgba(245,240,226,.5)}
-.briefing-body{padding:24px 20px 48px;max-width:600px;width:100%;margin:0 auto}
-.briefing-headline{font-family:'Playfair Display',serif;font-size:30px;font-weight:900;color:var(--gold);line-height:1.1;text-transform:uppercase;margin-bottom:8px}
-.briefing-sub{font-family:'Times New Roman',serif;font-size:15px;font-style:italic;color:var(--ink);line-height:1.5;margin-bottom:0}
+.briefing-body{padding:24px 20px 48px;max-width:1000px;width:100%;margin:0 auto}
+.briefing-headline{font-family:'Playfair Display',serif;font-size:clamp(28px,5vw,40px);font-weight:900;color:var(--gold);line-height:1.05;text-transform:uppercase;margin-bottom:8px;break-inside:avoid}
+.briefing-sub{font-family:'Times New Roman',serif;font-size:15px;font-style:italic;color:var(--ink);line-height:1.5;margin-bottom:0;break-inside:avoid}
+.briefing-top{margin-bottom:16px}
 .briefing-rule{border:none;border-top:1px solid var(--rule);margin:16px 0}
+.briefing-columns{column-width:420px;column-gap:36px;column-rule:1px solid var(--rule)}
+.briefing-section{break-inside:avoid;-webkit-column-break-inside:avoid;margin-bottom:20px}
 .briefing-kicker{font-family:'JetBrains Mono',monospace;font-size:8px;letter-spacing:.18em;text-transform:uppercase;color:var(--dim);margin-bottom:8px}
 .briefing-bullets{display:grid;grid-template-columns:1fr 1fr;gap:4px 16px;margin-bottom:8px}
 .briefing-win{font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--forest);line-height:1.6}
 .briefing-miss{font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--ember);line-height:1.6}
-.briefing-numbers{font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--dim);margin-top:6px;line-height:1.8}
-.briefing-byline{font-family:'JetBrains Mono',monospace;font-size:8px;letter-spacing:.18em;text-transform:uppercase;color:var(--dim);border-top:2px solid var(--ink);padding-top:8px;margin-top:16px;margin-bottom:2px}
+.briefing-stat-grid{display:grid;grid-auto-flow:column;grid-auto-columns:1fr;gap:0;margin-top:10px}
+.briefing-stat{border-right:1px solid var(--rule);padding:0 12px 0 0}
+.briefing-stat:first-child{padding-left:0}
+.briefing-stat+.briefing-stat{padding-left:12px}
+.briefing-stat:last-child{border-right:none}
+.briefing-stat-val{font-family:'Syne',sans-serif;font-weight:800;font-size:clamp(18px,3.5vw,24px);letter-spacing:-.02em;color:var(--ink);line-height:1}
+.briefing-stat-lbl{font-family:'JetBrains Mono',monospace;font-size:7px;letter-spacing:.14em;text-transform:uppercase;color:var(--dim);margin-top:4px}
+.briefing-pull{font-family:'Playfair Display',serif;font-style:italic;font-size:clamp(16px,3vw,20px);line-height:1.4;color:var(--dim);border-top:1px solid var(--rule);border-bottom:1px solid var(--rule);padding:14px 0;margin:20px 0}
+.briefing-byline{font-family:'JetBrains Mono',monospace;font-size:8px;letter-spacing:.18em;text-transform:uppercase;color:var(--dim);border-top:2px solid var(--ink);padding-top:8px;margin-top:0;margin-bottom:2px}
 .briefing-byline-role{font-family:'JetBrains Mono',monospace;font-size:7px;color:var(--dim);margin-bottom:8px}
 .briefing-prose{font-family:'Times New Roman',serif;font-size:14px;line-height:1.85;color:var(--ink)}
-.briefing-open-btn{display:block;width:100%;background:var(--ink);color:var(--paper);border:none;padding:14px;font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.18em;text-transform:uppercase;cursor:pointer;margin-top:28px}
+.briefing-open-btn{display:block;width:100%;background:var(--ink);color:var(--paper);border:none;padding:14px;font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.18em;text-transform:uppercase;cursor:pointer;margin-top:28px;break-inside:avoid}
 .briefing-preview{border-bottom:1px solid var(--rule);padding:10px 0;cursor:pointer}
 .deload-banner{background:var(--ember);padding:10px 12px;margin:8px 0;border-left:3px solid var(--ink)}
 .week-strip{display:flex;gap:3px;overflow-x:auto;padding:8px 0;border-top:1px solid var(--rule);margin-top:8px;scrollbar-width:none}
@@ -4002,6 +4012,7 @@ function NewscastOverlay({ newscast, onClose }) {
   const period = newscast?.period;
   const label = period === 'afternoon' ? 'Mid-Day Update' : "Tonight's Report";
   const dateStr = new Date().toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' }).toUpperCase();
+  const numbers = newscast?.bullets?.numbers || [];
 
   return (
     <div className="briefing-overlay">
@@ -4013,20 +4024,51 @@ function NewscastOverlay({ newscast, onClose }) {
         <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--paper)', cursor: 'pointer', fontFamily: "'JetBrains Mono',monospace", fontSize: 9, letterSpacing: '.12em', textTransform: 'uppercase', opacity: .7 }}>Close ×</button>
       </div>
       <div className="briefing-body">
-        <div className="briefing-headline">{newscast?.headline || label.toUpperCase()}</div>
-        <div className="briefing-sub">{newscast?.subheading}</div>
-        <hr className="briefing-rule" />
-        <div className="briefing-byline">V</div>
-        <div className="briefing-byline-role">Health &amp; Performance</div>
-        <div className="briefing-prose">{newscast?.v}</div>
-        {newscast?.nutritionNote && (
-          <>
-            <hr className="briefing-rule" />
-            <div className="briefing-byline" style={{ borderTopColor: 'var(--gold)' }}>Fuel</div>
-            <div className="briefing-byline-role">Nutrition</div>
-            <div className="briefing-prose" style={{ fontStyle: 'italic', color: 'var(--gold)' }}>{newscast.nutritionNote}</div>
-          </>
-        )}
+        <div className="briefing-top">
+          <div className="briefing-headline">{newscast?.headline || label.toUpperCase()}</div>
+          <div className="briefing-sub">{newscast?.subheading}</div>
+        </div>
+        <div className="briefing-columns">
+          {numbers.length > 0 && (
+            <div className="briefing-section">
+              <div className="briefing-kicker">At a Glance</div>
+              <div className="briefing-stat-grid">
+                {numbers.map((n, i) => (
+                  <div key={i} className="briefing-stat">
+                    <div className="briefing-stat-val">{n.value}</div>
+                    <div className="briefing-stat-lbl">{n.label}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {newscast?.pullQuote && (
+            <div className="briefing-section"><div className="briefing-pull">{newscast.pullQuote}</div></div>
+          )}
+
+          <div className="briefing-section">
+            <div className="briefing-byline">V</div>
+            <div className="briefing-byline-role">Health &amp; Performance</div>
+            <div className="briefing-prose">{newscast?.v}</div>
+          </div>
+
+          {newscast?.atlas && (
+            <div className="briefing-section">
+              <div className="briefing-byline">Atlas</div>
+              <div className="briefing-byline-role">Training</div>
+              <div className="briefing-prose">{newscast.atlas}</div>
+            </div>
+          )}
+
+          {newscast?.nutritionNote && (
+            <div className="briefing-section">
+              <div className="briefing-byline" style={{ borderTopColor: 'var(--gold)' }}>Fuel</div>
+              <div className="briefing-byline-role">Nutrition</div>
+              <div className="briefing-prose" style={{ fontStyle: 'italic', color: 'var(--gold)' }}>{newscast.nutritionNote}</div>
+            </div>
+          )}
+        </div>
         <button className="briefing-open-btn" onClick={onClose}>Back to Press</button>
       </div>
     </div>
@@ -4051,43 +4093,60 @@ function BriefingOverlay({ briefing, onClose }) {
       </div>
 
       <div className="briefing-body">
-        <div className="briefing-headline">{briefing?.headline || 'YOUR MORNING BRIEFING'}</div>
-        <div className="briefing-sub">{briefing?.subheading}</div>
+        <div className="briefing-top">
+          <div className="briefing-headline">{briefing?.headline || 'YOUR MORNING BRIEFING'}</div>
+          <div className="briefing-sub">{briefing?.subheading}</div>
+        </div>
 
-        <hr className="briefing-rule" />
+        <div className="briefing-columns">
+          {(wins.length > 0 || misses.length > 0 || numbers.length > 0) && (
+            <div className="briefing-section">
+              <div className="briefing-kicker">At a Glance</div>
+              {(wins.length > 0 || misses.length > 0) && (
+                <div className="briefing-bullets">
+                  <div>{wins.map((w, i) => <div key={i} className="briefing-win">+ {w}</div>)}</div>
+                  <div>{misses.map((m, i) => <div key={i} className="briefing-miss">- {m}</div>)}</div>
+                </div>
+              )}
+              {numbers.length > 0 && (
+                <div className="briefing-stat-grid">
+                  {numbers.map((n, i) => (
+                    <div key={i} className="briefing-stat">
+                      <div className="briefing-stat-val">{n.value}</div>
+                      <div className="briefing-stat-lbl">{n.label}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
 
-        <div className="briefing-kicker">At a Glance</div>
-        {(wins.length > 0 || misses.length > 0) && (
-          <div className="briefing-bullets">
-            <div>{wins.map((w, i) => <div key={i} className="briefing-win">+ {w}</div>)}</div>
-            <div>{misses.map((m, i) => <div key={i} className="briefing-miss">- {m}</div>)}</div>
+          {briefing?.pullQuote && (
+            <div className="briefing-section"><div className="briefing-pull">{briefing.pullQuote}</div></div>
+          )}
+
+          <div className="briefing-section">
+            <div className="briefing-byline">V</div>
+            <div className="briefing-byline-role">Health &amp; Performance</div>
+            <div className="briefing-prose">{briefing?.v}</div>
           </div>
-        )}
-        {numbers.length > 0 && (
-          <div className="briefing-numbers">{numbers.join(' · ')}</div>
-        )}
 
-        <hr className="briefing-rule" />
+          {briefing?.atlas && (
+            <div className="briefing-section">
+              <div className="briefing-byline">Atlas</div>
+              <div className="briefing-byline-role">Training</div>
+              <div className="briefing-prose">{briefing.atlas}</div>
+            </div>
+          )}
 
-        <div className="briefing-byline">V</div>
-        <div className="briefing-byline-role">Health &amp; Performance</div>
-        <div className="briefing-prose">{briefing?.v}</div>
-
-        {briefing?.atlas && (
-          <>
-            <div className="briefing-byline" style={{ marginTop: 20 }}>Atlas</div>
-            <div className="briefing-byline-role">Training</div>
-            <div className="briefing-prose">{briefing.atlas}</div>
-          </>
-        )}
-
-        {briefing?.fuel && (
-          <>
-            <div className="briefing-byline" style={{ marginTop: 20, borderTopColor: 'var(--gold)' }}>Fuel</div>
-            <div className="briefing-byline-role">Nutrition</div>
-            <div className="briefing-prose" style={{ fontStyle: 'italic' }}>{briefing.fuel}</div>
-          </>
-        )}
+          {briefing?.fuel && (
+            <div className="briefing-section">
+              <div className="briefing-byline" style={{ borderTopColor: 'var(--gold)' }}>Fuel</div>
+              <div className="briefing-byline-role">Nutrition</div>
+              <div className="briefing-prose" style={{ fontStyle: 'italic' }}>{briefing.fuel}</div>
+            </div>
+          )}
+        </div>
 
         <button className="briefing-open-btn" onClick={onClose}>Open Press</button>
       </div>

@@ -1490,10 +1490,11 @@ Return ONLY valid JSON in this exact structure:
 {
   "headline": "PUNCHY HEADLINE IN CAPS — MAX 55 CHARS",
   "subheading": "One sharp sentence expanding on the headline. Reads like a magazine deck.",
+  "pullQuote": "One standalone, quotable sentence pulled from the day's most important insight — the kind of line a newspaper pulls out and sets in large type between columns. Not a repeat of the headline or subheading.",
   "bullets": {
     "wins": ["win 1", "win 2"],
     "misses": ["miss 1${nutritionNotLogged ? ', nutrition not logged yesterday' : ''}"],
-    "numbers": ["8.2h sleep", "HRV 68ms", "3,200kcal"]
+    "numbers": [{"label": "Sleep", "value": "8.2h"}, {"label": "HRV", "value": "68ms"}, {"label": "Calories", "value": "3,200"}]
   },
   "v": "2-3 sentences of flowing editorial prose from V. Newspaper voice, no bullet points. Contextualises the data as a narrative.",
   "atlas": "1-2 sentences from Atlas on training. Null if true rest day with no training context.",
@@ -1501,7 +1502,7 @@ Return ONLY valid JSON in this exact structure:
   "notification": "The headline rephrased for a push notification — under 60 chars, punchy"
 }`;
 
-  const result = await callGemini({ messages: [{ role: 'user', content: prompt }], maxTokens: 600, jsonMode: true, temperature: 0.8 });
+  const result = await callGemini({ messages: [{ role: 'user', content: prompt }], maxTokens: 750, jsonMode: true, temperature: 0.8 });
   if (!result.ok) { console.error('Gemini briefing error:', result.status, JSON.stringify(result.error)); return null; }
   let briefing;
   try { briefing = JSON.parse(result.content); } catch { return null; }
@@ -1520,23 +1521,31 @@ async function generateNewscast(db, period) {
   const nutritionLogged = todayNutrition.length > 0;
   const macroTargets = db.profile?.macroTargets || { calories: 2400, protein: 160 };
   const timeLabel = period === 'afternoon' ? 'Mid-Day Update' : "Tonight's Report";
+  const fatigue = computeCurrentFatigueScores(db.lifts || [], musclePeaksFromLifts(db.lifts || []), db.soreness || [], db.muscleSensitivity || {});
+  const topFatigued = Object.entries(fatigue).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([m, v]) => `${m} ${Math.round(v)}%`).join(', ') || 'none';
+  const cns = computeCNSFatigue(db.lifts || [], db.cnsSensitivity || 1.0, getRecoveryScore(db));
 
-  const prompt = `You are generating a ${timeLabel} for a personal health app called Press. Same editorial voice as the morning edition — V, cool newspaper prose, no hand-holding.
+  const prompt = `You are generating a ${timeLabel} for a personal health app called Press. Same editorial voices as the morning edition — V (health editor, cool newspaper prose, no hand-holding) and Atlas (training analyst, methodical, science-grounded).
 
 Today's data so far:
 - Workout: ${todayWorkout ? todayWorkout.name + ' — completed' : 'not yet logged'}
 - Nutrition logged: ${nutritionLogged ? `${totalCals}kcal, ${totalProtein}g protein (target: ${macroTargets.calories}kcal, ${macroTargets.protein}g protein)` : 'NOTHING LOGGED'}
+- Structural fatigue: ${topFatigued}
+- CNS fatigue: ${cns}%
 - Time of day: ${period === 'afternoon' ? 'mid-afternoon' : 'evening'}
 
 Return ONLY valid JSON:
 {
   "headline": "HEADLINE IN CAPS — MAX 55 CHARS",
   "subheading": "One sharp sentence.",
+  "pullQuote": "One standalone, quotable sentence pulled from today's most important thread so far — not a repeat of the headline or subheading.",
+  "bullets": { "numbers": [{"label": "Calories", "value": "1,850"}, {"label": "Protein", "value": "120g"}] },
   "v": "${period === 'afternoon' ? 'Check-in tone — how is the day building. 2-3 sentences.' : 'Closing note — what the day amounted to. 2-3 sentences.'}${!nutritionLogged ? ' Address the missing nutrition log directly and briefly — frame it as a data gap, not a nag.' : ''}",
+  "atlas": "1-2 sentences from Atlas on today's training/fatigue state. Null if there's genuinely nothing training-relevant to say (e.g. true rest day, nothing logged yet).",
   "nutritionNote": ${nutritionLogged ? 'null' : '"A single direct sentence prompting the user to log their nutrition today."'}
 }`;
 
-  const result = await callGemini({ messages: [{ role: 'user', content: prompt }], maxTokens: 300, jsonMode: true, temperature: 0.75 });
+  const result = await callGemini({ messages: [{ role: 'user', content: prompt }], maxTokens: 500, jsonMode: true, temperature: 0.75 });
   if (!result.ok) { console.error('Gemini newscast error:', result.status, JSON.stringify(result.error)); return null; }
   let newscast;
   try { newscast = JSON.parse(result.content); } catch { return null; }
