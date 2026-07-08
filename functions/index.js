@@ -272,7 +272,7 @@ const DEFAULTS = () => ({
   strava: null, weeklyPlan: null, soreness: [], muscleSensitivity: {}, cnsSensitivity: 1.0,
   injuries: [], measurements: [], supplements: [], supplementLog: [],
   alcoholLog: [], photos: [], experiments: [], customExercises: [],
-  profile: { name: "George", heightCm: null, sex: null, waterTarget: 7,
+  profile: { name: null, heightCm: null, sex: null, waterTarget: 7,
     macroTargets: { calories: 2400, protein: 160, carbs: 250, fat: 75 }, macroMode: "manual" },
 });
 
