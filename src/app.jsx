@@ -2685,10 +2685,16 @@ function S5({ s, refresh }) {
   const logSoreness = async () => {
     if (!selectedMuscle) return;
     setSoreLogging(true);
-    await api('soreness', { method: 'POST', body: JSON.stringify({ muscle: selectedMuscle, score: sliderVal }) });
+    const data = await api('soreness', { method: 'POST', body: JSON.stringify({ muscle: selectedMuscle, score: sliderVal }) });
+    // Update locally instead of a full /summary refetch — that recomputes hydration
+    // curves, composition verdicts, and signed photo URLs, none of which changed here.
+    refresh({
+      ...s,
+      soreness: [...(s?.soreness || []), { ts: Date.now(), muscle: selectedMuscle, score: sliderVal }],
+      muscleSensitivity: data.muscleSensitivity ?? s?.muscleSensitivity,
+    });
     setSelectedMuscle(null);
     setSoreLogging(false);
-    refresh(null);
   };
 
   return (
