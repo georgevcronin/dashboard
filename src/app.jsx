@@ -583,7 +583,7 @@ function Header({ s, onSignOut }) {
         <div className="mast-right mast-right-stack">
           <span>{fmtDateShort()}</span>
           <span className="mast-right-row">
-            <span>{s?.profile?.name || 'George'} V. Cronin</span>
+            <span>{s?.profile?.name ? `${s.profile.name}'s Edition` : 'Personal Edition'}</span>
             {onSignOut && <button onClick={onSignOut} style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 7, letterSpacing: '.14em', textTransform: 'uppercase', background: 'none', border: '1px solid var(--rule)', color: 'var(--dim)', padding: '2px 6px', cursor: 'pointer', lineHeight: 1.4 }}>Sign out</button>}
           </span>
         </div>
