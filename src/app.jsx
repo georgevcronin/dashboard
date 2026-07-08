@@ -845,10 +845,10 @@ function S2({ s, refresh }) {
   const logAlcohol = async () => {
     if (!alcoholUnits) return;
     setLoggingAlcohol(true);
-    await api('alcohol', { method: 'POST', body: JSON.stringify({ units: +alcoholUnits }) });
+    const data = await api('alcohol', { method: 'POST', body: JSON.stringify({ units: +alcoholUnits }) });
     setAlcoholUnits('');
     setLoggingAlcohol(false);
-    refresh(null);
+    refresh({ ...s, alcoholLastNight: data.alcoholLastNight, alcoholLast7: data.alcoholLast7 });
   };
 
   return (
@@ -1875,21 +1875,24 @@ function S3({ s, onStartWorkout, onImport, onHistory, refresh }) {
   const saveExperiment = async () => {
     if (!expHyp.trim()) return;
     setExpSaving(true);
-    await api('experiments', { method: 'POST', body: JSON.stringify({ hypothesis: expHyp.trim(), metric: expMetric.trim(), endDate: expEnd || null }) });
+    const hypothesis = expHyp.trim(), metric = expMetric.trim(), endDate = expEnd || null;
+    const data = await api('experiments', { method: 'POST', body: JSON.stringify({ hypothesis, metric, endDate }) });
     setExpHyp(''); setExpMetric(''); setExpEnd(''); setShowExpForm(false);
     setExpSaving(false);
-    refresh(null);
+    refresh({ ...s, experiments: [...(s?.experiments || []), {
+      id: data.id, hypothesis, startDate: new Date().toISOString().slice(0, 10), endDate, metric, notes: '', active: true, outcome: null, concludedAt: null,
+    }] });
   };
 
   const concludeExperiment = async (id) => {
     await api(`experiments/${id}/conclude`, { method: 'POST', body: JSON.stringify({ outcome: concludeOutcome }) });
     setConcludeId(null); setConcludeOutcome('');
-    refresh(null);
+    refresh({ ...s, experiments: (s?.experiments || []).map(e => e.id === id ? { ...e, active: false, outcome: concludeOutcome || 'concluded', concludedAt: Date.now() } : e) });
   };
 
   const deleteExperiment = async (id) => {
     await api(`experiments/${id}`, { method: 'DELETE' });
-    refresh(null);
+    refresh({ ...s, experiments: (s?.experiments || []).filter(e => e.id !== id) });
   };
 
   // Pre-fetch today's exercises so they're ready before the user taps Start
@@ -1919,7 +1922,7 @@ function S3({ s, onStartWorkout, onImport, onHistory, refresh }) {
       {s?.travelMode && (
         <div className="travel-banner">
           <span>Travel Mode — bodyweight only</span>
-          <button onClick={async () => { await api('travel-mode', { method: 'POST', body: JSON.stringify({ enabled: false }) }); refresh(null); }}
+          <button onClick={async () => { const data = await api('travel-mode', { method: 'POST', body: JSON.stringify({ enabled: false }) }); refresh({ ...s, travelMode: data.travelMode }); }}
             style={{ background: 'none', border: '1px solid rgba(255,255,255,.4)', color: 'var(--paper)', fontFamily: "'JetBrains Mono',monospace", fontSize: 8, letterSpacing: '.1em', textTransform: 'uppercase', padding: '3px 8px', cursor: 'pointer' }}>
             Disable
           </button>
@@ -2290,24 +2293,27 @@ function S4({ s, refresh }) {
     e.target.value = '';
   };
 
+  // Posts a meal and returns {entry, nutritionToday} without touching app state — callers
+  // decide when to refresh, so a loop of several posts can accumulate and refresh once
+  // instead of each call clobbering the previous one with a stale s.nutritionLog closure.
+  const postMeal = async (body) => {
+    const nutritionToday = await api('nutrition', { method: 'POST', body: JSON.stringify(body) });
+    const entry = { date: new Date().toISOString().slice(0, 10), time: new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }), ...body };
+    return { entry, nutritionToday };
+  };
+
   const logMeal = async () => {
     if (!calories && !protein) return;
     setLogging(true);
-    await api('nutrition', {
-      method: 'POST',
-      body: JSON.stringify({ label, protein: +protein || 0, carbs: +carbs || 0, fat: +fat || 0, calories: +calories || 0 }),
-    });
+    const { entry, nutritionToday } = await postMeal({ label, protein: +protein || 0, carbs: +carbs || 0, fat: +fat || 0, calories: +calories || 0 });
     setLabel(''); setProtein(''); setCarbs(''); setFat(''); setCalories(''); setDescription(''); setAnalysed(false);
     setLogging(false);
-    refresh(null);
+    refresh({ ...s, nutritionToday, nutritionLog: [...(s?.nutritionLog || []), entry] });
   };
 
   const logFood = async (food) => {
-    await api('nutrition', {
-      method: 'POST',
-      body: JSON.stringify({ label: food.name || food.label, protein: food.protein || 0, carbs: food.carbs || 0, fat: food.fat || 0, calories: food.calories || 0 }),
-    });
-    refresh(null);
+    const { entry, nutritionToday } = await postMeal({ label: food.name || food.label, protein: food.protein || 0, carbs: food.carbs || 0, fat: food.fat || 0, calories: food.calories || 0 });
+    refresh({ ...s, nutritionToday, nutritionLog: [...(s?.nutritionLog || []), entry] });
   };
 
   const loadRecent = async () => {
@@ -2612,7 +2618,14 @@ function S4({ s, refresh }) {
                       style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, padding: '4px 8px', border: '1px solid var(--rule)', background: 'none', color: 'var(--dim)', cursor: 'pointer' }}>
                       ×
                     </button>
-                    <button onClick={async () => { for (const item of t.items) await logFood(item); refresh(null); }}
+                    <button onClick={async () => {
+                        let log = s?.nutritionLog || [], today = s?.nutritionToday;
+                        for (const item of t.items) {
+                          const r = await postMeal({ label: item.name || item.label, protein: item.protein || 0, carbs: item.carbs || 0, fat: item.fat || 0, calories: item.calories || 0 });
+                          log = [...log, r.entry]; today = r.nutritionToday;
+                        }
+                        refresh({ ...s, nutritionToday: today, nutritionLog: log });
+                      }}
                       style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, letterSpacing: '.1em', padding: '4px 8px', border: 'none', background: 'var(--ink)', color: 'var(--paper)', cursor: 'pointer' }}>
                       + Log All
                     </button>
@@ -2873,7 +2886,7 @@ function S5({ s, refresh }) {
                   </div>
                   <button className="niggle-resolve" onClick={async () => {
                     await api(`injuries/${inj.id}/resolve`, { method: 'POST' });
-                    refresh(null);
+                    refresh({ ...s, injuries: (s?.injuries || []).filter(i => i.id !== inj.id) });
                   }}>Resolved</button>
                 </div>
               </div>
@@ -2908,10 +2921,11 @@ function S5({ s, refresh }) {
             <button className="prof-btn solid" disabled={!niggleArea.trim() || niggleLogging}
               onClick={async () => {
                 setNiggleLogging(true);
-                await api('injury', { method: 'POST', body: JSON.stringify({ area: niggleArea.trim(), severity: niggleSev, note: niggleNote.trim() }) });
+                const area = niggleArea.trim(), severity = niggleSev, note = niggleNote.trim();
+                const data = await api('injury', { method: 'POST', body: JSON.stringify({ area, severity, note }) });
                 setNiggleArea(''); setNiggleNote(''); setNiggleSev('mild');
                 setNiggleLogging(false);
-                refresh(null);
+                refresh({ ...s, injuries: [...(s?.injuries || []), { id: data.id, ts: data.id, area, severity, note, muscles: [], resolved: false }] });
               }}
               style={{ alignSelf: 'flex-start', padding: '6px 18px' }}>
               {niggleLogging ? 'Logging…' : 'Log Niggle'}
@@ -2952,17 +2966,22 @@ function S6({ s, onOpenSettings, refresh }) {
   const logMeasurement = async () => {
     if (!measureVal) return;
     setSavingMeasure(true);
-    await api('measurements', { method: 'POST', body: JSON.stringify({ type: measureType, value: parseFloat(measureVal), unit: measureUnit }) });
+    const type = measureType, value = parseFloat(measureVal), unit = measureUnit;
+    await api('measurements', { method: 'POST', body: JSON.stringify({ type, value, unit }) });
     setMeasureVal('');
     setSavingMeasure(false);
-    refresh(null);
+    const now = Date.now();
+    refresh({ ...s, measurements: [...(s?.measurements || []), { id: now, date: new Date().toISOString().slice(0, 10), type, value, unit, ts: now }] });
   };
 
   const toggleSuppLog = async (supp) => {
     setTogglingSupp(supp.name);
-    await api('supplement/log', { method: 'POST', body: JSON.stringify({ name: supp.name, dose: supp.dose }) });
+    const data = await api('supplement/log', { method: 'POST', body: JSON.stringify({ name: supp.name, dose: supp.dose }) });
     setTogglingSupp('');
-    refresh(null);
+    const today = new Date().toISOString().slice(0, 10);
+    refresh({ ...s, supplementLogToday: data.logged
+      ? [...(s?.supplementLogToday || []), { date: today, name: supp.name, dose: supp.dose || '', ts: Date.now() }]
+      : (s?.supplementLogToday || []).filter(e => e.name !== supp.name) });
   };
 
   const photos = s?.photosMeta || [];
@@ -2977,17 +2996,18 @@ function S6({ s, onOpenSettings, refresh }) {
     setUploadingPhoto(true);
     const reader = new FileReader();
     reader.onload = async () => {
-      await api('photos', { method: 'POST', body: JSON.stringify({ image: reader.result, note: photoNote }) });
+      const note = photoNote;
+      const data = await api('photos', { method: 'POST', body: JSON.stringify({ image: reader.result, note }) });
       setPhotoNote('');
       setUploadingPhoto(false);
-      refresh(null);
+      refresh({ ...s, photosMeta: [...(s?.photosMeta || []), { id: data.id, date: new Date().toISOString().slice(0, 10), note, url: data.url }] });
     };
     reader.readAsDataURL(file);
   };
 
   const deletePhoto = async id => {
     await api(`photos/${id}`, { method: 'DELETE' });
-    refresh(null);
+    refresh({ ...s, photosMeta: (s?.photosMeta || []).filter(p => p.id !== id) });
   };
   return (
     <section id="s6" style={{ display: 'flex', flexDirection: 'column' }}>
@@ -3070,11 +3090,18 @@ function S6({ s, onOpenSettings, refresh }) {
             disabled={(!weightVal && !bfVal) || savingWeight}
             onClick={async () => {
               setSavingWeight(true);
-              if (weightVal) await api('weight', { method: 'POST', body: JSON.stringify({ kg: parseFloat(weightVal) }) });
-              if (bfVal) await api('bodyfat', { method: 'POST', body: JSON.stringify({ pct: parseFloat(bfVal) }) });
+              const patch = {};
+              if (weightVal) {
+                const r = await api('weight', { method: 'POST', body: JSON.stringify({ kg: parseFloat(weightVal) }) });
+                patch.weights = r.weights; patch.composition = r.composition;
+              }
+              if (bfVal) {
+                const r = await api('bodyfat', { method: 'POST', body: JSON.stringify({ pct: parseFloat(bfVal) }) });
+                patch.bodyFatToday = r.bodyFatToday; patch.bodyFat30 = r.bodyFat30;
+              }
               setWeightVal(''); setBfVal('');
               setSavingWeight(false);
-              refresh(null);
+              refresh({ ...s, ...patch });
             }}>
             {savingWeight ? '…' : 'Log'}
           </button>
@@ -3632,29 +3659,33 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, setBrie
 
   const saveLevel = async (level) => {
     setTrackingLevel(level);
-    await api('profile', { method: 'POST', body: JSON.stringify({ trackingLevel: level }) });
-    refresh(null);
+    const profile = await api('profile', { method: 'POST', body: JSON.stringify({ trackingLevel: level }) });
+    refresh({ ...s, profile });
   };
 
   const saveTargets = async () => {
     setSavingTargets(true);
-    await api('profile', { method: 'POST', body: JSON.stringify({ sleepTarget, waterTarget, trainingDaysPerWeek: trainingDays }) });
+    const profile = await api('profile', { method: 'POST', body: JSON.stringify({ sleepTarget, waterTarget, trainingDaysPerWeek: trainingDays }) });
     setSavingTargets(false);
-    refresh(null);
+    refresh({ ...s, profile });
   };
 
   const addSupplement = async () => {
     if (!newSuppName.trim()) return;
     setSavingSupp(true);
-    await api('supplements', { method: 'POST', body: JSON.stringify({ name: newSuppName.trim(), dose: newSuppDose.trim(), timing: newSuppTiming }) });
+    const name = newSuppName.trim(), dose = newSuppDose.trim(), timing = newSuppTiming;
+    await api('supplements', { method: 'POST', body: JSON.stringify({ name, dose, timing }) });
     setNewSuppName(''); setNewSuppDose('');
     setSavingSupp(false);
-    refresh(null);
+    const entry = { name, dose, timing, notes: '' };
+    const existing = supplements.findIndex(sp => sp.name.toLowerCase() === name.toLowerCase());
+    const nextSupplements = existing >= 0 ? supplements.map((sp, i) => i === existing ? entry : sp) : [...supplements, entry];
+    refresh({ ...s, supplements: nextSupplements });
   };
 
   const deleteSupp = async (name) => {
     await api(`supplements/${encodeURIComponent(name)}`, { method: 'DELETE' });
-    refresh(null);
+    refresh({ ...s, supplements: supplements.filter(sp => sp.name !== name) });
   };
 
   const enableNotifications = async () => {
@@ -3695,7 +3726,7 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, setBrie
           <div className="prof-field">
             <span className="prof-lbl">Name</span>
             <input className="prof-input" value={nameVal} onChange={e => setNameVal(e.target.value)}
-              onBlur={() => nameVal !== (s?.profile?.name || '') && api('profile', { method: 'POST', body: JSON.stringify({ name: nameVal }) }).then(() => refresh(null))}
+              onBlur={() => nameVal !== (s?.profile?.name || '') && api('profile', { method: 'POST', body: JSON.stringify({ name: nameVal }) }).then(profile => refresh({ ...s, profile }))}
               placeholder="Your name" style={{ flex: 1, minWidth: 0 }} />
           </div>
           <div className="prof-field">
@@ -3703,7 +3734,7 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, setBrie
             <div style={{ display: 'flex', gap: 6 }}>
               {['cut','recomp','bulk'].map(g => (
                 <button key={g} className="prof-btn"
-                  onClick={() => api('macro-auto', { method: 'POST', body: JSON.stringify({ goal: g }) }).then(() => refresh(null))}
+                  onClick={() => api('macro-auto', { method: 'POST', body: JSON.stringify({ goal: g }) }).then(data => refresh({ ...s, macroGoal: data.goal, macroTargets: data.targets, macroMode: 'auto' }))}
                   style={{ textTransform: 'capitalize', ...(s?.macroGoal === g ? { background: 'var(--ink)', color: 'var(--paper)', borderColor: 'var(--ink)' } : {}) }}>
                   {g}
                 </button>
@@ -3883,7 +3914,7 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, setBrie
           {s?.profile?.travelMode && (
             <div className="prof-field">
               <span className="prof-lbl">Travel Mode</span>
-              <button className="prof-btn" onClick={() => api('profile', { method: 'POST', body: JSON.stringify({ travelMode: false }) }).then(() => refresh(null))}>Disable</button>
+              <button className="prof-btn" onClick={() => api('profile', { method: 'POST', body: JSON.stringify({ travelMode: false }) }).then(profile => refresh({ ...s, profile, travelMode: profile.travelMode }))}>Disable</button>
             </div>
           )}
         </div>

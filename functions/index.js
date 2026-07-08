@@ -265,6 +265,17 @@ function musclePeaksFromLifts(lifts) {
   return peaks;
 }
 
+function alcoholStats(alcoholLog) {
+  const ydayDate = new Date(); ydayDate.setDate(ydayDate.getDate() - 1);
+  const ydayStr = ydayDate.toISOString().slice(0, 10);
+  const alcoholLastNight = (alcoholLog || []).find(e => e.date === ydayStr)?.units || 0;
+  const alcoholLast7 = (alcoholLog || []).filter(e => {
+    const diff = (Date.now() - new Date(e.date).getTime()) / 864e5;
+    return diff >= 0 && diff <= 7;
+  }).reduce((a, e) => a + (e.units || 0), 0);
+  return { alcoholLastNight, alcoholLast7 };
+}
+
 // ---------- Firestore-backed state — per user ----------
 const DEFAULTS = () => ({
   metrics: {}, workouts: [], water: {}, weight: {}, lifts: [],
@@ -766,13 +777,7 @@ app.get("/summary", async (req, res) => {
     hydrationCurve.push(Math.round(Math.min(100, lvl)));
   }
   // Alcohol
-  const ydayDate = new Date(); ydayDate.setDate(ydayDate.getDate() - 1);
-  const ydayStr = ydayDate.toISOString().slice(0, 10);
-  const alcoholLastNight = (db.alcoholLog || []).find(e => e.date === ydayStr)?.units || 0;
-  const alcoholLast7 = (db.alcoholLog || []).filter(e => {
-    const diff = (Date.now() - new Date(e.date).getTime()) / 864e5;
-    return diff >= 0 && diff <= 7;
-  }).reduce((a, e) => a + (e.units || 0), 0);
+  const { alcoholLastNight, alcoholLast7 } = alcoholStats(db.alcoholLog);
   // VO2 max + HRR series
   const vo2maxSeries = Object.keys(db.metrics).sort().filter(k => db.metrics[k].vo2max != null).slice(-14).map(k => ({ date: k, value: db.metrics[k].vo2max }));
   const hrrSeries = Object.keys(db.metrics).sort().filter(k => db.metrics[k].hrr_bpm != null).slice(-14).map(k => ({ date: k, value: db.metrics[k].hrr_bpm }));
@@ -845,14 +850,23 @@ app.post("/water", async (req, res) => {
   db.waterEvents = db.waterEvents.slice(-200);
   await save(); res.json({ today: db.water[k] });
 });
-app.post("/weight", async (req, res) => { db.weight[day()] = req.body.kg; await save(); res.json({ ok: true }); });
+app.post("/weight", async (req, res) => {
+  db.weight[day()] = req.body.kg;
+  await save();
+  const weights = lastN(db.weight, 30);
+  res.json({ ok: true, weights, composition: compVerdict(weights, db.lifts) });
+});
 app.post("/bodyfat", async (req, res) => {
   const { pct } = req.body;
   const k = day();
   db.metrics[k] = db.metrics[k] || {};
   db.metrics[k].body_fat_percentage = pct;
   await save();
-  res.json({ ok: true });
+  res.json({
+    ok: true,
+    bodyFatToday: pct,
+    bodyFat30: Object.keys(db.metrics).sort().slice(-30).filter(kk => db.metrics[kk].body_fat_percentage != null).map(kk => ({ date: kk, pct: db.metrics[kk].body_fat_percentage })),
+  });
 });
 app.post("/nutrition", async (req, res) => {
   const k = day(); db.nutrition = db.nutrition || {};
@@ -1738,7 +1752,7 @@ app.post('/alcohol', async (req, res) => {
   if (existing >= 0) db.alcoholLog[existing].units = +units;
   else if (+units > 0) db.alcoholLog.push({ date: k, units: +units, ts: Date.now() });
   await save();
-  res.json({ ok: true });
+  res.json({ ok: true, ...alcoholStats(db.alcoholLog) });
 });
 
 // ---------- Experiments ----------
