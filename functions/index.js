@@ -28,7 +28,15 @@ async function callGemini({ messages, maxTokens = 800, jsonMode = false, image =
     turns[turns.length - 1].parts.push({ inline_data: { mime_type: image.mimeType, data: image.data } });
   }
 
-  const generationConfig = { maxOutputTokens: maxTokens };
+  // Gemini 2.5+/3.x models default to an internal "thinking" pass before responding,
+  // costing latency for no benefit on short replies like these. Minimized — but the
+  // config field differs by generation: Gemini 3.x uses thinkingLevel (LOW/MEDIUM/HIGH),
+  // 2.5-and-earlier uses a numeric thinkingBudget. Using the wrong one for the model's
+  // generation produces malformed output rather than a clean error.
+  const generationConfig = {
+    maxOutputTokens: maxTokens,
+    thinkingConfig: model.startsWith("gemini-3") ? { thinkingLevel: "LOW" } : { thinkingBudget: 0 },
+  };
   if (jsonMode) generationConfig.responseMimeType = "application/json";
   if (temperature != null) generationConfig.temperature = temperature;
 
