@@ -614,7 +614,7 @@ function Header({ s, onSignOut }) {
 }
 
 // ── S1: FRONT PAGE ───────────────────────────────────────────────────────────
-function S1({ s, briefing, onShowBriefing, onShowAfternoon, onShowNight, afternoonLoaded, nightLoaded, newscastLoading }) {
+function S1({ s, briefing, onShowBriefing, onShowAfternoon, onShowNight, afternoonLoaded, nightLoaded, newscastLoading, newscastError }) {
   const today = s?.today || {};
   const recovery = today.recovery ?? s?.recoveryTrend?.at(-1) ?? null;
 
@@ -713,6 +713,12 @@ function S1({ s, briefing, onShowBriefing, onShowAfternoon, onShowNight, afterno
           <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 11, color: 'var(--dim)', fontStyle: 'italic' }}>
             {newscastLoading ? 'Generating…' : nightLoaded ? "Read tonight's report" : 'Generate evening report'}
           </div>
+        </div>
+      )}
+
+      {newscastError && (
+        <div className="fade" style={{ flexShrink: 0, fontFamily: "'JetBrains Mono',monospace", fontSize: 10, color: 'var(--red)', padding: '6px 0' }}>
+          {newscastError}
         </div>
       )}
 
@@ -932,6 +938,47 @@ function S2({ s, refresh }) {
                   </div>
                   <Sparkline data={hrrSeries} color="var(--navy)" width={56} height={22} />
                 </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Wrist temp / SpO2 / current HR — folded into the recovery score, shown here */}
+      {(s?.today?.wristTemp != null || s?.today?.spo2 != null || s?.today?.hr != null) && (
+        <div className="fade" style={{ borderTop: '1px solid var(--rule)', paddingTop: 10, flexShrink: 0 }}>
+          <div className="kicker" style={{ marginBottom: 8 }}>Recovery Signals</div>
+          <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap' }}>
+            {s?.today?.wristTemp != null && (
+              <div>
+                <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, color: 'var(--dim)', letterSpacing: '.1em', textTransform: 'uppercase', marginBottom: 4 }}>Wrist Temp</div>
+                <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 22, fontWeight: 700, lineHeight: 1, color: s?.baselines?.wristTemp != null && s.today.wristTemp - s.baselines.wristTemp > 0.3 ? 'var(--ember)' : 'var(--forest)' }}>
+                  {s.today.wristTemp.toFixed(1)}<span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)', marginLeft: 2 }}>°C</span>
+                </div>
+                {s?.baselines?.wristTemp != null && (
+                  <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, color: 'var(--dim)', marginTop: 2 }}>
+                    baseline {s.baselines.wristTemp}°C ({s.today.wristTemp - s.baselines.wristTemp >= 0 ? '+' : ''}{(s.today.wristTemp - s.baselines.wristTemp).toFixed(1)})
+                  </div>
+                )}
+              </div>
+            )}
+            {s?.today?.spo2 != null && (
+              <div>
+                <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, color: 'var(--dim)', letterSpacing: '.1em', textTransform: 'uppercase', marginBottom: 4 }}>Blood Oxygen</div>
+                <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 22, fontWeight: 700, lineHeight: 1, color: s.today.spo2 < 95 ? 'var(--ember)' : 'var(--forest)' }}>
+                  {s.today.spo2}<span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)', marginLeft: 2 }}>%</span>
+                </div>
+              </div>
+            )}
+            {s?.today?.hr != null && (
+              <div>
+                <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, color: 'var(--dim)', letterSpacing: '.1em', textTransform: 'uppercase', marginBottom: 4 }}>Heart Rate</div>
+                <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 22, fontWeight: 700, lineHeight: 1, color: 'var(--navy)' }}>
+                  {s.today.hr}<span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)', marginLeft: 2 }}>bpm</span>
+                </div>
+                {s?.baselines?.hr != null && (
+                  <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, color: 'var(--dim)', marginTop: 2 }}>baseline {s.baselines.hr}bpm</div>
+                )}
               </div>
             )}
           </div>
@@ -4264,18 +4311,24 @@ function App() {
   const [showAfternoonNewscast, setShowAfternoonNewscast] = useState(false);
   const [showNightNewscast, setShowNightNewscast] = useState(false);
   const [newscastLoading, setNewscastLoading] = useState(false);
+  const [newscastError, setNewscastError] = useState('');
   const [showSettings, setShowSettings] = useState(false);
 
   const fetchNewscast = async (period) => {
     if (newscastLoading) return;
     setNewscastLoading(true);
+    setNewscastError('');
     try {
       const data = await api(`newscast?period=${period}`);
       if (data.newscast) {
         if (period === 'afternoon') { setAfternoonNewscast(data.newscast); setShowAfternoonNewscast(true); }
         else { setNightNewscast(data.newscast); setShowNightNewscast(true); }
+      } else {
+        setNewscastError(data.error || 'Generation failed — Gemini may be overloaded. Try again in a moment.');
       }
-    } catch {}
+    } catch {
+      setNewscastError('Connection error — try again.');
+    }
     setNewscastLoading(false);
   };
 
@@ -4375,7 +4428,7 @@ function App() {
             onShowAfternoon={() => afternoonNewscast ? setShowAfternoonNewscast(true) : fetchNewscast('afternoon')}
             onShowNight={() => nightNewscast ? setShowNightNewscast(true) : fetchNewscast('night')}
             afternoonLoaded={!!afternoonNewscast} nightLoaded={!!nightNewscast}
-            newscastLoading={newscastLoading} />
+            newscastLoading={newscastLoading} newscastError={newscastError} />
         {showSleep && <S2 s={s} refresh={refresh} />}
         <S3 s={s} onStartWorkout={planDay => setLoggerPlanDay(planDay ?? null)} onImport={() => setShowImport(true)} onHistory={() => setShowHistory(true)} refresh={refresh} />
         {showFuel && <S4 s={s} refresh={refresh} />}

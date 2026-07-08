@@ -72,6 +72,30 @@ function geminiRetryDelaySec(error) {
   return match ? parseFloat(match[1]) : null;
 }
 
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+// Retries on 429 (quota) and 503 (overloaded) with backoff, then falls back to
+// GEMINI_FALLBACK_MODEL once if the primary model stays overloaded through the
+// retries — a capacity issue is usually specific to one model, not Gemini as a
+// whole. Used by every Gemini-backed generator so a transient overload doesn't
+// just fail outright.
+async function callGeminiResilient(opts) {
+  let result;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    result = await callGemini(opts);
+    if (result.ok) return result;
+    if (result.status !== 429 && result.status !== 503) break;
+    const waitSec = geminiRetryDelaySec(result.error) || (2 * (attempt + 1));
+    await sleep(Math.min(waitSec, 10) * 1000 + 250);
+  }
+  if (result.status === 503) {
+    const fallback = await callGemini({ ...opts, model: GEMINI_FALLBACK_MODEL });
+    if (fallback.ok) return fallback;
+    result = fallback;
+  }
+  return result;
+}
+
 const VAPID_PUBLIC = process.env.VAPID_PUBLIC_KEY;
 const VAPID_PRIVATE = process.env.VAPID_PRIVATE_KEY;
 if (VAPID_PUBLIC && VAPID_PRIVATE) {
@@ -411,6 +435,9 @@ app.post("/shortcut", async (req, res) => {
   if (d.weight) { db.metrics[k].body_mass = d.weight; db.weight[k] = d.weight; }
   if (d.vo2max) db.metrics[k].vo2max = d.vo2max;
   if (d.hrr_bpm) db.metrics[k].hrr_bpm = d.hrr_bpm;
+  if (d.wrist) db.metrics[k].wrist_temperature = d.wrist;
+  if (d.hr) db.metrics[k].heart_rate = d.hr;
+  if (d.bloodoxygen) db.metrics[k].blood_oxygen = d.bloodoxygen;
   if (d.alcohol_units != null && d.alcohol_units > 0) {
     db.alcoholLog = db.alcoholLog || [];
     const existing = db.alcoholLog.find(e => e.date === k);
@@ -674,24 +701,40 @@ function personalSleepTarget(days) {
   const t = avg(top.map((d) => d.sleep_hours));
   return { target: Math.min(9.5, Math.max(6.5, Math.round(t * 10) / 10)), learned: true };
 }
-function computeDay(d, baseHRV, baseRHR, sleepTarget) {
+function computeDay(d, baseHRV, baseRHR, sleepTarget, baseWristTemp, baseHR) {
   const hrv = d.heart_rate_variability, rhr = d.resting_heart_rate, sleepH = d.sleep_hours;
+  const wristTemp = d.wrist_temperature, hr = d.heart_rate, spo2 = d.blood_oxygen;
   if (!hrv || !baseHRV) return null;
   const hrvScore = Math.max(0, Math.min(1, hrv / baseHRV - 0.5));
   const rhrScore = rhr && baseRHR ? Math.max(0, Math.min(1, 1 - (rhr / baseRHR - 1) * 5)) : 0.8;
   const sleepScore = sleepH ? Math.min(1, sleepH / sleepTarget) : 0.8;
-  return Math.round(Math.min(99, (hrvScore * 0.5 + rhrScore * 0.2 + sleepScore * 0.3) * 100));
+  // Wrist skin temperature deviation from personal baseline — elevated temp is a
+  // well-established illness/overreaching signal, penalized more steeply than a
+  // below-baseline reading.
+  const tempDev = wristTemp != null && baseWristTemp != null ? wristTemp - baseWristTemp : null;
+  const wristScore = tempDev == null ? 0.8 : tempDev <= 0
+    ? Math.max(0.5, 1 - Math.abs(tempDev) * 0.15)
+    : Math.max(0, 1 - tempDev * 0.4);
+  // Blood oxygen saturation — healthy range is ~96-100%; below that increasingly
+  // signals poor sleep quality or respiratory strain.
+  const spo2Score = spo2 != null ? Math.max(0, Math.min(1, (spo2 - 90) / 8)) : 0.8;
+  // Current/instant heart rate vs. personal baseline — noisier than true resting HR
+  // since it depends on activity at sampling time, so weighted lightly.
+  const hrScore = hr && baseHR ? Math.max(0, Math.min(1, 1 - (hr / baseHR - 1) * 3)) : 0.8;
+  return Math.round(Math.min(99, (hrvScore * 0.40 + rhrScore * 0.15 + sleepScore * 0.20 + wristScore * 0.10 + spo2Score * 0.10 + hrScore * 0.05) * 100));
 }
-// Today's HRV/RHR/sleep-derived recovery score, used to modulate CNS fatigue. Returns
-// null when there isn't enough HRV history to establish a personal baseline.
+// Today's recovery score (HRV/RHR/sleep/wrist-temp/SpO2/HR-derived), used to modulate
+// CNS fatigue. Returns null when there isn't enough HRV history for a personal baseline.
 function getRecoveryScore(db) {
   const days = lastN(db.metrics || {}, 30);
   const last14 = days.slice(-14);
   const today = days.at(-1) || {};
   const baseHRV = avg(last14.map(d => d.heart_rate_variability).filter(Boolean));
   const baseRHR = avg(last14.map(d => d.resting_heart_rate).filter(Boolean));
+  const baseWristTemp = avg(last14.map(d => d.wrist_temperature).filter(Boolean));
+  const baseHR = avg(last14.map(d => d.heart_rate).filter(Boolean));
   const sleep = personalSleepTarget(days);
-  return computeDay(today, baseHRV, baseRHR, sleep.target);
+  return computeDay(today, baseHRV, baseRHR, sleep.target, baseWristTemp, baseHR);
 }
 function computeDataMaturity(lifts) {
   if (!lifts || lifts.length === 0) return { phase: 'experiments', weeksCovered: 0, sessionsCount: 0, hasPatterns: false, exercisesWithPatterns: 0 };
@@ -752,9 +795,11 @@ app.get("/summary", async (req, res) => {
   const today = days.at(-1) || {};
   const baseHRV = avg(last14.map(d => d.heart_rate_variability).filter(Boolean));
   const baseRHR = avg(last14.map(d => d.resting_heart_rate).filter(Boolean));
+  const baseWristTemp = avg(last14.map(d => d.wrist_temperature).filter(Boolean));
+  const baseHR = avg(last14.map(d => d.heart_rate).filter(Boolean));
   const sleep = personalSleepTarget(days);
-  const recovery = computeDay(today, baseHRV, baseRHR, sleep.target);
-  const recoveryTrend = last14.map(d => computeDay(d, baseHRV, baseRHR, sleep.target)).filter(x => x != null);
+  const recovery = computeDay(today, baseHRV, baseRHR, sleep.target, baseWristTemp, baseHR);
+  const recoveryTrend = last14.map(d => computeDay(d, baseHRV, baseRHR, sleep.target, baseWristTemp, baseHR)).filter(x => x != null);
   const weights = lastN(db.weight, 30);
   const monthWk = db.workouts.filter(w => w.date >= day(new Date(Date.now() - 30 * 864e5)));
   const sleepDebtH = last14.slice(-2).reduce((s, d) => s + (d.sleep_hours ? Math.max(0, sleep.target - d.sleep_hours) : 0), 0);
@@ -789,12 +834,12 @@ app.get("/summary", async (req, res) => {
   res.json({
     profile: db.profile, hydrationCurve, hydrationNow: hydrationCurve.at(-1) ?? null,
     liftVolume,
-    today: { recovery, hrv: today.heart_rate_variability ?? null, rhr: today.resting_heart_rate ?? null, sleepH: today.sleep_hours ?? null, sleepEff: today.sleep_eff ?? null, steps: today.step_count ?? null },
+    today: { recovery, hrv: today.heart_rate_variability ?? null, rhr: today.resting_heart_rate ?? null, sleepH: today.sleep_hours ?? null, sleepEff: today.sleep_eff ?? null, steps: today.step_count ?? null, wristTemp: today.wrist_temperature ?? null, hr: today.heart_rate ?? null, spo2: today.blood_oxygen ?? null },
     sleepTarget: sleep.target, sleepTargetLearned: sleep.learned,
     sleepDebtH: Math.round(sleepDebtH * 10) / 10,
     recoveryTrend, sleepSeries: last14.map(d => d.sleep_hours).filter(Boolean),
     rhrSeries: last14.map(d => d.resting_heart_rate).filter(Boolean),
-    baselines: { hrv: baseHRV && Math.round(baseHRV), rhr: baseRHR && Math.round(baseRHR) },
+    baselines: { hrv: baseHRV && Math.round(baseHRV), rhr: baseRHR && Math.round(baseRHR), wristTemp: baseWristTemp && Math.round(baseWristTemp * 10) / 10, hr: baseHR && Math.round(baseHR) },
     composition: compVerdict(weights, db.lifts),
     waterStats: { streak, avg: waterDays.length ? Math.round(avg(waterDays) * 10) / 10 : 0, hitRate: waterDays.length ? Math.round((waterDays.filter(v => v >= target).length / waterDays.length) * 100) : 0, best: waterDays.length ? Math.max(...waterDays) : 0 },
     musclePeaks: musclePeaksFromLifts(db.lifts),
@@ -937,8 +982,6 @@ app.delete("/lift/:i", async (req, res) => { db.lifts.splice(+req.params.i, 1); 
 app.post("/profile", async (req, res) => { db.profile = { ...db.profile, ...req.body }; await save(); res.json(db.profile); });
 
 // ---------- Personal Journalist ----------
-const sleep = ms => new Promise(r => setTimeout(r, ms));
-
 const TRAINING_ETHOS = "Training philosophy — this is the standing stance, not a menu of options to present neutrally: Effort is non-negotiable. Push hard for training close to true failure, always expressed in concrete RIR (reps in reserve) terms — 'take that set to RIR 0-1', 'RIR 3-4 is too far out, add weight or a rep next time' — never vague language like 'push yourself' or 'go hard'. On any exercise with more than one working set, RIR always decreases set to set — the first working set leaves more in reserve, each subsequent set gets closer to true failure, with the last set at RIR 0-1; never repeat the same RIR across sets of the same exercise. Full-body sessions, 2-4x/week: frequency over volume — fewer working sets per session, volume spread across the week rather than stacked into one session. Fully autoregulated: no rigid periodized templates — adjust load, sets, and exercise choice session to session based on real fatigue and performance, and trigger deloads purely from fatigue/performance data, never a fixed schedule. Progress via double progression — climb reps to the top of the rep range at target RIR, then add weight and drop back down in reps. Reps run 1-9, biased toward the higher end (up to 8-9), since 1-2 reps rarely deliver enough stimulus per set to be worth defaulting to. Favor stable, structured movements (machines, fixed-path, cables) over free-weight variations specifically because they let effort be pushed to true failure without technical form breakdown becoming the limiter — not dogma against barbells, just a preference for whatever lets intensity go higher safely; stick with an exercise as long as double progression keeps working, only rotate it out once progress stalls. Prioritize lagging muscle groups with extra frequency or volume over strong points. Warm up with a couple of ramping sets (roughly 60% then 85% of the working weight) before working sets, adjusted by how the day feels, and rest fully between working sets (about 3-4 minutes) to protect effort quality over session speed. When something hurts or flares up, work around it — swap the offending movement or angle and keep training everything else hard, rather than broadly backing off. Keep cardio/conditioning sessions separate from strength sessions so lifting stimulus never gets diluted by concurrent-training interference. No program should be copied wholesale — build around the individual's recovery, goals, and response. A caloric surplus without real training stimulus adds fat, not muscle.";
 
 app.post("/mentor", async (req, res) => {
@@ -949,22 +992,8 @@ app.post("/mentor", async (req, res) => {
   const recentMessages = req.body.messages.slice(-10);
 
   const mentorMessages = [{ role: "system", content: system }, ...recentMessages];
-  let result;
-  for (let attempt = 0; attempt < 3; attempt++) {
-    result = await callGemini({ messages: mentorMessages, maxTokens: 700 });
-    if (result.ok) return res.json({ reply: result.content });
-    if (result.status !== 429 && result.status !== 503) break;
-    const waitSec = geminiRetryDelaySec(result.error) || (2 * (attempt + 1));
-    await sleep(Math.min(waitSec, 10) * 1000 + 250);
-  }
-  if (result.status === 503) {
-    // Primary model stayed overloaded through the retries — try the fallback model
-    // once rather than failing outright on what's often a capacity issue specific
-    // to one model, not Gemini as a whole.
-    const fallback = await callGemini({ messages: mentorMessages, maxTokens: 700, model: GEMINI_FALLBACK_MODEL });
-    if (fallback.ok) return res.json({ reply: fallback.content });
-    result = fallback;
-  }
+  const result = await callGeminiResilient({ messages: mentorMessages, maxTokens: 700 });
+  if (result.ok) return res.json({ reply: result.content });
   console.error("Gemini mentor error:", result.status, JSON.stringify(result.error));
   res.json({ reply: "Personal Journalist error: " + (result.error?.message || `Gemini returned ${result.status}`) });
 });
@@ -1072,7 +1101,7 @@ Return ONLY valid JSON:
 }
 Set types: W=warm-up, N=normal, D=drop, F=failure. Include the note field per exercise.`;
 
-  const result = await callGemini({ messages: [{ role: "user", content: prompt }], maxTokens: 1600, jsonMode: true });
+  const result = await callGeminiResilient({ messages: [{ role: "user", content: prompt }], maxTokens: 1600, jsonMode: true });
   if (!result.ok) return res.json({ exercises: [] });
   try { res.json(JSON.parse(result.content)); } catch { res.json({ exercises: [] }); }
 });
@@ -1091,7 +1120,7 @@ app.get("/coach/:exercise", async (req, res) => {
   for (const l of sets) { if (!byDate[l.date]) byDate[l.date] = []; byDate[l.date].push(l); }
   const ctx = Object.keys(byDate).sort().slice(-5).map(d => `${d}: ${byDate[d].map(s => `${s.kg}kg×${s.reps}`).join(', ')}`).join('; ');
   const prompt = `One specific coaching cue for ${ex}. History: ${ctx || 'no data'}. Max 14 words. Evidence-based, specific to their numbers. No intro words.`;
-  const result = await callGemini({ messages: [{ role: "user", content: prompt }], maxTokens: 60 });
+  const result = await callGeminiResilient({ messages: [{ role: "user", content: prompt }], maxTokens: 60 });
   res.json({ note: result.ok ? result.content.trim() : null });
 });
 
@@ -1201,7 +1230,7 @@ ${JSON.stringify(structure.map(d => ({ label: d.label, type: d.type, targetMuscl
 
 Return ONLY valid JSON: { "focus": "...", "notes": "...", "days": [{ "title": "...", "detail": "..." }, ... one per day, same order as given] }`;
 
-  const result = await callGemini({ messages: [{ role: "user", content: writerPrompt }], maxTokens: 700, jsonMode: true });
+  const result = await callGeminiResilient({ messages: [{ role: "user", content: writerPrompt }], maxTokens: 700, jsonMode: true });
   let written = null;
   if (result.ok) { try { written = JSON.parse(result.content); } catch { written = null; } }
   const dayTexts = (written?.days?.length === structure.length) ? written.days : structure.map(templateSessionText);
@@ -1371,7 +1400,7 @@ Training age: ${profile.trainingAge || 'unknown'}
 
 Write a brief post-session note highlighting what the numbers say — mechanical fatigue accumulation, any standout load, what to prioritise next. No bullet points. No greetings.`;
 
-      const result = await callGemini({ messages: [{ role: 'user', content: prompt }], maxTokens: 180, temperature: 0.7 });
+      const result = await callGeminiResilient({ messages: [{ role: 'user', content: prompt }], maxTokens: 180, temperature: 0.7 });
       atlasSummary = result.ok ? result.content.trim() : null;
     }
 
@@ -1502,10 +1531,13 @@ Return ONLY valid JSON in this exact structure:
   "notification": "The headline rephrased for a push notification — under 60 chars, punchy"
 }`;
 
-  const result = await callGemini({ messages: [{ role: 'user', content: prompt }], maxTokens: 750, jsonMode: true, temperature: 0.8 });
-  if (!result.ok) { console.error('Gemini briefing error:', result.status, JSON.stringify(result.error)); return null; }
+  const result = await callGeminiResilient({ messages: [{ role: 'user', content: prompt }], maxTokens: 750, jsonMode: true, temperature: 0.8 });
+  if (!result.ok) {
+    console.error('Gemini briefing error:', result.status, JSON.stringify(result.error));
+    throw new Error(result.error?.message || `Gemini returned ${result.status}`);
+  }
   let briefing;
-  try { briefing = JSON.parse(result.content); } catch { return null; }
+  try { briefing = JSON.parse(result.content); } catch (e) { throw new Error('Gemini returned invalid JSON: ' + e.message); }
   briefing.generatedAt = new Date().toISOString();
   briefing.date = today;
   return briefing;
@@ -1545,10 +1577,13 @@ Return ONLY valid JSON:
   "nutritionNote": ${nutritionLogged ? 'null' : '"A single direct sentence prompting the user to log their nutrition today."'}
 }`;
 
-  const result = await callGemini({ messages: [{ role: 'user', content: prompt }], maxTokens: 500, jsonMode: true, temperature: 0.75 });
-  if (!result.ok) { console.error('Gemini newscast error:', result.status, JSON.stringify(result.error)); return null; }
+  const result = await callGeminiResilient({ messages: [{ role: 'user', content: prompt }], maxTokens: 500, jsonMode: true, temperature: 0.75 });
+  if (!result.ok) {
+    console.error('Gemini newscast error:', result.status, JSON.stringify(result.error));
+    throw new Error(result.error?.message || `Gemini returned ${result.status}`);
+  }
   let newscast;
-  try { newscast = JSON.parse(result.content); } catch { return null; }
+  try { newscast = JSON.parse(result.content); } catch (e) { throw new Error('Gemini returned invalid JSON: ' + e.message); }
   newscast.period = period;
   newscast.generatedAt = new Date().toISOString();
   newscast.date = today;
@@ -1633,14 +1668,18 @@ strong{font-weight:600}
   <li><span>Open <strong>Shortcuts</strong> on your iPhone and tap <strong>Automation</strong></span></li>
   <li><span>Tap <strong>New Automation</strong> → <strong>Time of Day</strong> → set to <strong>8:00 AM, Daily</strong></span></li>
   <li><span>Add action: <strong>Find Health Samples</strong> — type: <strong>Heart Rate Variability</strong>, limit 1 → <strong>Set Variable</strong>: <code>hrv</code></span></li>
-  <li><span>Repeat for <strong>Resting Heart Rate</strong> → <code>rhr</code>, <strong>Steps</strong> (today) → <code>steps</code>, <strong>Sleep Analysis</strong> → <code>sleep_hours</code></span></li>
+  <li><span>Repeat for <strong>Resting Heart Rate</strong> → <code>rhr</code>, <strong>Steps</strong> (today) → <code>steps</code>, <strong>Sleep Analysis</strong> → <code>sleep</code></span></li>
   <li><span>Add action: <strong>Get Contents of URL</strong>. Paste your sync URL above. Method: <strong>POST</strong>, Body: <strong>JSON</strong></span></li>
-  <li><span>Add the four keys to the JSON body: <code>hrv</code>, <code>rhr</code>, <code>steps</code>, <code>sleep_hours</code> — set each to the variable from step 3–4</span></li>
+  <li><span>Add the four keys to the JSON body: <code>hrv</code>, <code>rhr</code>, <code>steps</code>, <code>sleep</code> — set each to the variable from step 3–4</span></li>
   <li><span>Toggle <strong>Run Automatically</strong> on. Done — Press receives your health data every morning.</span></li>
 </ol>
 
 <div class="note">
   <strong>Tip:</strong> You can add a second automation at 9 PM for an evening sync — duplicate the shortcut and change the time.
+</div>
+
+<div class="note">
+  <strong>Optional recovery signals:</strong> Press also folds these into your recovery score if you add them the same way: <code>wrist</code> (Sleep Wrist Temperature, °C), <code>hr</code> (Heart Rate), <code>bloodoxygen</code> (Blood Oxygen Saturation, %). Not required — everything works fine without them.
 </div>
 </body>
 </html>`);
