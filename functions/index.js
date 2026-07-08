@@ -931,13 +931,13 @@ app.post("/mentor", async (req, res) => {
   if (!process.env.GEMINI_API_KEY) return res.json({ reply: "Add GEMINI_API_KEY to functions/.env to enable the Personal Journalist." });
   const s = db;
   const recentWeights = Object.fromEntries(Object.entries(s.weight || {}).slice(-14));
-  const system = "You are Personal Journalist, " + (s.profile?.name || "the user") + "'s personal peak-performance coach. Be direct, concise (2-4 short sentences). " + TRAINING_ETHOS + " Live data: " + JSON.stringify({ recovery: s.metrics, weights: recentWeights, lifts: s.lifts?.slice(-10), water: s.water, workouts: s.workouts?.slice(-5), thoughts: s.thoughts?.slice(-5) });
+  const system = "You are Personal Journalist, " + (s.profile?.name || "the user") + "'s personal peak-performance coach. Be direct, concise (2-4 short sentences). No greeting, no self-introduction, no restating who you are — answer the question directly, every time, including the first message of a conversation. " + TRAINING_ETHOS + " Live data: " + JSON.stringify({ recovery: s.metrics, weights: recentWeights, lifts: s.lifts?.slice(-10), water: s.water, workouts: s.workouts?.slice(-5), thoughts: s.thoughts?.slice(-5) });
   const recentMessages = req.body.messages.slice(-10);
 
   const mentorMessages = [{ role: "system", content: system }, ...recentMessages];
   let result;
   for (let attempt = 0; attempt < 3; attempt++) {
-    result = await callGemini({ messages: mentorMessages, maxTokens: 400 });
+    result = await callGemini({ messages: mentorMessages, maxTokens: 700 });
     if (result.ok) return res.json({ reply: result.content });
     if (result.status !== 429 && result.status !== 503) break;
     const waitSec = geminiRetryDelaySec(result.error) || (2 * (attempt + 1));
@@ -947,7 +947,7 @@ app.post("/mentor", async (req, res) => {
     // Primary model stayed overloaded through the retries — try the fallback model
     // once rather than failing outright on what's often a capacity issue specific
     // to one model, not Gemini as a whole.
-    const fallback = await callGemini({ messages: mentorMessages, maxTokens: 400, model: GEMINI_FALLBACK_MODEL });
+    const fallback = await callGemini({ messages: mentorMessages, maxTokens: 700, model: GEMINI_FALLBACK_MODEL });
     if (fallback.ok) return res.json({ reply: fallback.content });
     result = fallback;
   }
