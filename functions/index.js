@@ -72,6 +72,30 @@ function geminiRetryDelaySec(error) {
   return match ? parseFloat(match[1]) : null;
 }
 
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+// Retries on 429 (quota) and 503 (overloaded) with backoff, then falls back to
+// GEMINI_FALLBACK_MODEL once if the primary model stays overloaded through the
+// retries — a capacity issue is usually specific to one model, not Gemini as a
+// whole. Used by every Gemini-backed generator so a transient overload doesn't
+// just fail outright.
+async function callGeminiResilient(opts) {
+  let result;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    result = await callGemini(opts);
+    if (result.ok) return result;
+    if (result.status !== 429 && result.status !== 503) break;
+    const waitSec = geminiRetryDelaySec(result.error) || (2 * (attempt + 1));
+    await sleep(Math.min(waitSec, 10) * 1000 + 250);
+  }
+  if (result.status === 503) {
+    const fallback = await callGemini({ ...opts, model: GEMINI_FALLBACK_MODEL });
+    if (fallback.ok) return fallback;
+    result = fallback;
+  }
+  return result;
+}
+
 const VAPID_PUBLIC = process.env.VAPID_PUBLIC_KEY;
 const VAPID_PRIVATE = process.env.VAPID_PRIVATE_KEY;
 if (VAPID_PUBLIC && VAPID_PRIVATE) {
@@ -937,8 +961,6 @@ app.delete("/lift/:i", async (req, res) => { db.lifts.splice(+req.params.i, 1); 
 app.post("/profile", async (req, res) => { db.profile = { ...db.profile, ...req.body }; await save(); res.json(db.profile); });
 
 // ---------- Personal Journalist ----------
-const sleep = ms => new Promise(r => setTimeout(r, ms));
-
 const TRAINING_ETHOS = "Training philosophy — this is the standing stance, not a menu of options to present neutrally: Effort is non-negotiable. Push hard for training close to true failure, always expressed in concrete RIR (reps in reserve) terms — 'take that set to RIR 0-1', 'RIR 3-4 is too far out, add weight or a rep next time' — never vague language like 'push yourself' or 'go hard'. On any exercise with more than one working set, RIR always decreases set to set — the first working set leaves more in reserve, each subsequent set gets closer to true failure, with the last set at RIR 0-1; never repeat the same RIR across sets of the same exercise. Full-body sessions, 2-4x/week: frequency over volume — fewer working sets per session, volume spread across the week rather than stacked into one session. Fully autoregulated: no rigid periodized templates — adjust load, sets, and exercise choice session to session based on real fatigue and performance, and trigger deloads purely from fatigue/performance data, never a fixed schedule. Progress via double progression — climb reps to the top of the rep range at target RIR, then add weight and drop back down in reps. Reps run 1-9, biased toward the higher end (up to 8-9), since 1-2 reps rarely deliver enough stimulus per set to be worth defaulting to. Favor stable, structured movements (machines, fixed-path, cables) over free-weight variations specifically because they let effort be pushed to true failure without technical form breakdown becoming the limiter — not dogma against barbells, just a preference for whatever lets intensity go higher safely; stick with an exercise as long as double progression keeps working, only rotate it out once progress stalls. Prioritize lagging muscle groups with extra frequency or volume over strong points. Warm up with a couple of ramping sets (roughly 60% then 85% of the working weight) before working sets, adjusted by how the day feels, and rest fully between working sets (about 3-4 minutes) to protect effort quality over session speed. When something hurts or flares up, work around it — swap the offending movement or angle and keep training everything else hard, rather than broadly backing off. Keep cardio/conditioning sessions separate from strength sessions so lifting stimulus never gets diluted by concurrent-training interference. No program should be copied wholesale — build around the individual's recovery, goals, and response. A caloric surplus without real training stimulus adds fat, not muscle.";
 
 app.post("/mentor", async (req, res) => {
@@ -949,22 +971,8 @@ app.post("/mentor", async (req, res) => {
   const recentMessages = req.body.messages.slice(-10);
 
   const mentorMessages = [{ role: "system", content: system }, ...recentMessages];
-  let result;
-  for (let attempt = 0; attempt < 3; attempt++) {
-    result = await callGemini({ messages: mentorMessages, maxTokens: 700 });
-    if (result.ok) return res.json({ reply: result.content });
-    if (result.status !== 429 && result.status !== 503) break;
-    const waitSec = geminiRetryDelaySec(result.error) || (2 * (attempt + 1));
-    await sleep(Math.min(waitSec, 10) * 1000 + 250);
-  }
-  if (result.status === 503) {
-    // Primary model stayed overloaded through the retries — try the fallback model
-    // once rather than failing outright on what's often a capacity issue specific
-    // to one model, not Gemini as a whole.
-    const fallback = await callGemini({ messages: mentorMessages, maxTokens: 700, model: GEMINI_FALLBACK_MODEL });
-    if (fallback.ok) return res.json({ reply: fallback.content });
-    result = fallback;
-  }
+  const result = await callGeminiResilient({ messages: mentorMessages, maxTokens: 700 });
+  if (result.ok) return res.json({ reply: result.content });
   console.error("Gemini mentor error:", result.status, JSON.stringify(result.error));
   res.json({ reply: "Personal Journalist error: " + (result.error?.message || `Gemini returned ${result.status}`) });
 });
@@ -1072,7 +1080,7 @@ Return ONLY valid JSON:
 }
 Set types: W=warm-up, N=normal, D=drop, F=failure. Include the note field per exercise.`;
 
-  const result = await callGemini({ messages: [{ role: "user", content: prompt }], maxTokens: 1600, jsonMode: true });
+  const result = await callGeminiResilient({ messages: [{ role: "user", content: prompt }], maxTokens: 1600, jsonMode: true });
   if (!result.ok) return res.json({ exercises: [] });
   try { res.json(JSON.parse(result.content)); } catch { res.json({ exercises: [] }); }
 });
@@ -1091,7 +1099,7 @@ app.get("/coach/:exercise", async (req, res) => {
   for (const l of sets) { if (!byDate[l.date]) byDate[l.date] = []; byDate[l.date].push(l); }
   const ctx = Object.keys(byDate).sort().slice(-5).map(d => `${d}: ${byDate[d].map(s => `${s.kg}kg×${s.reps}`).join(', ')}`).join('; ');
   const prompt = `One specific coaching cue for ${ex}. History: ${ctx || 'no data'}. Max 14 words. Evidence-based, specific to their numbers. No intro words.`;
-  const result = await callGemini({ messages: [{ role: "user", content: prompt }], maxTokens: 60 });
+  const result = await callGeminiResilient({ messages: [{ role: "user", content: prompt }], maxTokens: 60 });
   res.json({ note: result.ok ? result.content.trim() : null });
 });
 
@@ -1201,7 +1209,7 @@ ${JSON.stringify(structure.map(d => ({ label: d.label, type: d.type, targetMuscl
 
 Return ONLY valid JSON: { "focus": "...", "notes": "...", "days": [{ "title": "...", "detail": "..." }, ... one per day, same order as given] }`;
 
-  const result = await callGemini({ messages: [{ role: "user", content: writerPrompt }], maxTokens: 700, jsonMode: true });
+  const result = await callGeminiResilient({ messages: [{ role: "user", content: writerPrompt }], maxTokens: 700, jsonMode: true });
   let written = null;
   if (result.ok) { try { written = JSON.parse(result.content); } catch { written = null; } }
   const dayTexts = (written?.days?.length === structure.length) ? written.days : structure.map(templateSessionText);
@@ -1371,7 +1379,7 @@ Training age: ${profile.trainingAge || 'unknown'}
 
 Write a brief post-session note highlighting what the numbers say — mechanical fatigue accumulation, any standout load, what to prioritise next. No bullet points. No greetings.`;
 
-      const result = await callGemini({ messages: [{ role: 'user', content: prompt }], maxTokens: 180, temperature: 0.7 });
+      const result = await callGeminiResilient({ messages: [{ role: 'user', content: prompt }], maxTokens: 180, temperature: 0.7 });
       atlasSummary = result.ok ? result.content.trim() : null;
     }
 
@@ -1502,10 +1510,13 @@ Return ONLY valid JSON in this exact structure:
   "notification": "The headline rephrased for a push notification — under 60 chars, punchy"
 }`;
 
-  const result = await callGemini({ messages: [{ role: 'user', content: prompt }], maxTokens: 750, jsonMode: true, temperature: 0.8 });
-  if (!result.ok) { console.error('Gemini briefing error:', result.status, JSON.stringify(result.error)); return null; }
+  const result = await callGeminiResilient({ messages: [{ role: 'user', content: prompt }], maxTokens: 750, jsonMode: true, temperature: 0.8 });
+  if (!result.ok) {
+    console.error('Gemini briefing error:', result.status, JSON.stringify(result.error));
+    throw new Error(result.error?.message || `Gemini returned ${result.status}`);
+  }
   let briefing;
-  try { briefing = JSON.parse(result.content); } catch { return null; }
+  try { briefing = JSON.parse(result.content); } catch (e) { throw new Error('Gemini returned invalid JSON: ' + e.message); }
   briefing.generatedAt = new Date().toISOString();
   briefing.date = today;
   return briefing;
@@ -1545,10 +1556,13 @@ Return ONLY valid JSON:
   "nutritionNote": ${nutritionLogged ? 'null' : '"A single direct sentence prompting the user to log their nutrition today."'}
 }`;
 
-  const result = await callGemini({ messages: [{ role: 'user', content: prompt }], maxTokens: 500, jsonMode: true, temperature: 0.75 });
-  if (!result.ok) { console.error('Gemini newscast error:', result.status, JSON.stringify(result.error)); return null; }
+  const result = await callGeminiResilient({ messages: [{ role: 'user', content: prompt }], maxTokens: 500, jsonMode: true, temperature: 0.75 });
+  if (!result.ok) {
+    console.error('Gemini newscast error:', result.status, JSON.stringify(result.error));
+    throw new Error(result.error?.message || `Gemini returned ${result.status}`);
+  }
   let newscast;
-  try { newscast = JSON.parse(result.content); } catch { return null; }
+  try { newscast = JSON.parse(result.content); } catch (e) { throw new Error('Gemini returned invalid JSON: ' + e.message); }
   newscast.period = period;
   newscast.generatedAt = new Date().toISOString();
   newscast.date = today;

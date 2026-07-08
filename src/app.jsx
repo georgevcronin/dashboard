@@ -614,7 +614,7 @@ function Header({ s, onSignOut }) {
 }
 
 // ── S1: FRONT PAGE ───────────────────────────────────────────────────────────
-function S1({ s, briefing, onShowBriefing, onShowAfternoon, onShowNight, afternoonLoaded, nightLoaded, newscastLoading }) {
+function S1({ s, briefing, onShowBriefing, onShowAfternoon, onShowNight, afternoonLoaded, nightLoaded, newscastLoading, newscastError }) {
   const today = s?.today || {};
   const recovery = today.recovery ?? s?.recoveryTrend?.at(-1) ?? null;
 
@@ -713,6 +713,12 @@ function S1({ s, briefing, onShowBriefing, onShowAfternoon, onShowNight, afterno
           <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 11, color: 'var(--dim)', fontStyle: 'italic' }}>
             {newscastLoading ? 'Generating…' : nightLoaded ? "Read tonight's report" : 'Generate evening report'}
           </div>
+        </div>
+      )}
+
+      {newscastError && (
+        <div className="fade" style={{ flexShrink: 0, fontFamily: "'JetBrains Mono',monospace", fontSize: 10, color: 'var(--red)', padding: '6px 0' }}>
+          {newscastError}
         </div>
       )}
 
@@ -4264,18 +4270,24 @@ function App() {
   const [showAfternoonNewscast, setShowAfternoonNewscast] = useState(false);
   const [showNightNewscast, setShowNightNewscast] = useState(false);
   const [newscastLoading, setNewscastLoading] = useState(false);
+  const [newscastError, setNewscastError] = useState('');
   const [showSettings, setShowSettings] = useState(false);
 
   const fetchNewscast = async (period) => {
     if (newscastLoading) return;
     setNewscastLoading(true);
+    setNewscastError('');
     try {
       const data = await api(`newscast?period=${period}`);
       if (data.newscast) {
         if (period === 'afternoon') { setAfternoonNewscast(data.newscast); setShowAfternoonNewscast(true); }
         else { setNightNewscast(data.newscast); setShowNightNewscast(true); }
+      } else {
+        setNewscastError(data.error || 'Generation failed — Gemini may be overloaded. Try again in a moment.');
       }
-    } catch {}
+    } catch {
+      setNewscastError('Connection error — try again.');
+    }
     setNewscastLoading(false);
   };
 
@@ -4375,7 +4387,7 @@ function App() {
             onShowAfternoon={() => afternoonNewscast ? setShowAfternoonNewscast(true) : fetchNewscast('afternoon')}
             onShowNight={() => nightNewscast ? setShowNightNewscast(true) : fetchNewscast('night')}
             afternoonLoaded={!!afternoonNewscast} nightLoaded={!!nightNewscast}
-            newscastLoading={newscastLoading} />
+            newscastLoading={newscastLoading} newscastError={newscastError} />
         {showSleep && <S2 s={s} refresh={refresh} />}
         <S3 s={s} onStartWorkout={planDay => setLoggerPlanDay(planDay ?? null)} onImport={() => setShowImport(true)} onHistory={() => setShowHistory(true)} refresh={refresh} />
         {showFuel && <S4 s={s} refresh={refresh} />}
