@@ -879,6 +879,7 @@ function S2({ s, refresh }) {
           {debt > 0
             ? `Sleep debt stands at ${debt.toFixed(1)} hours. Consistent nights above target needed to clear it.`
             : 'Sleep debt cleared. Maintain consistent bedtimes to hold this position.'}
+          {' '}Target {sleepTarget}h ({s?.sleepTargetLearned ? 'learned from your recent nights' : 'default — not enough data yet to personalise'}).
         </div>
       </div>
       <div className="chart-wrap fade" style={{ flex: '0 0 90px', position: 'relative' }}>
@@ -894,7 +895,7 @@ function S2({ s, refresh }) {
                 <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}>
                   <svg viewBox="0 0 320 100" style={{ width: '100%', height: '100%', position: 'absolute', inset: 0 }} preserveAspectRatio="none">
                     <line x1="0" y1={tgtY} x2="320" y2={tgtY} stroke="var(--gold)" strokeWidth="1" strokeDasharray="4,4" opacity="0.7" />
-                    <text x="4" y={tgtY - 3} fontSize="7" fill="var(--gold)" fontFamily="JetBrains Mono,monospace" opacity="0.9">target {sleepTarget}h</text>
+                    <text x="4" y={tgtY - 3} fontSize="7" fill="var(--gold)" fontFamily="JetBrains Mono,monospace" opacity="0.9">target {sleepTarget}h{s?.sleepTargetLearned ? ' · learned' : ' · default'}</text>
                   </svg>
                 </div>
               );
@@ -2191,7 +2192,7 @@ function S4({ s, refresh }) {
   const mt = s?.macroTargets || {};
   const mealLog = s?.nutritionLog || [];
   const water = s?.waterToday ?? 0;
-  const waterTarget = s?.profile?.waterTarget || 8;
+  const waterTarget = s?.profile?.waterTarget || 7;
   const today = new Date().toISOString().slice(0, 10);
   const todayLog = mealLog.filter(m => m.date === today);
 
@@ -2212,6 +2213,7 @@ function S4({ s, refresh }) {
   const [scanMode, setScanMode] = useState('meal');
   const [portion, setPortion] = useState(1);
   const [analysed, setAnalysed] = useState(false);
+  const [photoErr, setPhotoErr] = useState('');
 
   // Tab + barcode state
   const [foodTab, setFoodTab] = useState('log');
@@ -2326,7 +2328,7 @@ function S4({ s, refresh }) {
   const handlePhoto = async e => {
     const file = e.target.files?.[0];
     if (!file) return;
-    setAnalysing(true); setDescription(''); setAnalysed(false);
+    setAnalysing(true); setDescription(''); setAnalysed(false); setPhotoErr('');
     const previewUrl = URL.createObjectURL(file);
     setPhotoPreview(previewUrl);
     const reader = new FileReader();
@@ -2336,6 +2338,7 @@ function S4({ s, refresh }) {
           method: 'POST',
           body: JSON.stringify({ imageBase64: ev.target.result, mode: scanMode }),
         });
+        if (data.error) throw new Error(data.error);
         const base = { calories: data.calories || 0, protein: data.protein || 0, carbs: data.carbs || 0, fat: data.fat || 0 };
         baseNutrition.current = base;
         if (data.description) setDescription(data.description);
@@ -2343,7 +2346,7 @@ function S4({ s, refresh }) {
         applyPortion(1, base);
         if (!label && data.description) setLabel(data.description.slice(0, 40));
         setAnalysed(true);
-      } catch {}
+      } catch (e) { setPhotoErr(e.message || 'Photo analysis failed — try again.'); }
       setAnalysing(false);
     };
     reader.readAsDataURL(file);
@@ -2371,6 +2374,11 @@ function S4({ s, refresh }) {
   const logFood = async (food) => {
     const { entry, nutritionToday } = await postMeal({ label: food.name || food.label, protein: food.protein || 0, carbs: food.carbs || 0, fat: food.fat || 0, calories: food.calories || 0 });
     refresh({ ...s, nutritionToday, nutritionLog: [...(s?.nutritionLog || []), entry] });
+  };
+
+  const logWater = async (delta) => {
+    const data = await api('water', { method: 'POST', body: JSON.stringify({ delta }) });
+    refresh({ ...s, waterToday: data.today });
   };
 
   const loadRecent = async () => {
@@ -2433,7 +2441,6 @@ function S4({ s, refresh }) {
           { label: 'Protein',  val: n.protein||0,  tgt: mt.protein || 160, unit: 'g',    color: 'var(--navy)'   },
           { label: 'Carbs',    val: n.carbs||0,    tgt: mt.carbs || 250,   unit: 'g',    color: 'var(--forest)' },
           { label: 'Fat',      val: n.fat||0,      tgt: mt.fat || 75,      unit: 'g',    color: 'var(--ember)'  },
-          { label: 'Water',    val: water,         tgt: waterTarget,       unit: 'gl',   color: 'var(--navy)'   },
         ].map(({ label: lbl, val, tgt, unit, color }) => {
           const p = tgt ? pct(val, tgt) : 0;
           return (
@@ -2443,6 +2450,14 @@ function S4({ s, refresh }) {
             </div>
           );
         })}
+        <div className="macro">
+          <div className="macro-lbl"><span>WATER</span><span>{water} / {waterTarget} gl &nbsp;{waterTarget ? pct(water, waterTarget) : 0}%</span></div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div className="macro-track" style={{ flex: 1 }}><div className="macro-fill" style={{ width: `${waterTarget ? pct(water, waterTarget) : 0}%`, background: 'var(--navy)' }} /></div>
+            <button onClick={() => logWater(-1)} disabled={water <= 0} style={{ width: 22, height: 22, flexShrink: 0, border: '1px solid var(--rule)', background: 'none', cursor: water > 0 ? 'pointer' : 'default', fontSize: 13, lineHeight: 1, color: 'var(--ink)' }}>−</button>
+            <button onClick={() => logWater(1)} style={{ width: 22, height: 22, flexShrink: 0, border: '1px solid var(--rule)', background: 'none', cursor: 'pointer', fontSize: 13, lineHeight: 1, color: 'var(--ink)' }}>+</button>
+          </div>
+        </div>
       </div>
 
       {s?.hydrationCurve?.length > 1 && (
@@ -2530,6 +2545,7 @@ function S4({ s, refresh }) {
                   {analysing ? 'Analysing…' : photoPreview ? 'Scan Again' : 'Scan Photo'}
                 </button>
                 {description && <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)', marginTop: 4, lineHeight: 1.4 }}>{description}</div>}
+                {photoErr && <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--red)', marginTop: 4, lineHeight: 1.4 }}>{photoErr}</div>}
               </div>
             </div>
 
@@ -3358,7 +3374,7 @@ function Onboarding({ onComplete, onOpenImport }) {
   // Step 2
   const [goal, setGoal] = useState('');
   const [sleepTarget, setSleepTarget] = useState(8);
-  const [waterTarget, setWaterTarget] = useState(8);
+  const [waterTarget, setWaterTarget] = useState(7);
   const [trainingDays, setTrainingDays] = useState(4);
 
   // Step 3 tracking
@@ -3691,7 +3707,7 @@ function Onboarding({ onComplete, onOpenImport }) {
 function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, setBriefing }) {
   const [nameVal, setNameVal] = useState(s?.profile?.name || '');
   const [sleepTarget, setSleepTarget] = useState(s?.profile?.sleepTarget || 8);
-  const [waterTarget, setWaterTarget] = useState(s?.profile?.waterTarget || 8);
+  const [waterTarget, setWaterTarget] = useState(s?.profile?.waterTarget || 7);
   const [trainingDays, setTrainingDays] = useState(s?.profile?.trainingDaysPerWeek || 4);
   const [trackingLevel, setTrackingLevel] = useState(s?.profile?.trackingLevel || 'full');
   const [healthGuideOpen, setHealthGuideOpen] = useState(false);
@@ -3709,6 +3725,9 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, setBrie
   const [newSuppDose, setNewSuppDose] = useState('');
   const [newSuppTiming, setNewSuppTiming] = useState('morning');
   const [savingSupp, setSavingSupp] = useState(false);
+  const [sensMuscle, setSensMuscle] = useState(ALL_MUSCLES[0]);
+  const [sensValue, setSensValue] = useState('1.0');
+  const [savingSens, setSavingSens] = useState(false);
 
   const SHORTCUT_URL = `${API_BASE}/shortcut`;
   const supplements = s?.supplements || [];
@@ -3743,6 +3762,13 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, setBrie
   const deleteSupp = async (name) => {
     await api(`supplements/${encodeURIComponent(name)}`, { method: 'DELETE' });
     refresh({ ...s, supplements: supplements.filter(sp => sp.name !== name) });
+  };
+
+  const setMuscleSensitivity = async (muscle, value) => {
+    setSavingSens(true);
+    await api('muscle-sensitivity', { method: 'PUT', body: JSON.stringify({ muscle, value }) });
+    setSavingSens(false);
+    refresh({ ...s, muscleSensitivity: { ...(s?.muscleSensitivity || {}), [muscle]: value } });
   };
 
   const enableNotifications = async () => {
@@ -3940,6 +3966,36 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, setBrie
             <button className="prof-btn solid" style={{ alignSelf: 'flex-start', padding: '7px 20px' }}
               onClick={addSupplement} disabled={savingSupp || !newSuppName.trim()}>
               {savingSupp ? 'Adding…' : 'Add'}
+            </button>
+          </div>
+        </div>
+
+        {/* ── MUSCLE SENSITIVITY ── */}
+        <div className="settings-sec">
+          <div className="settings-sh">Muscle Sensitivity</div>
+          <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)', lineHeight: 1.6, marginBottom: 12 }}>
+            Fatigue tracking auto-tunes per muscle from soreness logs. Override a muscle directly here if it's drifted wrong — 1.0 is neutral, higher means it fatigues faster than average.
+          </div>
+          {Object.entries(s?.muscleSensitivity || {}).filter(([, v]) => v !== 1.0).length > 0 && (
+            <div style={{ marginBottom: 14 }}>
+              {Object.entries(s?.muscleSensitivity || {}).filter(([, v]) => v !== 1.0).map(([muscle, value]) => (
+                <div key={muscle} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '7px 0', borderBottom: '1px solid var(--rule)' }}>
+                  <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 11, color: 'var(--ink)', textTransform: 'capitalize' }}>{muscle} — {value.toFixed(2)}×</div>
+                  <button onClick={() => setMuscleSensitivity(muscle, 1.0)} style={{ background: 'none', border: 'none', color: 'var(--dim)', cursor: 'pointer', fontFamily: "'JetBrains Mono',monospace", fontSize: 9, padding: '4px 8px' }}>Reset</button>
+                </div>
+              ))}
+            </div>
+          )}
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+            <select value={sensMuscle} onChange={e => setSensMuscle(e.target.value)}
+              style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, padding: '7px 8px', border: '1px solid var(--rule)', background: 'var(--paper)', color: 'var(--ink)', textTransform: 'capitalize' }}>
+              {ALL_MUSCLES.map(m => <option key={m} value={m}>{m}</option>)}
+            </select>
+            <input type="number" min="0.3" max="3.0" step="0.1" value={sensValue} onChange={e => setSensValue(e.target.value)}
+              style={{ width: 60, fontFamily: "'JetBrains Mono',monospace", fontSize: 11, padding: '7px 8px', border: '1px solid var(--rule)', background: 'var(--paper)', color: 'var(--ink)' }} />
+            <button className="prof-btn solid" style={{ padding: '7px 16px' }}
+              onClick={() => setMuscleSensitivity(sensMuscle, +sensValue)} disabled={savingSens || !sensValue}>
+              {savingSens ? 'Saving…' : 'Set'}
             </button>
           </div>
         </div>
@@ -4313,6 +4369,11 @@ function App() {
   const [newscastLoading, setNewscastLoading] = useState(false);
   const [newscastError, setNewscastError] = useState('');
   const [showSettings, setShowSettings] = useState(false);
+  const [summaryError, setSummaryError] = useState('');
+
+  const loadSummary = () => api('summary')
+    .then(data => { setS(data); setSummaryError(''); })
+    .catch(() => setSummaryError('Failed to load — check your connection and try again.'));
 
   const fetchNewscast = async (period) => {
     if (newscastLoading) return;
@@ -4344,10 +4405,10 @@ function App() {
     return onAuthStateChanged(auth, u => setUser(u ?? null));
   }, []);
 
-  const refresh = data => { if (data) setS(data); else api('summary').then(setS).catch(console.error); };
+  const refresh = data => { if (data) setS(data); else loadSummary(); };
 
   useEffect(() => {
-    if (user) api('summary').then(setS).catch(console.error);
+    if (user) loadSummary();
     else setS(null);
   }, [user]);
 
@@ -4410,6 +4471,19 @@ function App() {
   );
 
   if (!user) return <LoginScreen />;
+
+  if (!s && summaryError) return (
+    <div style={{ minHeight: '100svh', background: '#f5f0e2', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 14, padding: 24, textAlign: 'center' }}>
+      <div style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 11, letterSpacing: '.14em', textTransform: 'uppercase', color: '#8a7a5c' }}>{summaryError}</div>
+      <button onClick={loadSummary} style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 10, letterSpacing: '.12em', textTransform: 'uppercase', padding: '8px 18px', border: '1px solid #0d0b08', background: 'none', color: '#0d0b08', cursor: 'pointer' }}>Retry</button>
+    </div>
+  );
+
+  if (!s) return (
+    <div style={{ minHeight: '100svh', background: '#f5f0e2', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <div style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 11, letterSpacing: '.14em', textTransform: 'uppercase', color: '#8a7a5c' }}>Loading…</div>
+    </div>
+  );
 
   const trackingLevel = s?.profile?.trackingLevel || 'full';
   const showSleep = trackingLevel !== 'workout';
