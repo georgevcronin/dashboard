@@ -4,7 +4,7 @@ const express = require("express");
 const webpush = require("web-push");
 const { EXERCISE_DB, EXERCISE_MAP } = require('./exerciseDb');
 const { generateWeeklyStructure } = require('./weeklyPlanner');
-const { computeStrengthLevels } = require('./strengthStandards');
+const { computeStrengthLevels, classifyLift, estimate1RM } = require('./strengthStandards');
 
 admin.initializeApp();
 const firestore = admin.firestore();
@@ -872,6 +872,52 @@ app.get("/summary", async (req, res) => {
     dataMaturity: computeDataMaturity(db.lifts),
     strengthLevels: computeStrengthLevels(db.lifts, weights.at(-1)?.value ?? Object.values(db.weight).at(-1), db.profile?.sex),
   });
+});
+
+// ---------- Long-arc trends ----------
+// Separate from /summary's fixed 14/30-day windows: lets the frontend ask for
+// a wider view (90d, 1y) of a single metric without bloating the main payload.
+app.get("/trends", async (req, res) => {
+  const RANGES = [14, 30, 90, 365];
+  const range = RANGES.includes(+req.query.range) ? +req.query.range : 30;
+  const metric = req.query.metric || "weight";
+  const cutoff = day(new Date(Date.now() - range * 864e5));
+  const rawField = { hrv: "heart_rate_variability", rhr: "resting_heart_rate", sleep: "sleep_hours", steps: "step_count", bodyFat: "body_fat_percentage" }[metric];
+
+  let series = [];
+  if (metric === "weight") {
+    series = Object.keys(db.weight).sort().filter(k => k >= cutoff).map(k => ({ date: k, value: db.weight[k] }));
+  } else if (rawField) {
+    series = Object.keys(db.metrics).sort().filter(k => k >= cutoff && db.metrics[k][rawField] != null).map(k => ({ date: k, value: db.metrics[k][rawField] }));
+  } else if (metric === "recovery") {
+    const allDays = Object.keys(db.metrics).sort();
+    const sleep = personalSleepTarget(allDays.map(k => db.metrics[k]));
+    for (let i = 0; i < allDays.length; i++) {
+      const k = allDays[i];
+      if (k < cutoff) continue;
+      const window = allDays.slice(Math.max(0, i - 14), i).map(dk => db.metrics[dk]);
+      const baseHRV = avg(window.map(d => d.heart_rate_variability).filter(Boolean));
+      const baseRHR = avg(window.map(d => d.resting_heart_rate).filter(Boolean));
+      const baseWristTemp = avg(window.map(d => d.wrist_temperature).filter(Boolean));
+      const baseHR = avg(window.map(d => d.heart_rate).filter(Boolean));
+      const v = computeDay(db.metrics[k], baseHRV, baseRHR, sleep.target, baseWristTemp, baseHR);
+      if (v != null) series.push({ date: k, value: v });
+    }
+  } else if (["squat", "bench", "deadlift", "overheadPress", "row"].includes(metric)) {
+    const byDate = {};
+    for (const l of (db.lifts || [])) {
+      if (!l.date || l.date < cutoff || classifyLift(l.exercise || "") !== metric) continue;
+      const e1 = estimate1RM(l.kg, l.reps);
+      if (e1 == null) continue;
+      if (!byDate[l.date] || e1 > byDate[l.date]) byDate[l.date] = e1;
+    }
+    let best = 0;
+    series = Object.keys(byDate).sort().map(k => {
+      best = Math.max(best, byDate[k]);
+      return { date: k, value: Math.round(best * 10) / 10 };
+    });
+  }
+  res.json({ metric, range, series });
 });
 
 // ---------- Manual log endpoints ----------
