@@ -920,6 +920,49 @@ app.get("/trends", async (req, res) => {
   res.json({ metric, range, series });
 });
 
+// ---------- CSV export ----------
+function toCsv(rows, columns) {
+  const esc = v => {
+    if (v == null) return "";
+    const s = String(v);
+    return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+  };
+  const lines = rows.map(r => columns.map(c => esc(r[c])).join(","));
+  return [columns.join(","), ...lines].join("\n");
+}
+
+app.get("/export/csv", async (req, res) => {
+  const type = req.query.type || "lifts";
+  let filename, csv;
+  if (type === "lifts") {
+    filename = "lifts.csv";
+    csv = toCsv(db.lifts || [], ["date", "exercise", "kg", "reps", "rir", "source"]);
+  } else if (type === "workouts") {
+    filename = "workouts.csv";
+    csv = toCsv(db.workouts || [], ["date", "name", "duration", "kcal", "source"]);
+  } else if (type === "weight") {
+    filename = "weight.csv";
+    const rows = Object.keys(db.weight).sort().map(k => ({ date: k, kg: db.weight[k] }));
+    csv = toCsv(rows, ["date", "kg"]);
+  } else if (type === "metrics") {
+    filename = "metrics.csv";
+    const cols = ["date", "heart_rate_variability", "resting_heart_rate", "sleep_hours", "sleep_eff", "step_count", "vo2max", "hrr_bpm", "wrist_temperature", "heart_rate", "blood_oxygen", "body_fat_percentage", "body_mass"];
+    const rows = Object.keys(db.metrics).sort().map(k => ({ date: k, ...db.metrics[k] }));
+    csv = toCsv(rows, cols);
+  } else if (type === "nutrition") {
+    filename = "nutrition-log.csv";
+    csv = toCsv(db.nutritionLog || [], ["date", "time", "label", "calories", "protein", "carbs", "fat"]);
+  } else if (type === "measurements") {
+    filename = "measurements.csv";
+    csv = toCsv(db.measurements || [], ["date", "type", "value", "unit"]);
+  } else {
+    return res.status(400).json({ error: "unknown export type" });
+  }
+  res.setHeader("Content-Type", "text/csv; charset=utf-8");
+  res.setHeader("Content-Disposition", `attachment; filename="press-${filename}"`);
+  res.send(csv);
+});
+
 // ---------- Manual log endpoints ----------
 app.post("/water", async (req, res) => {
   const k = day(); const delta = req.body.delta ?? 1;

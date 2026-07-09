@@ -4171,6 +4171,29 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, setBrie
           )}
         </div>
 
+        {/* ── DATA EXPORT ── */}
+        <div className="settings-sec">
+          <div className="settings-sh">Data Export</div>
+          <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)', lineHeight: 1.6, marginBottom: 12 }}>
+            Download your data as CSV, readable in Excel, Numbers, Sheets, or any spreadsheet tool.
+          </div>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            {[['lifts','Lifts'],['workouts','Workouts'],['weight','Weight'],['metrics','Health Metrics'],['nutrition','Nutrition Log'],['measurements','Measurements']].map(([type, label]) => (
+              <button key={type} className="prof-btn" style={{ fontSize: 9, padding: '6px 10px' }}
+                onClick={async () => {
+                  const r = await authFetch(`${API_BASE}/export/csv?type=${type}`);
+                  const blob = await r.blob();
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement('a');
+                  a.href = url; a.download = `press-${type}.csv`; a.click();
+                  URL.revokeObjectURL(url);
+                }}>
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+
         {/* ── ACCOUNT ── */}
         <div className="settings-sec">
           <div className="settings-sh">Account</div>
