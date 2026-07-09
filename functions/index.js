@@ -1592,6 +1592,102 @@ Return ONLY valid JSON:
   return newscast;
 }
 
+// Week-over-week digest: same editorial voices as the daily briefing/newscast,
+// but comparing this week to the prior week instead of describing a single day.
+async function generateWeeklyReview(db) {
+  if (!process.env.GEMINI_API_KEY) return null;
+  const cutoffThis = day(new Date(Date.now() - 7 * 864e5));
+  const cutoffLast = day(new Date(Date.now() - 14 * 864e5));
+
+  const thisWeekWorkouts = (db.workouts || []).filter(w => w.date >= cutoffThis);
+  const lastWeekWorkouts = (db.workouts || []).filter(w => w.date >= cutoffLast && w.date < cutoffThis);
+  const thisWeekLifts = (db.lifts || []).filter(l => l.date >= cutoffThis);
+  const lastWeekLifts = (db.lifts || []).filter(l => l.date >= cutoffLast && l.date < cutoffThis);
+  const volFor = lifts => Math.round(lifts.reduce((s, l) => s + (l.kg || 0) * (l.reps || 0), 0));
+  const thisVol = volFor(thisWeekLifts), lastVol = volFor(lastWeekLifts);
+
+  const days30 = lastN(db.metrics, 30);
+  const baseHRV = avg(days30.map(d => d.heart_rate_variability).filter(Boolean));
+  const baseRHR = avg(days30.map(d => d.resting_heart_rate).filter(Boolean));
+  const baseWristTemp = avg(days30.map(d => d.wrist_temperature).filter(Boolean));
+  const baseHR = avg(days30.map(d => d.heart_rate).filter(Boolean));
+  const sleepT = personalSleepTarget(days30);
+  const scoresFor = keys => keys.map(k => computeDay(db.metrics[k], baseHRV, baseRHR, sleepT.target, baseWristTemp, baseHR)).filter(v => v != null);
+  const metricKeys = Object.keys(db.metrics);
+  const thisWeekKeys = metricKeys.filter(k => k >= cutoffThis);
+  const lastWeekKeys = metricKeys.filter(k => k >= cutoffLast && k < cutoffThis);
+  const avgRecoveryThis = avg(scoresFor(thisWeekKeys));
+  const avgRecoveryLast = avg(scoresFor(lastWeekKeys));
+  const avgSleepThis = avg(thisWeekKeys.map(k => db.metrics[k].sleep_hours).filter(Boolean));
+  const avgSleepLast = avg(lastWeekKeys.map(k => db.metrics[k].sleep_hours).filter(Boolean));
+
+  const nutritionKeysThis = Object.keys(db.nutrition || {}).filter(k => k >= cutoffThis);
+  const avgCalThis = avg(nutritionKeysThis.map(k => db.nutrition[k].calories).filter(Boolean));
+  const avgProteinThis = avg(nutritionKeysThis.map(k => db.nutrition[k].protein).filter(Boolean));
+  const macroTargets = db.profile?.macroTargets || { calories: 2400, protein: 160 };
+
+  const weightKeysThis = Object.keys(db.weight).filter(k => k >= cutoffThis).sort();
+  const weightKeysLast = Object.keys(db.weight).filter(k => k >= cutoffLast && k < cutoffThis).sort();
+  const weightStart = db.weight[weightKeysLast[0]] ?? db.weight[weightKeysThis[0]];
+  const weightEnd = db.weight[weightKeysThis.at(-1)];
+
+  const prLifts = ['squat', 'bench', 'deadlift', 'overheadPress', 'row'].filter(cat => {
+    const priorBest = Math.max(0, ...db.lifts.filter(l => l.date < cutoffThis && classifyLift(l.exercise || '') === cat).map(l => estimate1RM(l.kg, l.reps) || 0));
+    const thisBest = Math.max(0, ...thisWeekLifts.filter(l => classifyLift(l.exercise || '') === cat).map(l => estimate1RM(l.kg, l.reps) || 0));
+    return thisBest > priorBest && thisBest > 0;
+  });
+
+  const prompt = `You are generating a Weekly Review for a personal health app called Press — a week-over-week digest, not a single-day report. Same editorial voices as the daily editions — V (health editor, cool newspaper prose, no hand-holding) and Atlas (training analyst, methodical, science-grounded).
+
+This week vs. last week:
+- Sessions: ${thisWeekWorkouts.length} this week vs ${lastWeekWorkouts.length} last week
+- Lift volume: ${thisVol}kg total this week vs ${lastVol}kg last week
+- Avg recovery: ${avgRecoveryThis != null ? Math.round(avgRecoveryThis) + '%' : 'no data'} this week vs ${avgRecoveryLast != null ? Math.round(avgRecoveryLast) + '%' : 'no data'} last week
+- Avg sleep: ${avgSleepThis != null ? avgSleepThis.toFixed(1) + 'h' : 'no data'} this week vs ${avgSleepLast != null ? avgSleepLast.toFixed(1) + 'h' : 'no data'} last week (target ${sleepT.target}h)
+- Nutrition: logged ${nutritionKeysThis.length}/7 days, avg ${avgCalThis ? Math.round(avgCalThis) : '—'}kcal / ${avgProteinThis ? Math.round(avgProteinThis) : '—'}g protein (target ${macroTargets.calories}kcal / ${macroTargets.protein}g)
+- Weight: ${weightStart && weightEnd ? `${weightStart}kg → ${weightEnd}kg` : 'not enough data'}
+- New strength PRs this week: ${prLifts.length ? prLifts.join(', ') : 'none'}
+
+Return ONLY valid JSON:
+{
+  "headline": "HEADLINE IN CAPS — MAX 55 CHARS",
+  "subheading": "One sharp sentence on how the week went overall.",
+  "pullQuote": "One standalone, quotable sentence pulled from the week's most important thread — not a repeat of the headline or subheading.",
+  "bullets": { "numbers": [{"label": "Sessions", "value": "${thisWeekWorkouts.length}"}, {"label": "Volume", "value": "${thisVol}kg"}, {"label": "Avg Recovery", "value": "${avgRecoveryThis != null ? Math.round(avgRecoveryThis) + '%' : '—'}"}, {"label": "Avg Sleep", "value": "${avgSleepThis != null ? avgSleepThis.toFixed(1) + 'h' : '—'}"}] },
+  "v": "Overall verdict on the week — training consistency, recovery trend, nutrition adherence. 2-3 sentences, direct.",
+  "atlas": "1-2 sentences from Atlas on training volume/strength trend and ${prLifts.length ? 'the new PR(s)' : 'the absence of new PRs'} this week.",
+  "nutritionNote": ${nutritionKeysThis.length < 5 ? '"A single direct sentence noting the nutrition logging gap this week."' : 'null'}
+}`;
+
+  const result = await callGeminiResilient({ messages: [{ role: 'user', content: prompt }], maxTokens: 550, jsonMode: true, temperature: 0.75 });
+  if (!result.ok) {
+    console.error('Gemini weekly review error:', result.status, JSON.stringify(result.error));
+    throw new Error(result.error?.message || `Gemini returned ${result.status}`);
+  }
+  let review;
+  try { review = JSON.parse(result.content); } catch (e) { throw new Error('Gemini returned invalid JSON: ' + e.message); }
+  review.period = 'week';
+  review.generatedAt = new Date().toISOString();
+  review.weekStart = cutoffThis;
+  return review;
+}
+
+app.get('/weekly-review', async (req, res) => {
+  try {
+    const cached = db.weeklyReview;
+    const twelveHoursAgo = Date.now() - 12 * 3600 * 1000;
+    const cutoffThis = day(new Date(Date.now() - 7 * 864e5));
+    if (cached?.weekStart === cutoffThis && new Date(cached.generatedAt).getTime() > twelveHoursAgo) {
+      return res.json({ review: cached });
+    }
+    const review = await generateWeeklyReview(db);
+    if (!review) return res.json({ review: null });
+    db.weeklyReview = review;
+    await save();
+    res.json({ review });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 app.get('/newscast', async (req, res) => {
   try {
     const period = req.query.period === 'night' ? 'night' : 'afternoon';

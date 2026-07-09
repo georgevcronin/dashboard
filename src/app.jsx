@@ -614,7 +614,7 @@ function Header({ s, onSignOut }) {
 }
 
 // ── S1: FRONT PAGE ───────────────────────────────────────────────────────────
-function S1({ s, briefing, onShowBriefing, onShowAfternoon, onShowNight, afternoonLoaded, nightLoaded, newscastLoading, newscastError }) {
+function S1({ s, briefing, onShowBriefing, onShowAfternoon, onShowNight, onShowWeekly, afternoonLoaded, nightLoaded, weeklyLoaded, newscastLoading, newscastError }) {
   const today = s?.today || {};
   const recovery = today.recovery ?? s?.recoveryTrend?.at(-1) ?? null;
 
@@ -715,6 +715,13 @@ function S1({ s, briefing, onShowBriefing, onShowAfternoon, onShowNight, afterno
           </div>
         </div>
       )}
+
+      <div className="briefing-preview fade" style={{ flexShrink: 0, cursor: newscastLoading ? 'default' : 'pointer', opacity: newscastLoading ? 0.6 : 1 }} onClick={onShowWeekly}>
+        <div className="kicker" style={{ marginBottom: 3 }}>Weekly Review</div>
+        <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 11, color: 'var(--dim)', fontStyle: 'italic' }}>
+          {newscastLoading ? 'Generating…' : weeklyLoaded ? 'Read weekly review' : 'Generate weekly review'}
+        </div>
+      </div>
 
       {newscastError && (
         <div className="fade" style={{ flexShrink: 0, fontFamily: "'JetBrains Mono',monospace", fontSize: 10, color: 'var(--red)', padding: '6px 0' }}>
@@ -4245,7 +4252,7 @@ function MentorChat({ onClose }) {
 // ── NEWSCAST OVERLAY ─────────────────────────────────────────────────────────
 function NewscastOverlay({ newscast, onClose }) {
   const period = newscast?.period;
-  const label = period === 'afternoon' ? 'Mid-Day Update' : "Tonight's Report";
+  const label = period === 'afternoon' ? 'Mid-Day Update' : period === 'week' ? 'Weekly Review' : "Tonight's Report";
   const dateStr = new Date().toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' }).toUpperCase();
   const numbers = newscast?.bullets?.numbers || [];
 
@@ -4496,8 +4503,10 @@ function App() {
   const [showBriefing, setShowBriefing] = useState(false);
   const [afternoonNewscast, setAfternoonNewscast] = useState(null);
   const [nightNewscast, setNightNewscast] = useState(null);
+  const [weeklyReview, setWeeklyReview] = useState(null);
   const [showAfternoonNewscast, setShowAfternoonNewscast] = useState(false);
   const [showNightNewscast, setShowNightNewscast] = useState(false);
+  const [showWeeklyReview, setShowWeeklyReview] = useState(false);
   const [newscastLoading, setNewscastLoading] = useState(false);
   const [newscastError, setNewscastError] = useState('');
   const [showSettings, setShowSettings] = useState(false);
@@ -4519,6 +4528,20 @@ function App() {
       } else {
         setNewscastError(data.error || 'Generation failed — Gemini may be overloaded. Try again in a moment.');
       }
+    } catch {
+      setNewscastError('Connection error — try again.');
+    }
+    setNewscastLoading(false);
+  };
+
+  const fetchWeeklyReview = async () => {
+    if (newscastLoading) return;
+    setNewscastLoading(true);
+    setNewscastError('');
+    try {
+      const data = await api('weekly-review');
+      if (data.review) { setWeeklyReview(data.review); setShowWeeklyReview(true); }
+      else setNewscastError(data.error || 'Generation failed — Gemini may be overloaded. Try again in a moment.');
     } catch {
       setNewscastError('Connection error — try again.');
     }
@@ -4633,7 +4656,8 @@ function App() {
         <S1 s={s} briefing={briefing} onShowBriefing={() => setShowBriefing(true)}
             onShowAfternoon={() => afternoonNewscast ? setShowAfternoonNewscast(true) : fetchNewscast('afternoon')}
             onShowNight={() => nightNewscast ? setShowNightNewscast(true) : fetchNewscast('night')}
-            afternoonLoaded={!!afternoonNewscast} nightLoaded={!!nightNewscast}
+            onShowWeekly={() => weeklyReview ? setShowWeeklyReview(true) : fetchWeeklyReview()}
+            afternoonLoaded={!!afternoonNewscast} nightLoaded={!!nightNewscast} weeklyLoaded={!!weeklyReview}
             newscastLoading={newscastLoading} newscastError={newscastError} />
         {showSleep && <S2 s={s} refresh={refresh} />}
         <S3 s={s} onStartWorkout={planDay => setLoggerPlanDay(planDay ?? null)} onImport={() => setShowImport(true)} onHistory={() => setShowHistory(true)} refresh={refresh} />
@@ -4651,6 +4675,7 @@ function App() {
       {showBriefing && briefing && <BriefingOverlay briefing={briefing} onClose={() => setShowBriefing(false)} />}
       {showAfternoonNewscast && afternoonNewscast && <NewscastOverlay newscast={afternoonNewscast} onClose={() => setShowAfternoonNewscast(false)} />}
       {showNightNewscast && nightNewscast && <NewscastOverlay newscast={nightNewscast} onClose={() => setShowNightNewscast(false)} />}
+      {showWeeklyReview && weeklyReview && <NewscastOverlay newscast={weeklyReview} onClose={() => setShowWeeklyReview(false)} />}
       {loggerOpen && (
         <WorkoutLogger
           planDay={loggerPlanDay}
