@@ -3004,6 +3004,7 @@ function S5({ s, refresh }) {
                     <div className="niggle-area">{inj.area}</div>
                     <div className="niggle-meta">
                       {inj.severity} · {new Date(inj.ts).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
+                      {inj.clearance != null && ` · ${inj.clearance >= 100 ? 'fully healed' : `day ${inj.elapsedDays}/${inj.healingDays} — ${inj.clearance}% cleared`}`}
                     </div>
                     {inj.note && <div className="niggle-note">{inj.note}</div>}
                   </div>

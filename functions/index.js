@@ -176,6 +176,31 @@ function computeStructuralFatigue(lifts, peaks, soreness = [], sensitivity = {})
   return out;
 }
 
+// Injury/niggle recovery is a taper, not a switch: a fresh injury takes a muscle
+// fully offline, but as it heals, load should ramp back in rather than snapping
+// from "banned" to "fully available" the moment someone marks it resolved.
+// Illustrative recovery windows by self-reported severity, not medical guidance.
+const INJURY_HEALING_DAYS = { mild: 10, moderate: 21, severe: 35 };
+function injuryFatiguePenalty(injury, now = Date.now()) {
+  const totalDays = INJURY_HEALING_DAYS[injury.severity] || INJURY_HEALING_DAYS.moderate;
+  const elapsedDays = (now - injury.ts) / 864e5;
+  return Math.max(0, 100 * (1 - elapsedDays / totalDays));
+}
+// Merges active injuries into a structural-fatigue map as an artificial fatigue
+// penalty — reuses the same 65% "avoid loading" ceiling everything else already
+// respects, so a fresh injury (penalty 100) is fully offline and a nearly-healed
+// one (penalty dropping below 65) naturally reopens without any separate
+// binary offline-list mechanism.
+function applyInjuryTaper(fatigue, injuries) {
+  const out = { ...fatigue };
+  const now = Date.now();
+  for (const inj of (injuries || []).filter(i => !i.resolved)) {
+    const penalty = injuryFatiguePenalty(inj, now);
+    for (const m of (inj.muscles || [])) out[m] = Math.max(out[m] || 0, penalty);
+  }
+  return out;
+}
+
 // Acute:chronic workload ratio (Gabbett/Hulin) — 7-day load vs. 28-day weekly average.
 // >1.5 signals overreach relative to your adapted baseline; 0.8-1.3 is the established
 // "sweet spot" in the sports-science load-monitoring literature. Returns null with <28
@@ -844,7 +869,12 @@ app.get("/summary", async (req, res) => {
     composition: compVerdict(weights, db.lifts),
     waterStats: { streak, avg: waterDays.length ? Math.round(avg(waterDays) * 10) / 10 : 0, hitRate: waterDays.length ? Math.round((waterDays.filter(v => v >= target).length / waterDays.length) * 100) : 0, best: waterDays.length ? Math.max(...waterDays) : 0 },
     musclePeaks: musclePeaksFromLifts(db.lifts),
-    injuries: (db.injuries || []).filter(i => !i.resolved),
+    injuries: (db.injuries || []).filter(i => !i.resolved).map(i => ({
+      ...i,
+      healingDays: INJURY_HEALING_DAYS[i.severity] || INJURY_HEALING_DAYS.moderate,
+      elapsedDays: Math.floor((Date.now() - i.ts) / 864e5),
+      clearance: Math.round(100 - injuryFatiguePenalty(i)),
+    })),
     weights, workouts: [...db.workouts].sort((a,b)=>(b.date||'').localeCompare(a.date||'')).slice(0,20), workoutsMonth: monthWk.length,
     water: lastN(db.water, 14), waterToday: db.water[day()] || 0,
     weeklyPlan: db.weeklyPlan || null,
@@ -1101,15 +1131,21 @@ app.post("/plan/session-exercises", async (req, res) => {
   ).join('\n');
 
   const peaks = musclePeaksFromLifts(lifts);
-  const currentFatigue = computeStructuralFatigue(lifts, peaks, db.soreness || [], db.muscleSensitivity || {});
+  const structuralFatigue = computeStructuralFatigue(lifts, peaks, db.soreness || [], db.muscleSensitivity || {});
+  const activeInjuries = (db.injuries || []).filter(i => !i.resolved);
+  const currentFatigue = applyInjuryTaper(structuralFatigue, activeInjuries);
   const metabolicFatigue = computeMetabolicFatigue(lifts, (db.nutrition || {})[day()]?.carbs || 0);
   const cnsFatigue = computeCNSFatigue(lifts, db.cnsSensitivity || 1.0, getRecoveryScore(db));
   const fatigueStr = Object.entries(currentFatigue).filter(([,v])=>v>15).sort(([,a],[,b])=>b-a)
     .map(([m,v])=>`${m} ${v}%`).join(', ') || 'none';
   const avoidMuscles = Object.entries(currentFatigue).filter(([,v])=>v>65).map(([m])=>m);
-  const activeInjuries = (db.injuries || []).filter(i => !i.resolved);
-  const offlineMuscles = activeInjuries.flatMap(i => i.muscles || []);
-  const injuryStr = activeInjuries.length ? activeInjuries.map(i => `${i.area} (${i.severity}${i.muscles?.length ? ' — blocks: ' + i.muscles.join(', ') : ''}${i.note ? ': ' + i.note : ''})`).join(', ') : '';
+  const offlineMuscles = avoidMuscles.filter(m => activeInjuries.some(i => (i.muscles || []).includes(m)));
+  const injuryStr = activeInjuries.length ? activeInjuries.map(i => {
+    const elapsedDays = Math.floor((Date.now() - i.ts) / 864e5);
+    const totalDays = INJURY_HEALING_DAYS[i.severity] || INJURY_HEALING_DAYS.moderate;
+    const status = elapsedDays >= totalDays ? 'fully healed, treat as normal' : `day ${elapsedDays}/${totalDays} healing — ${injuryFatiguePenalty(i) > 65 ? 'still mostly offline' : 'reintroducing load, keep it lighter than usual'}`;
+    return `${i.area} (${i.severity}${i.muscles?.length ? ' — affects: ' + i.muscles.join(', ') : ''}${i.note ? ': ' + i.note : ''}, ${status})`;
+  }).join('; ') : '';
 
   const travelMode = db.profile?.travelMode || false;
   const maturity = computeDataMaturity(lifts);
@@ -1234,18 +1270,23 @@ app.post("/plan/week", async (req, res) => {
   });
 
   const peaks = musclePeaksFromLifts(db.lifts);
-  const currentFatigue = computeStructuralFatigue(db.lifts, peaks, db.soreness || [], db.muscleSensitivity || {});
+  const structuralFatigue = computeStructuralFatigue(db.lifts, peaks, db.soreness || [], db.muscleSensitivity || {});
+  const currentFatigue = applyInjuryTaper(structuralFatigue, db.injuries || []);
   const weekMetabolic = computeMetabolicFatigue(db.lifts, (db.nutrition || {})[todayStr]?.carbs || 0);
   const weekCNS = computeCNSFatigue(db.lifts, db.cnsSensitivity || 1.0, getRecoveryScore(db));
-  const weekOfflineMuscles = (db.injuries || []).filter(i => !i.resolved).flatMap(i => i.muscles || []);
   const travelModeWeek = db.profile?.travelMode || false;
   const maturityWeek = computeDataMaturity(db.lifts);
 
   // The algorithm decides WHAT (session type, target muscles, backbone exercises,
   // frequency vs. fatigue trade-off) — the ethos rules as real code, not LLM judgment.
+  // Injury exclusion is folded into currentFatigue above (a fresh injury pins a
+  // muscle's fatigue at 100, which the existing 65% ceiling already treats as
+  // "don't load this week") rather than passed as a separate hard offline list —
+  // that's what lets it taper back in as the injury heals instead of snapping
+  // straight from banned to fully available.
   const structure = generateWeeklyStructure({
     weekDates, currentFatigue, weekMetabolic, weekCNS,
-    offlineMuscles: weekOfflineMuscles, travelMode: travelModeWeek,
+    offlineMuscles: [], travelMode: travelModeWeek,
     dataMature: maturityWeek.hasEnoughData,
   });
 
