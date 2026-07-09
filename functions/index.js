@@ -4,6 +4,7 @@ const express = require("express");
 const webpush = require("web-push");
 const { EXERCISE_DB, EXERCISE_MAP } = require('./exerciseDb');
 const { generateWeeklyStructure } = require('./weeklyPlanner');
+const { computeStrengthLevels } = require('./strengthStandards');
 
 admin.initializeApp();
 const firestore = admin.firestore();
@@ -869,6 +870,7 @@ app.get("/summary", async (req, res) => {
     experiments: (db.experiments || []),
     travelMode: db.profile?.travelMode || false,
     dataMaturity: computeDataMaturity(db.lifts),
+    strengthLevels: computeStrengthLevels(db.lifts, weights.at(-1)?.value ?? Object.values(db.weight).at(-1), db.profile?.sex),
   });
 });
 

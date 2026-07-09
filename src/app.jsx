@@ -1898,6 +1898,48 @@ function WorkoutHistory({ s, onClose }) {
 }
 
 // ── S3: TRAINING ──────────────────────────────────────────────────────────────
+const STRENGTH_LIFT_LABELS = { squat: 'Squat', bench: 'Bench Press', deadlift: 'Deadlift', overheadPress: 'Overhead Press', row: 'Row' };
+const STRENGTH_MUSCLE_LABELS = { chest: 'Chest', shoulders: 'Shoulders', back: 'Back', legs: 'Legs' };
+const TIER_COLOR = { Untrained: 'var(--dim)', Beginner: 'var(--ember)', Novice: 'var(--gold)', Intermediate: 'var(--navy)', Advanced: 'var(--forest)', Elite: 'var(--plum)' };
+
+function StrengthLevelPanel({ strengthLevels, hasSex }) {
+  if (!hasSex) return (
+    <div className="fade" style={{ borderTop: '1px solid var(--rule)', paddingTop: 10 }}>
+      <div className="kicker" style={{ marginBottom: 4 }}>Strength Level</div>
+      <div style={{ fontSize: 11, color: 'var(--dim)', fontStyle: 'italic' }}>Set your sex in Settings → Profile to unlock strength-level rankings.</div>
+    </div>
+  );
+  const rankedLifts = Object.entries(strengthLevels?.lifts || {}).filter(([, v]) => v);
+  if (!rankedLifts.length) return (
+    <div className="fade" style={{ borderTop: '1px solid var(--rule)', paddingTop: 10 }}>
+      <div className="kicker" style={{ marginBottom: 4 }}>Strength Level</div>
+      <div style={{ fontSize: 11, color: 'var(--dim)', fontStyle: 'italic' }}>Log a squat, bench press, deadlift, overhead press, or row to see your tier — ranked against published bodyweight-ratio standards, Beginner→Elite.</div>
+    </div>
+  );
+  return (
+    <div className="fade" style={{ borderTop: '1px solid var(--rule)', paddingTop: 10 }}>
+      <div className="kicker" style={{ marginBottom: 8 }}>Strength Level · vs. Published Standards</div>
+      {rankedLifts.map(([cat, v]) => (
+        <div key={cat} style={{ marginBottom: 8 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontFamily: "'JetBrains Mono',monospace", fontSize: 10, marginBottom: 3 }}>
+            <span style={{ color: 'var(--ink)' }}>{STRENGTH_LIFT_LABELS[cat]}</span>
+            <span style={{ color: TIER_COLOR[v.tier] }}>{v.tier} · {v.e1RM}kg e1RM</span>
+          </div>
+          <div className="macro-track"><div className="macro-fill" style={{ width: `${v.score}%`, background: TIER_COLOR[v.tier] }} /></div>
+        </div>
+      ))}
+      <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', marginTop: 10, borderTop: '1px solid var(--rule)', paddingTop: 8 }}>
+        {Object.entries(strengthLevels?.muscleGroups || {}).filter(([, v]) => v).map(([mg, v]) => (
+          <div key={mg}>
+            <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, color: 'var(--dim)', textTransform: 'uppercase', letterSpacing: '.1em' }}>{STRENGTH_MUSCLE_LABELS[mg]}</div>
+            <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 12, color: TIER_COLOR[v.tier] }}>{v.tier}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function S3({ s, onStartWorkout, onImport, onHistory, refresh }) {
   const workouts = s?.workouts || [];
   const lifts = s?.lifts || [];
@@ -2021,6 +2063,7 @@ function S3({ s, onStartWorkout, onImport, onHistory, refresh }) {
           <div className="stat-cell"><div className="sc-label">Month</div><div className="sc-num forest" style={{ fontSize: 22 }}>{s?.workoutsMonth ?? '—'}<span style={{ fontSize: '.5em', color: 'var(--dim)' }}>sessions</span></div></div>
         </div>
       </div>
+      <StrengthLevelPanel strengthLevels={s?.strengthLevels} hasSex={!!s?.profile?.sex} />
       <div className="fade" style={{ marginTop: 'auto' }}>
         {todaySession ? (
           <div style={{ borderTop: '1px solid var(--rule)', paddingTop: 10 }}>
@@ -3370,6 +3413,7 @@ function Onboarding({ onComplete, onOpenImport }) {
   const [weightUnit, setWeightUnit] = useState('kg');
   const [weightVal, setWeightVal] = useState('');
   const [bodyFat, setBodyFat] = useState('');
+  const [sex, setSex] = useState('');
 
   // Step 2
   const [goal, setGoal] = useState('');
@@ -3398,7 +3442,7 @@ function Onboarding({ onComplete, onOpenImport }) {
     const kg = weightUnit === 'kg' ? parseFloat(weightVal) : parseFloat(weightVal) * 0.453592;
     const cm = heightUnit === 'cm' ? parseFloat(heightVal) : parseFloat(heightVal) * 30.48;
     const age = dob ? Math.floor((Date.now() - new Date(dob)) / (365.25 * 24 * 3600 * 1000)) : null;
-    const profileBody = { name: name || undefined, dob: dob || undefined, age, heightCm: cm || undefined };
+    const profileBody = { name: name || undefined, dob: dob || undefined, age, heightCm: cm || undefined, sex: sex || undefined };
     await api('profile', { method: 'POST', body: JSON.stringify(profileBody) });
     if (kg > 0) await api('weight', { method: 'POST', body: JSON.stringify({ kg }) });
     if (bodyFat) await api('bodyfat', { method: 'POST', body: JSON.stringify({ pct: parseFloat(bodyFat) }) });
@@ -3472,6 +3516,12 @@ function Onboarding({ onComplete, onOpenImport }) {
 
             <label className="ob-label">Date of Birth</label>
             <input style={inputStyle} type="date" value={dob} onChange={e => setDob(e.target.value)} />
+
+            <label className="ob-label">Sex <span style={{ fontWeight: 400, textTransform: 'none', fontSize: 9, color: 'var(--dim)' }}>(optional — used only to calibrate strength-level standards)</span></label>
+            <div className="ob-unit-toggle" style={{ marginBottom: 14 }}>
+              <button className={`ob-unit-btn${sex === 'male' ? ' active' : ''}`} onClick={() => setSex('male')}>Male</button>
+              <button className={`ob-unit-btn${sex === 'female' ? ' active' : ''}`} onClick={() => setSex('female')}>Female</button>
+            </div>
 
             <label className="ob-label">Height</label>
             <div className="ob-unit-row">
@@ -3820,6 +3870,18 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, setBrie
                   onClick={() => api('macro-auto', { method: 'POST', body: JSON.stringify({ goal: g }) }).then(data => refresh({ ...s, macroGoal: data.goal, macroTargets: data.targets, macroMode: 'auto' }))}
                   style={{ textTransform: 'capitalize', ...(s?.macroGoal === g ? { background: 'var(--ink)', color: 'var(--paper)', borderColor: 'var(--ink)' } : {}) }}>
                   {g}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="prof-field">
+            <span className="prof-lbl">Sex <span style={{ fontSize: 8, color: 'var(--dim)', textTransform: 'none' }}>(for strength standards)</span></span>
+            <div style={{ display: 'flex', gap: 6 }}>
+              {['male','female'].map(sx => (
+                <button key={sx} className="prof-btn"
+                  onClick={() => api('profile', { method: 'POST', body: JSON.stringify({ sex: sx }) }).then(profile => refresh({ ...s, profile }))}
+                  style={{ textTransform: 'capitalize', ...(s?.profile?.sex === sx ? { background: 'var(--ink)', color: 'var(--paper)', borderColor: 'var(--ink)' } : {}) }}>
+                  {sx}
                 </button>
               ))}
             </div>
