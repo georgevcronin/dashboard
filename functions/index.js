@@ -11,10 +11,11 @@ const firestore = admin.firestore();
 
 // ---------- Shared Gemini helper (used by every LLM-backed endpoint below) ----------
 // gemini-2.0-flash was retired June 1, 2026; gemini-2.5-flash-lite hit widely-reported
-// capacity-constrained 503s. On gemini-3.5-flash — Google's current production-recommended
-// default — with gemini-2.5-flash as fallback if it's ever overloaded.
+// capacity-constrained 503s; gemini-2.5-flash itself has since stopped accepting new
+// callers ahead of its official Oct 16, 2026 shutdown. On gemini-3.5-flash — Google's
+// current production-recommended default — with gemini-3.1-flash-lite as fallback.
 const GEMINI_MODEL = "gemini-3.5-flash";
-const GEMINI_FALLBACK_MODEL = "gemini-2.5-flash";
+const GEMINI_FALLBACK_MODEL = "gemini-3.1-flash-lite";
 
 async function callGemini({ messages, maxTokens = 800, jsonMode = false, image = null, temperature, model = GEMINI_MODEL }) {
   const key = process.env.GEMINI_API_KEY;
