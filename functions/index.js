@@ -900,7 +900,7 @@ app.get("/summary", async (req, res) => {
     experiments: (db.experiments || []),
     travelMode: db.profile?.travelMode || false,
     dataMaturity: computeDataMaturity(db.lifts),
-    strengthLevels: computeStrengthLevels(db.lifts, weights.at(-1)?.value ?? Object.values(db.weight).at(-1), db.profile?.sex),
+    strengthLevels: computeStrengthLevels(db.lifts, db.weight, weights.at(-1)?.value ?? Object.values(db.weight).at(-1), db.profile?.sex),
   });
 });
 

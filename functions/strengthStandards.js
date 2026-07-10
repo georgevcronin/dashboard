@@ -65,12 +65,33 @@ function scoreForRatio(ratio, thresholds) {
   return { tier, score: Math.round(Math.max(0, Math.min(100, score))) };
 }
 
-// lifts: db.lifts array; bodyweightKg: latest logged weight; sex: 'male'|'female'.
+// Finds the bodyweight that was actually in effect on a given date: the most
+// recent logged weight on or before that date, falling back to the earliest
+// entry after it if the PR predates any weigh-in. Ranking an all-time-best
+// lift against today's bodyweight would misrepresent it if bodyweight has
+// shifted meaningfully since — a PR set at 90kg bodyweight should be scored
+// against 90kg, not whatever the scale reads today.
+function bodyweightNear(weightHistory, dateStr) {
+  const dates = Object.keys(weightHistory || {}).sort();
+  if (!dates.length) return null;
+  let onOrBefore = null;
+  for (const d of dates) {
+    if (d <= dateStr) onOrBefore = d;
+    else if (!onOrBefore) return weightHistory[d];
+    else break;
+  }
+  return onOrBefore ? weightHistory[onOrBefore] : null;
+}
+
+// lifts: db.lifts array (all-time — no date window, so this always ranks each
+// lift's all-time best). weightHistory: db.weight (date -> kg), used to find
+// the bodyweight in effect when each PR was actually set. currentBodyweightKg:
+// fallback when no weigh-in history is available at all. sex: 'male'|'female'.
 // Returns per-lift ranks plus a per-muscle-group rollup (chest/shoulders/back/legs),
 // matching the app's existing push/pull/legs muscle grouping. Deadlift counts
 // toward both back and legs since it's genuinely a hybrid posterior-chain lift.
-function computeStrengthLevels(lifts, bodyweightKg, sex) {
-  if (!bodyweightKg || (sex !== 'male' && sex !== 'female')) return null;
+function computeStrengthLevels(lifts, weightHistory, currentBodyweightKg, sex) {
+  if ((!currentBodyweightKg && !Object.keys(weightHistory || {}).length) || (sex !== 'male' && sex !== 'female')) return null;
   const table = STANDARDS[sex];
 
   const bestByCategory = {};
@@ -88,9 +109,11 @@ function computeStrengthLevels(lifts, bodyweightKg, sex) {
   for (const cat of Object.keys(table)) {
     const best = bestByCategory[cat];
     if (!best) { lifts_[cat] = null; continue; }
-    const ratio = best.e1RM / bodyweightKg;
+    const bw = bodyweightNear(weightHistory, best.date) ?? currentBodyweightKg;
+    if (!bw) { lifts_[cat] = null; continue; }
+    const ratio = best.e1RM / bw;
     const { tier, score } = scoreForRatio(ratio, table[cat]);
-    lifts_[cat] = { ...best, ratio: Math.round(ratio * 100) / 100, tier, score };
+    lifts_[cat] = { ...best, bodyweightKg: bw, ratio: Math.round(ratio * 100) / 100, tier, score };
   }
 
   const avgScore = (cats) => {
@@ -107,4 +130,4 @@ function computeStrengthLevels(lifts, bodyweightKg, sex) {
   return { lifts: lifts_, muscleGroups };
 }
 
-module.exports = { computeStrengthLevels, classifyLift, estimate1RM, STANDARDS, TIERS };
+module.exports = { computeStrengthLevels, classifyLift, estimate1RM, bodyweightNear, STANDARDS, TIERS };
