@@ -4,6 +4,7 @@ const express = require("express");
 const webpush = require("web-push");
 const { EXERCISE_DB, EXERCISE_MAP } = require('./exerciseDb');
 const { generateWeeklyStructure } = require('./weeklyPlanner');
+const { computeStrengthLevels, classifyLift, estimate1RM } = require('./strengthStandards');
 
 admin.initializeApp();
 const firestore = admin.firestore();
@@ -171,6 +172,31 @@ function computeStructuralFatigue(lifts, peaks, soreness = [], sensitivity = {})
     const soreAdj = sorenessMap[m] ? 1 + sorenessMap[m] / 20 : 1;
     const sensAdj = sensitivity[m] || 1.0;
     out[m] = Math.min(100, Math.round(v / (peaks[m] || 2000) * 100 * soreAdj * sensAdj));
+  }
+  return out;
+}
+
+// Injury/niggle recovery is a taper, not a switch: a fresh injury takes a muscle
+// fully offline, but as it heals, load should ramp back in rather than snapping
+// from "banned" to "fully available" the moment someone marks it resolved.
+// Illustrative recovery windows by self-reported severity, not medical guidance.
+const INJURY_HEALING_DAYS = { mild: 10, moderate: 21, severe: 35 };
+function injuryFatiguePenalty(injury, now = Date.now()) {
+  const totalDays = INJURY_HEALING_DAYS[injury.severity] || INJURY_HEALING_DAYS.moderate;
+  const elapsedDays = (now - injury.ts) / 864e5;
+  return Math.max(0, 100 * (1 - elapsedDays / totalDays));
+}
+// Merges active injuries into a structural-fatigue map as an artificial fatigue
+// penalty — reuses the same 65% "avoid loading" ceiling everything else already
+// respects, so a fresh injury (penalty 100) is fully offline and a nearly-healed
+// one (penalty dropping below 65) naturally reopens without any separate
+// binary offline-list mechanism.
+function applyInjuryTaper(fatigue, injuries) {
+  const out = { ...fatigue };
+  const now = Date.now();
+  for (const inj of (injuries || []).filter(i => !i.resolved)) {
+    const penalty = injuryFatiguePenalty(inj, now);
+    for (const m of (inj.muscles || [])) out[m] = Math.max(out[m] || 0, penalty);
   }
   return out;
 }
@@ -843,7 +869,12 @@ app.get("/summary", async (req, res) => {
     composition: compVerdict(weights, db.lifts),
     waterStats: { streak, avg: waterDays.length ? Math.round(avg(waterDays) * 10) / 10 : 0, hitRate: waterDays.length ? Math.round((waterDays.filter(v => v >= target).length / waterDays.length) * 100) : 0, best: waterDays.length ? Math.max(...waterDays) : 0 },
     musclePeaks: musclePeaksFromLifts(db.lifts),
-    injuries: (db.injuries || []).filter(i => !i.resolved),
+    injuries: (db.injuries || []).filter(i => !i.resolved).map(i => ({
+      ...i,
+      healingDays: INJURY_HEALING_DAYS[i.severity] || INJURY_HEALING_DAYS.moderate,
+      elapsedDays: Math.floor((Date.now() - i.ts) / 864e5),
+      clearance: Math.round(100 - injuryFatiguePenalty(i)),
+    })),
     weights, workouts: [...db.workouts].sort((a,b)=>(b.date||'').localeCompare(a.date||'')).slice(0,20), workoutsMonth: monthWk.length,
     water: lastN(db.water, 14), waterToday: db.water[day()] || 0,
     weeklyPlan: db.weeklyPlan || null,
@@ -869,21 +900,97 @@ app.get("/summary", async (req, res) => {
     experiments: (db.experiments || []),
     travelMode: db.profile?.travelMode || false,
     dataMaturity: computeDataMaturity(db.lifts),
+    strengthLevels: computeStrengthLevels(db.lifts, weights.at(-1)?.value ?? Object.values(db.weight).at(-1), db.profile?.sex),
   });
 });
 
-// ---------- kcal migration (one-time: fix kJ-stored-as-kcal from before the conversion fix) ----------
-app.post("/fix-kcal", async (req, res) => {
-  let fixed = 0;
-  for (const w of db.workouts) {
-    // Values >1500 with a non-hevy source are almost certainly raw kJ from HAE
-    if (w.kcal != null && w.kcal > 1500 && w.source !== "hevy") {
-      w.kcal = Math.round(w.kcal / 4.184);
-      fixed++;
+// ---------- Long-arc trends ----------
+// Separate from /summary's fixed 14/30-day windows: lets the frontend ask for
+// a wider view (90d, 1y) of a single metric without bloating the main payload.
+app.get("/trends", async (req, res) => {
+  const RANGES = [14, 30, 90, 365];
+  const range = RANGES.includes(+req.query.range) ? +req.query.range : 30;
+  const metric = req.query.metric || "weight";
+  const cutoff = day(new Date(Date.now() - range * 864e5));
+  const rawField = { hrv: "heart_rate_variability", rhr: "resting_heart_rate", sleep: "sleep_hours", steps: "step_count", bodyFat: "body_fat_percentage" }[metric];
+
+  let series = [];
+  if (metric === "weight") {
+    series = Object.keys(db.weight).sort().filter(k => k >= cutoff).map(k => ({ date: k, value: db.weight[k] }));
+  } else if (rawField) {
+    series = Object.keys(db.metrics).sort().filter(k => k >= cutoff && db.metrics[k][rawField] != null).map(k => ({ date: k, value: db.metrics[k][rawField] }));
+  } else if (metric === "recovery") {
+    const allDays = Object.keys(db.metrics).sort();
+    const sleep = personalSleepTarget(allDays.map(k => db.metrics[k]));
+    for (let i = 0; i < allDays.length; i++) {
+      const k = allDays[i];
+      if (k < cutoff) continue;
+      const window = allDays.slice(Math.max(0, i - 14), i).map(dk => db.metrics[dk]);
+      const baseHRV = avg(window.map(d => d.heart_rate_variability).filter(Boolean));
+      const baseRHR = avg(window.map(d => d.resting_heart_rate).filter(Boolean));
+      const baseWristTemp = avg(window.map(d => d.wrist_temperature).filter(Boolean));
+      const baseHR = avg(window.map(d => d.heart_rate).filter(Boolean));
+      const v = computeDay(db.metrics[k], baseHRV, baseRHR, sleep.target, baseWristTemp, baseHR);
+      if (v != null) series.push({ date: k, value: v });
     }
+  } else if (["squat", "bench", "deadlift", "overheadPress", "row"].includes(metric)) {
+    const byDate = {};
+    for (const l of (db.lifts || [])) {
+      if (!l.date || l.date < cutoff || classifyLift(l.exercise || "") !== metric) continue;
+      const e1 = estimate1RM(l.kg, l.reps);
+      if (e1 == null) continue;
+      if (!byDate[l.date] || e1 > byDate[l.date]) byDate[l.date] = e1;
+    }
+    let best = 0;
+    series = Object.keys(byDate).sort().map(k => {
+      best = Math.max(best, byDate[k]);
+      return { date: k, value: Math.round(best * 10) / 10 };
+    });
   }
-  if (fixed) await save();
-  res.json({ ok: true, fixed });
+  res.json({ metric, range, series });
+});
+
+// ---------- CSV export ----------
+function toCsv(rows, columns) {
+  const esc = v => {
+    if (v == null) return "";
+    const s = String(v);
+    return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+  };
+  const lines = rows.map(r => columns.map(c => esc(r[c])).join(","));
+  return [columns.join(","), ...lines].join("\n");
+}
+
+app.get("/export/csv", async (req, res) => {
+  const type = req.query.type || "lifts";
+  let filename, csv;
+  if (type === "lifts") {
+    filename = "lifts.csv";
+    csv = toCsv(db.lifts || [], ["date", "exercise", "kg", "reps", "rir", "source"]);
+  } else if (type === "workouts") {
+    filename = "workouts.csv";
+    csv = toCsv(db.workouts || [], ["date", "name", "duration", "kcal", "source"]);
+  } else if (type === "weight") {
+    filename = "weight.csv";
+    const rows = Object.keys(db.weight).sort().map(k => ({ date: k, kg: db.weight[k] }));
+    csv = toCsv(rows, ["date", "kg"]);
+  } else if (type === "metrics") {
+    filename = "metrics.csv";
+    const cols = ["date", "heart_rate_variability", "resting_heart_rate", "sleep_hours", "sleep_eff", "step_count", "vo2max", "hrr_bpm", "wrist_temperature", "heart_rate", "blood_oxygen", "body_fat_percentage", "body_mass"];
+    const rows = Object.keys(db.metrics).sort().map(k => ({ date: k, ...db.metrics[k] }));
+    csv = toCsv(rows, cols);
+  } else if (type === "nutrition") {
+    filename = "nutrition-log.csv";
+    csv = toCsv(db.nutritionLog || [], ["date", "time", "label", "calories", "protein", "carbs", "fat"]);
+  } else if (type === "measurements") {
+    filename = "measurements.csv";
+    csv = toCsv(db.measurements || [], ["date", "type", "value", "unit"]);
+  } else {
+    return res.status(400).json({ error: "unknown export type" });
+  }
+  res.setHeader("Content-Type", "text/csv; charset=utf-8");
+  res.setHeader("Content-Disposition", `attachment; filename="press-${filename}"`);
+  res.send(csv);
 });
 
 // ---------- Manual log endpoints ----------
@@ -931,7 +1038,7 @@ app.post("/nutrition/analyze", async (req, res) => {
   const labelPrompt = 'Read this nutrition label precisely. Return ONLY valid JSON: {"description":"product name","calories":0,"protein":0,"carbs":0,"fat":0}. Use per-serving values. All numbers as integers.';
   const mealPrompt = 'Analyse this meal photo. Estimate nutritional content for the whole plate. Return ONLY valid JSON: {"description":"brief meal description","calories":0,"protein":0,"carbs":0,"fat":0}. All numbers as integers.';
   const promptText = mode === 'label' ? labelPrompt : mealPrompt;
-  const result = await callGemini({
+  const result = await callGeminiResilient({
     messages: [{ role: 'user', content: promptText }],
     image: { mimeType, data: rawBase64 },
     maxTokens: 300,
@@ -956,29 +1063,6 @@ app.post("/macro-auto", async (req, res) => {
   await save(); res.json({ goal, targets: db.profile.macroTargets });
 });
 app.post("/thought", async (req, res) => { db.thoughts.push({ date: day(), text: req.body.text }); await save(); res.json({ ok: true }); });
-app.post("/workout/session", async (req, res) => {
-  const { name, exercises, duration } = req.body;
-  const d = day();
-  db.workouts = db.workouts || [];
-  db.workouts.unshift({ date: d, name: name || 'Session', duration: duration || null });
-  for (const ex of (exercises || [])) {
-    for (const set of (ex.sets || [])) {
-      const kg = parseFloat(set.kg) || 0;
-      const reps = parseInt(set.reps) || 1;
-      if (kg > 0 || reps > 0) db.lifts.push({ date: d, exercise: ex.name.toLowerCase().trim(), kg, reps, source: 'manual' });
-    }
-  }
-  await save(); res.json({ ok: true });
-});
-app.post("/lift", async (req, res) => {
-  const { exercise, kg, reps, sets } = req.body;
-  if (!exercise) return res.status(400).json({ error: "exercise required" });
-  const d = day();
-  const n = sets && +sets > 1 ? +sets : 1;
-  for (let i = 0; i < n; i++) db.lifts.push({ date: d, exercise: exercise.toLowerCase().trim(), kg: +kg || 0, reps: +reps || 1, source: "manual" });
-  await save(); res.json({ ok: true });
-});
-app.delete("/lift/:i", async (req, res) => { db.lifts.splice(+req.params.i, 1); await save(); res.json({ ok: true }); });
 app.post("/profile", async (req, res) => { db.profile = { ...db.profile, ...req.body }; await save(); res.json(db.profile); });
 
 // ---------- Personal Journalist ----------
@@ -1047,15 +1131,21 @@ app.post("/plan/session-exercises", async (req, res) => {
   ).join('\n');
 
   const peaks = musclePeaksFromLifts(lifts);
-  const currentFatigue = computeStructuralFatigue(lifts, peaks, db.soreness || [], db.muscleSensitivity || {});
+  const structuralFatigue = computeStructuralFatigue(lifts, peaks, db.soreness || [], db.muscleSensitivity || {});
+  const activeInjuries = (db.injuries || []).filter(i => !i.resolved);
+  const currentFatigue = applyInjuryTaper(structuralFatigue, activeInjuries);
   const metabolicFatigue = computeMetabolicFatigue(lifts, (db.nutrition || {})[day()]?.carbs || 0);
   const cnsFatigue = computeCNSFatigue(lifts, db.cnsSensitivity || 1.0, getRecoveryScore(db));
   const fatigueStr = Object.entries(currentFatigue).filter(([,v])=>v>15).sort(([,a],[,b])=>b-a)
     .map(([m,v])=>`${m} ${v}%`).join(', ') || 'none';
   const avoidMuscles = Object.entries(currentFatigue).filter(([,v])=>v>65).map(([m])=>m);
-  const activeInjuries = (db.injuries || []).filter(i => !i.resolved);
-  const offlineMuscles = activeInjuries.flatMap(i => i.muscles || []);
-  const injuryStr = activeInjuries.length ? activeInjuries.map(i => `${i.area} (${i.severity}${i.muscles?.length ? ' — blocks: ' + i.muscles.join(', ') : ''}${i.note ? ': ' + i.note : ''})`).join(', ') : '';
+  const offlineMuscles = avoidMuscles.filter(m => activeInjuries.some(i => (i.muscles || []).includes(m)));
+  const injuryStr = activeInjuries.length ? activeInjuries.map(i => {
+    const elapsedDays = Math.floor((Date.now() - i.ts) / 864e5);
+    const totalDays = INJURY_HEALING_DAYS[i.severity] || INJURY_HEALING_DAYS.moderate;
+    const status = elapsedDays >= totalDays ? 'fully healed, treat as normal' : `day ${elapsedDays}/${totalDays} healing — ${injuryFatiguePenalty(i) > 65 ? 'still mostly offline' : 'reintroducing load, keep it lighter than usual'}`;
+    return `${i.area} (${i.severity}${i.muscles?.length ? ' — affects: ' + i.muscles.join(', ') : ''}${i.note ? ': ' + i.note : ''}, ${status})`;
+  }).join('; ') : '';
 
   const travelMode = db.profile?.travelMode || false;
   const maturity = computeDataMaturity(lifts);
@@ -1147,15 +1237,6 @@ app.post("/import/hevy", async (req, res) => {
   res.json({ ok: true, imported, skipped });
 });
 
-app.get("/recommendation", async (req, res) => {
-  const r = db.metrics[day()]?.recovery;
-  if (r == null) return res.json({ text: "Connect health sync and recommendations will appear." });
-  const text = r >= 80 ? "Push. Recovery " + r + "% — stack your hardest training today."
-    : r >= 55 ? "Steady. Recovery " + r + "% — train as planned, protect your sleep tonight."
-    : "Recover. Walk, hydrate, no important decisions. Recovery " + r + "%.";
-  res.json({ text });
-});
-
 // ---------- Weekly plan (AI-generated by Personal Journalist) ----------
 app.get("/plan/week", async (req, res) => {
   res.json(db.weeklyPlan || null);
@@ -1189,18 +1270,23 @@ app.post("/plan/week", async (req, res) => {
   });
 
   const peaks = musclePeaksFromLifts(db.lifts);
-  const currentFatigue = computeStructuralFatigue(db.lifts, peaks, db.soreness || [], db.muscleSensitivity || {});
+  const structuralFatigue = computeStructuralFatigue(db.lifts, peaks, db.soreness || [], db.muscleSensitivity || {});
+  const currentFatigue = applyInjuryTaper(structuralFatigue, db.injuries || []);
   const weekMetabolic = computeMetabolicFatigue(db.lifts, (db.nutrition || {})[todayStr]?.carbs || 0);
   const weekCNS = computeCNSFatigue(db.lifts, db.cnsSensitivity || 1.0, getRecoveryScore(db));
-  const weekOfflineMuscles = (db.injuries || []).filter(i => !i.resolved).flatMap(i => i.muscles || []);
   const travelModeWeek = db.profile?.travelMode || false;
   const maturityWeek = computeDataMaturity(db.lifts);
 
   // The algorithm decides WHAT (session type, target muscles, backbone exercises,
   // frequency vs. fatigue trade-off) — the ethos rules as real code, not LLM judgment.
+  // Injury exclusion is folded into currentFatigue above (a fresh injury pins a
+  // muscle's fatigue at 100, which the existing 65% ceiling already treats as
+  // "don't load this week") rather than passed as a separate hard offline list —
+  // that's what lets it taper back in as the injury heals instead of snapping
+  // straight from banned to fully available.
   const structure = generateWeeklyStructure({
     weekDates, currentFatigue, weekMetabolic, weekCNS,
-    offlineMuscles: weekOfflineMuscles, travelMode: travelModeWeek,
+    offlineMuscles: [], travelMode: travelModeWeek,
     dataMature: maturityWeek.hasEnoughData,
   });
 
@@ -1589,6 +1675,102 @@ Return ONLY valid JSON:
   newscast.date = today;
   return newscast;
 }
+
+// Week-over-week digest: same editorial voices as the daily briefing/newscast,
+// but comparing this week to the prior week instead of describing a single day.
+async function generateWeeklyReview(db) {
+  if (!process.env.GEMINI_API_KEY) return null;
+  const cutoffThis = day(new Date(Date.now() - 7 * 864e5));
+  const cutoffLast = day(new Date(Date.now() - 14 * 864e5));
+
+  const thisWeekWorkouts = (db.workouts || []).filter(w => w.date >= cutoffThis);
+  const lastWeekWorkouts = (db.workouts || []).filter(w => w.date >= cutoffLast && w.date < cutoffThis);
+  const thisWeekLifts = (db.lifts || []).filter(l => l.date >= cutoffThis);
+  const lastWeekLifts = (db.lifts || []).filter(l => l.date >= cutoffLast && l.date < cutoffThis);
+  const volFor = lifts => Math.round(lifts.reduce((s, l) => s + (l.kg || 0) * (l.reps || 0), 0));
+  const thisVol = volFor(thisWeekLifts), lastVol = volFor(lastWeekLifts);
+
+  const days30 = lastN(db.metrics, 30);
+  const baseHRV = avg(days30.map(d => d.heart_rate_variability).filter(Boolean));
+  const baseRHR = avg(days30.map(d => d.resting_heart_rate).filter(Boolean));
+  const baseWristTemp = avg(days30.map(d => d.wrist_temperature).filter(Boolean));
+  const baseHR = avg(days30.map(d => d.heart_rate).filter(Boolean));
+  const sleepT = personalSleepTarget(days30);
+  const scoresFor = keys => keys.map(k => computeDay(db.metrics[k], baseHRV, baseRHR, sleepT.target, baseWristTemp, baseHR)).filter(v => v != null);
+  const metricKeys = Object.keys(db.metrics);
+  const thisWeekKeys = metricKeys.filter(k => k >= cutoffThis);
+  const lastWeekKeys = metricKeys.filter(k => k >= cutoffLast && k < cutoffThis);
+  const avgRecoveryThis = avg(scoresFor(thisWeekKeys));
+  const avgRecoveryLast = avg(scoresFor(lastWeekKeys));
+  const avgSleepThis = avg(thisWeekKeys.map(k => db.metrics[k].sleep_hours).filter(Boolean));
+  const avgSleepLast = avg(lastWeekKeys.map(k => db.metrics[k].sleep_hours).filter(Boolean));
+
+  const nutritionKeysThis = Object.keys(db.nutrition || {}).filter(k => k >= cutoffThis);
+  const avgCalThis = avg(nutritionKeysThis.map(k => db.nutrition[k].calories).filter(Boolean));
+  const avgProteinThis = avg(nutritionKeysThis.map(k => db.nutrition[k].protein).filter(Boolean));
+  const macroTargets = db.profile?.macroTargets || { calories: 2400, protein: 160 };
+
+  const weightKeysThis = Object.keys(db.weight).filter(k => k >= cutoffThis).sort();
+  const weightKeysLast = Object.keys(db.weight).filter(k => k >= cutoffLast && k < cutoffThis).sort();
+  const weightStart = db.weight[weightKeysLast[0]] ?? db.weight[weightKeysThis[0]];
+  const weightEnd = db.weight[weightKeysThis.at(-1)];
+
+  const prLifts = ['squat', 'bench', 'deadlift', 'overheadPress', 'row'].filter(cat => {
+    const priorBest = Math.max(0, ...db.lifts.filter(l => l.date < cutoffThis && classifyLift(l.exercise || '') === cat).map(l => estimate1RM(l.kg, l.reps) || 0));
+    const thisBest = Math.max(0, ...thisWeekLifts.filter(l => classifyLift(l.exercise || '') === cat).map(l => estimate1RM(l.kg, l.reps) || 0));
+    return thisBest > priorBest && thisBest > 0;
+  });
+
+  const prompt = `You are generating a Weekly Review for a personal health app called Press — a week-over-week digest, not a single-day report. Same editorial voices as the daily editions — V (health editor, cool newspaper prose, no hand-holding) and Atlas (training analyst, methodical, science-grounded).
+
+This week vs. last week:
+- Sessions: ${thisWeekWorkouts.length} this week vs ${lastWeekWorkouts.length} last week
+- Lift volume: ${thisVol}kg total this week vs ${lastVol}kg last week
+- Avg recovery: ${avgRecoveryThis != null ? Math.round(avgRecoveryThis) + '%' : 'no data'} this week vs ${avgRecoveryLast != null ? Math.round(avgRecoveryLast) + '%' : 'no data'} last week
+- Avg sleep: ${avgSleepThis != null ? avgSleepThis.toFixed(1) + 'h' : 'no data'} this week vs ${avgSleepLast != null ? avgSleepLast.toFixed(1) + 'h' : 'no data'} last week (target ${sleepT.target}h)
+- Nutrition: logged ${nutritionKeysThis.length}/7 days, avg ${avgCalThis ? Math.round(avgCalThis) : '—'}kcal / ${avgProteinThis ? Math.round(avgProteinThis) : '—'}g protein (target ${macroTargets.calories}kcal / ${macroTargets.protein}g)
+- Weight: ${weightStart && weightEnd ? `${weightStart}kg → ${weightEnd}kg` : 'not enough data'}
+- New strength PRs this week: ${prLifts.length ? prLifts.join(', ') : 'none'}
+
+Return ONLY valid JSON:
+{
+  "headline": "HEADLINE IN CAPS — MAX 55 CHARS",
+  "subheading": "One sharp sentence on how the week went overall.",
+  "pullQuote": "One standalone, quotable sentence pulled from the week's most important thread — not a repeat of the headline or subheading.",
+  "bullets": { "numbers": [{"label": "Sessions", "value": "${thisWeekWorkouts.length}"}, {"label": "Volume", "value": "${thisVol}kg"}, {"label": "Avg Recovery", "value": "${avgRecoveryThis != null ? Math.round(avgRecoveryThis) + '%' : '—'}"}, {"label": "Avg Sleep", "value": "${avgSleepThis != null ? avgSleepThis.toFixed(1) + 'h' : '—'}"}] },
+  "v": "Overall verdict on the week — training consistency, recovery trend, nutrition adherence. 2-3 sentences, direct.",
+  "atlas": "1-2 sentences from Atlas on training volume/strength trend and ${prLifts.length ? 'the new PR(s)' : 'the absence of new PRs'} this week.",
+  "nutritionNote": ${nutritionKeysThis.length < 5 ? '"A single direct sentence noting the nutrition logging gap this week."' : 'null'}
+}`;
+
+  const result = await callGeminiResilient({ messages: [{ role: 'user', content: prompt }], maxTokens: 550, jsonMode: true, temperature: 0.75 });
+  if (!result.ok) {
+    console.error('Gemini weekly review error:', result.status, JSON.stringify(result.error));
+    throw new Error(result.error?.message || `Gemini returned ${result.status}`);
+  }
+  let review;
+  try { review = JSON.parse(result.content); } catch (e) { throw new Error('Gemini returned invalid JSON: ' + e.message); }
+  review.period = 'week';
+  review.generatedAt = new Date().toISOString();
+  review.weekStart = cutoffThis;
+  return review;
+}
+
+app.get('/weekly-review', async (req, res) => {
+  try {
+    const cached = db.weeklyReview;
+    const twelveHoursAgo = Date.now() - 12 * 3600 * 1000;
+    const cutoffThis = day(new Date(Date.now() - 7 * 864e5));
+    if (cached?.weekStart === cutoffThis && new Date(cached.generatedAt).getTime() > twelveHoursAgo) {
+      return res.json({ review: cached });
+    }
+    const review = await generateWeeklyReview(db);
+    if (!review) return res.json({ review: null });
+    db.weeklyReview = review;
+    await save();
+    res.json({ review });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
 
 app.get('/newscast', async (req, res) => {
   try {

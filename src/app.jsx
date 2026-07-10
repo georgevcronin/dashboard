@@ -614,7 +614,7 @@ function Header({ s, onSignOut }) {
 }
 
 // ── S1: FRONT PAGE ───────────────────────────────────────────────────────────
-function S1({ s, briefing, onShowBriefing, onShowAfternoon, onShowNight, afternoonLoaded, nightLoaded, newscastLoading, newscastError }) {
+function S1({ s, briefing, onShowBriefing, onShowAfternoon, onShowNight, onShowWeekly, afternoonLoaded, nightLoaded, weeklyLoaded, newscastLoading, newscastError }) {
   const today = s?.today || {};
   const recovery = today.recovery ?? s?.recoveryTrend?.at(-1) ?? null;
 
@@ -715,6 +715,13 @@ function S1({ s, briefing, onShowBriefing, onShowAfternoon, onShowNight, afterno
           </div>
         </div>
       )}
+
+      <div className="briefing-preview fade" style={{ flexShrink: 0, cursor: newscastLoading ? 'default' : 'pointer', opacity: newscastLoading ? 0.6 : 1 }} onClick={onShowWeekly}>
+        <div className="kicker" style={{ marginBottom: 3 }}>Weekly Review</div>
+        <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 11, color: 'var(--dim)', fontStyle: 'italic' }}>
+          {newscastLoading ? 'Generating…' : weeklyLoaded ? 'Read weekly review' : 'Generate weekly review'}
+        </div>
+      </div>
 
       {newscastError && (
         <div className="fade" style={{ flexShrink: 0, fontFamily: "'JetBrains Mono',monospace", fontSize: 10, color: 'var(--red)', padding: '6px 0' }}>
@@ -879,6 +886,7 @@ function S2({ s, refresh }) {
           {debt > 0
             ? `Sleep debt stands at ${debt.toFixed(1)} hours. Consistent nights above target needed to clear it.`
             : 'Sleep debt cleared. Maintain consistent bedtimes to hold this position.'}
+          {' '}Target {sleepTarget}h ({s?.sleepTargetLearned ? 'learned from your recent nights' : 'default — not enough data yet to personalise'}).
         </div>
       </div>
       <div className="chart-wrap fade" style={{ flex: '0 0 90px', position: 'relative' }}>
@@ -894,7 +902,7 @@ function S2({ s, refresh }) {
                 <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}>
                   <svg viewBox="0 0 320 100" style={{ width: '100%', height: '100%', position: 'absolute', inset: 0 }} preserveAspectRatio="none">
                     <line x1="0" y1={tgtY} x2="320" y2={tgtY} stroke="var(--gold)" strokeWidth="1" strokeDasharray="4,4" opacity="0.7" />
-                    <text x="4" y={tgtY - 3} fontSize="7" fill="var(--gold)" fontFamily="JetBrains Mono,monospace" opacity="0.9">target {sleepTarget}h</text>
+                    <text x="4" y={tgtY - 3} fontSize="7" fill="var(--gold)" fontFamily="JetBrains Mono,monospace" opacity="0.9">target {sleepTarget}h{s?.sleepTargetLearned ? ' · learned' : ' · default'}</text>
                   </svg>
                 </div>
               );
@@ -1897,6 +1905,48 @@ function WorkoutHistory({ s, onClose }) {
 }
 
 // ── S3: TRAINING ──────────────────────────────────────────────────────────────
+const STRENGTH_LIFT_LABELS = { squat: 'Squat', bench: 'Bench Press', deadlift: 'Deadlift', overheadPress: 'Overhead Press', row: 'Row' };
+const STRENGTH_MUSCLE_LABELS = { chest: 'Chest', shoulders: 'Shoulders', back: 'Back', legs: 'Legs' };
+const TIER_COLOR = { Untrained: 'var(--dim)', Beginner: 'var(--ember)', Novice: 'var(--gold)', Intermediate: 'var(--navy)', Advanced: 'var(--forest)', Elite: 'var(--plum)' };
+
+function StrengthLevelPanel({ strengthLevels, hasSex }) {
+  if (!hasSex) return (
+    <div className="fade" style={{ borderTop: '1px solid var(--rule)', paddingTop: 10 }}>
+      <div className="kicker" style={{ marginBottom: 4 }}>Strength Level</div>
+      <div style={{ fontSize: 11, color: 'var(--dim)', fontStyle: 'italic' }}>Set your sex in Settings → Profile to unlock strength-level rankings.</div>
+    </div>
+  );
+  const rankedLifts = Object.entries(strengthLevels?.lifts || {}).filter(([, v]) => v);
+  if (!rankedLifts.length) return (
+    <div className="fade" style={{ borderTop: '1px solid var(--rule)', paddingTop: 10 }}>
+      <div className="kicker" style={{ marginBottom: 4 }}>Strength Level</div>
+      <div style={{ fontSize: 11, color: 'var(--dim)', fontStyle: 'italic' }}>Log a squat, bench press, deadlift, overhead press, or row to see your tier — ranked against published bodyweight-ratio standards, Beginner→Elite.</div>
+    </div>
+  );
+  return (
+    <div className="fade" style={{ borderTop: '1px solid var(--rule)', paddingTop: 10 }}>
+      <div className="kicker" style={{ marginBottom: 8 }}>Strength Level · vs. Published Standards</div>
+      {rankedLifts.map(([cat, v]) => (
+        <div key={cat} style={{ marginBottom: 8 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontFamily: "'JetBrains Mono',monospace", fontSize: 10, marginBottom: 3 }}>
+            <span style={{ color: 'var(--ink)' }}>{STRENGTH_LIFT_LABELS[cat]}</span>
+            <span style={{ color: TIER_COLOR[v.tier] }}>{v.tier} · {v.e1RM}kg e1RM</span>
+          </div>
+          <div className="macro-track"><div className="macro-fill" style={{ width: `${v.score}%`, background: TIER_COLOR[v.tier] }} /></div>
+        </div>
+      ))}
+      <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', marginTop: 10, borderTop: '1px solid var(--rule)', paddingTop: 8 }}>
+        {Object.entries(strengthLevels?.muscleGroups || {}).filter(([, v]) => v).map(([mg, v]) => (
+          <div key={mg}>
+            <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, color: 'var(--dim)', textTransform: 'uppercase', letterSpacing: '.1em' }}>{STRENGTH_MUSCLE_LABELS[mg]}</div>
+            <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 12, color: TIER_COLOR[v.tier] }}>{v.tier}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function S3({ s, onStartWorkout, onImport, onHistory, refresh }) {
   const workouts = s?.workouts || [];
   const lifts = s?.lifts || [];
@@ -2020,6 +2070,7 @@ function S3({ s, onStartWorkout, onImport, onHistory, refresh }) {
           <div className="stat-cell"><div className="sc-label">Month</div><div className="sc-num forest" style={{ fontSize: 22 }}>{s?.workoutsMonth ?? '—'}<span style={{ fontSize: '.5em', color: 'var(--dim)' }}>sessions</span></div></div>
         </div>
       </div>
+      <StrengthLevelPanel strengthLevels={s?.strengthLevels} hasSex={!!s?.profile?.sex} />
       <div className="fade" style={{ marginTop: 'auto' }}>
         {todaySession ? (
           <div style={{ borderTop: '1px solid var(--rule)', paddingTop: 10 }}>
@@ -2191,7 +2242,7 @@ function S4({ s, refresh }) {
   const mt = s?.macroTargets || {};
   const mealLog = s?.nutritionLog || [];
   const water = s?.waterToday ?? 0;
-  const waterTarget = s?.profile?.waterTarget || 8;
+  const waterTarget = s?.profile?.waterTarget || 7;
   const today = new Date().toISOString().slice(0, 10);
   const todayLog = mealLog.filter(m => m.date === today);
 
@@ -2212,6 +2263,7 @@ function S4({ s, refresh }) {
   const [scanMode, setScanMode] = useState('meal');
   const [portion, setPortion] = useState(1);
   const [analysed, setAnalysed] = useState(false);
+  const [photoErr, setPhotoErr] = useState('');
 
   // Tab + barcode state
   const [foodTab, setFoodTab] = useState('log');
@@ -2326,7 +2378,7 @@ function S4({ s, refresh }) {
   const handlePhoto = async e => {
     const file = e.target.files?.[0];
     if (!file) return;
-    setAnalysing(true); setDescription(''); setAnalysed(false);
+    setAnalysing(true); setDescription(''); setAnalysed(false); setPhotoErr('');
     const previewUrl = URL.createObjectURL(file);
     setPhotoPreview(previewUrl);
     const reader = new FileReader();
@@ -2336,6 +2388,7 @@ function S4({ s, refresh }) {
           method: 'POST',
           body: JSON.stringify({ imageBase64: ev.target.result, mode: scanMode }),
         });
+        if (data.error) throw new Error(data.error);
         const base = { calories: data.calories || 0, protein: data.protein || 0, carbs: data.carbs || 0, fat: data.fat || 0 };
         baseNutrition.current = base;
         if (data.description) setDescription(data.description);
@@ -2343,7 +2396,7 @@ function S4({ s, refresh }) {
         applyPortion(1, base);
         if (!label && data.description) setLabel(data.description.slice(0, 40));
         setAnalysed(true);
-      } catch {}
+      } catch (e) { setPhotoErr(e.message || 'Photo analysis failed — try again.'); }
       setAnalysing(false);
     };
     reader.readAsDataURL(file);
@@ -2371,6 +2424,11 @@ function S4({ s, refresh }) {
   const logFood = async (food) => {
     const { entry, nutritionToday } = await postMeal({ label: food.name || food.label, protein: food.protein || 0, carbs: food.carbs || 0, fat: food.fat || 0, calories: food.calories || 0 });
     refresh({ ...s, nutritionToday, nutritionLog: [...(s?.nutritionLog || []), entry] });
+  };
+
+  const logWater = async (delta) => {
+    const data = await api('water', { method: 'POST', body: JSON.stringify({ delta }) });
+    refresh({ ...s, waterToday: data.today });
   };
 
   const loadRecent = async () => {
@@ -2433,7 +2491,6 @@ function S4({ s, refresh }) {
           { label: 'Protein',  val: n.protein||0,  tgt: mt.protein || 160, unit: 'g',    color: 'var(--navy)'   },
           { label: 'Carbs',    val: n.carbs||0,    tgt: mt.carbs || 250,   unit: 'g',    color: 'var(--forest)' },
           { label: 'Fat',      val: n.fat||0,      tgt: mt.fat || 75,      unit: 'g',    color: 'var(--ember)'  },
-          { label: 'Water',    val: water,         tgt: waterTarget,       unit: 'gl',   color: 'var(--navy)'   },
         ].map(({ label: lbl, val, tgt, unit, color }) => {
           const p = tgt ? pct(val, tgt) : 0;
           return (
@@ -2443,6 +2500,14 @@ function S4({ s, refresh }) {
             </div>
           );
         })}
+        <div className="macro">
+          <div className="macro-lbl"><span>WATER</span><span>{water} / {waterTarget} gl &nbsp;{waterTarget ? pct(water, waterTarget) : 0}%</span></div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div className="macro-track" style={{ flex: 1 }}><div className="macro-fill" style={{ width: `${waterTarget ? pct(water, waterTarget) : 0}%`, background: 'var(--navy)' }} /></div>
+            <button onClick={() => logWater(-1)} disabled={water <= 0} style={{ width: 22, height: 22, flexShrink: 0, border: '1px solid var(--rule)', background: 'none', cursor: water > 0 ? 'pointer' : 'default', fontSize: 13, lineHeight: 1, color: 'var(--ink)' }}>−</button>
+            <button onClick={() => logWater(1)} style={{ width: 22, height: 22, flexShrink: 0, border: '1px solid var(--rule)', background: 'none', cursor: 'pointer', fontSize: 13, lineHeight: 1, color: 'var(--ink)' }}>+</button>
+          </div>
+        </div>
       </div>
 
       {s?.hydrationCurve?.length > 1 && (
@@ -2530,6 +2595,7 @@ function S4({ s, refresh }) {
                   {analysing ? 'Analysing…' : photoPreview ? 'Scan Again' : 'Scan Photo'}
                 </button>
                 {description && <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)', marginTop: 4, lineHeight: 1.4 }}>{description}</div>}
+                {photoErr && <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--red)', marginTop: 4, lineHeight: 1.4 }}>{photoErr}</div>}
               </div>
             </div>
 
@@ -2938,6 +3004,7 @@ function S5({ s, refresh }) {
                     <div className="niggle-area">{inj.area}</div>
                     <div className="niggle-meta">
                       {inj.severity} · {new Date(inj.ts).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
+                      {inj.clearance != null && ` · ${inj.clearance >= 100 ? 'fully healed' : `day ${inj.elapsedDays}/${inj.healingDays} — ${inj.clearance}% cleared`}`}
                     </div>
                     {inj.note && <div className="niggle-note">{inj.note}</div>}
                   </div>
@@ -2995,6 +3062,72 @@ function S5({ s, refresh }) {
 }
 
 // ── S6: PROFILE ───────────────────────────────────────────────────────────────
+const TREND_METRICS = [
+  { key: 'weight', label: 'Weight', unit: 'kg', color: 'var(--ink)' },
+  { key: 'bodyFat', label: 'Body Fat', unit: '%', color: 'var(--ember)' },
+  { key: 'recovery', label: 'Recovery', unit: '/100', color: 'var(--gold)' },
+  { key: 'sleep', label: 'Sleep', unit: 'h', color: 'var(--plum)' },
+  { key: 'hrv', label: 'HRV', unit: 'ms', color: 'var(--navy)' },
+  { key: 'squat', label: 'Squat e1RM', unit: 'kg', color: 'var(--forest)' },
+  { key: 'bench', label: 'Bench e1RM', unit: 'kg', color: 'var(--forest)' },
+  { key: 'deadlift', label: 'Deadlift e1RM', unit: 'kg', color: 'var(--forest)' },
+  { key: 'overheadPress', label: 'OHP e1RM', unit: 'kg', color: 'var(--forest)' },
+  { key: 'row', label: 'Row e1RM', unit: 'kg', color: 'var(--forest)' },
+];
+const TREND_RANGES = [[14, '14D'], [30, '30D'], [90, '90D'], [365, '1Y']];
+
+function TrendsPanel() {
+  const [metric, setMetric] = useState('weight');
+  const [range, setRange] = useState(30);
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    setLoading(true);
+    api(`trends?metric=${metric}&range=${range}`).then(d => { setData(d); setLoading(false); }).catch(() => setLoading(false));
+  }, [metric, range]);
+
+  const meta = TREND_METRICS.find(m => m.key === metric);
+  const series = data?.series || [];
+  const values = series.map(p => p.value);
+  const first = values[0], last = values.at(-1);
+  const delta = first != null && last != null ? Math.round((last - first) * 10) / 10 : null;
+
+  return (
+    <div style={{ marginBottom: 4 }}>
+      <div className="kicker" style={{ margin: '0 0 10px' }}>Long-Term Trends</div>
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 8 }}>
+        <select value={metric} onChange={e => setMetric(e.target.value)}
+          style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, padding: '6px 8px', border: '1px solid var(--rule)', background: 'var(--paper)', color: 'var(--ink)' }}>
+          {TREND_METRICS.map(m => <option key={m.key} value={m.key}>{m.label}</option>)}
+        </select>
+        <div style={{ display: 'flex', gap: 4 }}>
+          {TREND_RANGES.map(([r, l]) => (
+            <button key={r} onClick={() => setRange(r)}
+              style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, padding: '5px 10px', border: '1px solid var(--rule)', background: range === r ? 'var(--ink)' : 'none', color: range === r ? 'var(--paper)' : 'var(--ink)', cursor: 'pointer' }}>
+              {l}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="chart-wrap" style={{ height: 70, position: 'relative', marginBottom: 4 }}>
+        {loading ? (
+          <div style={{ fontSize: 10, color: 'var(--dim)', fontStyle: 'italic', padding: '20px 0' }}>Loading…</div>
+        ) : values.length > 1 ? (
+          <AreaChart data={values} color={meta.color} id={`trend-${metric}`} />
+        ) : (
+          <div style={{ fontSize: 10, color: 'var(--dim)', fontStyle: 'italic', padding: '20px 0' }}>Not enough data yet for this range.</div>
+        )}
+      </div>
+      {values.length > 1 && (
+        <div className="sc-delta" style={{ color: 'var(--dim)' }}>
+          {first} → {last} {meta.unit} {delta != null && delta !== 0 ? `(${delta > 0 ? '+' : ''}${delta})` : ''}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function S6({ s, onOpenSettings, refresh }) {
   const supplements = s?.supplements || [];
   const suppLogToday = s?.supplementLogToday || [];
@@ -3163,6 +3296,10 @@ function S6({ s, onOpenSettings, refresh }) {
             {savingWeight ? '…' : 'Log'}
           </button>
         </div>
+        <div className="rule-thin" style={{ margin: '16px 0' }} />
+
+        <TrendsPanel />
+
         <div className="rule-thin" style={{ margin: '16px 0' }} />
 
         <div className="kicker" style={{ margin: '0 0 10px' }}>Measurements</div>
@@ -3354,11 +3491,12 @@ function Onboarding({ onComplete, onOpenImport }) {
   const [weightUnit, setWeightUnit] = useState('kg');
   const [weightVal, setWeightVal] = useState('');
   const [bodyFat, setBodyFat] = useState('');
+  const [sex, setSex] = useState('');
 
   // Step 2
   const [goal, setGoal] = useState('');
   const [sleepTarget, setSleepTarget] = useState(8);
-  const [waterTarget, setWaterTarget] = useState(8);
+  const [waterTarget, setWaterTarget] = useState(7);
   const [trainingDays, setTrainingDays] = useState(4);
 
   // Step 3 tracking
@@ -3382,7 +3520,7 @@ function Onboarding({ onComplete, onOpenImport }) {
     const kg = weightUnit === 'kg' ? parseFloat(weightVal) : parseFloat(weightVal) * 0.453592;
     const cm = heightUnit === 'cm' ? parseFloat(heightVal) : parseFloat(heightVal) * 30.48;
     const age = dob ? Math.floor((Date.now() - new Date(dob)) / (365.25 * 24 * 3600 * 1000)) : null;
-    const profileBody = { name: name || undefined, dob: dob || undefined, age, heightCm: cm || undefined };
+    const profileBody = { name: name || undefined, dob: dob || undefined, age, heightCm: cm || undefined, sex: sex || undefined };
     await api('profile', { method: 'POST', body: JSON.stringify(profileBody) });
     if (kg > 0) await api('weight', { method: 'POST', body: JSON.stringify({ kg }) });
     if (bodyFat) await api('bodyfat', { method: 'POST', body: JSON.stringify({ pct: parseFloat(bodyFat) }) });
@@ -3456,6 +3594,12 @@ function Onboarding({ onComplete, onOpenImport }) {
 
             <label className="ob-label">Date of Birth</label>
             <input style={inputStyle} type="date" value={dob} onChange={e => setDob(e.target.value)} />
+
+            <label className="ob-label">Sex <span style={{ fontWeight: 400, textTransform: 'none', fontSize: 9, color: 'var(--dim)' }}>(optional — used only to calibrate strength-level standards)</span></label>
+            <div className="ob-unit-toggle" style={{ marginBottom: 14 }}>
+              <button className={`ob-unit-btn${sex === 'male' ? ' active' : ''}`} onClick={() => setSex('male')}>Male</button>
+              <button className={`ob-unit-btn${sex === 'female' ? ' active' : ''}`} onClick={() => setSex('female')}>Female</button>
+            </div>
 
             <label className="ob-label">Height</label>
             <div className="ob-unit-row">
@@ -3691,7 +3835,7 @@ function Onboarding({ onComplete, onOpenImport }) {
 function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, setBriefing }) {
   const [nameVal, setNameVal] = useState(s?.profile?.name || '');
   const [sleepTarget, setSleepTarget] = useState(s?.profile?.sleepTarget || 8);
-  const [waterTarget, setWaterTarget] = useState(s?.profile?.waterTarget || 8);
+  const [waterTarget, setWaterTarget] = useState(s?.profile?.waterTarget || 7);
   const [trainingDays, setTrainingDays] = useState(s?.profile?.trainingDaysPerWeek || 4);
   const [trackingLevel, setTrackingLevel] = useState(s?.profile?.trackingLevel || 'full');
   const [healthGuideOpen, setHealthGuideOpen] = useState(false);
@@ -3709,6 +3853,9 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, setBrie
   const [newSuppDose, setNewSuppDose] = useState('');
   const [newSuppTiming, setNewSuppTiming] = useState('morning');
   const [savingSupp, setSavingSupp] = useState(false);
+  const [sensMuscle, setSensMuscle] = useState(ALL_MUSCLES[0]);
+  const [sensValue, setSensValue] = useState('1.0');
+  const [savingSens, setSavingSens] = useState(false);
 
   const SHORTCUT_URL = `${API_BASE}/shortcut`;
   const supplements = s?.supplements || [];
@@ -3743,6 +3890,13 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, setBrie
   const deleteSupp = async (name) => {
     await api(`supplements/${encodeURIComponent(name)}`, { method: 'DELETE' });
     refresh({ ...s, supplements: supplements.filter(sp => sp.name !== name) });
+  };
+
+  const setMuscleSensitivity = async (muscle, value) => {
+    setSavingSens(true);
+    await api('muscle-sensitivity', { method: 'PUT', body: JSON.stringify({ muscle, value }) });
+    setSavingSens(false);
+    refresh({ ...s, muscleSensitivity: { ...(s?.muscleSensitivity || {}), [muscle]: value } });
   };
 
   const enableNotifications = async () => {
@@ -3794,6 +3948,18 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, setBrie
                   onClick={() => api('macro-auto', { method: 'POST', body: JSON.stringify({ goal: g }) }).then(data => refresh({ ...s, macroGoal: data.goal, macroTargets: data.targets, macroMode: 'auto' }))}
                   style={{ textTransform: 'capitalize', ...(s?.macroGoal === g ? { background: 'var(--ink)', color: 'var(--paper)', borderColor: 'var(--ink)' } : {}) }}>
                   {g}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="prof-field">
+            <span className="prof-lbl">Sex <span style={{ fontSize: 8, color: 'var(--dim)', textTransform: 'none' }}>(for strength standards)</span></span>
+            <div style={{ display: 'flex', gap: 6 }}>
+              {['male','female'].map(sx => (
+                <button key={sx} className="prof-btn"
+                  onClick={() => api('profile', { method: 'POST', body: JSON.stringify({ sex: sx }) }).then(profile => refresh({ ...s, profile }))}
+                  style={{ textTransform: 'capitalize', ...(s?.profile?.sex === sx ? { background: 'var(--ink)', color: 'var(--paper)', borderColor: 'var(--ink)' } : {}) }}>
+                  {sx}
                 </button>
               ))}
             </div>
@@ -3944,6 +4110,36 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, setBrie
           </div>
         </div>
 
+        {/* ── MUSCLE SENSITIVITY ── */}
+        <div className="settings-sec">
+          <div className="settings-sh">Muscle Sensitivity</div>
+          <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)', lineHeight: 1.6, marginBottom: 12 }}>
+            Fatigue tracking auto-tunes per muscle from soreness logs. Override a muscle directly here if it's drifted wrong — 1.0 is neutral, higher means it fatigues faster than average.
+          </div>
+          {Object.entries(s?.muscleSensitivity || {}).filter(([, v]) => v !== 1.0).length > 0 && (
+            <div style={{ marginBottom: 14 }}>
+              {Object.entries(s?.muscleSensitivity || {}).filter(([, v]) => v !== 1.0).map(([muscle, value]) => (
+                <div key={muscle} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '7px 0', borderBottom: '1px solid var(--rule)' }}>
+                  <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 11, color: 'var(--ink)', textTransform: 'capitalize' }}>{muscle} — {value.toFixed(2)}×</div>
+                  <button onClick={() => setMuscleSensitivity(muscle, 1.0)} style={{ background: 'none', border: 'none', color: 'var(--dim)', cursor: 'pointer', fontFamily: "'JetBrains Mono',monospace", fontSize: 9, padding: '4px 8px' }}>Reset</button>
+                </div>
+              ))}
+            </div>
+          )}
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+            <select value={sensMuscle} onChange={e => setSensMuscle(e.target.value)}
+              style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, padding: '7px 8px', border: '1px solid var(--rule)', background: 'var(--paper)', color: 'var(--ink)', textTransform: 'capitalize' }}>
+              {ALL_MUSCLES.map(m => <option key={m} value={m}>{m}</option>)}
+            </select>
+            <input type="number" min="0.3" max="3.0" step="0.1" value={sensValue} onChange={e => setSensValue(e.target.value)}
+              style={{ width: 60, fontFamily: "'JetBrains Mono',monospace", fontSize: 11, padding: '7px 8px', border: '1px solid var(--rule)', background: 'var(--paper)', color: 'var(--ink)' }} />
+            <button className="prof-btn solid" style={{ padding: '7px 16px' }}
+              onClick={() => setMuscleSensitivity(sensMuscle, +sensValue)} disabled={savingSens || !sensValue}>
+              {savingSens ? 'Saving…' : 'Set'}
+            </button>
+          </div>
+        </div>
+
         {/* ── APP ── */}
         <div className="settings-sec">
           <div className="settings-sh">App</div>
@@ -3974,6 +4170,29 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, setBrie
               <button className="prof-btn" onClick={() => api('profile', { method: 'POST', body: JSON.stringify({ travelMode: false }) }).then(profile => refresh({ ...s, profile, travelMode: profile.travelMode }))}>Disable</button>
             </div>
           )}
+        </div>
+
+        {/* ── DATA EXPORT ── */}
+        <div className="settings-sec">
+          <div className="settings-sh">Data Export</div>
+          <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)', lineHeight: 1.6, marginBottom: 12 }}>
+            Download your data as CSV, readable in Excel, Numbers, Sheets, or any spreadsheet tool.
+          </div>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            {[['lifts','Lifts'],['workouts','Workouts'],['weight','Weight'],['metrics','Health Metrics'],['nutrition','Nutrition Log'],['measurements','Measurements']].map(([type, label]) => (
+              <button key={type} className="prof-btn" style={{ fontSize: 9, padding: '6px 10px' }}
+                onClick={async () => {
+                  const r = await authFetch(`${API_BASE}/export/csv?type=${type}`);
+                  const blob = await r.blob();
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement('a');
+                  a.href = url; a.download = `press-${type}.csv`; a.click();
+                  URL.revokeObjectURL(url);
+                }}>
+                {label}
+              </button>
+            ))}
+          </div>
         </div>
 
         {/* ── ACCOUNT ── */}
@@ -4057,7 +4276,7 @@ function MentorChat({ onClose }) {
 // ── NEWSCAST OVERLAY ─────────────────────────────────────────────────────────
 function NewscastOverlay({ newscast, onClose }) {
   const period = newscast?.period;
-  const label = period === 'afternoon' ? 'Mid-Day Update' : "Tonight's Report";
+  const label = period === 'afternoon' ? 'Mid-Day Update' : period === 'week' ? 'Weekly Review' : "Tonight's Report";
   const dateStr = new Date().toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' }).toUpperCase();
   const numbers = newscast?.bullets?.numbers || [];
 
@@ -4308,11 +4527,18 @@ function App() {
   const [showBriefing, setShowBriefing] = useState(false);
   const [afternoonNewscast, setAfternoonNewscast] = useState(null);
   const [nightNewscast, setNightNewscast] = useState(null);
+  const [weeklyReview, setWeeklyReview] = useState(null);
   const [showAfternoonNewscast, setShowAfternoonNewscast] = useState(false);
   const [showNightNewscast, setShowNightNewscast] = useState(false);
+  const [showWeeklyReview, setShowWeeklyReview] = useState(false);
   const [newscastLoading, setNewscastLoading] = useState(false);
   const [newscastError, setNewscastError] = useState('');
   const [showSettings, setShowSettings] = useState(false);
+  const [summaryError, setSummaryError] = useState('');
+
+  const loadSummary = () => api('summary')
+    .then(data => { setS(data); setSummaryError(''); })
+    .catch(() => setSummaryError('Failed to load — check your connection and try again.'));
 
   const fetchNewscast = async (period) => {
     if (newscastLoading) return;
@@ -4332,6 +4558,20 @@ function App() {
     setNewscastLoading(false);
   };
 
+  const fetchWeeklyReview = async () => {
+    if (newscastLoading) return;
+    setNewscastLoading(true);
+    setNewscastError('');
+    try {
+      const data = await api('weekly-review');
+      if (data.review) { setWeeklyReview(data.review); setShowWeeklyReview(true); }
+      else setNewscastError(data.error || 'Generation failed — Gemini may be overloaded. Try again in a moment.');
+    } catch {
+      setNewscastError('Connection error — try again.');
+    }
+    setNewscastLoading(false);
+  };
+
   const handleOnboardDone = () => { localStorage.setItem('press_onboarded', '1'); setOnboarded(true); };
 
   useEffect(() => {
@@ -4344,10 +4584,10 @@ function App() {
     return onAuthStateChanged(auth, u => setUser(u ?? null));
   }, []);
 
-  const refresh = data => { if (data) setS(data); else api('summary').then(setS).catch(console.error); };
+  const refresh = data => { if (data) setS(data); else loadSummary(); };
 
   useEffect(() => {
-    if (user) api('summary').then(setS).catch(console.error);
+    if (user) loadSummary();
     else setS(null);
   }, [user]);
 
@@ -4411,6 +4651,19 @@ function App() {
 
   if (!user) return <LoginScreen />;
 
+  if (!s && summaryError) return (
+    <div style={{ minHeight: '100svh', background: '#f5f0e2', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 14, padding: 24, textAlign: 'center' }}>
+      <div style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 11, letterSpacing: '.14em', textTransform: 'uppercase', color: '#8a7a5c' }}>{summaryError}</div>
+      <button onClick={loadSummary} style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 10, letterSpacing: '.12em', textTransform: 'uppercase', padding: '8px 18px', border: '1px solid #0d0b08', background: 'none', color: '#0d0b08', cursor: 'pointer' }}>Retry</button>
+    </div>
+  );
+
+  if (!s) return (
+    <div style={{ minHeight: '100svh', background: '#f5f0e2', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <div style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 11, letterSpacing: '.14em', textTransform: 'uppercase', color: '#8a7a5c' }}>Loading…</div>
+    </div>
+  );
+
   const trackingLevel = s?.profile?.trackingLevel || 'full';
   const showSleep = trackingLevel !== 'workout';
   const showFuel = trackingLevel === 'full';
@@ -4427,7 +4680,8 @@ function App() {
         <S1 s={s} briefing={briefing} onShowBriefing={() => setShowBriefing(true)}
             onShowAfternoon={() => afternoonNewscast ? setShowAfternoonNewscast(true) : fetchNewscast('afternoon')}
             onShowNight={() => nightNewscast ? setShowNightNewscast(true) : fetchNewscast('night')}
-            afternoonLoaded={!!afternoonNewscast} nightLoaded={!!nightNewscast}
+            onShowWeekly={() => weeklyReview ? setShowWeeklyReview(true) : fetchWeeklyReview()}
+            afternoonLoaded={!!afternoonNewscast} nightLoaded={!!nightNewscast} weeklyLoaded={!!weeklyReview}
             newscastLoading={newscastLoading} newscastError={newscastError} />
         {showSleep && <S2 s={s} refresh={refresh} />}
         <S3 s={s} onStartWorkout={planDay => setLoggerPlanDay(planDay ?? null)} onImport={() => setShowImport(true)} onHistory={() => setShowHistory(true)} refresh={refresh} />
@@ -4445,6 +4699,7 @@ function App() {
       {showBriefing && briefing && <BriefingOverlay briefing={briefing} onClose={() => setShowBriefing(false)} />}
       {showAfternoonNewscast && afternoonNewscast && <NewscastOverlay newscast={afternoonNewscast} onClose={() => setShowAfternoonNewscast(false)} />}
       {showNightNewscast && nightNewscast && <NewscastOverlay newscast={nightNewscast} onClose={() => setShowNightNewscast(false)} />}
+      {showWeeklyReview && weeklyReview && <NewscastOverlay newscast={weeklyReview} onClose={() => setShowWeeklyReview(false)} />}
       {loggerOpen && (
         <WorkoutLogger
           planDay={loggerPlanDay}
