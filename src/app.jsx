@@ -509,6 +509,10 @@ const ECHELONS = [
 const fmtDate = () => new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
 const fmtDateShort = () => new Date().toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
 const pct = (v, t) => (t && t > 0 ? Math.min(100, Math.round(v / t * 100)) : 0);
+// Calorie display default is approximate (nearest 300) — precision that isn't
+// really there anyway for most logged food, and it's less anxiety-inducing to
+// track than exact numbers. Settings > Nutrition can switch to exact.
+const roundCal = (v, exact) => (v == null ? v : exact ? Math.round(v) : Math.round(v / 300) * 300);
 
 function AreaChart({ data, color, id }) {
   if (!data?.length) return null;
@@ -573,6 +577,7 @@ function Header({ s, onSignOut }) {
   const n = s?.nutritionToday || {};
   const mt = s?.macroTargets || {};
   const steps = today.steps != null ? Math.round(today.steps * 1000) : null;
+  const exactCal = !!s?.profile?.exactCalories;
 
   const items = [
     { sym: '$RCVRY',   val: today.recovery != null ? `${Math.round(today.recovery)}` : '—',   chg: null, up: true },
@@ -580,7 +585,7 @@ function Header({ s, onSignOut }) {
     { sym: '$HRV',     val: today.hrv != null ? `${today.hrv}ms` : '—',                       chg: null, up: true },
     { sym: '$RHR',     val: today.rhr != null ? `${today.rhr}bpm` : '—',                      chg: null, up: false },
     { sym: '$STEPS',   val: steps ? steps.toLocaleString() : '—', chg: steps ? `${pct(steps, 10000)}%` : null, up: steps >= 8000 },
-    { sym: '$KCAL',    val: n.calories ? `${n.calories}` : '—', chg: mt.calories ? `${pct(n.calories, mt.calories)}%` : null, up: pct(n.calories, mt.calories) >= 80 },
+    { sym: '$KCAL',    val: n.calories ? `${roundCal(n.calories, exactCal)}` : '—', chg: mt.calories ? `${pct(n.calories, mt.calories)}%` : null, up: pct(n.calories, mt.calories) >= 80 },
     { sym: '$PROTEIN', val: n.protein ? `${n.protein}g` : '—', chg: mt.protein ? `${pct(n.protein, mt.protein)}%` : null, up: pct(n.protein, mt.protein) >= 80 },
     { sym: '$MASS',    val: s?.weights?.[0]?.value ? `${s.weights[0].value}kg` : '—', chg: null, up: true },
   ];
@@ -2316,6 +2321,7 @@ function S4({ s, refresh }) {
   const cal = n.calories || 0;
   const calTarget = mt.calories || 2400;
   const short = calTarget - cal;
+  const exactCal = !!s?.profile?.exactCalories;
 
   // Form state
   const [label, setLabel] = useState('');
@@ -2547,14 +2553,17 @@ function S4({ s, refresh }) {
       <div className="fade" style={{ flexShrink: 0 }}>
         <div className="kicker">Nutrition · Today</div>
         <div className="headline">
-          {cal > 0 ? `${cal.toLocaleString()} kcal —` : 'Empty Plate —'}<br />
-          {cal > 0 ? (short > 0 ? `${short.toLocaleString()} Short` : 'On Target') : 'Nothing on the Docket'}
+          {cal > 0 ? `${roundCal(cal, exactCal).toLocaleString()} kcal —` : 'Empty Plate —'}<br />
+          {cal > 0 ? (short > 0 ? `${roundCal(short, exactCal).toLocaleString()} Short` : 'On Target') : 'Nothing on the Docket'}
         </div>
+        {!exactCal && cal > 0 && (
+          <div className="deck" style={{ marginTop: 2 }}>Approximate, to the nearest 300 kcal. Turn on exact calories in Settings → Nutrition.</div>
+        )}
       </div>
 
       <div className="fade" style={{ flexShrink: 0 }}>
         {[
-          { label: 'Calories', val: cal,          tgt: calTarget,         unit: 'kcal', color: 'var(--ink)'    },
+          { label: 'Calories', val: roundCal(cal, exactCal), tgt: roundCal(calTarget, exactCal), unit: 'kcal', color: 'var(--ink)' },
           { label: 'Protein',  val: n.protein||0,  tgt: mt.protein || 160, unit: 'g',    color: 'var(--navy)'   },
           { label: 'Carbs',    val: n.carbs||0,    tgt: mt.carbs || 250,   unit: 'g',    color: 'var(--forest)' },
           { label: 'Fat',      val: n.fat||0,      tgt: mt.fat || 75,      unit: 'g',    color: 'var(--ember)'  },
@@ -4082,6 +4091,18 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, setBrie
             onClick={saveTargets} disabled={savingTargets}>
             {savingTargets ? 'Saving…' : 'Save Targets'}
           </button>
+        </div>
+
+        {/* ── NUTRITION ── */}
+        <div className="settings-sec">
+          <div className="settings-sh">Nutrition</div>
+          <div className="prof-field">
+            <span className="prof-lbl">Exact Calories <span style={{ fontSize: 8, color: 'var(--dim)', textTransform: 'none' }}>(default: nearest 300)</span></span>
+            <button className="prof-btn" onClick={() => api('profile', { method: 'POST', body: JSON.stringify({ exactCalories: !s?.profile?.exactCalories }) }).then(profile => refresh({ ...s, profile }))}
+              style={s?.profile?.exactCalories ? { background: 'var(--ink)', color: 'var(--paper)', borderColor: 'var(--ink)' } : {}}>
+              {s?.profile?.exactCalories ? 'On' : 'Off'}
+            </button>
+          </div>
         </div>
 
         {/* ── CONNECTED SERVICES ── */}
