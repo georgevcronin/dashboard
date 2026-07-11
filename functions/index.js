@@ -3,6 +3,7 @@ const admin = require("firebase-admin");
 const express = require("express");
 const webpush = require("web-push");
 const { EXERCISE_DB, EXERCISE_MAP } = require('./exerciseDb');
+const { isCompoundExercise } = require('./muscleTaxonomy');
 const { generateWeeklyGuidance, pickBackboneExercises, computeMusclePriority, scoreBucket, MUSCLE_GROUPS } = require('./weeklyPlanner');
 const { computeStrengthLevels, classifyLift, estimate1RM } = require('./strengthStandards');
 const { computeProgression } = require('./progression');
@@ -124,200 +125,15 @@ app.use((req, res, next) => {
   next();
 });
 
-const MUSCLE_MAP_B = {
-  'hack squat':['quads','glutes'],'squat':['quads','glutes','hamstrings'],
-  'leg press':['quads','glutes'],'leg curl':['hamstrings'],'leg extension':['quads'],
-  'lunge':['quads','glutes','hamstrings'],'hip thrust':['glutes'],'glute':['glutes'],
-  'deadlift':['hamstrings','glutes','erectors','lats'],'rdl':['hamstrings','glutes','erectors'],
-  'calf':['calves'],'pull up':['lats','biceps'],'chin up':['lats','biceps'],
-  'lat pulldown':['lats','biceps'],'row':['lats','rhomboids','biceps'],
-  'bench press':['chest','triceps','front-delt'],'chest press':['chest','triceps','front-delt'],
-  'fly':['chest','front-delt'],'dip':['chest','triceps'],
-  'overhead press':['front-delt','triceps'],'shoulder press':['front-delt','triceps'],
-  'lateral raise':['rear-delt'],'face pull':['rear-delt','rhomboids'],
-  'tricep':['triceps'],'bicep':['biceps'],'curl':['biceps'],
-  'ab':['abs'],'crunch':['abs'],'plank':['abs'],'oblique':['obliques'],
-  'shrug':['traps'],'forearm':['forearms'],'wrist':['forearms'],
-};
-
-const RECOVERY_H_B = {
-  quads:72, glutes:72, hamstrings:72, calves:48, adductors:72,
-  chest:72, triceps:48, biceps:48, lats:72, rhomboids:48,
-  traps:48, erectors:72, abs:36, 'front-delt':48, 'rear-delt':48, forearms:36,
-};
-
-const CNS_COMPOUND = ['deadlift','squat','hack squat','bench press','overhead press','leg press'];
-
-function computeStructuralFatigue(lifts, peaks, soreness = [], sensitivity = {}) {
-  const now = Date.now();
-  const scores = {};
-  for (const l of (lifts || [])) {
-    const t = new Date(l.date).getTime();
-    const hoursAgo = (now - t) / 3_600_000;
-    if (hoursAgo > 336) continue;
-    const load = (l.kg || 0) * (l.reps || 1);
-    const name = (l.exercise || '').toLowerCase();
-    for (const [key, muscles] of Object.entries(MUSCLE_MAP_B)) {
-      if (name.includes(key)) {
-        muscles.forEach(m => {
-          const hl = RECOVERY_H_B[m] || 72;
-          const decay = Math.exp(-0.693 * hoursAgo / hl);
-          scores[m] = (scores[m] || 0) + load * decay;
-        });
-        break;
-      }
-    }
-  }
-  const sorenessMap = {};
-  soreness.filter(e => Date.now() - e.ts < 5 * 24 * 3600000)
-    .forEach(e => { sorenessMap[e.muscle] = Math.max(sorenessMap[e.muscle] || 0, e.score); });
-  const out = {};
-  for (const [m, v] of Object.entries(scores)) {
-    const soreAdj = sorenessMap[m] ? 1 + sorenessMap[m] / 20 : 1;
-    const sensAdj = sensitivity[m] || 1.0;
-    out[m] = Math.min(100, Math.round(v / (peaks[m] || 2000) * 100 * soreAdj * sensAdj));
-  }
-  return out;
-}
-
-// Injury/niggle recovery is a taper, not a switch: a fresh injury takes a muscle
-// fully offline, but as it heals, load should ramp back in rather than snapping
-// from "banned" to "fully available" the moment someone marks it resolved.
-// Illustrative recovery windows by self-reported severity, not medical guidance.
-const INJURY_HEALING_DAYS = { mild: 10, moderate: 21, severe: 35 };
-function injuryFatiguePenalty(injury, now = Date.now()) {
-  const totalDays = INJURY_HEALING_DAYS[injury.severity] || INJURY_HEALING_DAYS.moderate;
-  const elapsedDays = (now - injury.ts) / 864e5;
-  return Math.max(0, 100 * (1 - elapsedDays / totalDays));
-}
-// Merges active injuries into a structural-fatigue map as an artificial fatigue
-// penalty — reuses the same 65% "avoid loading" ceiling everything else already
-// respects, so a fresh injury (penalty 100) is fully offline and a nearly-healed
-// one (penalty dropping below 65) naturally reopens without any separate
-// binary offline-list mechanism.
-function applyInjuryTaper(fatigue, injuries) {
-  const out = { ...fatigue };
-  const now = Date.now();
-  for (const inj of (injuries || []).filter(i => !i.resolved)) {
-    const penalty = injuryFatiguePenalty(inj, now);
-    for (const m of (inj.muscles || [])) out[m] = Math.max(out[m] || 0, penalty);
-  }
-  return out;
-}
-
-// Acute:chronic workload ratio (Gabbett/Hulin) — 7-day load vs. 28-day weekly average.
-// >1.5 signals overreach relative to your adapted baseline; 0.8-1.3 is the established
-// "sweet spot" in the sports-science load-monitoring literature. Returns null with <28
-// days of history since the chronic baseline isn't meaningful yet.
-function computeACWR(lifts) {
-  const now = Date.now();
-  let acute = 0, chronic = 0;
-  for (const l of (lifts || [])) {
-    const daysAgo = (now - new Date(l.date).getTime()) / 86_400_000;
-    if (daysAgo < 0 || daysAgo > 28) continue;
-    const load = (l.kg || 0) * (l.reps || 1);
-    chronic += load;
-    if (daysAgo <= 7) acute += load;
-  }
-  const chronicWeekly = chronic / 4;
-  return chronicWeekly < 1 ? null : acute / chronicWeekly;
-}
-
-// Session-to-session estimated-1RM (Epley) trend per exercise, most recent 2 sessions vs.
-// the 2 before that. Positive = declining performance under similar loads — a direct
-// performance-based fatigue signal, independent of volume or ACWR.
-function computePerformanceTrend(lifts) {
-  const byEx = {};
-  for (const l of (lifts || [])) {
-    if (!l.exercise || !l.kg || !l.reps) continue;
-    const daysAgo = (Date.now() - new Date(l.date).getTime()) / 86_400_000;
-    if (daysAgo < 0 || daysAgo > 21) continue;
-    const e1rm = l.kg * (1 + l.reps / 30);
-    (byEx[l.exercise] = byEx[l.exercise] || {})[l.date] = Math.max((byEx[l.exercise] || {})[l.date] || 0, e1rm);
-  }
-  const decrements = [];
-  for (const byDate of Object.values(byEx)) {
-    const dates = Object.keys(byDate).sort();
-    if (dates.length < 4) continue;
-    const recentAvg = avg(dates.slice(-2).map(d => byDate[d]));
-    const priorAvg = avg(dates.slice(-4, -2).map(d => byDate[d]));
-    if (priorAvg > 0) decrements.push((priorAvg - recentAvg) / priorAvg);
-  }
-  return decrements.length ? avg(decrements) : null;
-}
-
-function computeMetabolicFatigue(lifts, carbsToday = 0) {
-  const now = Date.now();
-  let volume = 0;
-  for (const l of (lifts || [])) {
-    const t = new Date(l.date).getTime();
-    const hoursAgo = (now - t) / 3_600_000;
-    if (hoursAgo > 48) continue;
-    const decay = Math.exp(-0.693 * hoursAgo / 12);
-    volume += (l.kg || 0) * (l.reps || 1) * decay;
-  }
-  const carbReduction = Math.min(40, Math.floor(carbsToday / 50) * 10);
-  const acuteScore = Math.max(0, Math.min(100, Math.round(volume / 500)) - carbReduction);
-
-  const acwr = computeACWR(lifts);
-  const acwrScore = acwr == null ? null : Math.max(0, Math.min(100, Math.round((acwr - 0.8) / (1.8 - 0.8) * 100)));
-
-  const trend = computePerformanceTrend(lifts);
-  const trendScore = trend == null ? null : Math.max(0, Math.min(100, Math.round(trend * 500)));
-
-  // Blend: recent-volume/glycogen proxy stays primary, ACWR and performance-trend act as
-  // corroborating systemic signals when there's enough history to compute them.
-  const parts = [[acuteScore, 0.5], ...(acwrScore != null ? [[acwrScore, 0.3]] : []), ...(trendScore != null ? [[trendScore, 0.2]] : [])];
-  const totalWeight = parts.reduce((s, [, w]) => s + w, 0);
-  return Math.round(parts.reduce((s, [v, w]) => s + v * w, 0) / totalWeight);
-}
-
-function computeCNSFatigue(lifts, sensitivity = 1.0, recoveryScore = null) {
-  const now = Date.now();
-  let score = 0;
-  for (const l of (lifts || [])) {
-    const t = new Date(l.date).getTime();
-    const hoursAgo = (now - t) / 3_600_000;
-    if (hoursAgo > 96) continue;
-    const name = (l.exercise || '').toLowerCase();
-    if (!CNS_COMPOUND.some(ex => name.includes(ex))) continue;
-    const decay = Math.exp(-0.693 * hoursAgo / 36);
-    score += (l.kg || 0) * (l.reps || 1) * decay;
-  }
-  let out = Math.min(100, Math.round(score / 5000 * 100 * sensitivity));
-  if (recoveryScore != null) {
-    // Poor HRV/RHR/sleep-derived recovery compounds true neuromuscular fatigue and good
-    // recovery offsets it. Centered on 55 — the app's existing "steady" recovery threshold.
-    const recoveryFactor = Math.max(0.7, Math.min(1.4, 1 + (55 - recoveryScore) / 110));
-    out = Math.min(100, Math.round(out * recoveryFactor));
-  }
-  return out;
-}
-
-function computeCurrentFatigueScores(lifts, peaks, soreness = [], sensitivity = {}) {
-  return computeStructuralFatigue(lifts, peaks, soreness, sensitivity);
-}
-
-function musclePeaksFromLifts(lifts) {
-  const byDate = {};
-  for (const l of (lifts || [])) {
-    if (!byDate[l.date]) byDate[l.date] = [];
-    byDate[l.date].push(l);
-  }
-  const peaks = {};
-  for (const dayLifts of Object.values(byDate)) {
-    const day = {};
-    for (const l of dayLifts) {
-      const name = (l.exercise || '').toLowerCase();
-      const load = (l.kg || 0) * (l.reps || 1);
-      for (const [key, muscles] of Object.entries(MUSCLE_MAP_B)) {
-        if (name.includes(key)) { muscles.forEach(m => { day[m] = (day[m] || 0) + load; }); break; }
-      }
-    }
-    for (const [m, v] of Object.entries(day)) { if (v > (peaks[m] || 0)) peaks[m] = v; }
-  }
-  return peaks;
-}
+// Fatigue math (structural/CNS/metabolic, ACWR, injury taper) and the muscle
+// taxonomy it's keyed on both live in shared modules now — this used to be a
+// hand-copied duplicate that had drifted from src/app.jsx's mirror. See
+// functions/muscleTaxonomy.js for why.
+const {
+  computeStructuralFatigue, computeCurrentFatigueScores, musclePeaksFromLifts,
+  INJURY_HEALING_DAYS, injuryFatiguePenalty, applyInjuryTaper,
+  computeACWR, computePerformanceTrend, computeMetabolicFatigue, computeCNSFatigue,
+} = require('./fatigue');
 
 function alcoholStats(alcoholLog) {
   const ydayDate = new Date(); ydayDate.setDate(ydayDate.getDate() - 1);
@@ -1355,7 +1171,7 @@ app.post('/session/complete', async (req, res) => {
     // against the CNS fatigue the model predicted walking in (before this session's lifts
     // are added). Higher felt effort than predicted nudges cnsSensitivity up, and vice
     // versa — same gentle 25%-per-log nudge pattern used for muscleSensitivity below.
-    const cnsSetsWithRpe = sets.filter(s => s.rpe && CNS_COMPOUND.some(ex => (s.exercise || '').toLowerCase().includes(ex)));
+    const cnsSetsWithRpe = sets.filter(s => s.rpe && isCompoundExercise(s.exercise || ''));
     if (cnsSetsWithRpe.length) {
       const predicted = computeCNSFatigue(db.lifts || [], db.cnsSensitivity || 1.0) / 100;
       if (predicted > 0.05) {

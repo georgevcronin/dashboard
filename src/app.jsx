@@ -3,6 +3,19 @@ import { createRoot } from "react-dom/client";
 import { flushSync } from "react-dom";
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, onAuthStateChanged, signOut, GoogleAuthProvider, signInWithPopup, getRedirectResult } from 'firebase/auth';
+import muscleTaxonomyPkg from '../functions/muscleTaxonomy.js';
+import fatiguePkg from '../functions/fatigue.js';
+import sessionPlannerPkg from '../functions/sessionPlanner.js';
+
+// Muscle taxonomy + fatigue math + progression logic are shared with the
+// backend (functions/muscleTaxonomy.js, functions/fatigue.js,
+// functions/sessionPlanner.js) rather than hand-copied here — this used to be
+// three independently-drifting implementations (hyphen/case mismatches,
+// an 'ab'-substring collision, and 14 exercises the muscle-bucket taxonomy
+// couldn't see at all). One implementation, bundled into both.
+const { ALL_MUSCLES, musclesForExercise, isCompoundExercise } = muscleTaxonomyPkg;
+const { computeStructuralFatigue, computeACWR, computePerformanceTrend, computeMetabolicFatigue, computeCNSFatigue, cnsLoad } = fatiguePkg;
+const { progressionFor } = sessionPlannerPkg;
 
 const FIREBASE_CONFIG = {
   apiKey: "AIzaSyDlVzSc9yow5GHbQipRWuYAZ5QTQ-jmXiY",
@@ -39,150 +52,6 @@ const authFetch = async (url, opts = {}) => {
     headers: { ...(opts.headers || {}), ...(token ? { Authorization: `Bearer ${token}` } : {}) },
   });
 };
-
-// ── FATIGUE MODELS ───────────────────────────────────────────────────────────
-const CNS_EXERCISES_FE = ['deadlift','squat','hack squat','bench press','overhead press','leg press'];
-const MUSCLE_MAP = {
-  'hack squat': ['quads','glutes'], 'squat': ['quads','glutes','hamstrings'],
-  'leg press': ['quads','glutes'], 'leg curl': ['hamstrings'], 'leg extension': ['quads'],
-  'lunge': ['quads','glutes','hamstrings'], 'hip thrust': ['glutes'], 'glute': ['glutes'],
-  'deadlift': ['hamstrings','glutes','erectors','lats'], 'rdl': ['hamstrings','glutes','erectors'],
-  'calf': ['calves'], 'pull up': ['lats','biceps'], 'chin up': ['lats','biceps'],
-  'lat pulldown': ['lats','biceps'], 'row': ['lats','rhomboids','biceps'],
-  'bench press': ['chest','triceps','front-delt'], 'chest press': ['chest','triceps','front-delt'],
-  'fly': ['chest','front-delt'], 'dip': ['chest','triceps'],
-  'overhead press': ['front-delt','triceps'], 'shoulder press': ['front-delt','triceps'],
-  'lateral raise': ['rear-delt'], 'face pull': ['rear-delt','rhomboids'],
-  'tricep': ['triceps'], 'triceps': ['triceps'],
-  'bicep': ['biceps'], 'curl': ['biceps'],
-  'ab': ['abs'], 'crunch': ['abs'], 'plank': ['abs'], 'sit up': ['abs'],
-  'oblique': ['obliques'], 'shrug': ['traps'], 'trap': ['traps'],
-  'forearm': ['forearms'], 'wrist': ['forearms'],
-};
-const RECOVERY_H = {
-  quads: 72, glutes: 72, hamstrings: 72, calves: 48, adductors: 72,
-  chest: 72, triceps: 48, biceps: 48, lats: 72, rhomboids: 48,
-  traps: 48, erectors: 72, abs: 36, obliques: 36,
-  'front-delt': 48, 'rear-delt': 48, forearms: 36, neck: 24,
-};
-const avgFE = (a) => (a.length ? a.reduce((x, y) => x + y, 0) / a.length : null);
-
-function computeStructuralFatigue(lifts, musclePeaks, soreness = [], sensitivity = {}) {
-  if (!lifts?.length) return {};
-  const now = Date.now();
-  const scores = {};
-  lifts.forEach(l => {
-    const t = new Date(l.start || l.date).getTime();
-    const hoursAgo = (now - t) / 3_600_000;
-    const load = (l.kg || 0) * (l.reps || 1);
-    const name = (l.exercise || '').toLowerCase();
-    for (const [key, muscles] of Object.entries(MUSCLE_MAP)) {
-      if (name.includes(key)) {
-        muscles.forEach(m => {
-          const hl = RECOVERY_H[m] || 72;
-          const decay = Math.exp(-0.693 * hoursAgo / hl);
-          scores[m] = (scores[m] || 0) + load * decay;
-        });
-        break;
-      }
-    }
-  });
-  const sorenessMap = {};
-  soreness.filter(e => Date.now() - e.ts < 5 * 24 * 3600000)
-    .forEach(e => { sorenessMap[e.muscle] = Math.max(sorenessMap[e.muscle] || 0, e.score); });
-  const out = {};
-  Object.entries(scores).forEach(([m, v]) => {
-    const soreAdj = sorenessMap[m] ? 1 + sorenessMap[m] / 20 : 1;
-    const sensAdj = sensitivity[m] || 1.0;
-    out[m] = Math.min(100, Math.round(v / (musclePeaks?.[m] || 2000) * 100 * soreAdj * sensAdj));
-  });
-  return out;
-}
-
-// Acute:chronic workload ratio (Gabbett/Hulin) — mirrors functions/index.js computeACWR.
-function computeACWR(lifts) {
-  const now = Date.now();
-  let acute = 0, chronic = 0;
-  (lifts || []).forEach(l => {
-    const daysAgo = (now - new Date(l.start || l.date).getTime()) / 86_400_000;
-    if (daysAgo < 0 || daysAgo > 28) return;
-    const load = (l.kg || 0) * (l.reps || 1);
-    chronic += load;
-    if (daysAgo <= 7) acute += load;
-  });
-  const chronicWeekly = chronic / 4;
-  return chronicWeekly < 1 ? null : acute / chronicWeekly;
-}
-
-// Per-exercise estimated-1RM (Epley) trend — mirrors functions/index.js computePerformanceTrend.
-function computePerformanceTrend(lifts) {
-  const byEx = {};
-  (lifts || []).forEach(l => {
-    if (!l.exercise || !l.kg || !l.reps) return;
-    const daysAgo = (Date.now() - new Date(l.start || l.date).getTime()) / 86_400_000;
-    if (daysAgo < 0 || daysAgo > 21) return;
-    const date = l.date || l.start;
-    const e1rm = l.kg * (1 + l.reps / 30);
-    (byEx[l.exercise] = byEx[l.exercise] || {})[date] = Math.max((byEx[l.exercise] || {})[date] || 0, e1rm);
-  });
-  const decrements = [];
-  Object.values(byEx).forEach(byDate => {
-    const dates = Object.keys(byDate).sort();
-    if (dates.length < 4) return;
-    const recentAvg = avgFE(dates.slice(-2).map(d => byDate[d]));
-    const priorAvg = avgFE(dates.slice(-4, -2).map(d => byDate[d]));
-    if (priorAvg > 0) decrements.push((priorAvg - recentAvg) / priorAvg);
-  });
-  return decrements.length ? avgFE(decrements) : null;
-}
-
-function computeMetabolicFatigue(lifts, carbsToday = 0) {
-  const now = Date.now();
-  let volume = 0;
-  (lifts || []).forEach(l => {
-    const t = new Date(l.start || l.date).getTime();
-    const hoursAgo = (now - t) / 3_600_000;
-    if (hoursAgo > 48) return;
-    const decay = Math.exp(-0.693 * hoursAgo / 12);
-    volume += (l.kg || 0) * (l.reps || 1) * decay;
-  });
-  const carbReduction = Math.min(40, Math.floor(carbsToday / 50) * 10);
-  const acuteScore = Math.max(0, Math.min(100, Math.round(volume / 500)) - carbReduction);
-
-  const acwr = computeACWR(lifts);
-  const acwrScore = acwr == null ? null : Math.max(0, Math.min(100, Math.round((acwr - 0.8) / (1.8 - 0.8) * 100)));
-
-  const trend = computePerformanceTrend(lifts);
-  const trendScore = trend == null ? null : Math.max(0, Math.min(100, Math.round(trend * 500)));
-
-  const parts = [[acuteScore, 0.5], ...(acwrScore != null ? [[acwrScore, 0.3]] : []), ...(trendScore != null ? [[trendScore, 0.2]] : [])];
-  const totalWeight = parts.reduce((s, [, w]) => s + w, 0);
-  return Math.round(parts.reduce((s, [v, w]) => s + v * w, 0) / totalWeight);
-}
-
-function computeCNSFatigue(lifts, sensitivity = 1.0, recoveryScore = null) {
-  const now = Date.now();
-  let score = 0;
-  (lifts || []).forEach(l => {
-    const t = new Date(l.start || l.date).getTime();
-    const hoursAgo = (now - t) / 3_600_000;
-    if (hoursAgo > 96) return;
-    const name = (l.exercise || '').toLowerCase();
-    if (!CNS_EXERCISES_FE.some(ex => name.includes(ex))) return;
-    const decay = Math.exp(-0.693 * hoursAgo / 36);
-    score += (l.kg || 0) * (l.reps || 1) * decay;
-  });
-  let out = Math.min(100, Math.round(score / 5000 * 100 * sensitivity));
-  if (recoveryScore != null) {
-    const recoveryFactor = Math.max(0.7, Math.min(1.4, 1 + (55 - recoveryScore) / 110));
-    out = Math.min(100, Math.round(out * recoveryFactor));
-  }
-  return out;
-}
-
-function computeFatigue(lifts, musclePeaks, soreness, sensitivity) {
-  return computeStructuralFatigue(lifts, musclePeaks, soreness, sensitivity);
-}
 
 // ── CSS ─────────────────────────────────────────────────────────────────────
 const PRESS_CSS = `
@@ -654,7 +523,7 @@ function S1({ s, briefing, onShowBriefing, onShowAfternoon, onShowNight, onShowW
   const sleep = today.sleepH;
   const sleepEff = today.sleepEff;
   const sleepDebt = s?.sleepDebtH ?? 0;
-  const fatigue = useMemo(() => computeFatigue(s?.lifts, s?.musclePeaks, s?.soreness, s?.muscleSensitivity), [s?.lifts, s?.soreness, s?.muscleSensitivity]);
+  const fatigue = useMemo(() => computeStructuralFatigue(s?.lifts, s?.musclePeaks, s?.soreness, s?.muscleSensitivity), [s?.lifts, s?.soreness, s?.muscleSensitivity]);
   const fatigueVals = Object.values(fatigue);
   const overallFatigue = fatigueVals.length ? Math.round(fatigueVals.reduce((a,b) => a+b, 0) / fatigueVals.length) : null;
   const highFatigueMuscles = Object.values(fatigue).filter(v => v > 70).length;
@@ -1091,41 +960,9 @@ const e1rm = (kg, reps) => (kg > 0 && reps > 0) ? Math.round(kg * (1 + reps / 30
 const SET_TYPES = ['W','N','D','F'];
 const SET_LABELS = { W: 'Warm-up', N: 'Normal', D: 'Drop Set', F: 'Failure' };
 const REST_DEFAULT = 90;
-const COMPOUND = ['squat','deadlift','bench press','overhead press','barbell row','pull up','chin up','romanian deadlift','hip thrust'];
-const LOWER_BODY = ['squat','deadlift','leg press','lunge','hip thrust','romanian deadlift','bulgarian'];
-
-const cnsLoad = exercises => {
-  let score = 0;
-  for (const ex of exercises) {
-    const mult = COMPOUND.some(c => ex.name.includes(c)) ? 2.2 : 1;
-    for (const s of ex.sets) if (s.type !== 'W' && s.done && +s.kg > 0) score += +s.kg * (+s.reps || 1) * mult;
-  }
-  if (score < 3000) return { label: 'Light', color: 'var(--forest)' };
-  if (score < 9000) return { label: 'Moderate', color: 'var(--gold)' };
-  if (score < 20000) return { label: 'Heavy', color: 'var(--ember)' };
-  return { label: 'Max Effort', color: 'var(--red)' };
-};
-
-const getProgression = (name, prevSets, lifts) => {
-  if (!prevSets?.length) return null;
-  const byDate = {};
-  for (const l of lifts.filter(l => l.exercise === name)) {
-    if (!byDate[l.date]) byDate[l.date] = [];
-    byDate[l.date].push(l);
-  }
-  const dates = Object.keys(byDate).sort();
-  if (dates.length < 2) return null;
-  const last = byDate[dates.at(-1)];
-  const prev2 = byDate[dates.at(-2)];
-  const lastMax = Math.max(...last.map(s => s.kg));
-  const prev2Max = Math.max(...prev2.map(s => s.kg));
-  const lastTopSet = last.find(s => s.kg === lastMax);
-  const inc = LOWER_BODY.some(k => name.includes(k)) ? 5 : 2.5;
-  if (lastTopSet?.reps >= 5) return `↑ Try ${lastMax + inc}kg — hit ${lastTopSet.reps} reps at ${lastMax}kg`;
-  if (lastMax > prev2Max) return `↑ Progressed last session — hold ${lastMax}kg`;
-  if (lastTopSet?.reps >= 3) return `Hold ${lastMax}kg — ${lastTopSet.reps} reps last time`;
-  return `↓ Consider ${Math.max(0, lastMax - inc * 2)}kg — missed reps at ${lastMax}kg`;
-};
+// cnsLoad and progression (computeProgression via progressionFor) are
+// imported — see the top-of-file comment by the muscleTaxonomy/fatigue/
+// sessionPlanner imports.
 
 const sessionFatigue = exercises => {
   const scores = {};
@@ -1133,9 +970,7 @@ const sessionFatigue = exercises => {
     for (const s of ex.sets) {
       if (!s.done) continue;
       const load = (+s.kg || 0) * (+s.reps || 1);
-      for (const [key, muscles] of Object.entries(MUSCLE_MAP)) {
-        if (ex.name.includes(key)) { muscles.forEach(m => { scores[m] = (scores[m] || 0) + load; }); break; }
-      }
+      for (const m of musclesForExercise(ex.name)) scores[m] = (scores[m] || 0) + load;
     }
   }
   const max = Math.max(...Object.values(scores), 1);
@@ -1488,7 +1323,8 @@ function WorkoutLogger({ planDay, lifts, customExercises, onClose, refresh }) {
             const bestE1rm = doneE1rms.length ? Math.max(...doneE1rms) : null;
             const isPR = bestE1rm && bestE1rm > (prData[ex.name] || 0);
             const vol = ex.sets.filter(s => s.done).reduce((a, s) => a + (+s.kg || 0) * (+s.reps || 1), 0);
-            const progression = getProgression(ex.name, prev?.sets, lifts);
+            const prog = progressionFor(lifts, ex.name);
+            const progression = prog?.note || null;
             const isExpanded = expandedEx === i;
             const coach = coachNotes[ex.name];
             const isLoadingCoach = coachLoading[ex.name];
@@ -1520,7 +1356,7 @@ function WorkoutLogger({ planDay, lifts, customExercises, onClose, refresh }) {
 
                 {/* Progressive overload suggestion */}
                 {progression && (
-                  <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: progression.startsWith('↓') ? 'var(--ember)' : 'var(--forest)', marginBottom: 5 }}>
+                  <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: prog.trend === 'stalled' ? 'var(--ember)' : 'var(--forest)', marginBottom: 5 }}>
                     {progression}
                   </div>
                 )}
@@ -2841,7 +2677,11 @@ function S4({ s, refresh }) {
 
 // ── S5: FATIGUE ───────────────────────────────────────────────────────────────
 const BODY_BASE = '';
-const ALL_MUSCLES = ['glutes','quads','hamstrings','adductors','calves','erectors','chest','abs','obliques','biceps','triceps','forearms','traps','front-delt','rear-delt','lats','rhomboids','neck'];
+// ALL_MUSCLES is imported (derived from EXERCISE_DB) — note the body-map SVGs
+// (body-anterior.svg etc.) only have data-muscle regions drawn for the
+// original 18 muscles, so newer ones (mid-delt, rotator-cuff, tibialis, ...)
+// will show up in fatigue scores and the muscle-sensitivity/soreness pickers
+// but won't highlight on the diagram until someone adds regions for them.
 
 function S5({ s, refresh }) {
   const antRef = useRef(), latRef = useRef(), postRef = useRef();
@@ -2855,7 +2695,7 @@ function S5({ s, refresh }) {
   const [niggleNote, setNiggleNote] = useState('');
   const [niggleLogging, setNiggleLogging] = useState(false);
 
-  const fatigue = useMemo(() => computeFatigue(s?.lifts, s?.musclePeaks, s?.soreness, s?.muscleSensitivity), [s?.lifts, s?.musclePeaks, s?.soreness, s?.muscleSensitivity]);
+  const fatigue = useMemo(() => computeStructuralFatigue(s?.lifts, s?.musclePeaks, s?.soreness, s?.muscleSensitivity), [s?.lifts, s?.musclePeaks, s?.soreness, s?.muscleSensitivity]);
   const metabolic = useMemo(() => computeMetabolicFatigue(s?.lifts, s?.nutritionToday?.carbs || 0), [s?.lifts, s?.nutritionToday?.carbs]);
   const cns = useMemo(() => computeCNSFatigue(s?.lifts, s?.cnsSensitivity, s?.today?.recovery), [s?.lifts, s?.cnsSensitivity, s?.today?.recovery]);
   const fatigueVals = Object.values(fatigue);
@@ -2864,7 +2704,7 @@ function S5({ s, refresh }) {
   const fMax = sortedFatigue.length ? sortedFatigue[0][1] : 0;
   const topMuscles = sortedFatigue.slice(0,2).map(([m]) => m);
 
-  const SORENESS_MUSCLES = useMemo(() => [...new Set(Object.values(MUSCLE_MAP).flat())].sort(), []);
+  const SORENESS_MUSCLES = ALL_MUSCLES;
   const recentSoreness = useMemo(() => (s?.soreness || []).filter(e => Date.now() - e.ts < 5 * 24 * 3600000), [s?.soreness]);
   const sorenessSet = new Set(recentSoreness.map(e => e.muscle));
 

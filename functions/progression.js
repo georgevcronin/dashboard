@@ -1,3 +1,5 @@
+const { isLowerBodyExercise } = require('./muscleTaxonomy');
+
 // Deterministic double-progression calculator: given an exercise's session
 // history, decide whether to add weight, add a rep, deload, or hold — no LLM
 // involved. Shared by /coach, the deterministic session generator, and the
@@ -15,8 +17,7 @@ function computeProgression(lifts, name) {
   });
   const last = sessions.at(-1);
   const prev = sessions.at(-2);
-  const isLower = ['squat','deadlift','leg press','lunge','hip thrust','romanian'].some(k => name.includes(k));
-  const inc = isLower ? 5 : 2.5;
+  const inc = isLowerBodyExercise(name) ? 5 : 2.5;
   let suggestKg = last.kg, suggestReps = last.reps, trend, note;
   if (!prev) {
     trend = 'baseline'; note = `baseline — ${last.kg}kg×${last.reps}`;

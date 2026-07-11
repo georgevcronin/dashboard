@@ -14,19 +14,7 @@
 // started, rather than reading back a pre-committed slot.
 
 const { EXERCISE_DB } = require('./exerciseDb');
-
-const ALL_MUSCLES = [
-  'glutes', 'quads', 'hamstrings', 'adductors', 'calves', 'erectors',
-  'chest', 'abs', 'obliques', 'biceps', 'triceps', 'forearms', 'traps',
-  'front-delt', 'rear-delt', 'lats', 'rhomboids', 'neck',
-];
-
-const MUSCLE_GROUPS = {
-  push: ['chest', 'front-delt', 'triceps'],
-  pull: ['lats', 'rhomboids', 'traps', 'rear-delt', 'biceps', 'forearms'],
-  legs: ['quads', 'hamstrings', 'glutes', 'calves', 'adductors'],
-  core: ['abs', 'obliques', 'erectors', 'neck'],
-};
+const { PRIMARY_MUSCLES, MUSCLE_GROUPS } = require('./muscleTaxonomy');
 
 const FATIGUE_CEILING = 65; // ethos: don't load a muscle already this fatigued
 
@@ -57,7 +45,7 @@ function pickBackboneExercises(targetMuscles, { travelMode, count = 2 } = {}) {
 // never cached against a specific day, since fatigue moves session to session.
 function computeMusclePriority(currentFatigue, offlineMuscles) {
   const priority = {};
-  for (const m of ALL_MUSCLES) {
+  for (const m of PRIMARY_MUSCLES) {
     if (offlineMuscles.includes(m)) { priority[m] = -1; continue; }
     const fatigue = currentFatigue[m] || 0;
     priority[m] = fatigue >= FATIGUE_CEILING ? -1 : (100 - fatigue);
@@ -155,5 +143,5 @@ function generateWeeklyGuidance({ currentFatigue, weekMetabolic, weekCNS, offlin
 
 module.exports = {
   generateWeeklyGuidance, pickBackboneExercises, computeMusclePriority, scoreBucket, planLiftSessionsTarget, planCardioSessionsTarget,
-  ALL_MUSCLES, MUSCLE_GROUPS, FATIGUE_CEILING, TRAINING_PRIORITIES,
+  MUSCLE_GROUPS, FATIGUE_CEILING, TRAINING_PRIORITIES,
 };
