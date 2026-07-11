@@ -7,6 +7,7 @@ const { generateWeeklyStructure } = require('./weeklyPlanner');
 const { computeStrengthLevels, classifyLift, estimate1RM } = require('./strengthStandards');
 const { computeProgression } = require('./progression');
 const { generateSessionExercises } = require('./sessionPlanner');
+const { computeSleepScore } = require('./sleepScore');
 
 admin.initializeApp();
 const firestore = admin.firestore();
@@ -424,6 +425,12 @@ app.post("/health", async (req, res) => {
       if (name === "sleep_analysis") {
         db.metrics[k].sleep_hours = pt.totalSleep ?? pt.asleep ?? db.metrics[k].sleep_hours;
         if (pt.inBed != null && pt.totalSleep != null && pt.inBed > 0) db.metrics[k].sleep_eff = Math.round((pt.totalSleep / pt.inBed) * 100);
+        // Sleep-stage breakdown, when Health Auto Export includes it (values in hours).
+        // Best-effort — HAE's exact field naming isn't guaranteed across versions.
+        if (pt.deep != null) db.metrics[k].deep_sleep_min = Math.round(pt.deep * 60);
+        if (pt.rem != null) db.metrics[k].rem_sleep_min = Math.round(pt.rem * 60);
+        if (pt.core != null) db.metrics[k].light_sleep_min = Math.round(pt.core * 60);
+        if (pt.awake != null) db.metrics[k].waso_min = Math.round(pt.awake * 60);
       } else if (pt.qty != null) {
         db.metrics[k][name] = pt.qty;
         if (name === "body_mass") db.weight[k] = pt.qty;
@@ -467,6 +474,15 @@ app.post("/shortcut", async (req, res) => {
   if (d.wrist) db.metrics[k].wrist_temperature = d.wrist;
   if (d.hr) db.metrics[k].heart_rate = d.hr;
   if (d.bloodoxygen) db.metrics[k].blood_oxygen = d.bloodoxygen;
+  // Sleep-score inputs: stage minutes, WASO, overnight HR, and efficiency
+  // (either sent directly or derived from time-in-bed vs. time-asleep).
+  if (d.deepmin != null) db.metrics[k].deep_sleep_min = d.deepmin;
+  if (d.remmin != null) db.metrics[k].rem_sleep_min = d.remmin;
+  if (d.coremin != null) db.metrics[k].light_sleep_min = d.coremin;
+  if (d.awakemin != null) db.metrics[k].waso_min = d.awakemin;
+  if (d.sleephr) db.metrics[k].sleep_heart_rate = d.sleephr;
+  if (d.sleepeff != null) db.metrics[k].sleep_eff = d.sleepeff;
+  else if (d.inbed && d.sleep) db.metrics[k].sleep_eff = Math.round((d.sleep / d.inbed) * 100);
   if (d.alcohol_units != null && d.alcohol_units > 0) {
     db.alcoholLog = db.alcoholLog || [];
     const existing = db.alcoholLog.find(e => e.date === k);
@@ -829,6 +845,8 @@ app.get("/summary", async (req, res) => {
   const sleep = personalSleepTarget(days);
   const recovery = computeDay(today, baseHRV, baseRHR, sleep.target, baseWristTemp, baseHR);
   const recoveryTrend = last14.map(d => computeDay(d, baseHRV, baseRHR, sleep.target, baseWristTemp, baseHR)).filter(x => x != null);
+  const sleepScore = computeSleepScore(today);
+  const sleepScoreTrend = last14.map(d => computeSleepScore(d)?.score).filter(v => v != null);
   const weights = lastN(db.weight, 30);
   const monthWk = db.workouts.filter(w => w.date >= day(new Date(Date.now() - 30 * 864e5)));
   const sleepDebtH = last14.slice(-2).reduce((s, d) => s + (d.sleep_hours ? Math.max(0, sleep.target - d.sleep_hours) : 0), 0);
@@ -866,6 +884,7 @@ app.get("/summary", async (req, res) => {
     today: { recovery, hrv: today.heart_rate_variability ?? null, rhr: today.resting_heart_rate ?? null, sleepH: today.sleep_hours ?? null, sleepEff: today.sleep_eff ?? null, steps: today.step_count ?? null, wristTemp: today.wrist_temperature ?? null, hr: today.heart_rate ?? null, spo2: today.blood_oxygen ?? null },
     sleepTarget: sleep.target, sleepTargetLearned: sleep.learned,
     sleepDebtH: Math.round(sleepDebtH * 10) / 10,
+    sleepScore, sleepScoreTrend,
     recoveryTrend, sleepSeries: last14.map(d => d.sleep_hours).filter(Boolean),
     rhrSeries: last14.map(d => d.resting_heart_rate).filter(Boolean),
     baselines: { hrv: baseHRV && Math.round(baseHRV), rhr: baseRHR && Math.round(baseRHR), wristTemp: baseWristTemp && Math.round(baseWristTemp * 10) / 10, hr: baseHR && Math.round(baseHR) },
@@ -936,6 +955,10 @@ app.get("/trends", async (req, res) => {
       const v = computeDay(db.metrics[k], baseHRV, baseRHR, sleep.target, baseWristTemp, baseHR);
       if (v != null) series.push({ date: k, value: v });
     }
+  } else if (metric === "sleepScore") {
+    series = Object.keys(db.metrics).sort().filter(k => k >= cutoff)
+      .map(k => ({ date: k, value: computeSleepScore(db.metrics[k])?.score }))
+      .filter(p => p.value != null);
   } else if (["squat", "bench", "deadlift", "overheadPress", "row"].includes(metric)) {
     const byDate = {};
     for (const l of (db.lifts || [])) {
@@ -979,7 +1002,7 @@ app.get("/export/csv", async (req, res) => {
     csv = toCsv(rows, ["date", "kg"]);
   } else if (type === "metrics") {
     filename = "metrics.csv";
-    const cols = ["date", "heart_rate_variability", "resting_heart_rate", "sleep_hours", "sleep_eff", "step_count", "vo2max", "hrr_bpm", "wrist_temperature", "heart_rate", "blood_oxygen", "body_fat_percentage", "body_mass"];
+    const cols = ["date", "heart_rate_variability", "resting_heart_rate", "sleep_hours", "sleep_eff", "deep_sleep_min", "rem_sleep_min", "light_sleep_min", "waso_min", "sleep_heart_rate", "step_count", "vo2max", "hrr_bpm", "wrist_temperature", "heart_rate", "blood_oxygen", "body_fat_percentage", "body_mass"];
     const rows = Object.keys(db.metrics).sort().map(k => ({ date: k, ...db.metrics[k] }));
     csv = toCsv(rows, cols);
   } else if (type === "nutrition") {
@@ -1773,6 +1796,10 @@ strong{font-weight:600}
 
 <div class="note">
   <strong>Optional recovery signals:</strong> Press also folds these into your recovery score if you add them the same way: <code>wrist</code> (Sleep Wrist Temperature, °C), <code>hr</code> (Heart Rate), <code>bloodoxygen</code> (Blood Oxygen Saturation, %). Not required — everything works fine without them.
+</div>
+
+<div class="note">
+  <strong>Optional sleep score signals:</strong> add any of these for a clinically-benchmarked Sleep Score (duration, efficiency, sleep stages, overnight HR dip, fragmentation) on the Sleep tab — every field is independently optional, the score just uses whatever you provide: <code>deepmin</code> / <code>remmin</code> / <code>coremin</code> (minutes in each Sleep Analysis stage — Deep / REM / Core), <code>awakemin</code> (minutes awake overnight — WASO), <code>sleephr</code> (average Heart Rate sampled only during your sleep window), <code>sleepeff</code> (sleep efficiency %, or send <code>inbed</code> — hours in bed — alongside <code>sleep</code> and Press computes it).
 </div>
 </body>
 </html>`);

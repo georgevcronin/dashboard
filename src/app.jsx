@@ -847,6 +847,50 @@ function S1({ s, briefing, onShowBriefing, onShowAfternoon, onShowNight, onShowW
 }
 
 // ── S2: SLEEP ────────────────────────────────────────────────────────────────
+const SLEEP_COMPONENT_LABELS = { duration: 'Duration', efficiency: 'Efficiency', deep: 'Deep Sleep', rem: 'REM Sleep', light: 'Light Sleep', hrDip: 'HR Dip', waso: 'Fragmentation' };
+
+function sleepScoreColor(score) {
+  if (score >= 80) return 'var(--forest)';
+  if (score >= 60) return 'var(--gold)';
+  return 'var(--ember)';
+}
+
+function SleepScorePanel({ sleepScore, sleepScoreTrend }) {
+  if (!sleepScore) return (
+    <div className="fade" style={{ borderTop: '1px solid var(--rule)', paddingTop: 10, flexShrink: 0 }}>
+      <div className="kicker" style={{ marginBottom: 4 }}>Sleep Score</div>
+      <div style={{ fontSize: 11, color: 'var(--dim)', fontStyle: 'italic' }}>Sync sleep hours and efficiency to see a score — add stage/HR-dip data via the setup guide for the full clinical breakdown.</div>
+    </div>
+  );
+  const availableComponents = Object.entries(sleepScore.components).filter(([, v]) => v != null);
+  return (
+    <div className="fade" style={{ borderTop: '1px solid var(--rule)', paddingTop: 10, flexShrink: 0 }}>
+      <div className="kicker" style={{ marginBottom: 8 }}>Sleep Score</div>
+      <div style={{ display: 'flex', alignItems: 'flex-end', gap: 10, marginBottom: 10 }}>
+        <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 40, fontWeight: 900, lineHeight: 1, color: sleepScoreColor(sleepScore.score) }}>
+          {sleepScore.score}<span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 12, color: 'var(--dim)', marginLeft: 2 }}>/100</span>
+        </div>
+        {sleepScoreTrend?.length > 1 && <Sparkline data={sleepScoreTrend} color={sleepScoreColor(sleepScore.score)} width={64} height={26} />}
+      </div>
+      <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+        {availableComponents.map(([key, val]) => (
+          <div key={key} style={{ minWidth: 64 }}>
+            <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, color: 'var(--dim)', textTransform: 'uppercase', letterSpacing: '.08em', marginBottom: 2 }}>{SLEEP_COMPONENT_LABELS[key]}</div>
+            <div className="macro-track" style={{ marginBottom: 2 }}><div className="macro-fill" style={{ width: `${val}%`, background: sleepScoreColor(val) }} /></div>
+          </div>
+        ))}
+      </div>
+      {sleepScore.inputs && (sleepScore.inputs.deepPct != null || sleepScore.inputs.hrDipPct != null) && (
+        <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, color: 'var(--dim)', marginTop: 8 }}>
+          {sleepScore.inputs.deepPct != null && `${sleepScore.inputs.deepPct}% deep · ${sleepScore.inputs.remPct}% REM · ${sleepScore.inputs.lightPct}% light`}
+          {sleepScore.inputs.deepPct != null && sleepScore.inputs.hrDipPct != null && ' · '}
+          {sleepScore.inputs.hrDipPct != null && `${sleepScore.inputs.hrDipPct}% overnight HR dip`}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function S2({ s, refresh }) {
   const series = s?.sleepSeries || [];
   const sleepTarget = s?.sleepTarget || 8;
@@ -920,6 +964,8 @@ function S2({ s, refresh }) {
           <div className="stat-cell"><div className="sc-label">Sleep Debt</div><div className="sc-num red" style={{ fontSize: 22 }}>{debt.toFixed(1)}<span style={{ fontSize: '.5em', color: 'var(--dim)' }}>h</span></div></div>
         </div>
       </div>
+
+      <SleepScorePanel sleepScore={s?.sleepScore} sleepScoreTrend={s?.sleepScoreTrend} />
 
       {/* VO2 max + HRR trends */}
       {(vo2Series.length > 0 || hrrSeries.length > 0) && (
@@ -3069,6 +3115,7 @@ const TREND_METRICS = [
   { key: 'weight', label: 'Weight', unit: 'kg', color: 'var(--ink)' },
   { key: 'bodyFat', label: 'Body Fat', unit: '%', color: 'var(--ember)' },
   { key: 'recovery', label: 'Recovery', unit: '/100', color: 'var(--gold)' },
+  { key: 'sleepScore', label: 'Sleep Score', unit: '/100', color: 'var(--plum)' },
   { key: 'sleep', label: 'Sleep', unit: 'h', color: 'var(--plum)' },
   { key: 'hrv', label: 'HRV', unit: 'ms', color: 'var(--navy)' },
   { key: 'squat', label: 'Squat e1RM', unit: 'kg', color: 'var(--forest)' },
