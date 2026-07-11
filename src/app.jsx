@@ -2130,7 +2130,8 @@ function S3({ s, onStartWorkout, onImport, onHistory, refresh }) {
         {guidance ? (
           <div style={{ borderTop: '1px solid var(--rule)', paddingTop: 10 }}>
             <div className="kicker" style={{ marginBottom: 4 }}>
-              This Week's Guidance · {guidance.sessionsCompletedThisWeek ?? 0}/{guidance.liftSessionsTarget} sessions
+              This Week's Guidance · {guidance.sessionsCompletedThisWeek ?? 0}/{guidance.liftSessionsTarget} strength{guidance.cardioSessionsTarget > 0 ? ` · ${guidance.cardioSessionsTarget} cardio` : ''}
+              {guidance.trainingPriority && guidance.trainingPriority !== 'strength' && <span style={{ color: 'var(--gold)', textTransform: 'capitalize' }}> · {guidance.trainingPriority} priority</span>}
             </div>
             <div style={{ fontFamily: "'Playfair Display',serif", fontStyle: 'italic', fontSize: 13, color: 'var(--dim)', marginBottom: 8, lineHeight: 1.4 }}>
               {guidance.rationale}
@@ -4027,6 +4028,18 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, setBrie
                   onClick={() => api('profile', { method: 'POST', body: JSON.stringify({ sex: sx }) }).then(profile => refresh({ ...s, profile }))}
                   style={{ textTransform: 'capitalize', ...(s?.profile?.sex === sx ? { background: 'var(--ink)', color: 'var(--paper)', borderColor: 'var(--ink)' } : {}) }}>
                   {sx}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="prof-field">
+            <span className="prof-lbl">Training Priority <span style={{ fontSize: 8, color: 'var(--dim)', textTransform: 'none' }}>(shapes weekly guidance)</span></span>
+            <div style={{ display: 'flex', gap: 6 }}>
+              {['strength','cardio','sport'].map(p => (
+                <button key={p} className="prof-btn"
+                  onClick={() => api('profile', { method: 'POST', body: JSON.stringify({ trainingPriority: p }) }).then(profile => refresh({ ...s, profile }))}
+                  style={{ textTransform: 'capitalize', ...((s?.profile?.trainingPriority || 'strength') === p ? { background: 'var(--ink)', color: 'var(--paper)', borderColor: 'var(--ink)' } : {}) }}>
+                  {p}
                 </button>
               ))}
             </div>

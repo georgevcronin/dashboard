@@ -1219,6 +1219,7 @@ function computeWeeklyGuidance() {
   return generateWeeklyGuidance({
     currentFatigue, weekMetabolic, weekCNS, offlineMuscles: [],
     dataMature: maturityWeek.hasEnoughData,
+    trainingPriority: db.profile?.trainingPriority || 'strength',
   });
 }
 
