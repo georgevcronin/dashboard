@@ -1,14 +1,17 @@
-// Deterministic weekly training structure generator.
+// Deterministic weekly training guidance — advisory, not a locked schedule.
 //
-// Encodes the shared, non-dogmatic training ethos as actual rules rather than
-// LLM judgment: effort near failure matters more than hitting an exact split;
-// don't load a muscle already near its fatigue ceiling; compound "boring but
-// effective" movements are the backbone, novel variations are accessory only;
-// frequency/volume trade off against systemic (CNS/metabolic) fatigue rather
-// than following a fixed template. No LLM anywhere in this path — the plan's
-// day structure, session copy (functions/index.js's templateSessionText), and
-// per-session exercise selection (functions/sessionPlanner.js) are all plain
-// code.
+// Earlier versions of this pinned a specific muscle group to a specific
+// calendar day (Monday = legs, Tuesday = push, ...). That's exactly the kind
+// of rigid periodized template the training ethos argues against: "no rigid
+// periodized templates — adjust load, sets, and exercise choice session to
+// session based on real fatigue and performance." So this module no longer
+// assigns days at all. It answers two questions only: how many strength
+// sessions can this week's systemic fatigue productively absorb, and which
+// muscle groups are freshest right now — both recomputed live, never locked
+// in. Which specific day you actually train, and in what order, is entirely
+// up to the athlete; functions/sessionPlanner.js picks the freshest bucket
+// (or whichever one the athlete picks instead) live, every time a session is
+// started, rather than reading back a pre-committed slot.
 
 const { EXERCISE_DB } = require('./exerciseDb');
 
@@ -48,8 +51,10 @@ function pickBackboneExercises(targetMuscles, { travelMode, count = 2 } = {}) {
   return out;
 }
 
-// Per-muscle priority: -1 means "do not load this week" (injured or already at/over
-// the fatigue ceiling); otherwise higher = fresher = more deserving of stimulus.
+// Per-muscle priority: -1 means "do not load right now" (injured or already
+// at/over the fatigue ceiling); otherwise higher = fresher = more deserving
+// of stimulus. Called live at guidance time and again at session-start time —
+// never cached against a specific day, since fatigue moves session to session.
 function computeMusclePriority(currentFatigue, offlineMuscles) {
   const priority = {};
   for (const m of ALL_MUSCLES) {
@@ -66,19 +71,33 @@ function scoreBucket(muscles, priority) {
   return { muscles: avail, score: avail.reduce((s, m) => s + priority[m], 0) / avail.length };
 }
 
-// How many genuine lifting sessions this week, and how much per-session effort is
-// reasonable, is exactly the "stimulus vs. fatigue" lever the ethos describes as a
-// legitimate trade-off rather than a fixed rule. Systemic (CNS/metabolic) fatigue
-// pulls the count down; low systemic fatigue with several fresh muscle groups pulls
-// it up toward higher frequency.
-function planLiftDayCount(weekCNS, weekMetabolic, availableBucketCount) {
-  let days = 4;
-  if (weekCNS > 70 || weekMetabolic > 70) days = 2;
-  else if (weekCNS > 40 || weekMetabolic > 40) days = 3;
-  return Math.max(0, Math.min(days, availableBucketCount === 0 ? 0 : availableBucketCount + 1));
+// How many genuine lifting sessions this week's systemic fatigue can
+// absorb — a target to hit whenever suits, not a count of locked slots.
+// Systemic (CNS/metabolic) fatigue pulls it down; low systemic fatigue with
+// several fresh muscle groups pulls it up toward higher frequency.
+function planLiftSessionsTarget(weekCNS, weekMetabolic, availableBucketCount) {
+  let sessions = 4;
+  if (weekCNS > 70 || weekMetabolic > 70) sessions = 2;
+  else if (weekCNS > 40 || weekMetabolic > 40) sessions = 3;
+  return Math.max(0, Math.min(sessions, availableBucketCount === 0 ? 0 : availableBucketCount + 1));
 }
 
-function generateWeeklyStructure({ weekDates, currentFatigue, weekMetabolic, weekCNS, offlineMuscles, travelMode, dataMature }) {
+function guidanceRationale(liftSessionsTarget, weekCNS, weekMetabolic) {
+  if (liftSessionsTarget === 0) return 'No muscle group is fresh enough to load productively right now — prioritise recovery before the next session.';
+  const fatigueNote = weekCNS > 70 || weekMetabolic > 70
+    ? 'Systemic fatigue is high, so this is intentionally light.'
+    : weekCNS > 40 || weekMetabolic > 40
+    ? 'Moderate fatigue carried in, so this is a touch below max.'
+    : 'Fatigue is low across the board.';
+  return `${fatigueNote} ${liftSessionsTarget} strength session${liftSessionsTarget > 1 ? 's' : ''} is what your current recovery can productively absorb this week — train them whenever suits, in whatever order, on top of whatever you've already done.`;
+}
+
+// Returns advisory guidance only — no days, no locked exercises. muscleFocus
+// is ranked freshest-first; restingMuscleGroups lists groups with nothing
+// available to load right now (fully fatigued or fully offline). Both are
+// meant to be recomputed on demand, since either can shift after a single
+// session.
+function generateWeeklyGuidance({ currentFatigue, weekMetabolic, weekCNS, offlineMuscles, dataMature }) {
   const priority = computeMusclePriority(currentFatigue || {}, offlineMuscles || []);
 
   const buckets = Object.entries(MUSCLE_GROUPS)
@@ -89,67 +108,21 @@ function generateWeeklyStructure({ weekDates, currentFatigue, weekMetabolic, wee
     .filter(Boolean)
     .sort((a, b) => b.score - a.score);
 
-  const liftDayCount = planLiftDayCount(weekCNS, weekMetabolic, buckets.length);
+  const liftSessionsTarget = planLiftSessionsTarget(weekCNS, weekMetabolic, buckets.length);
+  const activeNames = new Set(buckets.map(b => b.name));
+  const restingMuscleGroups = Object.keys(MUSCLE_GROUPS).filter(n => !activeNames.has(n));
 
-  // Rotation order: highest-priority buckets first, repeating from the top once
-  // liftDayCount exceeds the number of distinct buckets available this week.
-  const rotation = [];
-  for (let i = 0; i < liftDayCount; i++) rotation.push(buckets[i % buckets.length]);
-
-  // Spread lift days across the week so no two are adjacent where possible ("no
-  // consecutive heavy sessions"), interleaving cardio/rest into the gaps.
-  const days = weekDates.map(d => ({ ...d, kind: null }));
-  const liftSlots = [];
-  if (liftDayCount > 0) {
-    const gap = Math.max(1, Math.floor(7 / liftDayCount));
-    for (let i = 0, pos = 0; i < liftDayCount; i++, pos += gap) liftSlots.push(Math.min(pos, 6));
-  }
-  // De-duplicate slot collisions from rounding by nudging forward into the next free day.
-  const usedSlots = new Set();
-  const finalSlots = liftSlots.map(s => {
-    while (usedSlots.has(s) && s < 6) s++;
-    usedSlots.add(s);
-    return s;
-  });
-
-  finalSlots.forEach((slot, i) => {
-    days[slot].kind = 'lift';
-    days[slot].bucket = rotation[i];
-  });
-
-  // Remaining open days: one Norwegian 4x4 HIIT (mandatory), some zone2, rest of what's left as rest.
-  const openIdx = days.map((d, i) => i).filter(i => days[i].kind === null);
-  let hiitPlaced = false;
-  openIdx.forEach((i, j) => {
-    if (!hiitPlaced && weekCNS < 60) { days[i].kind = 'hiit'; hiitPlaced = true; return; }
-    days[i].kind = j % 2 === 0 ? 'zone2' : 'rest';
-  });
-  if (!hiitPlaced) {
-    // CNS too fatigued for HIIT anywhere open — still place it on the least-bad open day
-    // (or the last day) since a weekly plan without any conditioning is worse than a
-    // deliberately easy one; note stays honest about the trade-off via the text pass.
-    const fallback = openIdx[openIdx.length - 1] ?? 6;
-    days[fallback].kind = 'hiit';
-  }
-
-  const DURATION_MIN = { lift: 60, hiit: 25, zone2: 40, rest: 0 };
-
-  return days.map(d => {
-    if (d.kind === 'lift') {
-      const backbone = pickBackboneExercises(d.bucket.muscles, { travelMode });
-      return {
-        date: d.date, label: d.label, type: 'lift', duration: DURATION_MIN.lift,
-        targetMuscles: d.bucket.muscles,
-        backboneExercises: backbone.map(e => e.name),
-        rationale: dataMature
-          ? `Proven stimulus — ${d.bucket.muscles.join(', ')} freshest this week, load compound movements close to failure.`
-          : `Early-stage — ${d.bucket.muscles.join(', ')} targeted; vary rep range session to session to build a response profile.`,
-      };
-    }
-    if (d.kind === 'hiit') return { date: d.date, label: d.label, type: 'hiit', duration: DURATION_MIN.hiit, rationale: 'Norwegian 4x4 conditioning.' };
-    if (d.kind === 'zone2') return { date: d.date, label: d.label, type: 'zone2', duration: DURATION_MIN.zone2, rationale: 'Aerobic base, recovery-friendly intensity.' };
-    return { date: d.date, label: d.label, type: 'rest', duration: DURATION_MIN.rest, rationale: 'No available fresh muscle groups or systemic fatigue too high for productive loading.' };
-  });
+  return {
+    liftSessionsTarget,
+    hiitRecommended: weekCNS < 60,
+    muscleFocus: buckets.map(b => ({ name: b.name, muscles: b.muscles, freshness: Math.round(b.score) })),
+    restingMuscleGroups,
+    rationale: guidanceRationale(liftSessionsTarget, weekCNS, weekMetabolic),
+    dataMature,
+  };
 }
 
-module.exports = { generateWeeklyStructure, ALL_MUSCLES, MUSCLE_GROUPS, FATIGUE_CEILING };
+module.exports = {
+  generateWeeklyGuidance, pickBackboneExercises, computeMusclePriority, scoreBucket, planLiftSessionsTarget,
+  ALL_MUSCLES, MUSCLE_GROUPS, FATIGUE_CEILING,
+};
