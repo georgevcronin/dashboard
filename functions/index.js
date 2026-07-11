@@ -3,8 +3,11 @@ const admin = require("firebase-admin");
 const express = require("express");
 const webpush = require("web-push");
 const { EXERCISE_DB, EXERCISE_MAP } = require('./exerciseDb');
-const { generateWeeklyStructure } = require('./weeklyPlanner');
+const { generateWeeklyGuidance, pickBackboneExercises, computeMusclePriority, scoreBucket, MUSCLE_GROUPS } = require('./weeklyPlanner');
 const { computeStrengthLevels, classifyLift, estimate1RM } = require('./strengthStandards');
+const { computeProgression } = require('./progression');
+const { generateSessionExercises } = require('./sessionPlanner');
+const { computeSleepScore } = require('./sleepScore');
 
 admin.initializeApp();
 const firestore = admin.firestore();
@@ -422,6 +425,12 @@ app.post("/health", async (req, res) => {
       if (name === "sleep_analysis") {
         db.metrics[k].sleep_hours = pt.totalSleep ?? pt.asleep ?? db.metrics[k].sleep_hours;
         if (pt.inBed != null && pt.totalSleep != null && pt.inBed > 0) db.metrics[k].sleep_eff = Math.round((pt.totalSleep / pt.inBed) * 100);
+        // Sleep-stage breakdown, when Health Auto Export includes it (values in hours).
+        // Best-effort — HAE's exact field naming isn't guaranteed across versions.
+        if (pt.deep != null) db.metrics[k].deep_sleep_min = Math.round(pt.deep * 60);
+        if (pt.rem != null) db.metrics[k].rem_sleep_min = Math.round(pt.rem * 60);
+        if (pt.core != null) db.metrics[k].light_sleep_min = Math.round(pt.core * 60);
+        if (pt.awake != null) db.metrics[k].waso_min = Math.round(pt.awake * 60);
       } else if (pt.qty != null) {
         db.metrics[k][name] = pt.qty;
         if (name === "body_mass") db.weight[k] = pt.qty;
@@ -465,6 +474,15 @@ app.post("/shortcut", async (req, res) => {
   if (d.wrist) db.metrics[k].wrist_temperature = d.wrist;
   if (d.hr) db.metrics[k].heart_rate = d.hr;
   if (d.bloodoxygen) db.metrics[k].blood_oxygen = d.bloodoxygen;
+  // Sleep-score inputs: stage minutes, WASO, overnight HR, and efficiency
+  // (either sent directly or derived from time-in-bed vs. time-asleep).
+  if (d.deepmin != null) db.metrics[k].deep_sleep_min = d.deepmin;
+  if (d.remmin != null) db.metrics[k].rem_sleep_min = d.remmin;
+  if (d.coremin != null) db.metrics[k].light_sleep_min = d.coremin;
+  if (d.awakemin != null) db.metrics[k].waso_min = d.awakemin;
+  if (d.sleephr) db.metrics[k].sleep_heart_rate = d.sleephr;
+  if (d.sleepeff != null) db.metrics[k].sleep_eff = d.sleepeff;
+  else if (d.inbed && d.sleep) db.metrics[k].sleep_eff = Math.round((d.sleep / d.inbed) * 100);
   if (d.alcohol_units != null && d.alcohol_units > 0) {
     db.alcoholLog = db.alcoholLog || [];
     const existing = db.alcoholLog.find(e => e.date === k);
@@ -827,6 +845,8 @@ app.get("/summary", async (req, res) => {
   const sleep = personalSleepTarget(days);
   const recovery = computeDay(today, baseHRV, baseRHR, sleep.target, baseWristTemp, baseHR);
   const recoveryTrend = last14.map(d => computeDay(d, baseHRV, baseRHR, sleep.target, baseWristTemp, baseHR)).filter(x => x != null);
+  const sleepScore = computeSleepScore(today);
+  const sleepScoreTrend = last14.map(d => computeSleepScore(d)?.score).filter(v => v != null);
   const weights = lastN(db.weight, 30);
   const monthWk = db.workouts.filter(w => w.date >= day(new Date(Date.now() - 30 * 864e5)));
   const sleepDebtH = last14.slice(-2).reduce((s, d) => s + (d.sleep_hours ? Math.max(0, sleep.target - d.sleep_hours) : 0), 0);
@@ -864,6 +884,7 @@ app.get("/summary", async (req, res) => {
     today: { recovery, hrv: today.heart_rate_variability ?? null, rhr: today.resting_heart_rate ?? null, sleepH: today.sleep_hours ?? null, sleepEff: today.sleep_eff ?? null, steps: today.step_count ?? null, wristTemp: today.wrist_temperature ?? null, hr: today.heart_rate ?? null, spo2: today.blood_oxygen ?? null },
     sleepTarget: sleep.target, sleepTargetLearned: sleep.learned,
     sleepDebtH: Math.round(sleepDebtH * 10) / 10,
+    sleepScore, sleepScoreTrend,
     recoveryTrend, sleepSeries: last14.map(d => d.sleep_hours).filter(Boolean),
     rhrSeries: last14.map(d => d.resting_heart_rate).filter(Boolean),
     baselines: { hrv: baseHRV && Math.round(baseHRV), rhr: baseRHR && Math.round(baseRHR), wristTemp: baseWristTemp && Math.round(baseWristTemp * 10) / 10, hr: baseHR && Math.round(baseHR) },
@@ -878,7 +899,7 @@ app.get("/summary", async (req, res) => {
     })),
     weights, workouts: [...db.workouts].sort((a,b)=>(b.date||'').localeCompare(a.date||'')).slice(0,20), workoutsMonth: monthWk.length,
     water: lastN(db.water, 14), waterToday: db.water[day()] || 0,
-    weeklyPlan: db.weeklyPlan || null,
+    weeklyPlan: db.weeklyPlan ? { ...db.weeklyPlan, sessionsCompletedThisWeek: weekLiftSessionsCompleted(db.lifts) } : null,
     lifts: [...db.lifts].sort((a,b)=>(b.date||'').localeCompare(a.date||'')).slice(0,200), thoughts: db.thoughts,
     nutritionToday: (db.nutrition || {})[day()] || { protein: 0, carbs: 0, fat: 0, calories: 0 },
     nutrition14: Object.keys(db.nutrition || {}).sort().slice(-14).map(k => ({ date: k, ...(db.nutrition[k]) })),
@@ -934,6 +955,10 @@ app.get("/trends", async (req, res) => {
       const v = computeDay(db.metrics[k], baseHRV, baseRHR, sleep.target, baseWristTemp, baseHR);
       if (v != null) series.push({ date: k, value: v });
     }
+  } else if (metric === "sleepScore") {
+    series = Object.keys(db.metrics).sort().filter(k => k >= cutoff)
+      .map(k => ({ date: k, value: computeSleepScore(db.metrics[k])?.score }))
+      .filter(p => p.value != null);
   } else if (["squat", "bench", "deadlift", "overheadPress", "row"].includes(metric)) {
     const byDate = {};
     for (const l of (db.lifts || [])) {
@@ -977,7 +1002,7 @@ app.get("/export/csv", async (req, res) => {
     csv = toCsv(rows, ["date", "kg"]);
   } else if (type === "metrics") {
     filename = "metrics.csv";
-    const cols = ["date", "heart_rate_variability", "resting_heart_rate", "sleep_hours", "sleep_eff", "step_count", "vo2max", "hrr_bpm", "wrist_temperature", "heart_rate", "blood_oxygen", "body_fat_percentage", "body_mass"];
+    const cols = ["date", "heart_rate_variability", "resting_heart_rate", "sleep_hours", "sleep_eff", "deep_sleep_min", "rem_sleep_min", "light_sleep_min", "waso_min", "sleep_heart_rate", "step_count", "vo2max", "hrr_bpm", "wrist_temperature", "heart_rate", "blood_oxygen", "body_fat_percentage", "body_mass"];
     const rows = Object.keys(db.metrics).sort().map(k => ({ date: k, ...db.metrics[k] }));
     csv = toCsv(rows, cols);
   } else if (type === "nutrition") {
@@ -1083,53 +1108,21 @@ app.post("/mentor", async (req, res) => {
   res.json({ reply: "Personal Journalist error: " + (result.error?.message || `Gemini returned ${result.status}`) });
 });
 
-function computeProgression(lifts, name) {
-  const ex = lifts.filter(l => l.exercise === name);
-  if (!ex.length) return null;
-  const byDate = {};
-  for (const l of ex) { if (!byDate[l.date]) byDate[l.date] = []; byDate[l.date].push(l); }
-  const sessions = Object.entries(byDate).sort(([a],[b]) => a.localeCompare(b)).slice(-6).map(([date, sets]) => {
-    const topKg = Math.max(...sets.map(s => s.kg || 0));
-    const topSet = sets.find(s => s.kg === topKg) || sets[0];
-    const e1rm = topSet.kg > 0 && topSet.reps > 0 ? Math.round(topSet.kg * (1 + topSet.reps / 30)) : 0;
-    return { date, kg: topSet.kg, reps: topSet.reps, e1rm, setCount: sets.length };
-  });
-  const last = sessions.at(-1);
-  const prev = sessions.at(-2);
-  const isLower = ['squat','deadlift','leg press','lunge','hip thrust','romanian'].some(k => name.includes(k));
-  const inc = isLower ? 5 : 2.5;
-  let suggestKg = last.kg, suggestReps = last.reps, trend, note;
-  if (!prev) {
-    trend = 'baseline'; note = `baseline — ${last.kg}kg×${last.reps}`;
-  } else if (last.e1rm > prev.e1rm && last.reps >= 5) {
-    suggestKg = last.kg + inc; trend = 'progressing';
-    note = `progressing — try ${suggestKg}kg×${last.reps} (+${inc}kg)`;
-  } else if (last.e1rm >= prev.e1rm) {
-    suggestReps = last.reps + 1; trend = 'steady';
-    note = `steady — target ${last.kg}kg×${suggestReps} (+1 rep)`;
-  } else if (sessions.slice(-3).every((s, i, a) => i === 0 || s.e1rm <= a[i-1].e1rm)) {
-    suggestKg = Math.max(0, last.kg - inc * 2); trend = 'stalled';
-    note = `stalled — reset to ${suggestKg}kg and rebuild`;
-  } else {
-    trend = 'recovering'; note = `recovering — hold ${last.kg}kg×${last.reps}`;
-  }
-  const warmup1kg = Math.round(suggestKg * 0.6 / 2.5) * 2.5;
-  const warmup2kg = Math.round(suggestKg * 0.85 / 2.5) * 2.5;
-  const recentStr = sessions.slice(-3).map(s => `${s.date}: ${s.kg}kg×${s.reps} (e1RM ${s.e1rm})`).join(', ');
-  return { name, trend, note, suggestKg, suggestReps, warmup1kg, warmup2kg, setCount: last.setCount, recentStr };
-}
-
+// Deterministic — exercise selection is muscle-coverage scoring over
+// EXERCISE_DB, every weight/rep number comes from computeProgression's
+// double-progression math. See functions/sessionPlanner.js.
+//
+// No locked schedule to read back: if the caller doesn't specify which
+// muscles to train, this picks whichever group is freshest right now — the
+// same live scoring the weekly guidance uses, just recomputed at the moment
+// a session actually starts rather than pre-assigned to a calendar day. The
+// caller (frontend) can also request a specific muscle-focus bucket instead
+// of the top pick — "changeable, never pushed" means the algorithm's choice
+// is a default, not a requirement.
 app.post("/plan/session-exercises", async (req, res) => {
-  if (!process.env.GEMINI_API_KEY) return res.json({ exercises: [] });
-  const { type, title, detail, duration } = req.body;
-  const bw = Object.values(db.weight || {}).at(-1) || 75;
+  const { type = 'lift', bucket: reqBucket } = req.body;
+  let { targetMuscles, backboneExercises } = req.body;
   const lifts = db.lifts || [];
-  const knownExercises = [...new Set(lifts.map(l => l.exercise).filter(Boolean))];
-  const progressions = knownExercises.map(n => computeProgression(lifts, n)).filter(Boolean);
-
-  const progressionCtx = progressions.map(p =>
-    `${p.name}: ${p.recentStr} → ${p.note} → USE ${p.suggestKg}kg×${p.suggestReps} for working sets`
-  ).join('\n');
 
   const peaks = musclePeaksFromLifts(lifts);
   const structuralFatigue = computeStructuralFatigue(lifts, peaks, db.soreness || [], db.muscleSensitivity || {});
@@ -1137,64 +1130,30 @@ app.post("/plan/session-exercises", async (req, res) => {
   const currentFatigue = applyInjuryTaper(structuralFatigue, activeInjuries);
   const metabolicFatigue = computeMetabolicFatigue(lifts, (db.nutrition || {})[day()]?.carbs || 0);
   const cnsFatigue = computeCNSFatigue(lifts, db.cnsSensitivity || 1.0, getRecoveryScore(db));
-  const fatigueStr = Object.entries(currentFatigue).filter(([,v])=>v>15).sort(([,a],[,b])=>b-a)
-    .map(([m,v])=>`${m} ${v}%`).join(', ') || 'none';
   const avoidMuscles = Object.entries(currentFatigue).filter(([,v])=>v>65).map(([m])=>m);
   const offlineMuscles = avoidMuscles.filter(m => activeInjuries.some(i => (i.muscles || []).includes(m)));
-  const injuryStr = activeInjuries.length ? activeInjuries.map(i => {
-    const elapsedDays = Math.floor((Date.now() - i.ts) / 864e5);
-    const totalDays = INJURY_HEALING_DAYS[i.severity] || INJURY_HEALING_DAYS.moderate;
-    const status = elapsedDays >= totalDays ? 'fully healed, treat as normal' : `day ${elapsedDays}/${totalDays} healing — ${injuryFatiguePenalty(i) > 65 ? 'still mostly offline' : 'reintroducing load, keep it lighter than usual'}`;
-    return `${i.area} (${i.severity}${i.muscles?.length ? ' — affects: ' + i.muscles.join(', ') : ''}${i.note ? ': ' + i.note : ''}, ${status})`;
-  }).join('; ') : '';
-
   const travelMode = db.profile?.travelMode || false;
-  const maturity = computeDataMaturity(lifts);
-  const maturityCtx = maturity.hasEnoughData
-    ? `PRESCRIPTION MODE: Established athlete — ${maturity.weeksCovered} weeks of data, ${maturity.exercisesWithPatterns} exercises with clear progression patterns. Prescribe confidently based on known response. No experimentation needed — use proven exercises and loads.`
-    : `EXPERIMENT MODE: Limited history (${maturity.weeksCovered} weeks, ${maturity.sessionsCount} sessions). Introduce variety to identify which exercises and rep ranges produce best response for this athlete. Vary stimulus each session.`;
 
-  const prompt = `You are writing a complete, precise workout prescription. Progressive overload targets are pre-computed from real training data — use them exactly.
-${travelMode ? '\n⚠️ TRAVEL MODE: Athlete is travelling. Use bodyweight exercises only — no barbells, no dumbbells, no machines. Bodyweight squats, push-up variations, pull-ups (if available), lunges, step-ups, plank holds, dips.\n' : ''}
-${maturityCtx}
+  let bucket = reqBucket || null;
 
-Session type: ${title} (${type})
-Guidance: ${detail}
-Athlete: ${bw}kg bodyweight
+  if (type === 'lift' && !targetMuscles?.length) {
+    const priority = computeMusclePriority(currentFatigue, offlineMuscles);
+    const buckets = Object.entries(MUSCLE_GROUPS)
+      .map(([name, muscles]) => { const scored = scoreBucket(muscles, priority); return scored ? { name, ...scored } : null; })
+      .filter(Boolean)
+      .sort((a, b) => b.score - a.score);
+    if (buckets.length) { targetMuscles = buckets[0].muscles; bucket = buckets[0].name; }
+  }
 
-STRUCTURAL FATIGUE — per muscle (avoid loading above 65%):
-${fatigueStr}
-${avoidMuscles.length ? `AVOID exercises primarily stressing: ${avoidMuscles.join(', ')}` : 'All muscle groups available.'}
-METABOLIC FATIGUE: ${metabolicFatigue}% — ${metabolicFatigue > 60 ? 'reduce session volume, glycogen depleted' : metabolicFatigue > 30 ? 'moderate volume only' : 'good energy availability'}
-CNS FATIGUE: ${cnsFatigue}% — ${cnsFatigue > 70 ? 'AVOID heavy compound lifts — use machine/isolation substitutes' : cnsFatigue > 40 ? 'limit heavy compound sets to 2-3' : 'full compound loading available'}
-${offlineMuscles.length ? `OFFLINE MUSCLES (injury — do not load at all): ${offlineMuscles.join(', ')}` : ''}
-${injuryStr ? `ACTIVE INJURIES/NIGGLES: ${injuryStr}` : ''}
+  if (type === 'lift' && targetMuscles?.length && !backboneExercises?.length) {
+    backboneExercises = pickBackboneExercises(targetMuscles, { travelMode }).map(e => e.name);
+  }
 
-PRE-COMPUTED PROGRESSIVE OVERLOAD TARGETS:
-${progressionCtx || 'No history yet — use reasonable beginner/intermediate weights'}
-
-Instructions:
-- Select exercises appropriate for "${title}" that do NOT primarily load fatigued muscles
-- Use the exact suggestKg and suggestReps from the targets above
-- 2 warm-up sets per compound lift (~50% and ~75% of working weight)
-- 3-4 working sets at suggested weight
-- Include as many exercises as appropriate — do not limit by time
-
-Return ONLY valid JSON:
-{
-  "exercises": [
-    {
-      "name": "exercise name",
-      "note": "progressing — up 2.5kg from last session",
-      "sets": [{"type":"W","kg":50,"reps":10},{"type":"W","kg":70,"reps":5},{"type":"N","kg":90,"reps":5},{"type":"N","kg":90,"reps":5},{"type":"N","kg":90,"reps":5}]
-    }
-  ]
-}
-Set types: W=warm-up, N=normal, D=drop, F=failure. Include the note field per exercise.`;
-
-  const result = await callGeminiResilient({ messages: [{ role: "user", content: prompt }], maxTokens: 1600, jsonMode: true });
-  if (!result.ok) return res.json({ exercises: [] });
-  try { res.json(JSON.parse(result.content)); } catch { res.json({ exercises: [] }); }
+  const exercises = generateSessionExercises({
+    type, targetMuscles, backboneExerciseNames: backboneExercises, lifts, travelMode,
+    avoidMuscles, offlineMuscles, cnsFatigue, metabolicFatigue,
+  });
+  res.json({ exercises, targetMuscles: targetMuscles || [], backboneExercises: backboneExercises || [], bucket });
 });
 
 app.get('/progression/:exercise', async (req, res) => {
@@ -1238,93 +1197,42 @@ app.post("/import/hevy", async (req, res) => {
   res.json({ ok: true, imported, skipped });
 });
 
-// ---------- Weekly plan (AI-generated by Personal Journalist) ----------
-app.get("/plan/week", async (req, res) => {
-  res.json(db.weeklyPlan || null);
-});
-
-// Deterministic fallback text (no LLM): plain but accurate, used if GEMINI_API_KEY
-// is unset or the text-writing call fails, so the plan itself never depends on
-// Gemini being available or rate-limited.
-function templateSessionText(day) {
-  if (day.type === 'lift') {
-    const title = day.targetMuscles.slice(0, 2).map(m => m.replace('-', ' ')).join(' & ');
-    const backbone = day.backboneExercises.length ? ` Backbone lifts: ${day.backboneExercises.join(', ')}.` : '';
-    return { title: title[0].toUpperCase() + title.slice(1), detail: day.rationale + backbone };
-  }
-  if (day.type === 'hiit') return { title: 'Norwegian 4×4', detail: day.rationale };
-  if (day.type === 'zone2') return { title: 'Zone 2', detail: day.rationale };
-  return { title: 'Rest', detail: day.rationale };
+// ---------- Weekly guidance (advisory — never a locked day-by-day schedule) ----------
+// How many strength sessions this week's fatigue can absorb, and which muscle
+// groups are freshest right now. No days, no locked exercises, nothing that
+// tells the athlete "today is leg day" — see weeklyPlanner.js's header for why.
+function weekLiftSessionsCompleted(lifts) {
+  const now = new Date();
+  const mondayOffset = (now.getDay() + 6) % 7; // 0=Mon
+  const monday = new Date(now); monday.setDate(now.getDate() - mondayOffset); monday.setHours(0, 0, 0, 0);
+  const mondayStr = monday.toISOString().slice(0, 10);
+  return new Set((lifts || []).filter(l => l.date >= mondayStr).map(l => l.date)).size;
 }
 
-app.post("/plan/week", async (req, res) => {
-  const today = new Date();
-  const todayStr = today.toISOString().slice(0, 10);
-  const dow = today.getDay(); // 0=Sun
-  const daysToNextMon = dow === 0 ? 1 : 8 - dow;
-  const nextMon = new Date(today.getFullYear(), today.getMonth(), today.getDate() + daysToNextMon);
-  const dayLabels = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
-  const weekDates = dayLabels.map((label, i) => {
-    const d = new Date(nextMon);
-    d.setDate(d.getDate() + i);
-    return { label, date: d.toISOString().slice(0, 10) };
-  });
-
+function computeWeeklyGuidance() {
   const peaks = musclePeaksFromLifts(db.lifts);
   const structuralFatigue = computeStructuralFatigue(db.lifts, peaks, db.soreness || [], db.muscleSensitivity || {});
   const currentFatigue = applyInjuryTaper(structuralFatigue, db.injuries || []);
-  const weekMetabolic = computeMetabolicFatigue(db.lifts, (db.nutrition || {})[todayStr]?.carbs || 0);
+  const weekMetabolic = computeMetabolicFatigue(db.lifts, (db.nutrition || {})[day()]?.carbs || 0);
   const weekCNS = computeCNSFatigue(db.lifts, db.cnsSensitivity || 1.0, getRecoveryScore(db));
-  const travelModeWeek = db.profile?.travelMode || false;
   const maturityWeek = computeDataMaturity(db.lifts);
-
-  // The algorithm decides WHAT (session type, target muscles, backbone exercises,
-  // frequency vs. fatigue trade-off) — the ethos rules as real code, not LLM judgment.
-  // Injury exclusion is folded into currentFatigue above (a fresh injury pins a
-  // muscle's fatigue at 100, which the existing 65% ceiling already treats as
-  // "don't load this week") rather than passed as a separate hard offline list —
-  // that's what lets it taper back in as the injury heals instead of snapping
-  // straight from banned to fully available.
-  const structure = generateWeeklyStructure({
-    weekDates, currentFatigue, weekMetabolic, weekCNS,
-    offlineMuscles: [], travelMode: travelModeWeek,
+  return generateWeeklyGuidance({
+    currentFatigue, weekMetabolic, weekCNS, offlineMuscles: [],
     dataMature: maturityWeek.hasEnoughData,
+    trainingPriority: db.profile?.trainingPriority || 'strength',
   });
+}
 
-  const buildPlan = (dayTexts, focus, notes) => ({
-    focus,
-    days: structure.map((day, i) => ({
-      date: day.date, label: day.label,
-      sessions: [{ type: day.type, title: dayTexts[i].title, detail: dayTexts[i].detail, duration: day.duration }],
-    })),
-    notes,
-    generatedAt: new Date().toISOString(),
-  });
+app.get("/plan/week", async (req, res) => {
+  if (!db.weeklyPlan) return res.json(null);
+  res.json({ ...db.weeklyPlan, sessionsCompletedThisWeek: weekLiftSessionsCompleted(db.lifts) });
+});
 
-  if (!process.env.GEMINI_API_KEY) {
-    const plan = buildPlan(structure.map(templateSessionText), 'A week built around what your fatigue data can actually absorb.', 'No Gemini key configured — this plan is template-generated, not LLM-written.');
-    db.weeklyPlan = plan;
-    await save();
-    return res.json(plan);
-  }
-
-  // The LLM's only job now: turn the already-decided structure into readable
-  // prose. It cannot change session type, target muscles, or exercise choice.
-  const writerPrompt = `Write copy for ${db.profile?.name || "this athlete"}'s weekly training plan. For each day below, write a short session "title" (a few words) and "detail" (2-3 sentences, specific, no fluff) explaining the session using the given rationale — do not invent different muscles, exercises, or session types than what's given. Also write one "focus" sentence (weekly theme) and one "notes" sentence (load management cue). ${TRAINING_ETHOS}
-
-Days:
-${JSON.stringify(structure.map(d => ({ label: d.label, type: d.type, targetMuscles: d.targetMuscles, backboneExercises: d.backboneExercises, rationale: d.rationale })))}
-
-Return ONLY valid JSON: { "focus": "...", "notes": "...", "days": [{ "title": "...", "detail": "..." }, ... one per day, same order as given] }`;
-
-  const result = await callGeminiResilient({ messages: [{ role: "user", content: writerPrompt }], maxTokens: 700, jsonMode: true });
-  let written = null;
-  if (result.ok) { try { written = JSON.parse(result.content); } catch { written = null; } }
-  const dayTexts = (written?.days?.length === structure.length) ? written.days : structure.map(templateSessionText);
-  const plan = buildPlan(dayTexts, written?.focus || 'A week built around what your fatigue data can actually absorb.', written?.notes || '');
-  db.weeklyPlan = plan;
+app.post("/plan/week", async (req, res) => {
+  const guidance = computeWeeklyGuidance();
+  db.weeklyPlan = { ...guidance, generatedAt: new Date().toISOString() };
   await save();
-  res.json(plan);
+  res.json({ ...db.weeklyPlan, sessionsCompletedThisWeek: weekLiftSessionsCompleted(db.lifts) });
 });
 
 // ---------- Soreness logging + personal sensitivity ----------
@@ -1863,6 +1771,10 @@ strong{font-weight:600}
 
 <div class="note">
   <strong>Optional recovery signals:</strong> Press also folds these into your recovery score if you add them the same way: <code>wrist</code> (Sleep Wrist Temperature, °C), <code>hr</code> (Heart Rate), <code>bloodoxygen</code> (Blood Oxygen Saturation, %). Not required — everything works fine without them.
+</div>
+
+<div class="note">
+  <strong>Optional sleep score signals:</strong> add any of these for a clinically-benchmarked Sleep Score (duration, efficiency, sleep stages, overnight HR dip, fragmentation) on the Sleep tab — every field is independently optional, the score just uses whatever you provide: <code>deepmin</code> / <code>remmin</code> / <code>coremin</code> (minutes in each Sleep Analysis stage — Deep / REM / Core), <code>awakemin</code> (minutes awake overnight — WASO), <code>sleephr</code> (average Heart Rate sampled only during your sleep window), <code>sleepeff</code> (sleep efficiency %, or send <code>inbed</code> — hours in bed — alongside <code>sleep</code> and Press computes it).
 </div>
 </body>
 </html>`);

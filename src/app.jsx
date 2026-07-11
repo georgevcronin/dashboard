@@ -509,6 +509,10 @@ const ECHELONS = [
 const fmtDate = () => new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
 const fmtDateShort = () => new Date().toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
 const pct = (v, t) => (t && t > 0 ? Math.min(100, Math.round(v / t * 100)) : 0);
+// Calorie display default is approximate (nearest 300) — precision that isn't
+// really there anyway for most logged food, and it's less anxiety-inducing to
+// track than exact numbers. Settings > Nutrition can switch to exact.
+const roundCal = (v, exact) => (v == null ? v : exact ? Math.round(v) : Math.round(v / 300) * 300);
 
 function AreaChart({ data, color, id }) {
   if (!data?.length) return null;
@@ -573,6 +577,7 @@ function Header({ s, onSignOut }) {
   const n = s?.nutritionToday || {};
   const mt = s?.macroTargets || {};
   const steps = today.steps != null ? Math.round(today.steps * 1000) : null;
+  const exactCal = !!s?.profile?.exactCalories;
 
   const items = [
     { sym: '$RCVRY',   val: today.recovery != null ? `${Math.round(today.recovery)}` : '—',   chg: null, up: true },
@@ -580,7 +585,7 @@ function Header({ s, onSignOut }) {
     { sym: '$HRV',     val: today.hrv != null ? `${today.hrv}ms` : '—',                       chg: null, up: true },
     { sym: '$RHR',     val: today.rhr != null ? `${today.rhr}bpm` : '—',                      chg: null, up: false },
     { sym: '$STEPS',   val: steps ? steps.toLocaleString() : '—', chg: steps ? `${pct(steps, 10000)}%` : null, up: steps >= 8000 },
-    { sym: '$KCAL',    val: n.calories ? `${n.calories}` : '—', chg: mt.calories ? `${pct(n.calories, mt.calories)}%` : null, up: pct(n.calories, mt.calories) >= 80 },
+    { sym: '$KCAL',    val: n.calories ? `${roundCal(n.calories, exactCal)}` : '—', chg: mt.calories ? `${pct(n.calories, mt.calories)}%` : null, up: pct(n.calories, mt.calories) >= 80 },
     { sym: '$PROTEIN', val: n.protein ? `${n.protein}g` : '—', chg: mt.protein ? `${pct(n.protein, mt.protein)}%` : null, up: pct(n.protein, mt.protein) >= 80 },
     { sym: '$MASS',    val: s?.weights?.[0]?.value ? `${s.weights[0].value}kg` : '—', chg: null, up: true },
   ];
@@ -847,6 +852,50 @@ function S1({ s, briefing, onShowBriefing, onShowAfternoon, onShowNight, onShowW
 }
 
 // ── S2: SLEEP ────────────────────────────────────────────────────────────────
+const SLEEP_COMPONENT_LABELS = { duration: 'Duration', efficiency: 'Efficiency', deep: 'Deep Sleep', rem: 'REM Sleep', light: 'Light Sleep', hrDip: 'HR Dip', waso: 'Fragmentation' };
+
+function sleepScoreColor(score) {
+  if (score >= 80) return 'var(--forest)';
+  if (score >= 60) return 'var(--gold)';
+  return 'var(--ember)';
+}
+
+function SleepScorePanel({ sleepScore, sleepScoreTrend }) {
+  if (!sleepScore) return (
+    <div className="fade" style={{ borderTop: '1px solid var(--rule)', paddingTop: 10, flexShrink: 0 }}>
+      <div className="kicker" style={{ marginBottom: 4 }}>Sleep Score</div>
+      <div style={{ fontSize: 11, color: 'var(--dim)', fontStyle: 'italic' }}>Sync sleep hours and efficiency to see a score — add stage/HR-dip data via the setup guide for the full clinical breakdown.</div>
+    </div>
+  );
+  const availableComponents = Object.entries(sleepScore.components).filter(([, v]) => v != null);
+  return (
+    <div className="fade" style={{ borderTop: '1px solid var(--rule)', paddingTop: 10, flexShrink: 0 }}>
+      <div className="kicker" style={{ marginBottom: 8 }}>Sleep Score</div>
+      <div style={{ display: 'flex', alignItems: 'flex-end', gap: 10, marginBottom: 10 }}>
+        <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 40, fontWeight: 900, lineHeight: 1, color: sleepScoreColor(sleepScore.score) }}>
+          {sleepScore.score}<span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 12, color: 'var(--dim)', marginLeft: 2 }}>/100</span>
+        </div>
+        {sleepScoreTrend?.length > 1 && <Sparkline data={sleepScoreTrend} color={sleepScoreColor(sleepScore.score)} width={64} height={26} />}
+      </div>
+      <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+        {availableComponents.map(([key, val]) => (
+          <div key={key} style={{ minWidth: 64 }}>
+            <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, color: 'var(--dim)', textTransform: 'uppercase', letterSpacing: '.08em', marginBottom: 2 }}>{SLEEP_COMPONENT_LABELS[key]}</div>
+            <div className="macro-track" style={{ marginBottom: 2 }}><div className="macro-fill" style={{ width: `${val}%`, background: sleepScoreColor(val) }} /></div>
+          </div>
+        ))}
+      </div>
+      {sleepScore.inputs && (sleepScore.inputs.deepPct != null || sleepScore.inputs.hrDipPct != null) && (
+        <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, color: 'var(--dim)', marginTop: 8 }}>
+          {sleepScore.inputs.deepPct != null && `${sleepScore.inputs.deepPct}% deep · ${sleepScore.inputs.remPct}% REM · ${sleepScore.inputs.lightPct}% light`}
+          {sleepScore.inputs.deepPct != null && sleepScore.inputs.hrDipPct != null && ' · '}
+          {sleepScore.inputs.hrDipPct != null && `${sleepScore.inputs.hrDipPct}% overnight HR dip`}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function S2({ s, refresh }) {
   const series = s?.sleepSeries || [];
   const sleepTarget = s?.sleepTarget || 8;
@@ -920,6 +969,8 @@ function S2({ s, refresh }) {
           <div className="stat-cell"><div className="sc-label">Sleep Debt</div><div className="sc-num red" style={{ fontSize: 22 }}>{debt.toFixed(1)}<span style={{ fontSize: '.5em', color: 'var(--dim)' }}>h</span></div></div>
         </div>
       </div>
+
+      <SleepScorePanel sleepScore={s?.sleepScore} sleepScoreTrend={s?.sleepScoreTrend} />
 
       {/* VO2 max + HRR trends */}
       {(vo2Series.length > 0 || hrrSeries.length > 0) && (
@@ -1202,7 +1253,7 @@ function WorkoutLogger({ planDay, lifts, customExercises, onClose, refresh }) {
 
     authFetch(`${API_BASE}/plan/session-exercises`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ type: session.type, title: session.title, detail: session.detail, duration: session.duration }),
+      body: JSON.stringify({ type: session.type, targetMuscles: session.targetMuscles, backboneExercises: session.backboneExercises }),
     }).then(r => r.json()).then(data => {
       if (data.exercises?.length) setExercises(data.exercises.map(toExercise));
       setLoading(false);
@@ -1967,10 +2018,8 @@ function S3({ s, onStartWorkout, onImport, onHistory, refresh }) {
   const sessionName = lastSession?.name ? lastSession.name[0].toUpperCase() + lastSession.name.slice(1) : 'Session';
   const daysAgo = lastSession?.date ? Math.round((Date.now() - new Date(lastSession.date)) / 86_400_000) : null;
 
-  const todayStr = new Date().toISOString().slice(0, 10);
-  const plan = s?.weeklyPlan;
-  const todayPlan = plan?.days?.find(d => d.date === todayStr) || null;
-  const todaySession = todayPlan?.sessions?.[0] || null;
+  const guidance = s?.weeklyPlan; // advisory only: session-count target + muscle freshness ranking, never a locked day-by-day schedule
+  const [selectedBucket, setSelectedBucket] = useState(null); // null = let the algorithm pick the freshest muscle group live
 
   const experiments = s?.experiments || [];
   const activeExps = experiments.filter(e => e.active);
@@ -2005,20 +2054,28 @@ function S3({ s, onStartWorkout, onImport, onHistory, refresh }) {
     refresh({ ...s, experiments: (s?.experiments || []).filter(e => e.id !== id) });
   };
 
-  // Pre-fetch today's exercises so they're ready before the user taps Start
+  // Live-pick a session so it's ready before the user taps Start — no locked
+  // schedule to read back, this always reflects fatigue right now. Auto-picks
+  // the freshest muscle group unless the athlete has overridden that choice
+  // via the muscle-focus chips below.
   const [preloadedExercises, setPreloadedExercises] = useState(null);
+  const [pickedBucket, setPickedBucket] = useState(null);
   const [preloading, setPreloading] = useState(false);
   useEffect(() => {
-    if (!todaySession || todaySession.type === 'rest') return;
     setPreloading(true);
+    setPreloadedExercises(null);
+    const body = selectedBucket
+      ? { type: 'lift', targetMuscles: selectedBucket.muscles, bucket: selectedBucket.name }
+      : { type: 'lift' };
     authFetch(`${API_BASE}/plan/session-exercises`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ type: todaySession.type, title: todaySession.title, detail: todaySession.detail, duration: todaySession.duration }),
+      body: JSON.stringify(body),
     }).then(r => r.json()).then(data => {
-      if (data.exercises?.length) setPreloadedExercises(data.exercises);
+      setPreloadedExercises(data.exercises || []);
+      setPickedBucket(data.bucket ? { name: data.bucket, muscles: data.targetMuscles, backboneExercises: data.backboneExercises } : null);
       setPreloading(false);
     }).catch(() => setPreloading(false));
-  }, [todaySession?.title]);
+  }, [selectedBucket?.name]);
 
   const generatePlan = async () => {
     setGenning(true);
@@ -2075,48 +2132,73 @@ function S3({ s, onStartWorkout, onImport, onHistory, refresh }) {
       </div>
       <StrengthLevelPanel strengthLevels={s?.strengthLevels} hasSex={!!s?.profile?.sex} />
       <div className="fade" style={{ marginTop: 'auto' }}>
-        {todaySession ? (
+        {guidance ? (
           <div style={{ borderTop: '1px solid var(--rule)', paddingTop: 10 }}>
-            <div className="kicker" style={{ marginBottom: 4 }}>{plan.focus}</div>
-            <div style={{ fontFamily: "'Playfair Display',serif", fontStyle: 'italic', fontSize: 13, color: 'var(--dim)', marginBottom: 8, lineHeight: 1.4 }}>
-              Today — <strong style={{ fontStyle: 'normal', color: 'var(--ink)' }}>{todaySession.title}</strong> · {todaySession.duration}
+            <div className="kicker" style={{ marginBottom: 4 }}>
+              This Week's Guidance · {guidance.sessionsCompletedThisWeek ?? 0}/{guidance.liftSessionsTarget} strength{guidance.cardioSessionsTarget > 0 ? ` · ${guidance.cardioSessionsTarget} cardio` : ''}
+              {guidance.trainingPriority && guidance.trainingPriority !== 'strength' && <span style={{ color: 'var(--gold)', textTransform: 'capitalize' }}> · {guidance.trainingPriority} priority</span>}
             </div>
-            {preloadedExercises?.length > 0 && (
-              <div style={{ marginBottom: 10 }}>
-                {preloadedExercises.map((ex, i) => (
-                  <div key={i} style={{ display: 'flex', alignItems: 'baseline', gap: 8, padding: '3px 0', borderBottom: '1px solid var(--rule)' }}>
-                    <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, color: 'var(--ink)', textTransform: 'capitalize', flex: 1 }}>{ex.name}</span>
-                    <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)' }}>{ex.sets?.length ?? 3} sets · {ex.sets?.[0]?.reps ?? 8} reps</span>
-                    {ex.sets?.[0]?.kg ? <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--gold)' }}>{ex.sets[0].kg}kg</span> : null}
-                  </div>
-                ))}
+            <div style={{ fontFamily: "'Playfair Display',serif", fontStyle: 'italic', fontSize: 13, color: 'var(--dim)', marginBottom: 8, lineHeight: 1.4 }}>
+              {guidance.rationale}
+            </div>
+            {guidance.muscleFocus?.length > 0 && (
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 10 }}>
+                {guidance.muscleFocus.map(b => {
+                  const active = selectedBucket ? selectedBucket.name === b.name : pickedBucket?.name === b.name;
+                  return (
+                    <button key={b.name} className={`prof-btn${active ? ' solid' : ''}`} style={{ fontSize: 9, padding: '5px 10px', textTransform: 'capitalize' }}
+                      onClick={() => setSelectedBucket(selectedBucket?.name === b.name ? null : { name: b.name, muscles: b.muscles })}>
+                      {b.name} · {b.freshness}%
+                    </button>
+                  );
+                })}
               </div>
             )}
-            {preloading && !preloadedExercises && (
-              <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)', marginBottom: 8 }}>Preparing exercises…</div>
-            )}
-            <div style={{ display: 'flex', gap: 8 }}>
-              {todaySession.type === 'rest' ? (
-                <div style={{ fontSize: 11, color: 'var(--dim)', fontStyle: 'italic' }}>{todaySession.detail}</div>
-              ) : (
-                <>
-                  <button className="action-btn primary" onClick={() => onStartWorkout({ ...todayPlan, preloadedExercises })}>Start Today's Session</button>
-                  <button className="action-btn" onClick={() => onStartWorkout(null)}>Freestyle</button>
-                </>
-              )}
-            </div>
           </div>
         ) : (
-          <div style={{ borderTop: '1px solid var(--rule)', paddingTop: 10, display: 'flex', gap: 8 }}>
-            {!plan ? (
-              <button className="action-btn" onClick={generatePlan} disabled={genning}>{genning ? 'Generating…' : 'Generate Week Plan'}</button>
-            ) : (
-              <button className="action-btn" onClick={generatePlan} disabled={genning}>{genning ? 'Generating…' : 'Regenerate Plan'}</button>
-            )}
-            <button className="action-btn primary" onClick={() => onStartWorkout(null)}>Start Workout</button>
+          <div style={{ borderTop: '1px solid var(--rule)', paddingTop: 10, fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)', marginBottom: 8 }}>
+            No weekly guidance yet — purely a session-count suggestion, not required. You can start a session below regardless.
           </div>
         )}
-        {/* Weekly block strip */}
+
+        <div style={{ paddingTop: guidance ? 8 : 0 }}>
+          {pickedBucket?.name && preloadedExercises?.length > 0 && (
+            <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--gold)', textTransform: 'capitalize', marginBottom: 6 }}>
+              {selectedBucket ? 'Selected' : 'Freshest right now'}: {pickedBucket.name}
+            </div>
+          )}
+          {preloadedExercises?.length > 0 && (
+            <div style={{ marginBottom: 10 }}>
+              {preloadedExercises.map((ex, i) => (
+                <div key={i} style={{ display: 'flex', alignItems: 'baseline', gap: 8, padding: '3px 0', borderBottom: '1px solid var(--rule)' }}>
+                  <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, color: 'var(--ink)', textTransform: 'capitalize', flex: 1 }}>{ex.name}</span>
+                  <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)' }}>{ex.sets?.length ?? 3} sets · {ex.sets?.[0]?.reps ?? 8} reps</span>
+                  {ex.sets?.[0]?.kg ? <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--gold)' }}>{ex.sets[0].kg}kg</span> : null}
+                </div>
+              ))}
+            </div>
+          )}
+          {preloading && (
+            <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)', marginBottom: 8 }}>Preparing exercises…</div>
+          )}
+          {!preloading && preloadedExercises?.length === 0 && (
+            <div style={{ fontSize: 11, color: 'var(--dim)', fontStyle: 'italic', marginBottom: 8 }}>No fresh muscle group available right now — Freestyle, or rest and try again later.</div>
+          )}
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+            <button className="action-btn primary" disabled={!preloadedExercises?.length}
+              onClick={() => onStartWorkout({ sessions: [{ type: 'lift', targetMuscles: pickedBucket?.muscles, backboneExercises: pickedBucket?.backboneExercises }], preloadedExercises })}>
+              Start Session
+            </button>
+            <button className="action-btn" onClick={() => onStartWorkout(null)}>Freestyle</button>
+            {selectedBucket && <button className="action-btn" onClick={() => setSelectedBucket(null)}>Auto-Pick Freshest</button>}
+            <button onClick={generatePlan} disabled={genning}
+              style={{ marginLeft: 'auto', background: 'none', border: 'none', fontFamily: "'JetBrains Mono',monospace", fontSize: 9, letterSpacing: '.1em', textTransform: 'uppercase', color: 'var(--dim)', cursor: 'pointer', padding: 0 }}>
+              {genning ? '…' : guidance ? 'Refresh Guidance' : 'Get Weekly Guidance'}
+            </button>
+          </div>
+        </div>
+
+        {/* Week history strip — which days actually had a session, not a forward schedule */}
         {(() => {
           const now = new Date();
           const mondayOffset = (now.getDay() + 6) % 7;
@@ -2130,24 +2212,11 @@ function S3({ s, onStartWorkout, onImport, onHistory, refresh }) {
                 const d = new Date(monday); d.setDate(monday.getDate() + i);
                 const dateStr = d.toISOString().slice(0, 10);
                 const isToday = dateStr === todayStr;
-                const isPast = dateStr < todayStr;
                 const hasSession = workoutDates.has(dateStr);
-                const planEntry = plan?.days?.find(pd => pd.date === dateStr);
-                const planSess = planEntry?.sessions?.[0];
-                const isClickable = !hasSession && !isPast && planSess && planSess.type !== 'rest';
                 return (
-                  <div key={i}
-                    className={`week-day${isToday ? ' today' : ''}${hasSession ? ' has-session' : ''}${isClickable ? ' clickable' : ''}`}
-                    onClick={() => isClickable && onStartWorkout(planEntry)}
-                    title={planSess?.title || (hasSession ? 'Done' : '')}
-                  >
+                  <div key={i} className={`week-day${isToday ? ' today' : ''}${hasSession ? ' has-session' : ''}`} title={hasSession ? 'Trained' : ''}>
                     <div className="week-day-label">{label}</div>
                     {hasSession && <div className="week-day-dot" />}
-                    {!hasSession && planSess && (
-                      <div className={`week-day-type${isPast ? ' past' : ''}`}>
-                        {planSess.type === 'rest' ? 'REST' : planSess.type.toUpperCase().slice(0, 4)}
-                      </div>
-                    )}
                   </div>
                 );
               })}
@@ -2252,6 +2321,7 @@ function S4({ s, refresh }) {
   const cal = n.calories || 0;
   const calTarget = mt.calories || 2400;
   const short = calTarget - cal;
+  const exactCal = !!s?.profile?.exactCalories;
 
   // Form state
   const [label, setLabel] = useState('');
@@ -2483,14 +2553,17 @@ function S4({ s, refresh }) {
       <div className="fade" style={{ flexShrink: 0 }}>
         <div className="kicker">Nutrition · Today</div>
         <div className="headline">
-          {cal > 0 ? `${cal.toLocaleString()} kcal —` : 'Empty Plate —'}<br />
-          {cal > 0 ? (short > 0 ? `${short.toLocaleString()} Short` : 'On Target') : 'Nothing on the Docket'}
+          {cal > 0 ? `${roundCal(cal, exactCal).toLocaleString()} kcal —` : 'Empty Plate —'}<br />
+          {cal > 0 ? (short > 0 ? `${roundCal(short, exactCal).toLocaleString()} Short` : 'On Target') : 'Nothing on the Docket'}
         </div>
+        {!exactCal && cal > 0 && (
+          <div className="deck" style={{ marginTop: 2 }}>Approximate, to the nearest 300 kcal. Turn on exact calories in Settings → Nutrition.</div>
+        )}
       </div>
 
       <div className="fade" style={{ flexShrink: 0 }}>
         {[
-          { label: 'Calories', val: cal,          tgt: calTarget,         unit: 'kcal', color: 'var(--ink)'    },
+          { label: 'Calories', val: roundCal(cal, exactCal), tgt: roundCal(calTarget, exactCal), unit: 'kcal', color: 'var(--ink)' },
           { label: 'Protein',  val: n.protein||0,  tgt: mt.protein || 160, unit: 'g',    color: 'var(--navy)'   },
           { label: 'Carbs',    val: n.carbs||0,    tgt: mt.carbs || 250,   unit: 'g',    color: 'var(--forest)' },
           { label: 'Fat',      val: n.fat||0,      tgt: mt.fat || 75,      unit: 'g',    color: 'var(--ember)'  },
@@ -3069,6 +3142,7 @@ const TREND_METRICS = [
   { key: 'weight', label: 'Weight', unit: 'kg', color: 'var(--ink)' },
   { key: 'bodyFat', label: 'Body Fat', unit: '%', color: 'var(--ember)' },
   { key: 'recovery', label: 'Recovery', unit: '/100', color: 'var(--gold)' },
+  { key: 'sleepScore', label: 'Sleep Score', unit: '/100', color: 'var(--plum)' },
   { key: 'sleep', label: 'Sleep', unit: 'h', color: 'var(--plum)' },
   { key: 'hrv', label: 'HRV', unit: 'ms', color: 'var(--navy)' },
   { key: 'squat', label: 'Squat e1RM', unit: 'kg', color: 'var(--forest)' },
@@ -3967,6 +4041,18 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, setBrie
               ))}
             </div>
           </div>
+          <div className="prof-field">
+            <span className="prof-lbl">Training Priority <span style={{ fontSize: 8, color: 'var(--dim)', textTransform: 'none' }}>(shapes weekly guidance)</span></span>
+            <div style={{ display: 'flex', gap: 6 }}>
+              {['strength','cardio','sport'].map(p => (
+                <button key={p} className="prof-btn"
+                  onClick={() => api('profile', { method: 'POST', body: JSON.stringify({ trainingPriority: p }) }).then(profile => refresh({ ...s, profile }))}
+                  style={{ textTransform: 'capitalize', ...((s?.profile?.trainingPriority || 'strength') === p ? { background: 'var(--ink)', color: 'var(--paper)', borderColor: 'var(--ink)' } : {}) }}>
+                  {p}
+                </button>
+              ))}
+            </div>
+          </div>
         </div>
 
         {/* ── TRACKING LEVEL ── */}
@@ -4005,6 +4091,18 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, setBrie
             onClick={saveTargets} disabled={savingTargets}>
             {savingTargets ? 'Saving…' : 'Save Targets'}
           </button>
+        </div>
+
+        {/* ── NUTRITION ── */}
+        <div className="settings-sec">
+          <div className="settings-sh">Nutrition</div>
+          <div className="prof-field">
+            <span className="prof-lbl">Exact Calories <span style={{ fontSize: 8, color: 'var(--dim)', textTransform: 'none' }}>(default: nearest 300)</span></span>
+            <button className="prof-btn" onClick={() => api('profile', { method: 'POST', body: JSON.stringify({ exactCalories: !s?.profile?.exactCalories }) }).then(profile => refresh({ ...s, profile }))}
+              style={s?.profile?.exactCalories ? { background: 'var(--ink)', color: 'var(--paper)', borderColor: 'var(--ink)' } : {}}>
+              {s?.profile?.exactCalories ? 'On' : 'Off'}
+            </button>
+          </div>
         </div>
 
         {/* ── CONNECTED SERVICES ── */}
