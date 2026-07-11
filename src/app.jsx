@@ -1925,7 +1925,7 @@ function StrengthLevelPanel({ strengthLevels, hasSex }) {
   );
   return (
     <div className="fade" style={{ borderTop: '1px solid var(--rule)', paddingTop: 10 }}>
-      <div className="kicker" style={{ marginBottom: 8 }}>Strength Level · vs. Published Standards</div>
+      <div className="kicker" style={{ marginBottom: 8 }}>All-Time Best · vs. Published Standards</div>
       {rankedLifts.map(([cat, v]) => (
         <div key={cat} style={{ marginBottom: 8 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', fontFamily: "'JetBrains Mono',monospace", fontSize: 10, marginBottom: 3 }}>
@@ -1933,6 +1933,9 @@ function StrengthLevelPanel({ strengthLevels, hasSex }) {
             <span style={{ color: TIER_COLOR[v.tier] }}>{v.tier} · {v.e1RM}kg e1RM</span>
           </div>
           <div className="macro-track"><div className="macro-fill" style={{ width: `${v.score}%`, background: TIER_COLOR[v.tier] }} /></div>
+          <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, color: 'var(--dim)', marginTop: 2 }}>
+            PR set {new Date(v.date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })} at {v.bodyweightKg}kg bodyweight — ratio {v.ratio}×
+          </div>
         </div>
       ))}
       <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', marginTop: 10, borderTop: '1px solid var(--rule)', paddingTop: 8 }}>
