@@ -10,7 +10,12 @@ const { RECOVERY_H, musclesForExercise, isCompoundExercise } = require('./muscle
 const avg = (a) => (a.length ? a.reduce((x, y) => x + y, 0) / a.length : null);
 const liftTime = (l) => new Date(l.start || l.date).getTime();
 
-function computeStructuralFatigue(lifts, musclePeaks, soreness = [], sensitivity = {}) {
+// recoveryHours optionally overrides RECOVERY_H per-muscle — used to apply a
+// per-athlete personalization (age, training experience) computed by the
+// caller from profile data, without this module needing to know anything
+// about profiles. Falls back to the base taxonomy table for any muscle the
+// override doesn't cover.
+function computeStructuralFatigue(lifts, musclePeaks, soreness = [], sensitivity = {}, recoveryHours = RECOVERY_H) {
   const now = Date.now();
   const scores = {};
   for (const l of (lifts || [])) {
@@ -18,7 +23,7 @@ function computeStructuralFatigue(lifts, musclePeaks, soreness = [], sensitivity
     if (hoursAgo > 336 || hoursAgo < 0) continue;
     const load = (l.kg || 0) * (l.reps || 1);
     for (const m of musclesForExercise(l.exercise)) {
-      const hl = RECOVERY_H[m] || 72;
+      const hl = recoveryHours[m] || RECOVERY_H[m] || 72;
       const decay = Math.exp(-0.693 * hoursAgo / hl);
       scores[m] = (scores[m] || 0) + load * decay;
     }
@@ -35,8 +40,8 @@ function computeStructuralFatigue(lifts, musclePeaks, soreness = [], sensitivity
   return out;
 }
 
-function computeCurrentFatigueScores(lifts, peaks, soreness = [], sensitivity = {}) {
-  return computeStructuralFatigue(lifts, peaks, soreness, sensitivity);
+function computeCurrentFatigueScores(lifts, peaks, soreness = [], sensitivity = {}, recoveryHours = RECOVERY_H) {
+  return computeStructuralFatigue(lifts, peaks, soreness, sensitivity, recoveryHours);
 }
 
 // All-time peak single-day load per muscle, used as computeStructuralFatigue's

@@ -134,6 +134,74 @@ const {
   INJURY_HEALING_DAYS, injuryFatiguePenalty, applyInjuryTaper,
   computeACWR, computePerformanceTrend, computeMetabolicFatigue, computeCNSFatigue,
 } = require('./fatigue');
+const { RECOVERY_H: RECOVERY_H_B } = require('./muscleTaxonomy');
+
+// Static, per-person personalization of the recovery half-life table — a
+// starting-point adjustment from who this athlete is (age, training
+// experience), computed fresh from profile data each call rather than fitted
+// or refit from observed outcomes. That's deliberate: the literature on
+// individual variation in muscle recovery time finds it's better explained by
+// known moderators (training status, age) than treated as a freely-fitted
+// personal constant, and a single noisy data point (one session, one
+// soreness log) isn't good evidence to refit a structural decay parameter.
+// muscleSensitivity (below) is the other, dynamic half of this — it keeps
+// nudging on top of this baseline from actual observed soreness/experiment
+// outcomes. The two don't compete: this answers "where should this person's
+// baseline reasonably sit," muscleSensitivity answers "how has this specific
+// muscle actually behaved for them since."
+function computeAgeYears(dob) {
+  if (!dob) return null;
+  return (Date.now() - new Date(dob).getTime()) / (365.25 * 24 * 3600 * 1000);
+}
+
+// Self-reported once (trainingExperienceYears), then accrues automatically
+// from the timestamp it was reported (trainingExperienceSetAt) rather than
+// staying frozen at whatever number was typed in — so "3 years" answered
+// today quietly becomes "4.5 years" 18 months from now without ever needing
+// to be re-asked. Correcting the number in Settings resets the clock.
+function trainingExperienceMonths(profile) {
+  if (profile?.trainingExperienceYears == null) return 0;
+  const setAt = profile.trainingExperienceSetAt ? new Date(profile.trainingExperienceSetAt).getTime() : Date.now();
+  const monthsSinceSet = Math.max(0, (Date.now() - setAt) / (30.44 * 24 * 3600 * 1000));
+  return profile.trainingExperienceYears * 12 + monthsSinceSet;
+}
+
+// For the new-lifter set-count budget specifically (unlike the recovery
+// half-life above, which safely defaults unknowns to "assume novice"):
+// missing data should skip the cap entirely rather than silently capping an
+// established lifter's working sets to 1-2 just because they never filled
+// in the field. An explicit "0 years" still counts as known data.
+function trainingMonthsIfKnown(profile) {
+  return profile?.trainingExperienceYears != null ? trainingExperienceMonths(profile) : null;
+}
+
+// Repeated-bout effect: trained lifters recover faster from familiar stimuli
+// than novices do at the same relative intensity.
+function trainingExperienceFactor(months) {
+  if (months < 3) return 1.3;
+  if (months < 12) return 1.1;
+  if (months < 36) return 1.0;
+  return 0.85;
+}
+
+// Recovery slows with age — persistently elevated inflammatory markers in
+// older adults are well documented.
+function ageFactor(ageYears) {
+  if (ageYears == null) return 1.0;
+  if (ageYears < 30) return 0.9;
+  if (ageYears < 45) return 1.0;
+  if (ageYears < 60) return 1.15;
+  return 1.3;
+}
+
+// Clamped to 24-120h so the two factors can't compound into something absurd
+// for, say, a 65-year-old brand-new lifter.
+function personalizedRecoveryHours(profile) {
+  const factor = trainingExperienceFactor(trainingExperienceMonths(profile)) * ageFactor(computeAgeYears(profile?.dob));
+  const out = {};
+  for (const [m, base] of Object.entries(RECOVERY_H_B)) out[m] = Math.max(24, Math.min(120, Math.round(base * factor)));
+  return out;
+}
 
 function alcoholStats(alcoholLog) {
   const ydayDate = new Date(); ydayDate.setDate(ydayDate.getDate() - 1);
@@ -905,7 +973,16 @@ app.post("/macro-auto", async (req, res) => {
   await save(); res.json({ goal, targets: db.profile.macroTargets });
 });
 app.post("/thought", async (req, res) => { db.thoughts.push({ date: day(), text: req.body.text }); await save(); res.json({ ok: true }); });
-app.post("/profile", async (req, res) => { db.profile = { ...db.profile, ...req.body }; await save(); res.json(db.profile); });
+app.post("/profile", async (req, res) => {
+  const body = { ...req.body };
+  // Stamped server-side, never trusting a client-sent timestamp — reset
+  // whenever the reported figure changes so it starts accruing fresh from
+  // the corrected value.
+  if (body.trainingExperienceYears != null) body.trainingExperienceSetAt = new Date().toISOString();
+  db.profile = { ...db.profile, ...body };
+  await save();
+  res.json(db.profile);
+});
 
 // ---------- Personal Journalist ----------
 const TRAINING_ETHOS = "Training philosophy — this is the standing stance, not a menu of options to present neutrally: Effort is non-negotiable. Push hard for training close to true failure, always expressed in concrete RIR (reps in reserve) terms — 'take that set to RIR 0-1', 'RIR 3-4 is too far out, add weight or a rep next time' — never vague language like 'push yourself' or 'go hard'. On any exercise with more than one working set, RIR always decreases set to set — the first working set leaves more in reserve, each subsequent set gets closer to true failure, with the last set at RIR 0-1; never repeat the same RIR across sets of the same exercise. Full-body sessions, 2-4x/week: frequency over volume — fewer working sets per session, volume spread across the week rather than stacked into one session. Fully autoregulated: no rigid periodized templates — adjust load, sets, and exercise choice session to session based on real fatigue and performance, and trigger deloads purely from fatigue/performance data, never a fixed schedule. Progress via double progression — climb reps to the top of the rep range at target RIR, then add weight and drop back down in reps. Reps run 1-9, biased toward the higher end (up to 8-9), since 1-2 reps rarely deliver enough stimulus per set to be worth defaulting to. Favor stable, structured movements (machines, fixed-path, cables) over free-weight variations specifically because they let effort be pushed to true failure without technical form breakdown becoming the limiter — not dogma against barbells, just a preference for whatever lets intensity go higher safely; stick with an exercise as long as double progression keeps working, only rotate it out once progress stalls. Prioritize lagging muscle groups with extra frequency or volume over strong points. Warm up with a couple of ramping sets (roughly 60% then 85% of the working weight) before working sets, adjusted by how the day feels, and rest fully between working sets (about 3-4 minutes) to protect effort quality over session speed. When something hurts or flares up, work around it — swap the offending movement or angle and keep training everything else hard, rather than broadly backing off. Keep cardio/conditioning sessions separate from strength sessions so lifting stimulus never gets diluted by concurrent-training interference. No program should be copied wholesale — build around the individual's recovery, goals, and response. A caloric surplus without real training stimulus adds fat, not muscle.";
@@ -941,7 +1018,7 @@ app.post("/plan/session-exercises", async (req, res) => {
   const lifts = db.lifts || [];
 
   const peaks = musclePeaksFromLifts(lifts);
-  const structuralFatigue = computeStructuralFatigue(lifts, peaks, db.soreness || [], db.muscleSensitivity || {});
+  const structuralFatigue = computeStructuralFatigue(lifts, peaks, db.soreness || [], db.muscleSensitivity || {}, personalizedRecoveryHours(db.profile));
   const activeInjuries = (db.injuries || []).filter(i => !i.resolved);
   const currentFatigue = applyInjuryTaper(structuralFatigue, activeInjuries);
   const metabolicFatigue = computeMetabolicFatigue(lifts, (db.nutrition || {})[day()]?.carbs || 0);
@@ -968,6 +1045,7 @@ app.post("/plan/session-exercises", async (req, res) => {
   const exercises = generateSessionExercises({
     type, targetMuscles, backboneExerciseNames: backboneExercises, lifts, travelMode,
     avoidMuscles, offlineMuscles, cnsFatigue, metabolicFatigue,
+    trainingMonths: trainingMonthsIfKnown(db.profile),
   });
   res.json({ exercises, targetMuscles: targetMuscles || [], backboneExercises: backboneExercises || [], bucket });
 });
@@ -1027,7 +1105,7 @@ function weekLiftSessionsCompleted(lifts) {
 
 function computeWeeklyGuidance() {
   const peaks = musclePeaksFromLifts(db.lifts);
-  const structuralFatigue = computeStructuralFatigue(db.lifts, peaks, db.soreness || [], db.muscleSensitivity || {});
+  const structuralFatigue = computeStructuralFatigue(db.lifts, peaks, db.soreness || [], db.muscleSensitivity || {}, personalizedRecoveryHours(db.profile));
   const currentFatigue = applyInjuryTaper(structuralFatigue, db.injuries || []);
   const weekMetabolic = computeMetabolicFatigue(db.lifts, (db.nutrition || {})[day()]?.carbs || 0);
   const weekCNS = computeCNSFatigue(db.lifts, db.cnsSensitivity || 1.0, getRecoveryScore(db));
@@ -1296,7 +1374,7 @@ async function generateMorningBriefing(db) {
   const hrv = todayMetrics.heart_rate_variability || yesterdayMetrics.heart_rate_variability;
   const rhr = todayMetrics.resting_heart_rate || yesterdayMetrics.resting_heart_rate;
 
-  const fatigue = computeCurrentFatigueScores(db.lifts || [], musclePeaksFromLifts(db.lifts || []), db.soreness || [], db.muscleSensitivity || {});
+  const fatigue = computeCurrentFatigueScores(db.lifts || [], musclePeaksFromLifts(db.lifts || []), db.soreness || [], db.muscleSensitivity || {}, personalizedRecoveryHours(db.profile));
   const topFatigued = Object.entries(fatigue).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([m, v]) => `${m} ${Math.round(v)}%`).join(', ');
 
   const briefingFatigue = fatigue;
@@ -1364,7 +1442,7 @@ async function generateNewscast(db, period) {
   const nutritionLogged = todayNutrition.length > 0;
   const macroTargets = db.profile?.macroTargets || { calories: 2400, protein: 160 };
   const timeLabel = period === 'afternoon' ? 'Mid-Day Update' : "Tonight's Report";
-  const fatigue = computeCurrentFatigueScores(db.lifts || [], musclePeaksFromLifts(db.lifts || []), db.soreness || [], db.muscleSensitivity || {});
+  const fatigue = computeCurrentFatigueScores(db.lifts || [], musclePeaksFromLifts(db.lifts || []), db.soreness || [], db.muscleSensitivity || {}, personalizedRecoveryHours(db.profile));
   const topFatigued = Object.entries(fatigue).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([m, v]) => `${m} ${Math.round(v)}%`).join(', ') || 'none';
   const cns = computeCNSFatigue(db.lifts || [], db.cnsSensitivity || 1.0, getRecoveryScore(db));
 
