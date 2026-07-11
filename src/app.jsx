@@ -3911,6 +3911,7 @@ function Onboarding({ onComplete, onOpenImport }) {
 // ── SETTINGS OVERLAY ─────────────────────────────────────────────────────────
 function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, setBriefing }) {
   const [nameVal, setNameVal] = useState(s?.profile?.name || '');
+  const [trainingExpVal, setTrainingExpVal] = useState(s?.profile?.trainingExperienceYears ?? '');
   const [sleepTarget, setSleepTarget] = useState(s?.profile?.sleepTarget || 8);
   const [waterTarget, setWaterTarget] = useState(s?.profile?.waterTarget || 7);
   const [trainingDays, setTrainingDays] = useState(s?.profile?.trainingDaysPerWeek || 4);
@@ -4052,6 +4053,18 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, setBrie
                 </button>
               ))}
             </div>
+          </div>
+          <div className="prof-field">
+            <span className="prof-lbl">Training Experience <span style={{ fontSize: 8, color: 'var(--dim)', textTransform: 'none' }}>(years — used for recovery pacing)</span></span>
+            <input className="prof-input" type="number" min="0" step="0.5" inputMode="decimal"
+              value={trainingExpVal} onChange={e => setTrainingExpVal(e.target.value)}
+              onBlur={() => {
+                const v = trainingExpVal === '' ? null : parseFloat(trainingExpVal);
+                if (v !== (s?.profile?.trainingExperienceYears ?? null)) {
+                  api('profile', { method: 'POST', body: JSON.stringify({ trainingExperienceYears: v }) }).then(profile => refresh({ ...s, profile }));
+                }
+              }}
+              placeholder="e.g. 2" style={{ flex: 1, minWidth: 0, maxWidth: 80 }} />
           </div>
         </div>
 

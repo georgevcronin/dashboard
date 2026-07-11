@@ -25,6 +25,27 @@ function substituteForCNS(entry, avoidMuscles) {
   return candidates[0]?.e || entry;
 }
 
+// Exercise rotation (experiment mode, axis 1): finds whichever exercise was
+// logged most recently that primarily hits this muscle bucket, so the
+// accessory picker below can avoid repeating it. Backbone exercises are
+// deliberately excluded from consideration here (via excludeNames) — the
+// ethos is to stick with a backbone lift as long as double progression keeps
+// working, only rotating it out once progress stalls, so rotation only
+// applies to the accessory slot, which exists precisely to add variety.
+function lastAccessoryPick(lifts, targetMuscles, excludeNames) {
+  const dates = [...new Set((lifts || []).map(l => l.date))].sort().reverse();
+  for (const date of dates) {
+    const dayExercises = [...new Set(lifts.filter(l => l.date === date).map(l => l.exercise).filter(Boolean))];
+    const match = dayExercises.find(name => {
+      if (excludeNames.has(name)) return false;
+      const entry = EXERCISE_DB.find(e => e.name.toLowerCase() === name.toLowerCase());
+      return entry && entry.primary.some(m => targetMuscles.includes(m));
+    });
+    if (match) return match.toLowerCase();
+  }
+  return null;
+}
+
 // Fills in exercises for muscles the backbone picks don't already cover.
 // Unlike the weekly planner's backbone selection, this includes lesserKnown
 // (novel/accessory) variations — appropriate here since the compound-first
@@ -32,17 +53,22 @@ function substituteForCNS(entry, avoidMuscles) {
 // excludeNames covers both the final (possibly CNS-substituted) backbone
 // picks AND their pre-substitution originals — otherwise a barbell exercise
 // swapped out for being too CNS-taxing can wander back in as an "accessory"
-// since it's no longer in the final backbone list.
-function pickAccessories(targetMuscles, alreadySelected, excludeNames, avoidMuscles, { travelMode, avoidEquipment = [], count }) {
+// since it's no longer in the final backbone list. avoidNames is the
+// rotation list from lastAccessoryPick — excluded unless doing so would
+// leave zero candidates (a muscle with exactly one viable exercise shouldn't
+// get artificially starved just to satisfy rotation).
+function pickAccessories(targetMuscles, alreadySelected, excludeNames, avoidMuscles, { travelMode, avoidEquipment = [], avoidNames = [], count }) {
   const coveredMuscles = new Set(alreadySelected.flatMap(e => e.primary));
   const remainingMuscles = targetMuscles.filter(m => !coveredMuscles.has(m));
-  const pool = EXERCISE_DB.filter(e =>
+  const basePool = EXERCISE_DB.filter(e =>
     !excludeNames.has(e.name) &&
     (travelMode ? e.equipment === 'bodyweight' : true) &&
     !avoidEquipment.includes(e.equipment) &&
     !e.primary.some(m => avoidMuscles.includes(m)) &&
     e.primary.some(m => targetMuscles.includes(m))
   );
+  const rotatedPool = avoidNames.length ? basePool.filter(e => !avoidNames.includes(e.name.toLowerCase())) : basePool;
+  const pool = rotatedPool.length ? rotatedPool : basePool;
   const scored = pool
     .map(e => ({ e, score: e.primary.filter(m => remainingMuscles.includes(m)).length * 2 + e.primary.filter(m => targetMuscles.includes(m)).length }))
     .sort((a, b) => b.score - a.score);
@@ -68,28 +94,80 @@ function progressionFor(lifts, canonicalName) {
   return computeProgression(matching, canonicalName);
 }
 
-function setsFor(prog, workingSetCount) {
+function exerciseSessionCount(lifts, name) {
+  const lower = name.toLowerCase();
+  return new Set((lifts || []).filter(l => (l.exercise || '').toLowerCase() === lower).map(l => l.date)).size;
+}
+
+// Exercise rotation (experiment mode, axis 1) picks *what*; this picks *how
+// much* — cycling working-set count 2 -> 3 -> 4 -> 2... independently per
+// exercise, based on how many times that specific exercise has been logged.
+// Independent-per-exercise is deliberate: the goal is isolating one variable
+// (volume) per movement, not changing the whole session's volume in
+// lockstep, so two exercises in the same session can land on different
+// counts. Bounded to ceiling+1 as a small, deliberate overshoot probe of
+// whether the muscle tolerates more than the fatigue model currently
+// predicts — the existing muscleSensitivity mechanism absorbs whatever that
+// probe reveals via ordinary soreness logging afterward, so no separate
+// calibration loop is needed here.
+function experimentalSetCount(ceiling, sessionCount) {
+  const cycle = [2, 3, 4];
+  const raw = cycle[sessionCount % cycle.length];
+  return Math.min(raw, ceiling + 1);
+}
+
+// Fatigue budget for very new lifters, expressed as a working-set count
+// rather than a numeric RIR the app doesn't track: under 3 months, the
+// budget is one failure-equivalent set, spendable as a single true-failure
+// set OR two sets held short of failure — cycled between the two so a solo
+// failure set is a real, reachable outcome and not just a theoretical floor
+// the general 2/3/4 cycle (which never lands on 1) would otherwise exclude.
+// 3-6 months raises the ceiling to a flat 2 working sets with no failure-
+// suppression behavior — as originally specified, no RIR nuance requested
+// for this tier. 6+ months: no special handling, returns null so the
+// ordinary fatigue/experiment system applies untouched. Deliberately more
+// conservative than the general system — no +1 overshoot allowance, since
+// this cap exists precisely to protect someone who hasn't built recovery
+// capacity yet.
+function newLifterWorkingSetCount(trainingMonths, sessionCount, fatigueCeiling) {
+  if (trainingMonths == null) return null;
+  if (trainingMonths < 3) return Math.min([1, 2][sessionCount % 2], fatigueCeiling);
+  if (trainingMonths < 6) return Math.min(2, fatigueCeiling);
+  return null;
+}
+
+function setsFor(prog, workingSetCount, { failureSolo = false, higherRirPair = false } = {}) {
+  const workingType = failureSolo ? 'F' : 'N';
   if (!prog) {
-    return {
-      note: 'no history yet — pick a comfortable weight and log it to start tracking progression',
-      sets: Array.from({ length: workingSetCount }, () => ({ type: 'N', kg: 0, reps: 8 })),
-    };
+    const note = failureSolo
+      ? 'no history yet — new lifter: this one set should go to true failure'
+      : higherRirPair
+      ? 'no history yet — new lifter: stay a couple reps short of failure on these'
+      : 'no history yet — pick a comfortable weight and log it to start tracking progression';
+    return { note, sets: Array.from({ length: workingSetCount }, () => ({ type: workingType, kg: 0, reps: 8 })) };
   }
   const sets = [];
   if (prog.suggestKg > 0) {
     sets.push({ type: 'W', kg: prog.warmup1kg, reps: 10 });
     sets.push({ type: 'W', kg: prog.warmup2kg, reps: 5 });
   }
-  for (let i = 0; i < workingSetCount; i++) sets.push({ type: 'N', kg: prog.suggestKg, reps: prog.suggestReps });
-  return { note: prog.note, sets };
+  for (let i = 0; i < workingSetCount; i++) sets.push({ type: workingType, kg: prog.suggestKg, reps: prog.suggestReps });
+  let note = prog.note;
+  if (failureSolo) note += ' — new lifter: take this set to true failure';
+  else if (higherRirPair) note += ' — new lifter: keep these a couple reps short of failure';
+  return { note, sets };
 }
 
 // backboneExerciseNames: the 2 compound picks the weekly planner already made
 // for this day (functions/weeklyPlanner.js's pickBackboneExercises). This
 // function's job is narrower: resolve those to full DB entries, apply
-// fatigue/injury/CNS adjustments, round out with accessories, and attach a
-// concrete set/rep/weight scheme to each.
-function generateSessionExercises({ type, targetMuscles, backboneExerciseNames, lifts, travelMode, avoidMuscles = [], offlineMuscles = [], cnsFatigue = 0, metabolicFatigue = 0 }) {
+// fatigue/injury/CNS adjustments, round out with accessories (rotating away
+// from last session's pick per bucket), and attach a concrete set/rep/weight
+// scheme to each — including experiment-mode set-count cycling and the
+// new-lifter fatigue budget. trainingMonths is null for an athlete who
+// hasn't self-reported training experience, in which case the new-lifter
+// budget is skipped entirely rather than assumed.
+function generateSessionExercises({ type, targetMuscles, backboneExerciseNames, lifts, travelMode, avoidMuscles = [], offlineMuscles = [], cnsFatigue = 0, metabolicFatigue = 0, trainingMonths = null }) {
   if (type !== 'lift' || !targetMuscles?.length) return [];
 
   const excludeMuscles = [...new Set([...avoidMuscles, ...offlineMuscles])];
@@ -107,16 +185,26 @@ function generateSessionExercises({ type, targetMuscles, backboneExerciseNames, 
   const seen = new Set();
   backboneEntries = backboneEntries.filter(e => (seen.has(e.name) ? false : (seen.add(e.name), true)));
 
-  const workingSetCount = metabolicFatigue > 60 ? 2 : metabolicFatigue > 30 ? 3 : 4;
+  const fatigueCeiling = metabolicFatigue > 60 ? 2 : metabolicFatigue > 30 ? 3 : 4;
   const accessoryCount = metabolicFatigue > 60 ? 1 : 2;
 
   const excludeNames = new Set([...originalNames, ...backboneEntries.map(e => e.name)]);
   const avoidEquipment = cnsFatigue > 70 ? HIGH_CNS_EQUIPMENT : [];
-  const accessories = pickAccessories(targetMuscles, backboneEntries, excludeNames, excludeMuscles, { travelMode, avoidEquipment, count: accessoryCount });
+  const lastPick = lastAccessoryPick(lifts, targetMuscles, excludeNames);
+  const accessories = pickAccessories(targetMuscles, backboneEntries, excludeNames, excludeMuscles, {
+    travelMode, avoidEquipment, avoidNames: lastPick ? [lastPick] : [], count: accessoryCount,
+  });
 
   return [...backboneEntries, ...accessories].map(e => {
     const prog = progressionFor(lifts, e.name);
-    const { note, sets } = setsFor(prog, workingSetCount);
+    const sessionCount = exerciseSessionCount(lifts, e.name);
+    const nlCount = newLifterWorkingSetCount(trainingMonths, sessionCount, fatigueCeiling);
+    const workingSetCount = nlCount != null ? nlCount : experimentalSetCount(fatigueCeiling, sessionCount);
+    const newLifterPhase = trainingMonths != null && trainingMonths < 3;
+    const { note, sets } = setsFor(prog, workingSetCount, {
+      failureSolo: newLifterPhase && workingSetCount === 1,
+      higherRirPair: newLifterPhase && workingSetCount >= 2,
+    });
     return { name: e.name, note, sets };
   });
 }
