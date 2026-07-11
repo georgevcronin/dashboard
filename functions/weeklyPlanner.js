@@ -5,8 +5,10 @@
 // don't load a muscle already near its fatigue ceiling; compound "boring but
 // effective" movements are the backbone, novel variations are accessory only;
 // frequency/volume trade off against systemic (CNS/metabolic) fatigue rather
-// than following a fixed template. The LLM is only used afterwards to turn
-// this structured skeleton into readable session titles/detail text.
+// than following a fixed template. No LLM anywhere in this path — the plan's
+// day structure, session copy (functions/index.js's templateSessionText), and
+// per-session exercise selection (functions/sessionPlanner.js) are all plain
+// code.
 
 const { EXERCISE_DB } = require('./exerciseDb');
 

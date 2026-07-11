@@ -1202,7 +1202,7 @@ function WorkoutLogger({ planDay, lifts, customExercises, onClose, refresh }) {
 
     authFetch(`${API_BASE}/plan/session-exercises`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ type: session.type, title: session.title, detail: session.detail, duration: session.duration }),
+      body: JSON.stringify({ type: session.type, targetMuscles: session.targetMuscles, backboneExercises: session.backboneExercises }),
     }).then(r => r.json()).then(data => {
       if (data.exercises?.length) setExercises(data.exercises.map(toExercise));
       setLoading(false);
@@ -2013,7 +2013,7 @@ function S3({ s, onStartWorkout, onImport, onHistory, refresh }) {
     setPreloading(true);
     authFetch(`${API_BASE}/plan/session-exercises`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ type: todaySession.type, title: todaySession.title, detail: todaySession.detail, duration: todaySession.duration }),
+      body: JSON.stringify({ type: todaySession.type, targetMuscles: todaySession.targetMuscles, backboneExercises: todaySession.backboneExercises }),
     }).then(r => r.json()).then(data => {
       if (data.exercises?.length) setPreloadedExercises(data.exercises);
       setPreloading(false);

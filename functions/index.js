@@ -5,6 +5,8 @@ const webpush = require("web-push");
 const { EXERCISE_DB, EXERCISE_MAP } = require('./exerciseDb');
 const { generateWeeklyStructure } = require('./weeklyPlanner');
 const { computeStrengthLevels, classifyLift, estimate1RM } = require('./strengthStandards');
+const { computeProgression } = require('./progression');
+const { generateSessionExercises } = require('./sessionPlanner');
 
 admin.initializeApp();
 const firestore = admin.firestore();
@@ -1083,53 +1085,12 @@ app.post("/mentor", async (req, res) => {
   res.json({ reply: "Personal Journalist error: " + (result.error?.message || `Gemini returned ${result.status}`) });
 });
 
-function computeProgression(lifts, name) {
-  const ex = lifts.filter(l => l.exercise === name);
-  if (!ex.length) return null;
-  const byDate = {};
-  for (const l of ex) { if (!byDate[l.date]) byDate[l.date] = []; byDate[l.date].push(l); }
-  const sessions = Object.entries(byDate).sort(([a],[b]) => a.localeCompare(b)).slice(-6).map(([date, sets]) => {
-    const topKg = Math.max(...sets.map(s => s.kg || 0));
-    const topSet = sets.find(s => s.kg === topKg) || sets[0];
-    const e1rm = topSet.kg > 0 && topSet.reps > 0 ? Math.round(topSet.kg * (1 + topSet.reps / 30)) : 0;
-    return { date, kg: topSet.kg, reps: topSet.reps, e1rm, setCount: sets.length };
-  });
-  const last = sessions.at(-1);
-  const prev = sessions.at(-2);
-  const isLower = ['squat','deadlift','leg press','lunge','hip thrust','romanian'].some(k => name.includes(k));
-  const inc = isLower ? 5 : 2.5;
-  let suggestKg = last.kg, suggestReps = last.reps, trend, note;
-  if (!prev) {
-    trend = 'baseline'; note = `baseline — ${last.kg}kg×${last.reps}`;
-  } else if (last.e1rm > prev.e1rm && last.reps >= 5) {
-    suggestKg = last.kg + inc; trend = 'progressing';
-    note = `progressing — try ${suggestKg}kg×${last.reps} (+${inc}kg)`;
-  } else if (last.e1rm >= prev.e1rm) {
-    suggestReps = last.reps + 1; trend = 'steady';
-    note = `steady — target ${last.kg}kg×${suggestReps} (+1 rep)`;
-  } else if (sessions.slice(-3).every((s, i, a) => i === 0 || s.e1rm <= a[i-1].e1rm)) {
-    suggestKg = Math.max(0, last.kg - inc * 2); trend = 'stalled';
-    note = `stalled — reset to ${suggestKg}kg and rebuild`;
-  } else {
-    trend = 'recovering'; note = `recovering — hold ${last.kg}kg×${last.reps}`;
-  }
-  const warmup1kg = Math.round(suggestKg * 0.6 / 2.5) * 2.5;
-  const warmup2kg = Math.round(suggestKg * 0.85 / 2.5) * 2.5;
-  const recentStr = sessions.slice(-3).map(s => `${s.date}: ${s.kg}kg×${s.reps} (e1RM ${s.e1rm})`).join(', ');
-  return { name, trend, note, suggestKg, suggestReps, warmup1kg, warmup2kg, setCount: last.setCount, recentStr };
-}
-
+// Deterministic — exercise selection is muscle-coverage scoring over
+// EXERCISE_DB, every weight/rep number comes from computeProgression's
+// double-progression math. See functions/sessionPlanner.js.
 app.post("/plan/session-exercises", async (req, res) => {
-  if (!process.env.GEMINI_API_KEY) return res.json({ exercises: [] });
-  const { type, title, detail, duration } = req.body;
-  const bw = Object.values(db.weight || {}).at(-1) || 75;
+  const { type, targetMuscles, backboneExercises } = req.body;
   const lifts = db.lifts || [];
-  const knownExercises = [...new Set(lifts.map(l => l.exercise).filter(Boolean))];
-  const progressions = knownExercises.map(n => computeProgression(lifts, n)).filter(Boolean);
-
-  const progressionCtx = progressions.map(p =>
-    `${p.name}: ${p.recentStr} → ${p.note} → USE ${p.suggestKg}kg×${p.suggestReps} for working sets`
-  ).join('\n');
 
   const peaks = musclePeaksFromLifts(lifts);
   const structuralFatigue = computeStructuralFatigue(lifts, peaks, db.soreness || [], db.muscleSensitivity || {});
@@ -1137,64 +1098,15 @@ app.post("/plan/session-exercises", async (req, res) => {
   const currentFatigue = applyInjuryTaper(structuralFatigue, activeInjuries);
   const metabolicFatigue = computeMetabolicFatigue(lifts, (db.nutrition || {})[day()]?.carbs || 0);
   const cnsFatigue = computeCNSFatigue(lifts, db.cnsSensitivity || 1.0, getRecoveryScore(db));
-  const fatigueStr = Object.entries(currentFatigue).filter(([,v])=>v>15).sort(([,a],[,b])=>b-a)
-    .map(([m,v])=>`${m} ${v}%`).join(', ') || 'none';
   const avoidMuscles = Object.entries(currentFatigue).filter(([,v])=>v>65).map(([m])=>m);
   const offlineMuscles = avoidMuscles.filter(m => activeInjuries.some(i => (i.muscles || []).includes(m)));
-  const injuryStr = activeInjuries.length ? activeInjuries.map(i => {
-    const elapsedDays = Math.floor((Date.now() - i.ts) / 864e5);
-    const totalDays = INJURY_HEALING_DAYS[i.severity] || INJURY_HEALING_DAYS.moderate;
-    const status = elapsedDays >= totalDays ? 'fully healed, treat as normal' : `day ${elapsedDays}/${totalDays} healing — ${injuryFatiguePenalty(i) > 65 ? 'still mostly offline' : 'reintroducing load, keep it lighter than usual'}`;
-    return `${i.area} (${i.severity}${i.muscles?.length ? ' — affects: ' + i.muscles.join(', ') : ''}${i.note ? ': ' + i.note : ''}, ${status})`;
-  }).join('; ') : '';
-
   const travelMode = db.profile?.travelMode || false;
-  const maturity = computeDataMaturity(lifts);
-  const maturityCtx = maturity.hasEnoughData
-    ? `PRESCRIPTION MODE: Established athlete — ${maturity.weeksCovered} weeks of data, ${maturity.exercisesWithPatterns} exercises with clear progression patterns. Prescribe confidently based on known response. No experimentation needed — use proven exercises and loads.`
-    : `EXPERIMENT MODE: Limited history (${maturity.weeksCovered} weeks, ${maturity.sessionsCount} sessions). Introduce variety to identify which exercises and rep ranges produce best response for this athlete. Vary stimulus each session.`;
 
-  const prompt = `You are writing a complete, precise workout prescription. Progressive overload targets are pre-computed from real training data — use them exactly.
-${travelMode ? '\n⚠️ TRAVEL MODE: Athlete is travelling. Use bodyweight exercises only — no barbells, no dumbbells, no machines. Bodyweight squats, push-up variations, pull-ups (if available), lunges, step-ups, plank holds, dips.\n' : ''}
-${maturityCtx}
-
-Session type: ${title} (${type})
-Guidance: ${detail}
-Athlete: ${bw}kg bodyweight
-
-STRUCTURAL FATIGUE — per muscle (avoid loading above 65%):
-${fatigueStr}
-${avoidMuscles.length ? `AVOID exercises primarily stressing: ${avoidMuscles.join(', ')}` : 'All muscle groups available.'}
-METABOLIC FATIGUE: ${metabolicFatigue}% — ${metabolicFatigue > 60 ? 'reduce session volume, glycogen depleted' : metabolicFatigue > 30 ? 'moderate volume only' : 'good energy availability'}
-CNS FATIGUE: ${cnsFatigue}% — ${cnsFatigue > 70 ? 'AVOID heavy compound lifts — use machine/isolation substitutes' : cnsFatigue > 40 ? 'limit heavy compound sets to 2-3' : 'full compound loading available'}
-${offlineMuscles.length ? `OFFLINE MUSCLES (injury — do not load at all): ${offlineMuscles.join(', ')}` : ''}
-${injuryStr ? `ACTIVE INJURIES/NIGGLES: ${injuryStr}` : ''}
-
-PRE-COMPUTED PROGRESSIVE OVERLOAD TARGETS:
-${progressionCtx || 'No history yet — use reasonable beginner/intermediate weights'}
-
-Instructions:
-- Select exercises appropriate for "${title}" that do NOT primarily load fatigued muscles
-- Use the exact suggestKg and suggestReps from the targets above
-- 2 warm-up sets per compound lift (~50% and ~75% of working weight)
-- 3-4 working sets at suggested weight
-- Include as many exercises as appropriate — do not limit by time
-
-Return ONLY valid JSON:
-{
-  "exercises": [
-    {
-      "name": "exercise name",
-      "note": "progressing — up 2.5kg from last session",
-      "sets": [{"type":"W","kg":50,"reps":10},{"type":"W","kg":70,"reps":5},{"type":"N","kg":90,"reps":5},{"type":"N","kg":90,"reps":5},{"type":"N","kg":90,"reps":5}]
-    }
-  ]
-}
-Set types: W=warm-up, N=normal, D=drop, F=failure. Include the note field per exercise.`;
-
-  const result = await callGeminiResilient({ messages: [{ role: "user", content: prompt }], maxTokens: 1600, jsonMode: true });
-  if (!result.ok) return res.json({ exercises: [] });
-  try { res.json(JSON.parse(result.content)); } catch { res.json({ exercises: [] }); }
+  const exercises = generateSessionExercises({
+    type, targetMuscles, backboneExerciseNames: backboneExercises, lifts, travelMode,
+    avoidMuscles, offlineMuscles, cnsFatigue, metabolicFatigue,
+  });
+  res.json({ exercises });
 });
 
 app.get('/progression/:exercise', async (req, res) => {
@@ -1243,9 +1155,9 @@ app.get("/plan/week", async (req, res) => {
   res.json(db.weeklyPlan || null);
 });
 
-// Deterministic fallback text (no LLM): plain but accurate, used if GEMINI_API_KEY
-// is unset or the text-writing call fails, so the plan itself never depends on
-// Gemini being available or rate-limited.
+// Deterministic session/plan copy — no LLM anywhere in the weekly plan.
+// Plain but accurate: describes exactly what generateWeeklyStructure decided,
+// nothing invented.
 function templateSessionText(day) {
   if (day.type === 'lift') {
     const title = day.targetMuscles.slice(0, 2).map(m => m.replace('-', ' ')).join(' & ');
@@ -1255,6 +1167,19 @@ function templateSessionText(day) {
   if (day.type === 'hiit') return { title: 'Norwegian 4×4', detail: day.rationale };
   if (day.type === 'zone2') return { title: 'Zone 2', detail: day.rationale };
   return { title: 'Rest', detail: day.rationale };
+}
+
+function templateWeekFocus(structure) {
+  const liftDays = structure.filter(d => d.type === 'lift');
+  if (!liftDays.length) return 'A deload week — systemic fatigue or lack of fresh muscle groups ruled out productive lifting.';
+  const muscles = [...new Set(liftDays.flatMap(d => d.targetMuscles))];
+  return `${liftDays.length} lift day${liftDays.length > 1 ? 's' : ''} this week, prioritising ${muscles.slice(0, 3).join(', ')} while they're freshest.`;
+}
+
+function templateWeekNotes(weekCNS, weekMetabolic) {
+  if (weekCNS > 70 || weekMetabolic > 70) return 'Systemic fatigue is high — this week is intentionally lighter until it clears.';
+  if (weekCNS > 40 || weekMetabolic > 40) return 'Moderate fatigue carried in — sessions are dialled back accordingly.';
+  return 'Fatigue is low across the board — this week is loaded accordingly.';
 }
 
 app.post("/plan/week", async (req, res) => {
@@ -1291,37 +1216,22 @@ app.post("/plan/week", async (req, res) => {
     dataMature: maturityWeek.hasEnoughData,
   });
 
-  const buildPlan = (dayTexts, focus, notes) => ({
-    focus,
+  // Fully deterministic — no LLM call in this endpoint. generateWeeklyStructure
+  // decides session type/target muscles/backbone exercises/frequency; the
+  // template functions above turn that structure into copy, nothing invented.
+  const dayTexts = structure.map(templateSessionText);
+  const plan = {
+    focus: templateWeekFocus(structure),
     days: structure.map((day, i) => ({
       date: day.date, label: day.label,
-      sessions: [{ type: day.type, title: dayTexts[i].title, detail: dayTexts[i].detail, duration: day.duration }],
+      sessions: [{
+        type: day.type, title: dayTexts[i].title, detail: dayTexts[i].detail, duration: day.duration,
+        targetMuscles: day.targetMuscles || null, backboneExercises: day.backboneExercises || null,
+      }],
     })),
-    notes,
+    notes: templateWeekNotes(weekCNS, weekMetabolic),
     generatedAt: new Date().toISOString(),
-  });
-
-  if (!process.env.GEMINI_API_KEY) {
-    const plan = buildPlan(structure.map(templateSessionText), 'A week built around what your fatigue data can actually absorb.', 'No Gemini key configured — this plan is template-generated, not LLM-written.');
-    db.weeklyPlan = plan;
-    await save();
-    return res.json(plan);
-  }
-
-  // The LLM's only job now: turn the already-decided structure into readable
-  // prose. It cannot change session type, target muscles, or exercise choice.
-  const writerPrompt = `Write copy for ${db.profile?.name || "this athlete"}'s weekly training plan. For each day below, write a short session "title" (a few words) and "detail" (2-3 sentences, specific, no fluff) explaining the session using the given rationale — do not invent different muscles, exercises, or session types than what's given. Also write one "focus" sentence (weekly theme) and one "notes" sentence (load management cue). ${TRAINING_ETHOS}
-
-Days:
-${JSON.stringify(structure.map(d => ({ label: d.label, type: d.type, targetMuscles: d.targetMuscles, backboneExercises: d.backboneExercises, rationale: d.rationale })))}
-
-Return ONLY valid JSON: { "focus": "...", "notes": "...", "days": [{ "title": "...", "detail": "..." }, ... one per day, same order as given] }`;
-
-  const result = await callGeminiResilient({ messages: [{ role: "user", content: writerPrompt }], maxTokens: 700, jsonMode: true });
-  let written = null;
-  if (result.ok) { try { written = JSON.parse(result.content); } catch { written = null; } }
-  const dayTexts = (written?.days?.length === structure.length) ? written.days : structure.map(templateSessionText);
-  const plan = buildPlan(dayTexts, written?.focus || 'A week built around what your fatigue data can actually absorb.', written?.notes || '');
+  };
   db.weeklyPlan = plan;
   await save();
   res.json(plan);
