@@ -4654,19 +4654,6 @@ function App() {
 
   if (!user) return <LoginScreen />;
 
-  if (!s && summaryError) return (
-    <div style={{ minHeight: '100svh', background: '#f5f0e2', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 14, padding: 24, textAlign: 'center' }}>
-      <div style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 11, letterSpacing: '.14em', textTransform: 'uppercase', color: '#8a7a5c' }}>{summaryError}</div>
-      <button onClick={loadSummary} style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 10, letterSpacing: '.12em', textTransform: 'uppercase', padding: '8px 18px', border: '1px solid #0d0b08', background: 'none', color: '#0d0b08', cursor: 'pointer' }}>Retry</button>
-    </div>
-  );
-
-  if (!s) return (
-    <div style={{ minHeight: '100svh', background: '#f5f0e2', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-      <div style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 11, letterSpacing: '.14em', textTransform: 'uppercase', color: '#8a7a5c' }}>Loading…</div>
-    </div>
-  );
-
   const trackingLevel = s?.profile?.trackingLevel || 'full';
   const showSleep = trackingLevel !== 'workout';
   const showFuel = trackingLevel === 'full';
@@ -4676,6 +4663,12 @@ function App() {
     <>
       {!onboarded && <Onboarding onComplete={handleOnboardDone} onOpenImport={() => { handleOnboardDone(); setShowImport(true); }} />}
       <Header s={s} onSignOut={() => signOut(auth)} />
+      {summaryError && !s && (
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, padding: '8px 16px', background: '#7a1414', color: '#f5f0e2', fontFamily: 'JetBrains Mono, monospace', fontSize: 10, letterSpacing: '.06em' }}>
+          <span>{summaryError}</span>
+          <button onClick={loadSummary} style={{ background: 'none', border: '1px solid rgba(245,240,226,.5)', color: '#f5f0e2', fontFamily: 'JetBrains Mono, monospace', fontSize: 9, letterSpacing: '.1em', textTransform: 'uppercase', padding: '3px 10px', cursor: 'pointer', flexShrink: 0 }}>Retry</button>
+        </div>
+      )}
       <nav className="sec-nav" id="sec-nav" aria-hidden="true">
         {sectionIds.map(id => <div key={id} className="sn-dot" />)}
       </nav>
