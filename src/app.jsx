@@ -2987,15 +2987,20 @@ function S7({ s }) {
     const lifts = [...(s?.lifts || [])].sort((a,b) => a.date.localeCompare(b.date));
     for (const l of lifts) {
       const e1 = l.kg > 0 && l.reps > 0 ? Math.round(l.kg * (1 + l.reps / 30)) : 0;
-      if (!e1) continue;
-      if (!history[l.exercise]) history[l.exercise] = [];
-      history[l.exercise].push(e1);
-      if (!byEx[l.exercise] || e1 > byEx[l.exercise].e1rm)
-        byEx[l.exercise] = { exercise: l.exercise, kg: l.kg, reps: l.reps, e1rm: e1, date: l.date };
+      if (!e1 || !l.exercise) continue;
+      // Case-insensitive key — CSV/bulk-imported history can carry different
+      // casing than the app's own (always-lowercase) session logging, and
+      // without this the same exercise would silently split into two
+      // separate PR entries and sparkline histories.
+      const key = l.exercise.toLowerCase();
+      if (!history[key]) history[key] = [];
+      history[key].push(e1);
+      if (!byEx[key] || e1 > byEx[key].e1rm)
+        byEx[key] = { exercise: l.exercise, kg: l.kg, reps: l.reps, e1rm: e1, date: l.date };
     }
     return {
       prs: Object.values(byEx).sort((a, b) => b.e1rm - a.e1rm),
-      e1rmHistory: history,
+      e1rmHistory: Object.fromEntries(Object.entries(history).map(([k, v]) => [byEx[k]?.exercise ?? k, v])),
     };
   }, [s?.lifts]);
 
