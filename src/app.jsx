@@ -86,6 +86,13 @@ const toLocalDateStr = (date) => {
   const y = date.getFullYear(), m = String(date.getMonth() + 1).padStart(2, '0'), d = String(date.getDate()).padStart(2, '0');
   return `${y}-${m}-${d}`;
 };
+// "Today" as a local "YYYY-MM-DD" string — the frontend equivalent of the
+// backend's day(). Every date the backend stores (workouts, nutrition,
+// measurements, ...) is keyed this way; comparing against it with a
+// UTC-derived string (the old `new Date().toISOString().slice(0,10)`
+// pattern, repeated ~15 times across this file) silently mismatches near
+// midnight.
+const todayLocalStr = () => toLocalDateStr(new Date());
 const fmtDate = () => new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
 const fmtDateShort = () => new Date().toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
 const pct = (v, t) => (t && t > 0 ? Math.min(100, Math.round(v / t * 100)) : 0);
@@ -148,10 +155,10 @@ function S1({ s, briefing, onShowBriefing, onShowAfternoon, onShowNight, onShowW
   const trainingStreak = useMemo(() => {
     const dates = new Set((s?.workouts || []).map(w => w.date));
     let streak = 0; const d = new Date();
-    const todayStr = d.toISOString().slice(0, 10);
+    const todayStr = toLocalDateStr(d);
     if (!dates.has(todayStr)) d.setDate(d.getDate() - 1);
     while (true) {
-      const k = d.toISOString().slice(0, 10);
+      const k = toLocalDateStr(d);
       if (!dates.has(k)) break;
       streak++; d.setDate(d.getDate() - 1);
     }
@@ -813,7 +820,7 @@ function WorkoutLogger({ planDay, lifts, customExercises, onClose, refresh }) {
     const kg = parseFloat(set.kg) || 0;
     const targetReps = ex.targetReps || 8;
 
-    const weekAgo = new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10);
+    const weekAgo = toLocalDateStr(new Date(Date.now() - 7 * 86400000));
     const exLifts = (lifts || []).filter(l => l.exercise === ex.name && l.date < weekAgo);
     const weekOldMax = exLifts.length ? Math.max(...exLifts.map(l => l.kg || 0)) : null;
     const weekProgressionPct = (weekOldMax && kg) ? ((kg - weekOldMax) / weekOldMax * 100) : 0;
@@ -867,7 +874,7 @@ function WorkoutLogger({ planDay, lifts, customExercises, onClose, refresh }) {
     })).filter(ex => ex.sets.length > 0);
     if (!valid.length) { onClose(); return; }
     setSaving(true);
-    const today = new Date().toISOString().slice(0, 10);
+    const today = todayLocalStr();
     const allSets = valid.flatMap(ex => ex.sets.map(s => ({
       exercise: ex.name, kg: parseFloat(s.kg) || 0, reps: parseInt(s.reps) || 0, rpe: parseInt(s.rpe) || null,
     })));
@@ -1536,7 +1543,7 @@ function S3({ s, onStartWorkout, onImport, onHistory, refresh }) {
     setExpHyp(''); setExpMetric(''); setExpEnd(''); setShowExpForm(false);
     setExpSaving(false);
     refresh({ ...s, experiments: [...(s?.experiments || []), {
-      id: data.id, hypothesis, startDate: new Date().toISOString().slice(0, 10), endDate, metric, notes: '', active: true, outcome: null, concludedAt: null,
+      id: data.id, hypothesis, startDate: todayLocalStr(), endDate, metric, notes: '', active: true, outcome: null, concludedAt: null,
     }] });
   };
 
@@ -1700,14 +1707,14 @@ function S3({ s, onStartWorkout, onImport, onHistory, refresh }) {
           const now = new Date();
           const mondayOffset = (now.getDay() + 6) % 7;
           const monday = new Date(now); monday.setDate(now.getDate() - mondayOffset);
-          const todayStr = now.toISOString().slice(0, 10);
+          const todayStr = toLocalDateStr(now);
           const DOW = ['M','T','W','T','F','S','S'];
           const workoutDates = new Set(workouts.map(w => w.date));
           return (
             <div className="week-strip">
               {DOW.map((label, i) => {
                 const d = new Date(monday); d.setDate(monday.getDate() + i);
-                const dateStr = d.toISOString().slice(0, 10);
+                const dateStr = toLocalDateStr(d);
                 const isToday = dateStr === todayStr;
                 const hasSession = workoutDates.has(dateStr);
                 return (
@@ -1812,7 +1819,7 @@ function S4({ s, refresh }) {
   const mealLog = s?.nutritionLog || [];
   const water = s?.waterToday ?? 0;
   const waterTarget = s?.profile?.waterTarget || 7;
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayLocalStr();
   const todayLog = mealLog.filter(m => m.date === today);
 
   const cal = n.calories || 0;
@@ -1998,7 +2005,7 @@ function S4({ s, refresh }) {
   // instead of each call clobbering the previous one with a stale s.nutritionLog closure.
   const postMeal = async (body) => {
     const nutritionToday = await api('nutrition', { method: 'POST', body: JSON.stringify(body) });
-    const entry = { date: new Date().toISOString().slice(0, 10), time: new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }), ...body };
+    const entry = { date: todayLocalStr(), time: new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }), ...body };
     return { entry, nutritionToday };
   };
 
@@ -2759,14 +2766,14 @@ function S6({ s, onOpenSettings, refresh }) {
     setMeasureVal('');
     setSavingMeasure(false);
     const now = Date.now();
-    refresh({ ...s, measurements: [...(s?.measurements || []), { id: now, date: new Date().toISOString().slice(0, 10), type, value, unit, ts: now }] });
+    refresh({ ...s, measurements: [...(s?.measurements || []), { id: now, date: todayLocalStr(), type, value, unit, ts: now }] });
   };
 
   const toggleSuppLog = async (supp) => {
     setTogglingSupp(supp.name);
     const data = await api('supplement/log', { method: 'POST', body: JSON.stringify({ name: supp.name, dose: supp.dose }) });
     setTogglingSupp('');
-    const today = new Date().toISOString().slice(0, 10);
+    const today = todayLocalStr();
     refresh({ ...s, supplementLogToday: data.logged
       ? [...(s?.supplementLogToday || []), { date: today, name: supp.name, dose: supp.dose || '', ts: Date.now() }]
       : (s?.supplementLogToday || []).filter(e => e.name !== supp.name) });
@@ -2788,7 +2795,7 @@ function S6({ s, onOpenSettings, refresh }) {
       const data = await api('photos', { method: 'POST', body: JSON.stringify({ image: reader.result, note }) });
       setPhotoNote('');
       setUploadingPhoto(false);
-      refresh({ ...s, photosMeta: [...(s?.photosMeta || []), { id: data.id, date: new Date().toISOString().slice(0, 10), note, url: data.url }] });
+      refresh({ ...s, photosMeta: [...(s?.photosMeta || []), { id: data.id, date: todayLocalStr(), note, url: data.url }] });
     };
     reader.readAsDataURL(file);
   };
@@ -3013,7 +3020,7 @@ function S7({ s }) {
     };
   }, [s?.lifts]);
 
-  const cutoff14 = new Date(Date.now() - 14 * 864e5).toISOString().slice(0,10);
+  const cutoff14 = toLocalDateStr(new Date(Date.now() - 14 * 864e5));
   const filtered = search ? prs.filter(p => p.exercise.toLowerCase().includes(search.toLowerCase())) : prs;
 
   const grouped = useMemo(() => {
