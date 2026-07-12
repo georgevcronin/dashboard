@@ -971,6 +971,7 @@ function computeWeeklyGuidance() {
     currentFatigue, weekMetabolic, weekCNS, offlineMuscles: [],
     dataMature: maturityWeek.hasEnoughData,
     trainingPriority: db.profile?.trainingPriority || 'strength',
+    muscleLastTrainedDays: computeMuscleLastTrainedDays(db.lifts),
   });
 }
 

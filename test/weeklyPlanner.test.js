@@ -127,3 +127,16 @@ test('computeMusclePriority still excludes over-ceiling/offline muscles even wit
   const priority = computeMusclePriority(fatigue, [], staleness);
   assert.equal(priority.quads, -1);
 });
+
+test('generateWeeklyGuidance threads muscleLastTrainedDays through so the displayed freshness reflects atrophy-risk too', () => {
+  // legs untouched a long time, everything else recently hit -- legs
+  // bucket should rank ahead of a merely-fresh bucket once staleness counts.
+  const staleness = { quads: 40, glutes: 40 };
+  const guidance = generateWeeklyGuidance({
+    currentFatigue: {}, weekMetabolic: 0, weekCNS: 0, offlineMuscles: [], dataMature: true,
+    muscleLastTrainedDays: staleness,
+  });
+  const legs = guidance.muscleFocus.find(b => b.name === 'legs');
+  const push = guidance.muscleFocus.find(b => b.name === 'push');
+  assert.ok(legs.freshness >= push.freshness, 'a bucket with genuinely overdue muscles should not rank behind an unremarkable-freshness bucket');
+});

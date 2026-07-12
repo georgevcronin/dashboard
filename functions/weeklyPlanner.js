@@ -156,9 +156,14 @@ function guidanceRationale(liftSessionsTarget, cardioSessionsTarget, weekCNS, we
 // meant to be recomputed on demand, since either can shift after a single
 // session. trainingPriority ('strength'|'cardio'|'sport') shifts how much of
 // the week's recovery capacity is earmarked for lifting vs. conditioning vs.
-// held back for a separately-practiced sport.
-function generateWeeklyGuidance({ currentFatigue, weekMetabolic, weekCNS, offlineMuscles, dataMature, trainingPriority = 'strength' }) {
-  const priority = computeMusclePriority(currentFatigue || {}, offlineMuscles || []);
+// held back for a separately-practiced sport. muscleLastTrainedDays is
+// optional (functions/fatigue.js's computeMuscleLastTrainedDays) — passing
+// it keeps the displayed "freshness" chips consistent with the same
+// atrophy-risk prioritization that /plan/session-exercises's full-body
+// auto-pick actually uses, rather than the display showing plain fatigue-
+// freshness while session generation weighs staleness too.
+function generateWeeklyGuidance({ currentFatigue, weekMetabolic, weekCNS, offlineMuscles, dataMature, trainingPriority = 'strength', muscleLastTrainedDays = null }) {
+  const priority = computeMusclePriority(currentFatigue || {}, offlineMuscles || [], muscleLastTrainedDays);
 
   const buckets = Object.entries(MUSCLE_GROUPS)
     .map(([name, muscles]) => {
