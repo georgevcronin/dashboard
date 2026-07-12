@@ -88,22 +88,36 @@ async function loadForUser(uid) {
 let db = null;
 let save = async () => {};
 
-const day = (d) => (d ? new Date(d) : new Date()).toISOString().slice(0, 10);
-const avg = (a) => (a.length ? a.reduce((x, y) => x + y, 0) / a.length : null);
-
 // Single-user app currently (see PRODUCT.md) — no per-user timezone is
 // wired up anywhere in the profile, so this is a fixed IANA zone rather
-// than a real per-athlete lookup. Used only where an external UTC
-// timestamp genuinely needs converting to "what calendar day did this
-// actually happen on" (Hevy ingestion — see ingestWorkout); update this
-// constant if the app ever serves someone outside the UK, or wire up a
-// real per-user timezone before then.
+// than a real per-athlete lookup. Update this constant if the app ever
+// serves someone outside the UK, or wire up a real per-user timezone
+// before then.
+//
+// day() used to be `.toISOString().slice(0, 10)` — always UTC. That's
+// silently wrong for "what calendar day is it right now" (or "did this
+// external timestamp happen on") near midnight local time. Safe to fix
+// broadly: every existing call site that passes a "YYYY-MM-DD"-only string
+// (e.g. re-formatting an already-stored date key) is unaffected, since that
+// parses as UTC midnight and Europe/London is never negative-UTC — the
+// local reformatting can only push forward by up to an hour (BST) within
+// the same calendar day, never back a day. The only call sites this
+// actually changes behavior for are the ones computing "right now" or
+// converting a real external timestamp — exactly the ones that were buggy.
 const APP_TIMEZONE = 'Europe/London';
+function day(d) {
+  const date = d ? new Date(d) : new Date();
+  return new Intl.DateTimeFormat('en-CA', { timeZone: APP_TIMEZONE, year: 'numeric', month: '2-digit', day: '2-digit' }).format(date);
+}
+const avg = (a) => (a.length ? a.reduce((x, y) => x + y, 0) / a.length : null);
+
+// '' (not "today") for missing/invalid input — distinct from day()'s
+// "defaults to now" contract, needed by ingestWorkout to detect "no
+// timestamp present at all" rather than silently dating it today.
 function utcToAppLocalDateStr(isoString) {
   if (!isoString) return '';
-  const d = new Date(isoString);
-  if (isNaN(d.getTime())) return '';
-  return new Intl.DateTimeFormat('en-CA', { timeZone: APP_TIMEZONE, year: 'numeric', month: '2-digit', day: '2-digit' }).format(d);
+  if (isNaN(new Date(isoString).getTime())) return '';
+  return day(isoString);
 }
 
 // ---------- Open webhook routes (iOS Health, Hevy, Strava OAuth) ----------
@@ -1167,8 +1181,8 @@ app.post('/food/barcode', async (req, res) => {
 async function generateMorningBriefing(db) {
   if (!process.env.GEMINI_API_KEY) return null;
 
-  const today = new Date().toISOString().slice(0, 10);
-  const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+  const today = day();
+  const yesterday = day(Date.now() - 86400000);
 
   const yesterdayWorkout = (db.workouts || []).find(w => w.date === yesterday);
   const yesterdayLifts = (db.lifts || []).filter(l => l.date === yesterday);
@@ -1243,7 +1257,7 @@ Return ONLY valid JSON in this exact structure:
 
 async function generateNewscast(db, period) {
   if (!process.env.GEMINI_API_KEY) return null;
-  const today = new Date().toISOString().slice(0, 10);
+  const today = day();
   const todayNutrition = (db.nutritionLog || []).filter(n => n.date === today);
   const totalCals = todayNutrition.reduce((s, n) => s + (n.calories || 0), 0);
   const totalProtein = todayNutrition.reduce((s, n) => s + (n.protein || 0), 0);
@@ -1389,7 +1403,7 @@ app.get('/newscast', async (req, res) => {
     const period = req.query.period === 'night' ? 'night' : 'afternoon';
     const cached = db[`${period}Newscast`];
     const twoHoursAgo = Date.now() - 2 * 3600 * 1000;
-    if (cached?.date === new Date().toISOString().slice(0, 10) && new Date(cached.generatedAt).getTime() > twoHoursAgo) {
+    if (cached?.date === day() && new Date(cached.generatedAt).getTime() > twoHoursAgo) {
       return res.json({ newscast: cached });
     }
     const newscast = await generateNewscast(db, period);
