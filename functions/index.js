@@ -9,98 +9,10 @@ const { computeStrengthLevels, classifyLift, estimate1RM } = require('./strength
 const { computeProgression } = require('./progression');
 const { generateSessionExercises, progressionFor } = require('./sessionPlanner');
 const { computeSleepScore } = require('./sleepScore');
+const { callGeminiResilient } = require('./gemini');
 
 admin.initializeApp();
 const firestore = admin.firestore();
-
-// ---------- Shared Gemini helper (used by every LLM-backed endpoint below) ----------
-// gemini-2.0-flash was retired June 1, 2026; gemini-2.5-flash-lite hit widely-reported
-// capacity-constrained 503s; gemini-2.5-flash itself has since stopped accepting new
-// callers ahead of its official Oct 16, 2026 shutdown. On gemini-3.5-flash — Google's
-// current production-recommended default — with gemini-3.1-flash-lite as fallback.
-const GEMINI_MODEL = "gemini-3.5-flash";
-const GEMINI_FALLBACK_MODEL = "gemini-3.1-flash-lite";
-
-async function callGemini({ messages, maxTokens = 800, jsonMode = false, image = null, temperature, model = GEMINI_MODEL }) {
-  const key = process.env.GEMINI_API_KEY;
-  if (!key) return { ok: false, status: 0, error: { message: "GEMINI_API_KEY not set" } };
-
-  const systemText = messages.filter(m => m.role === "system").map(m => m.content).join("\n\n");
-  const turns = messages.filter(m => m.role !== "system").map(m => ({
-    role: m.role === "assistant" ? "model" : "user",
-    parts: [{ text: m.content }],
-  }));
-  if (image && turns.length) {
-    turns[turns.length - 1].parts.push({ inline_data: { mime_type: image.mimeType, data: image.data } });
-  }
-
-  // Gemini 2.5+/3.x models default to an internal "thinking" pass before responding,
-  // costing latency for no benefit on short replies like these. Minimized — but the
-  // config field differs by generation: Gemini 3.x uses thinkingLevel (LOW/MEDIUM/HIGH),
-  // 2.5-and-earlier uses a numeric thinkingBudget. Using the wrong one for the model's
-  // generation produces malformed output rather than a clean error.
-  const generationConfig = {
-    maxOutputTokens: maxTokens,
-    thinkingConfig: model.startsWith("gemini-3") ? { thinkingLevel: "LOW" } : { thinkingBudget: 0 },
-  };
-  if (jsonMode) generationConfig.responseMimeType = "application/json";
-  if (temperature != null) generationConfig.temperature = temperature;
-
-  const body = { contents: turns, generationConfig };
-  if (systemText) body.systemInstruction = { parts: [{ text: systemText }] };
-
-  let r, data;
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 25_000);
-  try {
-    r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-      signal: controller.signal,
-    });
-    data = await r.json();
-  } catch (e) {
-    return { ok: false, status: 0, error: { message: e.name === "AbortError" ? "Gemini request timed out after 25s" : e.message } };
-  } finally {
-    clearTimeout(timeout);
-  }
-  if (!r.ok) return { ok: false, status: r.status, error: data.error || { message: `Gemini returned ${r.status}` } };
-  const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
-  if (!text) return { ok: false, status: r.status, error: { message: "Gemini returned no content" } };
-  return { ok: true, status: r.status, content: text };
-}
-
-// Parses Gemini's rate-limit retry hint (RetryInfo.retryDelay, e.g. "13s") when present.
-function geminiRetryDelaySec(error) {
-  const detail = error?.details?.find(d => d["@type"]?.includes("RetryInfo"));
-  const match = detail?.retryDelay?.match(/^([\d.]+)s$/);
-  return match ? parseFloat(match[1]) : null;
-}
-
-const sleep = ms => new Promise(r => setTimeout(r, ms));
-
-// Retries on 429 (quota) and 503 (overloaded) with backoff, then falls back to
-// GEMINI_FALLBACK_MODEL once if the primary model stays overloaded through the
-// retries — a capacity issue is usually specific to one model, not Gemini as a
-// whole. Used by every Gemini-backed generator so a transient overload doesn't
-// just fail outright.
-async function callGeminiResilient(opts) {
-  let result;
-  for (let attempt = 0; attempt < 3; attempt++) {
-    result = await callGemini(opts);
-    if (result.ok) return result;
-    if (result.status !== 429 && result.status !== 503) break;
-    const waitSec = geminiRetryDelaySec(result.error) || (2 * (attempt + 1));
-    await sleep(Math.min(waitSec, 10) * 1000 + 250);
-  }
-  if (result.status === 503) {
-    const fallback = await callGemini({ ...opts, model: GEMINI_FALLBACK_MODEL });
-    if (fallback.ok) return fallback;
-    result = fallback;
-  }
-  return result;
-}
 
 const VAPID_PUBLIC = process.env.VAPID_PUBLIC_KEY;
 const VAPID_PRIVATE = process.env.VAPID_PRIVATE_KEY;
@@ -134,85 +46,8 @@ const {
   INJURY_HEALING_DAYS, injuryFatiguePenalty, applyInjuryTaper,
   computeACWR, computePerformanceTrend, computeMetabolicFatigue, computeCNSFatigue,
 } = require('./fatigue');
-const { RECOVERY_H: RECOVERY_H_B } = require('./muscleTaxonomy');
-
-// Static, per-person personalization of the recovery half-life table — a
-// starting-point adjustment from who this athlete is (age, training
-// experience), computed fresh from profile data each call rather than fitted
-// or refit from observed outcomes. That's deliberate: the literature on
-// individual variation in muscle recovery time finds it's better explained by
-// known moderators (training status, age) than treated as a freely-fitted
-// personal constant, and a single noisy data point (one session, one
-// soreness log) isn't good evidence to refit a structural decay parameter.
-// muscleSensitivity (below) is the other, dynamic half of this — it keeps
-// nudging on top of this baseline from actual observed soreness/experiment
-// outcomes. The two don't compete: this answers "where should this person's
-// baseline reasonably sit," muscleSensitivity answers "how has this specific
-// muscle actually behaved for them since."
-function computeAgeYears(dob) {
-  if (!dob) return null;
-  return (Date.now() - new Date(dob).getTime()) / (365.25 * 24 * 3600 * 1000);
-}
-
-// Self-reported once (trainingExperienceYears), then accrues automatically
-// from the timestamp it was reported (trainingExperienceSetAt) rather than
-// staying frozen at whatever number was typed in — so "3 years" answered
-// today quietly becomes "4.5 years" 18 months from now without ever needing
-// to be re-asked. Correcting the number in Settings resets the clock.
-function trainingExperienceMonths(profile) {
-  if (profile?.trainingExperienceYears == null) return 0;
-  const setAt = profile.trainingExperienceSetAt ? new Date(profile.trainingExperienceSetAt).getTime() : Date.now();
-  const monthsSinceSet = Math.max(0, (Date.now() - setAt) / (30.44 * 24 * 3600 * 1000));
-  return profile.trainingExperienceYears * 12 + monthsSinceSet;
-}
-
-// For the new-lifter set-count budget specifically (unlike the recovery
-// half-life above, which safely defaults unknowns to "assume novice"):
-// missing data should skip the cap entirely rather than silently capping an
-// established lifter's working sets to 1-2 just because they never filled
-// in the field. An explicit "0 years" still counts as known data.
-function trainingMonthsIfKnown(profile) {
-  return profile?.trainingExperienceYears != null ? trainingExperienceMonths(profile) : null;
-}
-
-// Repeated-bout effect: trained lifters recover faster from familiar stimuli
-// than novices do at the same relative intensity.
-function trainingExperienceFactor(months) {
-  if (months < 3) return 1.3;
-  if (months < 12) return 1.1;
-  if (months < 36) return 1.0;
-  return 0.85;
-}
-
-// Recovery slows with age — persistently elevated inflammatory markers in
-// older adults are well documented.
-function ageFactor(ageYears) {
-  if (ageYears == null) return 1.0;
-  if (ageYears < 30) return 0.9;
-  if (ageYears < 45) return 1.0;
-  if (ageYears < 60) return 1.15;
-  return 1.3;
-}
-
-// Clamped to 24-120h so the two factors can't compound into something absurd
-// for, say, a 65-year-old brand-new lifter.
-function personalizedRecoveryHours(profile) {
-  const factor = trainingExperienceFactor(trainingExperienceMonths(profile)) * ageFactor(computeAgeYears(profile?.dob));
-  const out = {};
-  for (const [m, base] of Object.entries(RECOVERY_H_B)) out[m] = Math.max(24, Math.min(120, Math.round(base * factor)));
-  return out;
-}
-
-function alcoholStats(alcoholLog) {
-  const ydayDate = new Date(); ydayDate.setDate(ydayDate.getDate() - 1);
-  const ydayStr = ydayDate.toISOString().slice(0, 10);
-  const alcoholLastNight = (alcoholLog || []).find(e => e.date === ydayStr)?.units || 0;
-  const alcoholLast7 = (alcoholLog || []).filter(e => {
-    const diff = (Date.now() - new Date(e.date).getTime()) / 864e5;
-    return diff >= 0 && diff <= 7;
-  }).reduce((a, e) => a + (e.units || 0), 0);
-  return { alcoholLastNight, alcoholLast7 };
-}
+const { personalizedRecoveryHours, trainingMonthsIfKnown } = require('./recoveryPersonalization');
+const { alcoholStats, computeDataMaturity, compVerdict, toCsv, weekLiftSessionsCompleted } = require('./analytics');
 
 // ---------- Firestore-backed state — per user ----------
 const DEFAULTS = () => ({
@@ -678,60 +513,6 @@ function getRecoveryScore(db) {
   const sleep = personalSleepTarget(days);
   return computeDay(today, baseHRV, baseRHR, sleep.target, baseWristTemp, baseHR);
 }
-function computeDataMaturity(lifts) {
-  if (!lifts || lifts.length === 0) return { phase: 'experiments', weeksCovered: 0, sessionsCount: 0, hasPatterns: false, exercisesWithPatterns: 0 };
-
-  const sorted = [...lifts].sort((a, b) => a.date.localeCompare(b.date));
-  const firstDate = new Date(sorted[0].date);
-  const lastDate = new Date(sorted[sorted.length - 1].date);
-  const weeksCovered = Math.round((lastDate - firstDate) / (7 * 86400000));
-  const workoutDates = new Set(lifts.map(l => l.date));
-  const sessionsCount = workoutDates.size;
-
-  // Find exercises with clear progressive e1RM trend across 4+ sessions
-  const byEx = {};
-  for (const l of lifts) {
-    if (!l.exercise || !l.kg || !l.reps) continue;
-    const e1rm = l.kg * (1 + l.reps / 30);
-    const key = l.exercise.toLowerCase();
-    (byEx[key] = byEx[key] || []).push({ date: l.date, e1rm });
-  }
-  const exercisesWithPatterns = Object.values(byEx).filter(sets => {
-    if (sets.length < 4) return false;
-    const s = sets.sort((a, b) => a.date.localeCompare(b.date));
-    const earlyAvg = s.slice(0, Math.ceil(s.length / 2)).reduce((a, x) => a + x.e1rm, 0) / Math.ceil(s.length / 2);
-    const lateAvg = s.slice(Math.floor(s.length / 2)).reduce((a, x) => a + x.e1rm, 0) / Math.ceil(s.length / 2);
-    return lateAvg > earlyAvg * 1.01; // 1%+ improvement = identifiable trend
-  }).length;
-
-  // Established = 4+ weeks of history, 10+ sessions, 3+ exercises showing clear trends
-  const hasEnoughData = weeksCovered >= 4 && sessionsCount >= 10 && exercisesWithPatterns >= 3;
-
-  return {
-    phase: hasEnoughData ? 'established' : 'experiments',
-    weeksCovered,
-    sessionsCount,
-    hasPatterns: exercisesWithPatterns >= 3,
-    hasEnoughData,
-    exercisesWithPatterns,
-  };
-}
-
-function compVerdict(weights, lifts) {
-  if (weights.length < 5) return null;
-  const wTrend = weights.at(-1).value - weights[0].value;
-  const byEx = {};
-  lifts.forEach((l) => { if (!l.exercise) return; const key = l.exercise.toLowerCase(); (byEx[key] = byEx[key] || []).push(l); });
-  const liftDeltas = Object.values(byEx).filter((s) => s.length > 1).map((s) => s.at(-1).kg - s[0].kg);
-  const liftsUp = liftDeltas.length && avg(liftDeltas) > 0;
-  if (Math.abs(wTrend) < 0.8 && liftsUp) return { word: "Recomping", note: "Lifts up, weight steady — likely swapping fat for muscle." };
-  if (wTrend <= -0.8 && liftsUp) return { word: "Cutting well", note: "Losing weight while strength climbs." };
-  if (wTrend <= -0.8) return { word: "Cutting", note: "Weight trending down. Log lifts to confirm you're holding strength." };
-  if (wTrend >= 0.8 && liftsUp) return { word: "Building", note: "Weight and lifts both climbing." };
-  if (wTrend >= 0.8) return { word: "Gaining", note: "Weight up without lift progress." };
-  return { word: "Maintaining", note: "Weight stable." };
-}
-
 app.get("/summary", async (req, res) => {
   const days = lastN(db.metrics, 30);
   const last14 = days.slice(-14);
@@ -875,16 +656,6 @@ app.get("/trends", async (req, res) => {
 });
 
 // ---------- CSV export ----------
-function toCsv(rows, columns) {
-  const esc = v => {
-    if (v == null) return "";
-    const s = String(v);
-    return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
-  };
-  const lines = rows.map(r => columns.map(c => esc(r[c])).join(","));
-  return [columns.join(","), ...lines].join("\n");
-}
-
 app.get("/export/csv", async (req, res) => {
   const type = req.query.type || "lifts";
   let filename, csv;
@@ -1114,14 +885,6 @@ app.post("/import/hevy", async (req, res) => {
 // How many strength sessions this week's fatigue can absorb, and which muscle
 // groups are freshest right now. No days, no locked exercises, nothing that
 // tells the athlete "today is leg day" — see weeklyPlanner.js's header for why.
-function weekLiftSessionsCompleted(lifts) {
-  const now = new Date();
-  const mondayOffset = (now.getDay() + 6) % 7; // 0=Mon
-  const monday = new Date(now); monday.setDate(now.getDate() - mondayOffset); monday.setHours(0, 0, 0, 0);
-  const mondayStr = monday.toISOString().slice(0, 10);
-  return new Set((lifts || []).filter(l => l.date >= mondayStr).map(l => l.date)).size;
-}
-
 function computeWeeklyGuidance() {
   const peaks = musclePeaksFromLifts(db.lifts);
   const structuralFatigue = computeStructuralFatigue(db.lifts, peaks, db.soreness || [], db.muscleSensitivity || {}, personalizedRecoveryHours(db.profile));
