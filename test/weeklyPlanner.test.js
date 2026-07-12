@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const {
   computeMusclePriority, scoreBucket, generateWeeklyGuidance,
   pickBackboneExercises, planLiftSessionsTarget, planCardioSessionsTarget,
-  MUSCLE_GROUPS, FATIGUE_CEILING,
+  stalenessBoost, MUSCLE_GROUPS, FATIGUE_CEILING,
 } = require('../functions/weeklyPlanner');
 
 test('computeMusclePriority marks offline muscles as -1 regardless of fatigue', () => {
@@ -87,4 +87,43 @@ test('generateWeeklyGuidance ranks muscleFocus freshest-first', () => {
   const guidance = generateWeeklyGuidance({ currentFatigue: fatigue, weekMetabolic: 0, weekCNS: 0, offlineMuscles: [], dataMature: true });
   const names = guidance.muscleFocus.map(b => b.name);
   assert.notEqual(names[0], 'push', 'push is fatigued, should not rank first');
+});
+
+test('generateWeeklyGuidance clamps displayed freshness to 100 even though the staleness boost can push internal priority above it', () => {
+  const guidance = generateWeeklyGuidance({ currentFatigue: {}, weekMetabolic: 0, weekCNS: 0, offlineMuscles: [], dataMature: true });
+  for (const b of guidance.muscleFocus) assert.ok(b.freshness <= 100, `${b.name} freshness ${b.freshness} exceeds 100`);
+});
+
+test('stalenessBoost stays at 0 within a normal week, then ramps up, capping in the atrophy-risk zone beyond 3 weeks', () => {
+  assert.equal(stalenessBoost(0), 0);
+  assert.equal(stalenessBoost(7), 0);
+  assert.ok(stalenessBoost(10) > 0 && stalenessBoost(10) < stalenessBoost(14));
+  assert.ok(stalenessBoost(21) > stalenessBoost(14));
+  assert.ok(stalenessBoost(30) > stalenessBoost(21));
+  assert.equal(stalenessBoost(40), stalenessBoost(90), 'boost should cap rather than grow unbounded');
+});
+
+test('stalenessBoost treats "never trained" the same as roughly 3 weeks overdue', () => {
+  assert.equal(stalenessBoost(null), stalenessBoost(21));
+  assert.equal(stalenessBoost(undefined), stalenessBoost(21));
+});
+
+test('computeMusclePriority without staleness data behaves exactly as before (backward compatible)', () => {
+  const fatigue = { quads: 20 };
+  const withoutStaleness = computeMusclePriority(fatigue, []);
+  assert.equal(withoutStaleness.quads, 80, 'no staleness data passed should mean no boost applied at all');
+});
+
+test('computeMusclePriority with staleness data prioritizes a neglected-but-fresh muscle over a recently-hit-but-fresh one', () => {
+  const fatigue = {}; // everything fully recovered
+  const staleness = { quads: 25, chest: 2 }; // quads neglected 25 days, chest hit 2 days ago
+  const priority = computeMusclePriority(fatigue, [], staleness);
+  assert.ok(priority.quads > priority.chest, 'a muscle 25 days overdue should outrank one merely fresh from a recent light hit');
+});
+
+test('computeMusclePriority still excludes over-ceiling/offline muscles even with staleness data (staleness cannot override a hard exclusion)', () => {
+  const fatigue = { quads: FATIGUE_CEILING };
+  const staleness = { quads: 60 }; // very overdue, but also currently over the fatigue ceiling
+  const priority = computeMusclePriority(fatigue, [], staleness);
+  assert.equal(priority.quads, -1);
 });

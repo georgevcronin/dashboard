@@ -92,3 +92,20 @@ test('progressionFor merges history logged under different casing into one progr
 test('progressionFor returns null with no matching history', () => {
   assert.equal(progressionFor([], 'Barbell Bench Press'), null);
 });
+
+test('skipAccessories produces exactly the backbone exercise(s), no accessories added', () => {
+  const out = generateSessionExercises({
+    type: 'lift', targetMuscles: ['chest', 'triceps', 'front-delt'],
+    backboneExerciseNames: ['Barbell Bench Press'], lifts: [], skipAccessories: true,
+  });
+  assert.equal(out.length, 1);
+  assert.equal(out[0].name, 'Barbell Bench Press');
+});
+
+test('without skipAccessories, the same call adds accessory exercises as before (unchanged default behavior)', () => {
+  const out = generateSessionExercises({
+    type: 'lift', targetMuscles: ['chest', 'triceps', 'front-delt'],
+    backboneExerciseNames: ['Barbell Bench Press'], lifts: [],
+  });
+  assert.ok(out.length > 1, 'default behavior should still include accessories');
+});

@@ -57,16 +57,40 @@ function pickBackboneExercises(targetMuscles, { travelMode, count = 2 } = {}) {
   return out;
 }
 
+// Additive priority boost for a muscle that hasn't been a genuine training
+// focus in a while — distinct from (and additive on top of) the fatigue-
+// freshness score, so a muscle that's fresh only because it was barely
+// touched doesn't rank the same as one that's fresh AND overdue. Detraining
+// research: negligible measurable muscle loss in the first 1-2 weeks off, no
+// real urgency there; hypertrophy decline sets in around 3-4+ weeks, so this
+// ramps from 0 through week 2, accelerates through week 3, and caps once
+// solidly in the genuine atrophy-risk zone beyond 3 weeks. Never trained at
+// all (muscleLastTrainedDays has no entry) gets the same treatment as "3
+// weeks overdue" — worth introducing, not worth panicking over.
+function stalenessBoost(daysSinceLastTrained) {
+  const d = daysSinceLastTrained ?? 21;
+  if (d <= 7) return 0;
+  if (d <= 14) return (d - 7) * (15 / 7);
+  if (d <= 21) return 15 + (d - 14) * (20 / 7);
+  return Math.min(60, 35 + (d - 21) * 2);
+}
+
 // Per-muscle priority: -1 means "do not load right now" (injured or already
-// at/over the fatigue ceiling); otherwise higher = fresher = more deserving
-// of stimulus. Called live at guidance time and again at session-start time —
-// never cached against a specific day, since fatigue moves session to session.
-function computeMusclePriority(currentFatigue, offlineMuscles) {
+// at/over the fatigue ceiling); otherwise higher = fresher/more-overdue =
+// more deserving of stimulus. Called live at guidance time and again at
+// session-start time — never cached against a specific day, since fatigue
+// moves session to session. muscleLastTrainedDays is optional (null skips
+// the staleness boost entirely, e.g. for callers that don't have lift
+// history handy) — passing it blends in atrophy-risk prioritization from
+// computeMuscleLastTrainedDays (functions/fatigue.js).
+function computeMusclePriority(currentFatigue, offlineMuscles, muscleLastTrainedDays = null) {
   const priority = {};
   for (const m of PRIMARY_MUSCLES) {
     if (offlineMuscles.includes(m)) { priority[m] = -1; continue; }
     const fatigue = currentFatigue[m] || 0;
-    priority[m] = fatigue >= FATIGUE_CEILING ? -1 : (100 - fatigue);
+    if (fatigue >= FATIGUE_CEILING) { priority[m] = -1; continue; }
+    const boost = muscleLastTrainedDays ? stalenessBoost(muscleLastTrainedDays[m]) : 0;
+    priority[m] = (100 - fatigue) + boost;
   }
   return priority;
 }
@@ -154,7 +178,7 @@ function generateWeeklyGuidance({ currentFatigue, weekMetabolic, weekCNS, offlin
     liftSessionsTarget,
     cardioSessionsTarget,
     hiitRecommended: cardioSessionsTarget > 0,
-    muscleFocus: buckets.map(b => ({ name: b.name, muscles: b.muscles, freshness: Math.round(b.score) })),
+    muscleFocus: buckets.map(b => ({ name: b.name, muscles: b.muscles, freshness: Math.min(100, Math.round(b.score)) })),
     restingMuscleGroups,
     rationale: guidanceRationale(liftSessionsTarget, cardioSessionsTarget, weekCNS, weekMetabolic, trainingPriority),
     dataMature,
@@ -163,5 +187,5 @@ function generateWeeklyGuidance({ currentFatigue, weekMetabolic, weekCNS, offlin
 
 module.exports = {
   generateWeeklyGuidance, pickBackboneExercises, computeMusclePriority, scoreBucket, planLiftSessionsTarget, planCardioSessionsTarget,
-  MUSCLE_GROUPS, FATIGUE_CEILING, TRAINING_PRIORITIES,
+  stalenessBoost, MUSCLE_GROUPS, FATIGUE_CEILING, TRAINING_PRIORITIES,
 };

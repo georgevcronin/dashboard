@@ -45,6 +45,7 @@ const {
   computeStructuralFatigue, computeCurrentFatigueScores, musclePeaksFromLifts,
   INJURY_HEALING_DAYS, injuryFatiguePenalty, applyInjuryTaper,
   computeACWR, computePerformanceTrend, computeMetabolicFatigue, computeCNSFatigue,
+  computeMuscleLastTrainedDays,
 } = require('./fatigue');
 const { personalizedRecoveryHours, trainingMonthsIfKnown } = require('./recoveryPersonalization');
 const { alcoholStats, computeDataMaturity, compVerdict, toCsv, weekLiftSessionsCompleted } = require('./analytics');
@@ -832,12 +833,21 @@ app.post("/mentor", async (req, res) => {
 // double-progression math. See functions/sessionPlanner.js.
 //
 // No locked schedule to read back: if the caller doesn't specify which
-// muscles to train, this picks whichever group is freshest right now — the
-// same live scoring the weekly guidance uses, just recomputed at the moment
-// a session actually starts rather than pre-assigned to a calendar day. The
-// caller (frontend) can also request a specific muscle-focus bucket instead
-// of the top pick — "changeable, never pushed" means the algorithm's choice
-// is a default, not a requirement.
+// muscles to train, this builds a full-body session by default (see
+// TRAINING_ETHOS: "Full-body sessions, 2-4x/week: frequency over volume") —
+// one exercise per available muscle bucket (push/pull/legs/core), each
+// targeting whichever specific muscle in that bucket most deserves it right
+// now. "Deserves it" blends two things: fatigue-freshness (existing) and
+// how overdue the muscle is for a genuine training focus at all
+// (computeMuscleLastTrainedDays + weeklyPlanner's stalenessBoost) — a
+// muscle neglected for three weeks outranks one that's merely fresh from
+// being trained lightly yesterday. A bucket with nothing available (every
+// muscle in it fatigued or injured) is simply skipped for this session
+// rather than forced. The caller (frontend) can still request a specific
+// muscle-focus bucket instead — "changeable, never pushed" means the
+// algorithm's full-body default is a default, not a requirement; requesting
+// one bucket explicitly still returns the previous richer single-bucket
+// session (multiple exercises, accessories included).
 app.post("/plan/session-exercises", async (req, res) => {
   const { type = 'lift', bucket: reqBucket } = req.body;
   let { targetMuscles, backboneExercises } = req.body;
@@ -852,6 +862,31 @@ app.post("/plan/session-exercises", async (req, res) => {
   const avoidMuscles = Object.entries(currentFatigue).filter(([,v])=>v>65).map(([m])=>m);
   const offlineMuscles = avoidMuscles.filter(m => activeInjuries.some(i => (i.muscles || []).includes(m)));
   const travelMode = db.profile?.travelMode || false;
+  const trainingMonths = trainingMonthsIfKnown(db.profile);
+
+  if (type === 'lift' && !targetMuscles?.length && !reqBucket) {
+    const muscleLastTrainedDays = computeMuscleLastTrainedDays(lifts);
+    const priority = computeMusclePriority(currentFatigue, offlineMuscles, muscleLastTrainedDays);
+    const bucketPicks = Object.entries(MUSCLE_GROUPS)
+      .map(([name, muscles]) => {
+        const avail = muscles.filter(m => priority[m] >= 0);
+        if (!avail.length) return null;
+        const topMuscle = [...avail].sort((a, b) => priority[b] - priority[a])[0];
+        return { name, muscle: topMuscle };
+      })
+      .filter(Boolean);
+
+    targetMuscles = bucketPicks.map(p => p.muscle);
+    const exercises = bucketPicks.flatMap(({ muscle }) => {
+      const backbone = pickBackboneExercises([muscle], { travelMode, count: 1 }).map(e => e.name);
+      return generateSessionExercises({
+        type, targetMuscles: [muscle], backboneExerciseNames: backbone, lifts, travelMode,
+        avoidMuscles, offlineMuscles, cnsFatigue, metabolicFatigue, trainingMonths,
+        skipAccessories: true,
+      });
+    });
+    return res.json({ exercises, targetMuscles, backboneExercises: exercises.map(e => e.name), bucket: 'full body' });
+  }
 
   let bucket = reqBucket || null;
 
@@ -870,8 +905,7 @@ app.post("/plan/session-exercises", async (req, res) => {
 
   const exercises = generateSessionExercises({
     type, targetMuscles, backboneExerciseNames: backboneExercises, lifts, travelMode,
-    avoidMuscles, offlineMuscles, cnsFatigue, metabolicFatigue,
-    trainingMonths: trainingMonthsIfKnown(db.profile),
+    avoidMuscles, offlineMuscles, cnsFatigue, metabolicFatigue, trainingMonths,
   });
   res.json({ exercises, targetMuscles: targetMuscles || [], backboneExercises: backboneExercises || [], bucket });
 });

@@ -5,10 +5,40 @@
 // different CNS-compound exercise sets, the muscle-attribution bugs described
 // in functions/muscleTaxonomy.js). One implementation, imported by both.
 
-const { RECOVERY_H, musclesForExercise, isCompoundExercise } = require('./muscleTaxonomy');
+const { RECOVERY_H, findExercise, musclesForExercise, isCompoundExercise } = require('./muscleTaxonomy');
 
 const avg = (a) => (a.length ? a.reduce((x, y) => x + y, 0) / a.length : null);
 const liftTime = (l) => new Date(l.start || l.date).getTime();
+
+// "Days since this muscle was last a genuine training focus" — a distinct
+// signal from fatigue. Fatigue decays toward 0 regardless of whether that
+// means "recovered and ready" or "neglected" — this answers the second
+// question. PRIMARY targets only (not musclesForExercise's primary+secondary
+// union): staleness is about whether a muscle was the actual focus of an
+// exercise, not incidentally worked as a synergist.
+//
+// Detraining research: negligible measurable muscle loss in the first 1-2
+// weeks without a stimulus; real hypertrophy decline doesn't set in until
+// roughly 3-4+ weeks (systematic review evidence on resistance-training
+// detraining timelines — strength holds up even longer). This return value
+// is deliberately just the raw day count, not a judgment — weeklyPlanner.js's
+// stalenessBoost() is where that timeline gets turned into a priority curve.
+function computeMuscleLastTrainedDays(lifts) {
+  const now = Date.now();
+  const lastSeenMs = {};
+  for (const l of (lifts || [])) {
+    const entry = findExercise(l.exercise);
+    if (!entry) continue;
+    const t = liftTime(l);
+    if (isNaN(t)) continue;
+    for (const m of entry.primary || []) {
+      if (!lastSeenMs[m] || t > lastSeenMs[m]) lastSeenMs[m] = t;
+    }
+  }
+  const out = {};
+  for (const [m, t] of Object.entries(lastSeenMs)) out[m] = (now - t) / 86_400_000;
+  return out; // muscle -> days since last trained; absent key = never trained
+}
 
 // recoveryHours optionally overrides RECOVERY_H per-muscle — used to apply a
 // per-athlete personalization (age, training experience) computed by the
@@ -200,5 +230,5 @@ module.exports = {
   computeStructuralFatigue, computeCurrentFatigueScores, musclePeaksFromLifts,
   INJURY_HEALING_DAYS, injuryFatiguePenalty, applyInjuryTaper,
   computeACWR, computePerformanceTrend, computeMetabolicFatigue, computeCNSFatigue,
-  cnsLoad,
+  cnsLoad, computeMuscleLastTrainedDays,
 };

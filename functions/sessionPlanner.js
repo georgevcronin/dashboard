@@ -168,7 +168,7 @@ function setsFor(prog, workingSetCount, { failureSolo = false, higherRirPair = f
 // new-lifter fatigue budget. trainingMonths is null for an athlete who
 // hasn't self-reported training experience, in which case the new-lifter
 // budget is skipped entirely rather than assumed.
-function generateSessionExercises({ type, targetMuscles, backboneExerciseNames, lifts, travelMode, avoidMuscles = [], offlineMuscles = [], cnsFatigue = 0, metabolicFatigue = 0, trainingMonths = null }) {
+function generateSessionExercises({ type, targetMuscles, backboneExerciseNames, lifts, travelMode, avoidMuscles = [], offlineMuscles = [], cnsFatigue = 0, metabolicFatigue = 0, trainingMonths = null, skipAccessories = false }) {
   if (type !== 'lift' || !targetMuscles?.length) return [];
 
   const excludeMuscles = [...new Set([...avoidMuscles, ...offlineMuscles])];
@@ -187,14 +187,20 @@ function generateSessionExercises({ type, targetMuscles, backboneExerciseNames, 
   backboneEntries = backboneEntries.filter(e => (seen.has(e.name) ? false : (seen.add(e.name), true)));
 
   const fatigueCeiling = metabolicFatigue > 60 ? 2 : metabolicFatigue > 30 ? 3 : 4;
-  const accessoryCount = metabolicFatigue > 60 ? 1 : 2;
+  // skipAccessories: used by the full-body auto-pick path (functions/index.js's
+  // /plan/session-exercises), which calls this once per muscle bucket — each
+  // bucket already contributes exactly one exercise, so adding accessories
+  // per-bucket-call would stack extra volume onto whichever buckets happen to
+  // score highest instead of keeping the session evenly spread, which is the
+  // whole point of picking one exercise per bucket in the first place.
+  const accessoryCount = skipAccessories ? 0 : (metabolicFatigue > 60 ? 1 : 2);
 
   const excludeNames = new Set([...originalNames, ...backboneEntries.map(e => e.name)]);
   const avoidEquipment = cnsFatigue > 70 ? HIGH_CNS_EQUIPMENT : [];
-  const lastPick = lastAccessoryPick(lifts, targetMuscles, excludeNames);
-  const accessories = pickAccessories(targetMuscles, backboneEntries, excludeNames, excludeMuscles, {
+  const lastPick = accessoryCount > 0 ? lastAccessoryPick(lifts, targetMuscles, excludeNames) : null;
+  const accessories = accessoryCount > 0 ? pickAccessories(targetMuscles, backboneEntries, excludeNames, excludeMuscles, {
     travelMode, avoidEquipment, avoidNames: lastPick ? [lastPick] : [], count: accessoryCount,
-  });
+  }) : [];
 
   return [...backboneEntries, ...accessories].map(e => {
     const prog = progressionFor(lifts, e.name);

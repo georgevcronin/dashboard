@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const {
   computeStructuralFatigue, musclePeaksFromLifts, applyInjuryTaper,
   injuryFatiguePenalty, computeACWR, computePerformanceTrend, computeCNSFatigue,
+  computeMuscleLastTrainedDays,
 } = require('../functions/fatigue');
 
 const daysAgo = (n) => new Date(Date.now() - n * 86400000).toISOString().slice(0, 10);
@@ -108,4 +109,32 @@ test('computeCNSFatigue does not count isolation exercises', () => {
   const lifts = [{ date: daysAgo(0), exercise: 'Hammer Curl', kg: 15, reps: 10 }];
   const out = computeCNSFatigue(lifts);
   assert.equal(out, 0);
+});
+
+test('computeMuscleLastTrainedDays returns days since the most recent PRIMARY-target exercise per muscle', () => {
+  const lifts = [
+    { date: daysAgo(20), exercise: 'Back Squat', kg: 100, reps: 8 },
+    { date: daysAgo(2), exercise: 'Barbell Bench Press', kg: 80, reps: 8 },
+  ];
+  const out = computeMuscleLastTrainedDays(lifts);
+  assert.ok(Math.abs(out.quads - 20) < 1);
+  assert.ok(Math.abs(out.chest - 2) < 1);
+  assert.equal(out['mid-delt'], undefined, 'a muscle never hit as a primary target should have no entry');
+});
+
+test('computeMuscleLastTrainedDays takes the most recent occurrence, not the first', () => {
+  const lifts = [
+    { date: daysAgo(30), exercise: 'Back Squat', kg: 90, reps: 8 },
+    { date: daysAgo(3), exercise: 'Back Squat', kg: 100, reps: 8 },
+  ];
+  const out = computeMuscleLastTrainedDays(lifts);
+  assert.ok(Math.abs(out.quads - 3) < 1);
+});
+
+test('computeMuscleLastTrainedDays only counts PRIMARY targets, not secondary', () => {
+  // Barbell Bench Press: primary chest/triceps/front-delt, secondary serratus/core.
+  const lifts = [{ date: daysAgo(5), exercise: 'Barbell Bench Press', kg: 80, reps: 8 }];
+  const out = computeMuscleLastTrainedDays(lifts);
+  assert.ok('chest' in out);
+  assert.ok(!('serratus' in out), 'secondary-only muscles should not count as a genuine training focus');
 });
