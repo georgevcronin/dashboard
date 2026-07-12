@@ -118,7 +118,11 @@ function computePerformanceTrend(lifts) {
     if (daysAgo < 0 || daysAgo > 21) continue;
     const date = l.date || l.start;
     const e1rm = l.kg * (1 + l.reps / 30);
-    (byEx[l.exercise] = byEx[l.exercise] || {})[date] = Math.max((byEx[l.exercise] || {})[date] || 0, e1rm);
+    // Lowercased so the same exercise logged via different sources (Hevy
+    // import lowercases; other paths may not) doesn't silently split into
+    // two untracked trend buckets.
+    const key = l.exercise.toLowerCase();
+    (byEx[key] = byEx[key] || {})[date] = Math.max((byEx[key] || {})[date] || 0, e1rm);
   }
   const decrements = [];
   for (const byDate of Object.values(byEx)) {

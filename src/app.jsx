@@ -6,13 +6,16 @@ import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, on
 import muscleTaxonomyPkg from '../functions/muscleTaxonomy.js';
 import fatiguePkg from '../functions/fatigue.js';
 import sessionPlannerPkg from '../functions/sessionPlanner.js';
+import { EXERCISE_DB } from '../functions/exerciseDb.js';
 
 // Muscle taxonomy + fatigue math + progression logic are shared with the
 // backend (functions/muscleTaxonomy.js, functions/fatigue.js,
 // functions/sessionPlanner.js) rather than hand-copied here — this used to be
 // three independently-drifting implementations (hyphen/case mismatches,
 // an 'ab'-substring collision, and 14 exercises the muscle-bucket taxonomy
-// couldn't see at all). One implementation, bundled into both.
+// couldn't see at all). One implementation, bundled into both. EXERCISE_DB
+// itself is imported separately for the session-logging autocomplete, which
+// needs the full exercise name list rather than a derived lookup.
 const { ALL_MUSCLES, musclesForExercise, isCompoundExercise } = muscleTaxonomyPkg;
 const { computeStructuralFatigue, computeACWR, computePerformanceTrend, computeMetabolicFatigue, computeCNSFatigue, cnsLoad } = fatiguePkg;
 const { progressionFor } = sessionPlannerPkg;
@@ -942,19 +945,14 @@ function S2({ s, refresh }) {
 }
 
 // ── WORKOUT LOGGER ───────────────────────────────────────────────────────────
-const BASE_EXERCISES = [
-  'back squat','front squat','hack squat','leg press','leg curl','leg extension',
-  'lunge','bulgarian split squat','hip thrust','glute bridge','romanian deadlift',
-  'deadlift','sumo deadlift','calf raise','seated calf raise',
-  'pull up','chin up','lat pulldown','seated row','cable row','barbell row','dumbbell row','t-bar row',
-  'bench press','incline bench press','decline bench press','dumbbell press','incline dumbbell press',
-  'cable fly','dumbbell fly','dip','push up',
-  'overhead press','dumbbell shoulder press','arnold press','lateral raise','front raise','face pull','rear delt fly',
-  'barbell curl','dumbbell curl','hammer curl','preacher curl','cable curl',
-  'tricep pushdown','skull crusher','overhead tricep extension','close grip bench press',
-  'plank','crunch','cable crunch','leg raise','ab rollout','russian twist',
-  'shrug','farmer carry','wrist curl',
-];
+// Was a hand-maintained 57-name list that had drifted so far from
+// EXERCISE_DB's actual naming (e.g. 'skull crusher' vs. the DB's
+// "Skullcrusher (Barbell)") that 41 of the 57 default suggestions — including
+// "bench press", "deadlift", "pull up" — never matched any DB entry. Logging
+// one of those meant zero fatigue tracking and no equipment-aware
+// progression rounding for that exercise. Deriving from EXERCISE_DB directly
+// keeps the suggestion list and the actual data in permanent sync.
+const BASE_EXERCISES = EXERCISE_DB.map(e => e.name.toLowerCase());
 
 const e1rm = (kg, reps) => (kg > 0 && reps > 0) ? Math.round(kg * (1 + reps / 30)) : null;
 const SET_TYPES = ['W','N','D','F'];

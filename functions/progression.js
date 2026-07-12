@@ -1,9 +1,34 @@
-const { isLowerBodyExercise } = require('./muscleTaxonomy');
+const { isLowerBodyExercise, findExercise } = require('./muscleTaxonomy');
 
 // Deterministic double-progression calculator: given an exercise's session
 // history, decide whether to add weight, add a rep, deload, or hold — no LLM
 // involved. Shared by /coach, the deterministic session generator, and the
 // weekly plan's per-exercise pre-computed targets.
+
+const PLATE_LOADED_EQUIPMENT = new Set(['barbell', 'smith']);
+const STACK_LOADED_EQUIPMENT = new Set(['machine', 'cable']);
+// Selectorized weight-stack machines standardly step in 10lb increments
+// (Life Fitness/Cybex/etc. spec sheets); some step finer (5lb) but 10lb is
+// the common baseline across brands.
+const STACK_INCREMENT_KG = 4.5;
+
+// The weight jump this exercise's equipment can actually realize: barbell/
+// smith are plate-loaded (2.5kg per side is the standard small-plate jump,
+// bumped to 5kg for lower-body compounds since they're strong enough
+// movements that 2.5kg is imperceptible progress); machine/cable are
+// stack-loaded, limited to whatever increment the pin/stack offers;
+// dumbbell/kettlebell/bodyweight are finely adjustable (fixed dumbbells
+// aside, most commercial gyms have close-enough increments, and bodyweight
+// progress comes from reps, not load). Unknown equipment (exercise not in
+// the DB, e.g. a manually-logged custom name) falls back to the old 2.5kg
+// default rather than guessing.
+function weightIncrementKg(equipment, isLowerBody) {
+  if (PLATE_LOADED_EQUIPMENT.has(equipment)) return isLowerBody ? 5 : 2.5;
+  if (STACK_LOADED_EQUIPMENT.has(equipment)) return STACK_INCREMENT_KG;
+  if (equipment) return 0.1;
+  return 2.5;
+}
+
 function computeProgression(lifts, name) {
   const ex = lifts.filter(l => l.exercise === name);
   if (!ex.length) return null;
@@ -17,7 +42,8 @@ function computeProgression(lifts, name) {
   });
   const last = sessions.at(-1);
   const prev = sessions.at(-2);
-  const inc = isLowerBodyExercise(name) ? 5 : 2.5;
+  const equipment = findExercise(name)?.equipment;
+  const inc = weightIncrementKg(equipment, isLowerBodyExercise(name));
   let suggestKg = last.kg, suggestReps = last.reps, trend, note;
   if (!prev) {
     trend = 'baseline'; note = `baseline — ${last.kg}kg×${last.reps}`;
@@ -33,8 +59,8 @@ function computeProgression(lifts, name) {
   } else {
     trend = 'recovering'; note = `recovering — hold ${last.kg}kg×${last.reps}`;
   }
-  const warmup1kg = Math.round(suggestKg * 0.6 / 2.5) * 2.5;
-  const warmup2kg = Math.round(suggestKg * 0.85 / 2.5) * 2.5;
+  const warmup1kg = Math.round(suggestKg * 0.6 / inc) * inc;
+  const warmup2kg = Math.round(suggestKg * 0.85 / inc) * inc;
   const recentStr = sessions.slice(-3).map(s => `${s.date}: ${s.kg}kg×${s.reps} (e1RM ${s.e1rm})`).join(', ');
   return { name, trend, note, suggestKg, suggestReps, warmup1kg, warmup2kg, setCount: last.setCount, recentStr };
 }

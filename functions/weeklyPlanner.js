@@ -18,6 +18,24 @@ const { PRIMARY_MUSCLES, MUSCLE_GROUPS } = require('./muscleTaxonomy');
 
 const FATIGUE_CEILING = 65; // ethos: don't load a muscle already this fatigued
 
+// Major prime-mover muscles (the original tracked set) vs. small assistor/
+// stabilizer muscles added later (rotator cuff, brachialis, mid/lower traps,
+// etc.) for exercise-selection coverage. Assistors recover much faster and
+// are rarely logged directly, so weighting them equally in a bucket's
+// freshness average lets them dominate once the real prime movers cap out at
+// the fatigue ceiling and drop out of the average — e.g. a genuinely fried
+// back (lats/rhomboids/traps/rear-delt/biceps all capped) would otherwise
+// still read as "fresh" off rotator-cuff/brachialis alone. Assistors keep a
+// small non-zero weight rather than 0 so a bucket with zero available majors
+// still shows *some* signal instead of vanishing outright.
+const MAJOR_MUSCLES = new Set([
+  'glutes', 'quads', 'hamstrings', 'adductors', 'calves', 'erectors',
+  'chest', 'abs', 'obliques', 'biceps', 'triceps', 'forearms', 'traps',
+  'front-delt', 'rear-delt', 'lats', 'rhomboids', 'neck', 'mid-delt',
+]);
+const ASSISTOR_WEIGHT = 0.15;
+function muscleWeight(m) { return MAJOR_MUSCLES.has(m) ? 1 : ASSISTOR_WEIGHT; }
+
 // Compound-first exercise selection: excludes lesserKnown (novel/accessory)
 // variations, which the ethos treats as a "final 5%" addition, not a starting
 // strategy. Picks the exercises whose primary muscles best cover the target set.
@@ -56,7 +74,9 @@ function computeMusclePriority(currentFatigue, offlineMuscles) {
 function scoreBucket(muscles, priority) {
   const avail = muscles.filter(m => priority[m] >= 0);
   if (!avail.length) return null;
-  return { muscles: avail, score: avail.reduce((s, m) => s + priority[m], 0) / avail.length };
+  const totalWeight = avail.reduce((s, m) => s + muscleWeight(m), 0);
+  const score = avail.reduce((s, m) => s + priority[m] * muscleWeight(m), 0) / totalWeight;
+  return { muscles: avail, score };
 }
 
 // A priority can't maximize every kind of training at once — the classic

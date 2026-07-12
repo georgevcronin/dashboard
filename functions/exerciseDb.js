@@ -158,16 +158,6 @@ const EXERCISE_DB = [
     lesserKnown: false
   },
   {
-    id: 'landmine-press',
-    name: 'Landmine Press',
-    category: 'push', equipment: 'barbell',
-    primary: ['chest', 'front-delt', 'triceps'], secondary: ['serratus'],
-    curve: 'partial',
-    curveNote: 'Arc path of landmine provides intermediate challenge between press and fly. Upper chest involvement strong in the arc; shoulder-friendly for those with impingement.',
-    form: ['Grip end of bar at shoulder height', 'Press in an arc, not straight up', 'Slight forward lean engages chest more', 'Can be done kneeling or standing'],
-    lesserKnown: false
-  },
-  {
     id: 'svend-press',
     name: 'Svend Press',
     category: 'push', equipment: 'bodyweight',
@@ -325,7 +315,7 @@ const EXERCISE_DB = [
     id: 'dumbbell-row-chest-supported',
     name: 'Chest-Supported Dumbbell Row',
     category: 'pull', equipment: 'dumbbell',
-    primary: ['rhomboids', 'mid-traps', 'rear-delt'], secondary: ['lats', 'biceps'],
+    primary: ['lats', 'rhomboids', 'mid-traps', 'rear-delt'], secondary: ['biceps'],
     curve: 'partial',
     curveNote: 'Chest support eliminates erector fatigue and momentum; forces honest mid-back work. Gravity vector is directly opposing the pull through full ROM.',
     form: ['Incline bench at 30–45°', 'Chest on pad throughout — do not lift off', 'Both arms simultaneously or alternating', 'Focus on squeezing rhomboids at top'],
@@ -484,16 +474,6 @@ const EXERCISE_DB = [
     lesserKnown: false
   },
   {
-    id: 'rack-pull',
-    name: 'Rack Pull',
-    category: 'hinge', equipment: 'barbell',
-    primary: ['erectors', 'glutes', 'hamstrings'], secondary: ['lats', 'forearms', 'mid-traps'],
-    curve: 'partial',
-    curveNote: 'Starting position mid-shin or knee height removes most hamstring pre-stretch; emphasises lockout strength and upper back. Allows supramaximal loading vs conventional.',
-    form: ['Set pins at knee or just below', 'Same lockout mechanics as conventional deadlift', 'Straps acceptable at high loads', 'Focus on upper back tightness throughout'],
-    lesserKnown: false
-  },
-  {
     id: 'hyperextension',
     name: 'Back Extension / Hyperextension',
     category: 'hinge', equipment: 'bodyweight',
@@ -609,21 +589,11 @@ const EXERCISE_DB = [
     id: 'upright-row',
     name: 'Upright Row',
     category: 'shoulders', equipment: 'barbell',
-    primary: ['mid-delt'], secondary: ['front-delt', 'biceps', 'rhomboids'],
+    primary: ['mid-delt'], secondary: ['front-delt', 'biceps', 'rhomboids', 'traps'],
     curve: 'partial',
     curveNote: 'Similar to lateral raise profile — gravity loads best at horizontal. Risk of shoulder impingement with narrow grip; wide grip safer. Good mid-delt and upper trap recruiter.',
     form: ['Wider than shoulder grip reduces impingement', 'Elbows lead above wrists', 'Pull to lower chest / nipple height only', 'Avoid EZ bar if shoulder discomfort occurs'],
     lesserKnown: false
-  },
-  {
-    id: 'bradford-press',
-    name: 'Bradford Press',
-    category: 'shoulders', equipment: 'barbell',
-    primary: ['front-delt', 'mid-delt'], secondary: ['triceps', 'rotator-cuff'],
-    curve: 'partial',
-    curveNote: 'Continuous over-the-head arc from front to back maintains near-constant shoulder tension. Front delt loaded on front pass; rear delt on back pass. Unique continuous tension profile.',
-    form: ['Bar passes over head, not pressed to lockout', 'Front rack to behind neck without stopping at top', 'Light weight — this is not a heavy press', 'Smooth continuous arc'],
-    lesserKnown: true
   },
   {
     id: 'cuban-rotation',
@@ -1119,7 +1089,7 @@ const EXERCISE_DB = [
     id: 'clamshell',
     name: 'Clamshell',
     category: 'legs', equipment: 'bodyweight',
-    primary: ['abductors', 'glutes'], secondary: ['rotator-cuff'],
+    primary: ['abductors', 'glutes'], secondary: [],
     curve: 'partial',
     curveNote: 'Hip external rotation in lying position targets glute medius and external rotators. Important for hip stability work but requires band to add meaningful resistance.',
     form: ['Lie on side, hips stacked', 'Rotate top knee toward ceiling', 'Keep feet together throughout', 'Add resistance band for progression'],
@@ -1720,16 +1690,6 @@ const EXERCISE_DB = [
     form: ['Squat to parallel', 'Explode upward — maximum height', 'Soft landing — absorb with knees', 'Reset fully before next rep for power training'],
     lesserKnown: false
   },
-  {
-    id: 'hip-adduction-machine',
-    name: 'Hip Adduction Machine (Seated)',
-    category: 'legs', equipment: 'machine',
-    primary: ['adductors'], secondary: [],
-    curve: 'matching',
-    curveNote: 'Seated machine applies resistance through hip adduction arc consistently. Most people overtrain abductors relative to adductors — this corrects the imbalance.',
-    form: ['Full ROM — thighs apart at maximum start', 'Squeeze inward fully', 'Slow return — eccentric adductor strength is protective', 'Do not use momentum'],
-    lesserKnown: false
-  },
 
   // ── ADDITIONAL CORE ──────────────────────────────────────────────────────────
   {
@@ -1802,16 +1762,6 @@ const EXERCISE_DB = [
     form: ['High pulley, rotate across body and down', 'Straight arms throughout', 'Power comes from core rotation, not arms', 'Plant feet — no stepping'],
     lesserKnown: false
   },
-  {
-    id: 'ab-rollout-barbell',
-    name: 'Ab Rollout (Barbell)',
-    category: 'core', equipment: 'barbell',
-    primary: ['abs', 'transverse-abs'], secondary: ['lats', 'shoulders'],
-    curve: 'matching',
-    curveNote: 'Same anti-extension mechanics as ab wheel but with barbell — allows more width for stability or narrower for difficulty. Resistance peaks at full extension where anti-extension is maximal.',
-    form: ['Kneel, hands on barbell shoulder-width', 'Roll forward while bracing hard', 'Pull back in using abs and lats', 'Full rollout when truly strong'],
-    lesserKnown: false
-  },
 
   // ── OLYMPIC / POWER ──────────────────────────────────────────────────────────
   {
@@ -1881,15 +1831,12 @@ const EXERCISE_DB = [
   { id: 'incline-curl', name: 'Incline Bench Curl (Scott Curl)', category: 'arms', equipment: 'dumbbell', primary: ['biceps'], secondary: ['brachialis'], curve: 'partial', curveNote: 'Arms braced on incline — similar to preacher but on incline side. Short head bicep fully loaded; cheating eliminated by bench support.', form: ['Arms over incline, elbows fixed on bench', 'Full extension at bottom', 'Curl to peak', 'Do not bounce at bottom'], lesserKnown: false },
   { id: 'overhead-cable-curl', name: 'Overhead Cable Curl (Double Bicep)', category: 'arms', equipment: 'cable', primary: ['biceps'], secondary: ['front-delt'], curve: 'matching', curveNote: 'Arms extended at shoulder height with high cables — mimics double-bicep pose. Shoulder-flexed position places both bicep heads under tension. Loads peak contraction from an extended position.', form: ['High cables at each side', 'Curl toward temples simultaneously', 'Hold peak flex', 'Return slowly against cable resistance'], lesserKnown: true },
   { id: 'lat-pulldown-behind-neck', name: 'Behind-Neck Lat Pulldown', category: 'pull', equipment: 'machine', primary: ['lats'], secondary: ['rhomboids', 'biceps'], curve: 'partial', curveNote: 'Bar pulled to behind neck increases mid-trap and rhomboid activation at the expense of increased cervical spine load. Only for those with good mobility and no shoulder issues.', form: ['Head forward, bar behind neck', 'Wide grip', 'Touch back of neck lightly — no force', 'Contraindicated for shoulder impingement'], lesserKnown: false },
-  { id: 'single-arm-dumbbell-press', name: 'Single-Arm Dumbbell Press', category: 'push', equipment: 'dumbbell', primary: ['chest', 'triceps'], secondary: ['core', 'serratus'], curve: 'partial', curveNote: 'Unilateral press creates rotational demand on core — anti-rotation adds TVA engagement. Reveals chest imbalances. Core benefit makes this more than just a chest exercise.', form: ['Lay flat, one dumbbell', 'Other arm extended or on chest', 'Press and resist rotation', 'Full ROM as normal press'], lesserKnown: false },
+  { id: 'single-arm-dumbbell-press', name: 'Single-Arm Dumbbell Press', category: 'push', equipment: 'dumbbell', primary: ['chest', 'triceps'], secondary: ['front-delt', 'core', 'serratus'], curve: 'partial', curveNote: 'Unilateral press creates rotational demand on core — anti-rotation adds TVA engagement. Reveals chest imbalances. Core benefit makes this more than just a chest exercise.', form: ['Lay flat, one dumbbell', 'Other arm extended or on chest', 'Press and resist rotation', 'Full ROM as normal press'], lesserKnown: false },
   { id: 'hex-press', name: 'Hex Press (Floor)', category: 'push', equipment: 'dumbbell', primary: ['chest', 'triceps'], secondary: ['front-delt'], curve: 'partial', curveNote: 'Dumbbells pressed together throughout floor press — constant adduction tension from squeezing. Similar to Svend press but in a press pattern. Unusual inner chest loading.', form: ['Flat on floor', 'Hold hex/flat-faced dumbbells pressed together', 'Press without letting them separate', 'Full extension and squeeze at top'], lesserKnown: true },
   { id: 'push-press', name: 'Push Press', category: 'shoulders', equipment: 'barbell', primary: ['front-delt', 'mid-delt', 'triceps'], secondary: ['quads', 'glutes', 'core'], curve: 'matching', curveNote: 'Dip and drive uses leg momentum to initiate the press — allows supramaximal load overhead. True power development in the press pattern. Loads delts through full range with more weight than strict press.', form: ['Small dip then explosive drive', 'Bar goes overhead in one movement', 'Lock out hard at top', 'Reset before each rep or continuous touch-and-go'], lesserKnown: false },
   { id: 'z-press', name: 'Z-Press', category: 'shoulders', equipment: 'barbell', primary: ['front-delt', 'mid-delt'], secondary: ['triceps', 'core', 'hip-flexors'], curve: 'partial', curveNote: 'Seated on floor with legs extended — removes all leg base. Demands extreme core and hip flexor engagement alongside shoulder press. Any cheating is impossible.', form: ['Sit on floor, legs straight', 'Bar in front rack position', 'Press overhead — torso stays upright', 'Very humbling for the load required'], lesserKnown: true },
   { id: 'jefferson-curl', name: 'Jefferson Curl', category: 'hinge', equipment: 'dumbbell', primary: ['erectors', 'hamstrings'], secondary: ['glutes', 'abs'], curve: 'matching', curveNote: 'Deliberate spinal flexion under load — the opposite of most advice, but builds eccentric spinal extensor strength and hamstring flexibility systematically. Very light loads only.', form: ['Start standing tall', 'Curl spine forward one vertebra at a time', 'Hands travel down front of legs to feet', 'Reverse back up segment by segment. VERY light load only'], lesserKnown: true },
-  { id: 'cable-crunch-kneeling', name: 'Kneeling Cable Crunch', category: 'core', equipment: 'cable', primary: ['abs'], secondary: ['obliques'], curve: 'matching', curveNote: 'Kneeling version puts abs in better position than standing cable crunch. The spine flexes against constant cable load — progressive and highly effective for abs hypertrophy.', form: ['Kneel under high cable, rope behind neck', 'Crunch elbows toward knees', 'Round the spine — not just hip flexion', 'Hold at peak, slow return'], lesserKnown: false },
   { id: 'dumbbell-deadlift', name: 'Dumbbell Deadlift', category: 'hinge', equipment: 'dumbbell', primary: ['hamstrings', 'glutes', 'erectors'], secondary: ['quads', 'forearms'], curve: 'partial', curveNote: 'Same pattern as conventional deadlift with dumbbells outside legs. Good for learning pattern or when barbell not available. Similar loading curve to trap bar deadlift.', form: ['Dumbbells outside feet', 'Hip hinge — same mechanics as barbell', 'Full lockout at top', 'Dumbbells stay close to body throughout'], lesserKnown: false },
-  { id: 'machine-fly', name: 'Machine Chest Fly (Seated)', category: 'push', equipment: 'machine', primary: ['chest'], secondary: ['front-delt'], curve: 'matching', curveNote: 'Seated fly machine provides cam-based resistance through horizontal adduction — can closely match chest strength curve. Excellent for isolating chest without stabiliser fatigue.', form: ['Adjust so handles are at shoulder height', 'Slight forward lean', 'Bring handles together in front of chest', 'Full controlled return'], lesserKnown: false },
-  { id: 'nordic-curl-eccentrics', name: 'Nordic Hamstring Curl Eccentrics', category: 'legs', equipment: 'bodyweight', primary: ['hamstrings'], secondary: ['glutes', 'erectors'], curve: 'matching', curveNote: 'Pure eccentric phase only — lower as slowly as possible then hand-catch. Maximum hamstring tension throughout the lengthening phase. Protocol proven to reduce hamstring injury rates by 50%+.', form: ['Kneeling, feet anchored', 'Lower body as slowly as possible', 'Catch with hands when can no longer resist', 'Focus entirely on the lowering — that IS the exercise'], lesserKnown: true },
   { id: 'hip-hinge-barbell', name: 'Hip Hinge (Dowel/Barbell Drill)', category: 'hinge', equipment: 'barbell', primary: ['glutes', 'hamstrings'], secondary: ['erectors'], curve: 'partial', curveNote: 'Patterning exercise — barbell held against spine while hinging. Teaches proper neutral spine and hip hinge mechanics. Foundation for all hinge-based exercises.', form: ['Barbell along spine — head, upper back, and tailbone contact', 'Push hips back while maintaining three contact points', 'Knees soft — this is a hinge not a squat', 'Feel hamstring tension as cue for correct position'], lesserKnown: false },
   { id: 'half-kneeling-press', name: 'Half-Kneeling Dumbbell Press', category: 'shoulders', equipment: 'dumbbell', primary: ['front-delt', 'mid-delt'], secondary: ['triceps', 'core', 'glutes'], curve: 'partial', curveNote: 'Single-knee kneeling position adds hip flexor and glute engagement. Anti-lateral flexion demand on core alongside shoulder press. Reveals right-left asymmetries.', form: ['Kneel on one knee, press on same side', 'Opposite glute squeezed hard', 'Brace against lateral lean', 'Press from shoulder to directly overhead'], lesserKnown: false },
   { id: 'cable-face-pull-overhead', name: 'Overhead Cable Face Pull', category: 'shoulders', equipment: 'cable', primary: ['rear-delt', 'rotator-cuff', 'mid-traps'], secondary: ['rhomboids'], curve: 'matching', curveNote: 'Face pull from above-head angle adds upward rotation of scapula to the standard face pull benefits. Serratus and lower trap involvement. Critical for long-term shoulder health under heavy pressing.', form: ['Set cable above head height', 'Pull rope toward face — elbows high', 'External rotate at end', 'Slow and controlled — shoulder health work'], lesserKnown: true },

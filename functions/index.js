@@ -680,7 +680,8 @@ function computeDataMaturity(lifts) {
   for (const l of lifts) {
     if (!l.exercise || !l.kg || !l.reps) continue;
     const e1rm = l.kg * (1 + l.reps / 30);
-    (byEx[l.exercise] = byEx[l.exercise] || []).push({ date: l.date, e1rm });
+    const key = l.exercise.toLowerCase();
+    (byEx[key] = byEx[key] || []).push({ date: l.date, e1rm });
   }
   const exercisesWithPatterns = Object.values(byEx).filter(sets => {
     if (sets.length < 4) return false;
@@ -707,7 +708,7 @@ function compVerdict(weights, lifts) {
   if (weights.length < 5) return null;
   const wTrend = weights.at(-1).value - weights[0].value;
   const byEx = {};
-  lifts.forEach((l) => { (byEx[l.exercise] = byEx[l.exercise] || []).push(l); });
+  lifts.forEach((l) => { if (!l.exercise) return; const key = l.exercise.toLowerCase(); (byEx[key] = byEx[key] || []).push(l); });
   const liftDeltas = Object.values(byEx).filter((s) => s.length > 1).map((s) => s.at(-1).kg - s[0].kg);
   const liftsUp = liftDeltas.length && avg(liftDeltas) > 0;
   if (Math.abs(wTrend) < 0.8 && liftsUp) return { word: "Recomping", note: "Lifts up, weight steady — likely swapping fat for muscle." };

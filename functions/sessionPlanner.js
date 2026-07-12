@@ -33,11 +33,12 @@ function substituteForCNS(entry, avoidMuscles) {
 // working, only rotating it out once progress stalls, so rotation only
 // applies to the accessory slot, which exists precisely to add variety.
 function lastAccessoryPick(lifts, targetMuscles, excludeNames) {
+  const excludeLower = new Set([...excludeNames].map(n => n.toLowerCase()));
   const dates = [...new Set((lifts || []).map(l => l.date))].sort().reverse();
   for (const date of dates) {
     const dayExercises = [...new Set(lifts.filter(l => l.date === date).map(l => l.exercise).filter(Boolean))];
     const match = dayExercises.find(name => {
-      if (excludeNames.has(name)) return false;
+      if (excludeLower.has(name.toLowerCase())) return false;
       const entry = EXERCISE_DB.find(e => e.name.toLowerCase() === name.toLowerCase());
       return entry && entry.primary.some(m => targetMuscles.includes(m));
     });

@@ -132,7 +132,7 @@ function isLowerBodyExercise(name) {
 // primary-muscle count (e.g. Hammer Curl has 2 primary muscles but isn't
 // CNS-heavy), so this stays an explicit, whole-word-matched list — just one of
 // them now, normalized against hyphens like everything else here.
-const COMPOUND_FALLBACK = /\b(squat|deadlift|hack squat|bench press|overhead press|leg press|barbell row|pull up|chin up|hip thrust)\b/;
+const COMPOUND_FALLBACK = /\b(squat|deadlift|hack squat|bench press|overhead press|leg press|barbell row|pull up|chin up|hip thrust|power clean|hang clean|push press)\b/;
 function isCompoundExercise(name) {
   return COMPOUND_FALLBACK.test(normalizeForMatch(name));
 }
