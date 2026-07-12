@@ -77,6 +77,15 @@ const localDateFromYMD = (ymd) => {
   const [y, m, d] = ymd.split('-').map(Number);
   return new Date(y, m - 1, d);
 };
+// The reverse direction: a Date -> "YYYY-MM-DD" using this browser's own
+// local timezone, not UTC. `date.toISOString().split('T')[0]` is the bug to
+// avoid here — it always converts to UTC first, so a moment that's already
+// "tomorrow" locally (e.g. 11:45pm) gets stored under yesterday's date, or
+// vice versa depending on offset direction.
+const toLocalDateStr = (date) => {
+  const y = date.getFullYear(), m = String(date.getMonth() + 1).padStart(2, '0'), d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+};
 const fmtDate = () => new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
 const fmtDateShort = () => new Date().toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
 const pct = (v, t) => (t && t > 0 ? Math.min(100, Math.round(v / t * 100)) : 0);
@@ -1187,7 +1196,7 @@ function parseHevyCSV(text) {
       const startMs = new Date(startRaw).getTime();
       const endRaw = row['end_time'] || row['End Time'];
       const endMs = endRaw ? new Date(endRaw).getTime() : null;
-      const dateISO = new Date(startRaw).toISOString().split('T')[0];
+      const dateISO = toLocalDateStr(new Date(startRaw));
       map[key] = {
         name: title,
         date: dateISO,

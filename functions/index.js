@@ -91,6 +91,21 @@ let save = async () => {};
 const day = (d) => (d ? new Date(d) : new Date()).toISOString().slice(0, 10);
 const avg = (a) => (a.length ? a.reduce((x, y) => x + y, 0) / a.length : null);
 
+// Single-user app currently (see PRODUCT.md) — no per-user timezone is
+// wired up anywhere in the profile, so this is a fixed IANA zone rather
+// than a real per-athlete lookup. Used only where an external UTC
+// timestamp genuinely needs converting to "what calendar day did this
+// actually happen on" (Hevy ingestion — see ingestWorkout); update this
+// constant if the app ever serves someone outside the UK, or wire up a
+// real per-user timezone before then.
+const APP_TIMEZONE = 'Europe/London';
+function utcToAppLocalDateStr(isoString) {
+  if (!isoString) return '';
+  const d = new Date(isoString);
+  if (isNaN(d.getTime())) return '';
+  return new Intl.DateTimeFormat('en-CA', { timeZone: APP_TIMEZONE, year: 'numeric', month: '2-digit', day: '2-digit' }).format(d);
+}
+
 // ---------- Open webhook routes (iOS Health, Hevy, Strava OAuth) ----------
 // These are called by external services and can't carry a Firebase token.
 // They resolve the owner uid via PRESS_OWNER_UID env var, with legacy fallback.
@@ -257,7 +272,13 @@ function hevyKey() {
 }
 
 function ingestWorkout(w) {
-  const wDate = (w.start_time || w.created_at || "").slice(0, 10);
+  // Hevy sends UTC timestamps with no local-time field, unlike Strava (see
+  // ingestActivity below). Slicing the UTC string directly took the UTC
+  // calendar date, which is wrong by a day for a workout logged near
+  // midnight in the athlete's actual timezone — not just a display glitch,
+  // since this date becomes the stored key everywhere downstream (fatigue
+  // decay timing, weekly session counts, history).
+  const wDate = utcToAppLocalDateStr(w.start_time || w.created_at);
   if (!wDate) return 0;
 
   // Add workout entry so it appears in workout history and fatigue model
@@ -393,7 +414,13 @@ async function stravaAccessToken() {
 }
 
 function ingestActivity(a) {
-  const date = (a.start_date || "").slice(0, 10);
+  // Strava provides start_date_local specifically so consumers don't have to
+  // do UTC-to-local conversion themselves — it carries the athlete's actual
+  // local wall-clock time (mislabeled with a "Z" suffix, so just slice the
+  // date portion directly rather than running it through a timezone
+  // conversion, which would incorrectly shift it a second time). Falls back
+  // to start_date (true UTC) only if Strava ever omits the local field.
+  const date = (a.start_date_local || a.start_date || "").slice(0, 10);
   if (!date) return;
   const name = (a.sport_type || a.type || "workout").toLowerCase().replace(/_/g, " ");
   const duration = Math.round((a.moving_time || a.elapsed_time || 0) / 60);
