@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "scripts": {
     "build": "esbuild src/app.jsx --bundle --jsx=automatic --minify --outfile=public/app.js",
+    "test": "node --test",
     "deploy": "npm run build && firebase deploy"
   },
   "dependencies": {

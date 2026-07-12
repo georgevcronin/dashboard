@@ -29,18 +29,27 @@ const STANDARDS = {
   },
 };
 
+const { findExercise } = require('./muscleTaxonomy');
+
 const TIERS = ['Beginner', 'Novice', 'Intermediate', 'Advanced', 'Elite'];
 
 // Matches the "big lift" a logged exercise name belongs to, if any. Excludes
 // machine/isolation variants and non-comparable hinge variations (RDL etc.)
-// so the ranking stays honest about what it's actually comparing.
+// so the ranking stays honest about what it's actually comparing. For a name
+// found in EXERCISE_DB, the equipment field itself gates this — barbell only,
+// since that's the actual scope this file documents (a dumbbell or cable row
+// isn't honestly comparable to a barbell-row standard, even though the name
+// contains "row"). Unrecognized/custom names fall back to keyword matching,
+// with the same equipment-style exclusions applied by hand.
 function classifyLift(name) {
   const n = name.toLowerCase();
+  const entry = findExercise(name);
+  if (entry && entry.equipment !== 'barbell') return null;
   if (n.includes('squat') && !n.includes('hack') && !n.includes('leg press') && !n.includes('split') && !n.includes('goblet')) return 'squat';
-  if (n.includes('bench') && !n.includes('machine')) return 'bench';
-  if (n.includes('deadlift') && !n.includes('romanian') && !n.includes('rdl') && !n.includes('stiff')) return 'deadlift';
-  if ((n.includes('overhead press') || n.includes('military press') || n.includes('shoulder press')) && !n.includes('machine')) return 'overheadPress';
-  if (n.includes('row') && !n.includes('machine')) return 'row';
+  if (n.includes('bench') && !n.includes('machine') && !n.includes('dumbbell') && !n.includes('cable')) return 'bench';
+  if (n.includes('deadlift') && !n.includes('romanian') && !n.includes('rdl') && !n.includes('stiff') && !n.includes('dumbbell')) return 'deadlift';
+  if ((n.includes('overhead press') || n.includes('military press') || n.includes('shoulder press')) && !n.includes('machine') && !n.includes('dumbbell')) return 'overheadPress';
+  if (n.includes('row') && !n.includes('machine') && !n.includes('dumbbell') && !n.includes('cable')) return 'row';
   return null;
 }
 
@@ -53,14 +62,18 @@ function estimate1RM(kg, reps) {
 
 // Continuous 0-100 score across the five-tier ladder: 20 points per tier,
 // linearly interpolated between adjacent thresholds. Below Beginner scales
-// 0-20; above Elite is capped at 100.
+// 0-20; above Elite is capped at 100. The second-to-last tier's interpolation
+// already asymptotically approaches 100 as ratio approaches the Elite
+// threshold, so Elite itself is simply 100 flat — an earlier version instead
+// restarted the Elite band's own 0-20 sub-scale at a base of 80, which made
+// the score *drop* by up to 20 points the moment a lifter crossed into Elite.
 function scoreForRatio(ratio, thresholds) {
   let tierIdx = -1;
   for (let i = 0; i < thresholds.length; i++) if (ratio >= thresholds[i]) tierIdx = i;
   const tier = tierIdx === -1 ? 'Untrained' : TIERS[tierIdx];
   let score;
   if (tierIdx === -1) score = (ratio / thresholds[0]) * 20;
-  else if (tierIdx === thresholds.length - 1) score = 80 + Math.min(20, ((ratio - thresholds[4]) / thresholds[4]) * 20);
+  else if (tierIdx === thresholds.length - 1) score = 100;
   else score = 20 * (tierIdx + 1) + 20 * ((ratio - thresholds[tierIdx]) / (thresholds[tierIdx + 1] - thresholds[tierIdx]));
   return { tier, score: Math.round(Math.max(0, Math.min(100, score))) };
 }
@@ -130,4 +143,4 @@ function computeStrengthLevels(lifts, weightHistory, currentBodyweightKg, sex) {
   return { lifts: lifts_, muscleGroups };
 }
 
-module.exports = { computeStrengthLevels, classifyLift, estimate1RM, bodyweightNear, STANDARDS, TIERS };
+module.exports = { computeStrengthLevels, classifyLift, estimate1RM, bodyweightNear, scoreForRatio, STANDARDS, TIERS };

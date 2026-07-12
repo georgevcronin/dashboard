@@ -7,7 +7,7 @@ const { isCompoundExercise } = require('./muscleTaxonomy');
 const { generateWeeklyGuidance, pickBackboneExercises, computeMusclePriority, scoreBucket, MUSCLE_GROUPS } = require('./weeklyPlanner');
 const { computeStrengthLevels, classifyLift, estimate1RM } = require('./strengthStandards');
 const { computeProgression } = require('./progression');
-const { generateSessionExercises } = require('./sessionPlanner');
+const { generateSessionExercises, progressionFor } = require('./sessionPlanner');
 const { computeSleepScore } = require('./sleepScore');
 
 admin.initializeApp();
@@ -386,24 +386,34 @@ app.post("/shortcut", async (req, res) => {
   }
   db.lastSyncAt = new Date().toISOString();
   await save();
-  res.json({ ok: true, date: k });
 
-  // Non-blocking: generate morning briefing and push notification
-  generateMorningBriefing(db).then(async briefing => {
-    if (!briefing) return;
-    db.todayBriefing = briefing;
-    await save();
-    const subs = db.pushSubscriptions || [];
-    if (subs.length && VAPID_PUBLIC && VAPID_PRIVATE) {
-      await Promise.allSettled(subs.map(sub =>
-        webpush.sendNotification(sub, JSON.stringify({
-          title: briefing.notification || briefing.headline,
-          body: briefing.subheading || '',
-          url: '/',
-        }))
-      ));
+  // Awaited rather than fire-and-forget: this is a 1st-gen Cloud Function
+  // (functions.https.onRequest), where the platform can freeze or recycle the
+  // instance immediately once the response is sent, with no guarantee that
+  // work still in flight at that point completes. A detached .then() here
+  // used to mean the briefing + push notification would intermittently and
+  // silently never happen. The 300s function timeout gives plenty of room.
+  try {
+    const briefing = await generateMorningBriefing(db);
+    if (briefing) {
+      db.todayBriefing = briefing;
+      await save();
+      const subs = db.pushSubscriptions || [];
+      if (subs.length && VAPID_PUBLIC && VAPID_PRIVATE) {
+        await Promise.allSettled(subs.map(sub =>
+          webpush.sendNotification(sub, JSON.stringify({
+            title: briefing.notification || briefing.headline,
+            body: briefing.subheading || '',
+            url: '/',
+          }))
+        ));
+      }
     }
-  }).catch(e => console.error('[briefing] generation failed:', e));
+  } catch (e) {
+    console.error('[briefing] generation failed:', e);
+  }
+
+  res.json({ ok: true, date: k });
 });
 
 // ---------- Hevy helpers ----------
@@ -601,7 +611,10 @@ app.get("/strava/callback", async (req, res) => {
     const data = await r.json();
     db.strava = { access_token: data.access_token, refresh_token: data.refresh_token, expires_at: data.expires_at };
     await save();
-    syncStrava().catch(e => console.log("[strava] initial sync failed:", e.message));
+    // Awaited rather than fire-and-forget: this is a 1st-gen Cloud Function,
+    // where the platform can freeze the instance right after the response is
+    // sent, so a detached sync here could silently never complete.
+    try { await syncStrava(); } catch (e) { console.log("[strava] initial sync failed:", e.message); }
     res.send('<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><style>body{font-family:system-ui;background:#0a0d0b;color:#e8ece9;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;flex-direction:column;gap:12px}h2{color:#3ddc84}p{color:#8a948d}</style></head><body><h2>Strava connected</h2><p>Syncing your activities…</p><script>setTimeout(()=>window.location.href="https://georgevcronin.github.io/dashboard/",2500)</script></body></html>');
   } catch (e) {
     res.status(500).send("Error: " + e.message);
@@ -1052,8 +1065,13 @@ app.post("/plan/session-exercises", async (req, res) => {
 });
 
 app.get('/progression/:exercise', async (req, res) => {
-  const name = decodeURIComponent(req.params.exercise).toLowerCase();
-  const prog = computeProgression(db.lifts || [], name);
+  // Case-insensitive: lift history is inconsistently cased across ingestion
+  // paths (Hevy/session-logging lowercase on write, CSV/bulk-import store
+  // whatever casing the source data had), so a raw lowercase-vs-exact-match
+  // here silently returned "no history" for anything imported with
+  // Title-Case names. progressionFor normalizes both sides before matching.
+  const name = decodeURIComponent(req.params.exercise);
+  const prog = progressionFor(db.lifts || [], name);
   res.json({ progression: prog });
 });
 

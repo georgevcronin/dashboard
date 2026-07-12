@@ -378,6 +378,15 @@ const ECHELONS = [
 ];
 
 // ── HELPERS ─────────────────────────────────────────────────────────────────
+// Dates are stored as "YYYY-MM-DD" strings. `new Date("YYYY-MM-DD")` parses
+// that as UTC midnight, so formatting it with toLocaleDateString in a
+// negative-UTC-offset timezone (most of the Americas) rolls it back to the
+// previous calendar day. Constructing from the local-time components instead
+// keeps the displayed day matching the logged day everywhere.
+const localDateFromYMD = (ymd) => {
+  const [y, m, d] = ymd.split('-').map(Number);
+  return new Date(y, m - 1, d);
+};
 const fmtDate = () => new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
 const fmtDateShort = () => new Date().toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
 const pct = (v, t) => (t && t > 0 ? Math.min(100, Math.round(v / t * 100)) : 0);
@@ -1011,8 +1020,8 @@ function ExHistoryChart({ name, lifts }) {
         <text x={x(pts.length-1)-2} y={y(last.v)-6} textAnchor="end" fontSize="8" fill="var(--navy)" fontFamily="JetBrains Mono,monospace">{last.v}kg</text>
       </svg>
       <div style={{ display: 'flex', justifyContent: 'space-between', fontFamily: "'JetBrains Mono',monospace", fontSize: 8, color: 'var(--dim)', marginTop: 2 }}>
-        <span>{new Date(pts[0].d).toLocaleDateString('en-GB',{day:'numeric',month:'short'})}</span>
-        <span>{new Date(last.d).toLocaleDateString('en-GB',{day:'numeric',month:'short'})}</span>
+        <span>{localDateFromYMD(pts[0].d).toLocaleDateString('en-GB',{day:'numeric',month:'short'})}</span>
+        <span>{localDateFromYMD(last.d).toLocaleDateString('en-GB',{day:'numeric',month:'short'})}</span>
       </div>
     </div>
   );
@@ -1133,7 +1142,15 @@ function WorkoutLogger({ planDay, lifts, customExercises, onClose, refresh }) {
     }).catch(() => {});
   };
 
-  const removeExercise = i => setExercises(p => p.filter((_, j) => j !== i));
+  // expandedEx tracks a raw array index, so removing an earlier exercise
+  // reindexes the array underneath it — without this adjustment, expanding
+  // exercise B, then deleting an exercise before it in the list, would leave
+  // expandedEx pointing at whatever exercise slid into B's old slot instead
+  // of B (or the wrong row collapsing/expanding depending on position).
+  const removeExercise = i => {
+    setExercises(p => p.filter((_, j) => j !== i));
+    setExpandedEx(prev => prev == null ? prev : prev === i ? null : prev > i ? prev - 1 : prev);
+  };
 
   const addSet = i => setExercises(p => p.map((ex, j) => j !== i ? ex : {
     ...ex, sets: [...ex.sets, { type: 'N', kg: ex.sets.at(-1)?.kg || '', reps: ex.sets.at(-1)?.reps || '', rpe: '', done: false }]
@@ -1348,7 +1365,7 @@ function WorkoutLogger({ planDay, lifts, customExercises, onClose, refresh }) {
                 {/* Previous performance */}
                 {prev && (
                   <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)', marginBottom: 3 }}>
-                    {new Date(prev.date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })} · {prev.sets.map(s => ex.bw ? `BW×${s.reps}` : `${s.kg}×${s.reps}`).join(', ')}
+                    {localDateFromYMD(prev.date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })} · {prev.sets.map(s => ex.bw ? `BW×${s.reps}` : `${s.kg}×${s.reps}`).join(', ')}
                   </div>
                 )}
 
@@ -1819,7 +1836,7 @@ function StrengthLevelPanel({ strengthLevels, hasSex }) {
           </div>
           <div className="macro-track"><div className="macro-fill" style={{ width: `${v.score}%`, background: TIER_COLOR[v.tier] }} /></div>
           <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, color: 'var(--dim)', marginTop: 2 }}>
-            PR set {new Date(v.date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })} at {v.bodyweightKg}kg bodyweight — ratio {v.ratio}×
+            PR set {localDateFromYMD(v.date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })} at {v.bodyweightKg}kg bodyweight — ratio {v.ratio}×
           </div>
         </div>
       ))}
@@ -1850,7 +1867,12 @@ function S3({ s, onStartWorkout, onImport, onHistory, refresh }) {
   const rows = Object.values(exerciseMap).slice(0, 5);
   const topLift = rows.reduce((a, b) => (b.kg > (a?.kg || 0) ? b : a), null);
   const sessionName = lastSession?.name ? lastSession.name[0].toUpperCase() + lastSession.name.slice(1) : 'Session';
-  const daysAgo = lastSession?.date ? Math.round((Date.now() - new Date(lastSession.date)) / 86_400_000) : null;
+  // Calendar-day difference against local midnight today, not a raw
+  // Date.now() ms subtraction against UTC-midnight-parsed lastSession.date —
+  // the latter can be off by a day in negative-UTC timezones.
+  const daysAgo = lastSession?.date
+    ? Math.round((new Date(new Date().setHours(0, 0, 0, 0)) - localDateFromYMD(lastSession.date)) / 86_400_000)
+    : null;
 
   const guidance = s?.weeklyPlan; // advisory only: session-count target + muscle freshness ranking, never a locked day-by-day schedule
   const [selectedBucket, setSelectedBucket] = useState(null); // null = let the algorithm pick the freshest muscle group live
@@ -2227,6 +2249,22 @@ function S4({ s, refresh }) {
     setCamOpen(false);
   };
 
+  // Without this, navigating away mid-scan (without tapping Close) leaves
+  // the camera stream running indefinitely in the background — camera light
+  // stays on and battery drains until the tab itself is closed. Also revokes
+  // whatever photo-preview blob URL is current if the component unmounts
+  // with one still set (the replace-time revoke in handlePhoto only covers
+  // the case where a new photo overwrites an old preview, not unmount).
+  const photoPreviewRef = useRef(null);
+  useEffect(() => { photoPreviewRef.current = photoPreview; }, [photoPreview]);
+  useEffect(() => {
+    return () => {
+      if (camRafRef.current) cancelAnimationFrame(camRafRef.current);
+      if (camStreamRef.current) camStreamRef.current.getTracks().forEach(t => t.stop());
+      if (photoPreviewRef.current) URL.revokeObjectURL(photoPreviewRef.current);
+    };
+  }, []);
+
   const onBarcodeDetected = async (code) => {
     stopCamera();
     setBarcode(code);
@@ -2287,7 +2325,11 @@ function S4({ s, refresh }) {
     if (!file) return;
     setAnalysing(true); setDescription(''); setAnalysed(false); setPhotoErr('');
     const previewUrl = URL.createObjectURL(file);
-    setPhotoPreview(previewUrl);
+    // Revoke the previous preview's blob URL before replacing it — otherwise
+    // every photo scanned in a session leaks a blob reference for the tab's
+    // lifetime (createObjectURL objects are only released on revoke or
+    // document unload, not garbage collection of the string).
+    setPhotoPreview(prev => { if (prev) URL.revokeObjectURL(prev); return previewUrl; });
     const reader = new FileReader();
     reader.onload = async ev => {
       try {
