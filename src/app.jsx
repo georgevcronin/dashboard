@@ -3556,7 +3556,10 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, setBrie
             <div style={{ display: 'flex', gap: 6 }}>
               {['cut','recomp','bulk'].map(g => (
                 <button key={g} className="prof-btn"
-                  onClick={() => api('macro-auto', { method: 'POST', body: JSON.stringify({ goal: g }) }).then(data => refresh({ ...s, macroGoal: data.goal, macroTargets: data.targets, macroMode: 'auto' }))}
+                  onClick={() => {
+                    refresh({ ...s, macroGoal: g });
+                    api('macro-auto', { method: 'POST', body: JSON.stringify({ goal: g }) }).then(data => refresh({ ...s, macroGoal: data.goal, macroTargets: data.targets, macroMode: 'auto' }));
+                  }}
                   style={{ textTransform: 'capitalize', ...(s?.macroGoal === g ? { background: 'var(--ink)', color: 'var(--paper)', borderColor: 'var(--ink)' } : {}) }}>
                   {g}
                 </button>
@@ -3568,7 +3571,10 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, setBrie
             <div style={{ display: 'flex', gap: 6 }}>
               {['male','female'].map(sx => (
                 <button key={sx} className="prof-btn"
-                  onClick={() => api('profile', { method: 'POST', body: JSON.stringify({ sex: sx }) }).then(profile => refresh({ ...s, profile }))}
+                  onClick={() => {
+                    refresh({ ...s, profile: { ...s.profile, sex: sx } });
+                    api('profile', { method: 'POST', body: JSON.stringify({ sex: sx }) }).then(profile => refresh({ ...s, profile }));
+                  }}
                   style={{ textTransform: 'capitalize', ...(s?.profile?.sex === sx ? { background: 'var(--ink)', color: 'var(--paper)', borderColor: 'var(--ink)' } : {}) }}>
                   {sx}
                 </button>
@@ -3580,7 +3586,10 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, setBrie
             <div style={{ display: 'flex', gap: 6 }}>
               {['strength','cardio','sport'].map(p => (
                 <button key={p} className="prof-btn"
-                  onClick={() => api('profile', { method: 'POST', body: JSON.stringify({ trainingPriority: p }) }).then(profile => refresh({ ...s, profile }))}
+                  onClick={() => {
+                    refresh({ ...s, profile: { ...s.profile, trainingPriority: p } });
+                    api('profile', { method: 'POST', body: JSON.stringify({ trainingPriority: p }) }).then(profile => refresh({ ...s, profile }));
+                  }}
                   style={{ textTransform: 'capitalize', ...((s?.profile?.trainingPriority || 'strength') === p ? { background: 'var(--ink)', color: 'var(--paper)', borderColor: 'var(--ink)' } : {}) }}>
                   {p}
                 </button>
@@ -3644,7 +3653,11 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, setBrie
           <div className="settings-sh">Nutrition</div>
           <div className="prof-field">
             <span className="prof-lbl">Exact Calories <span style={{ fontSize: 8, color: 'var(--dim)', textTransform: 'none' }}>(default: nearest 300)</span></span>
-            <button className="prof-btn" onClick={() => api('profile', { method: 'POST', body: JSON.stringify({ exactCalories: !s?.profile?.exactCalories }) }).then(profile => refresh({ ...s, profile }))}
+            <button className="prof-btn" onClick={() => {
+                const exactCalories = !s?.profile?.exactCalories;
+                refresh({ ...s, profile: { ...s.profile, exactCalories } });
+                api('profile', { method: 'POST', body: JSON.stringify({ exactCalories }) });
+              }}
               style={s?.profile?.exactCalories ? { background: 'var(--ink)', color: 'var(--paper)', borderColor: 'var(--ink)' } : {}}>
               {s?.profile?.exactCalories ? 'On' : 'Off'}
             </button>
@@ -3814,7 +3827,10 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, setBrie
           {s?.profile?.travelMode && (
             <div className="prof-field">
               <span className="prof-lbl">Travel Mode</span>
-              <button className="prof-btn" onClick={() => api('profile', { method: 'POST', body: JSON.stringify({ travelMode: false }) }).then(profile => refresh({ ...s, profile, travelMode: profile.travelMode }))}>Disable</button>
+              <button className="prof-btn" onClick={() => {
+                  refresh({ ...s, profile: { ...s.profile, travelMode: false }, travelMode: false });
+                  api('profile', { method: 'POST', body: JSON.stringify({ travelMode: false }) });
+                }}>Disable</button>
             </div>
           )}
         </div>
