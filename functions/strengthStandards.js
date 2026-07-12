@@ -7,9 +7,12 @@
 // approximate reference points, not a scrape of any specific site's numbers.
 //
 // Scope is deliberately limited to five barbell-style compounds that have a
-// legitimate public standard to compare against. Machine/cable variants are
-// tracked elsewhere in the app but not ranked here — there's no honest
-// standard for e.g. a leg press machine's absolute load.
+// legitimate public standard to compare against — and, within each, to the
+// single canonical exercise the standard is actually calibrated on (see
+// CLASSIFY_ALLOWLIST below). Every other variant — machine/cable, or a
+// same-equipment variant with a genuinely different loading profile like a
+// partial-ROM squat — is tracked elsewhere in the app but not ranked here;
+// there's no honest standard to compare it against.
 
 // [Beginner, Novice, Intermediate, Advanced, Elite] as a multiple of bodyweight.
 const STANDARDS = {
@@ -29,28 +32,36 @@ const STANDARDS = {
   },
 };
 
-const { findExercise } = require('./muscleTaxonomy');
-
 const TIERS = ['Beginner', 'Novice', 'Intermediate', 'Advanced', 'Elite'];
 
-// Matches the "big lift" a logged exercise name belongs to, if any. Excludes
-// machine/isolation variants and non-comparable hinge variations (RDL etc.)
-// so the ranking stays honest about what it's actually comparing. For a name
-// found in EXERCISE_DB, the equipment field itself gates this — barbell only,
-// since that's the actual scope this file documents (a dumbbell or cable row
-// isn't honestly comparable to a barbell-row standard, even though the name
-// contains "row"). Unrecognized/custom names fall back to keyword matching,
-// with the same equipment-style exclusions applied by hand.
+// Which exact EXERCISE_DB entries count toward each ranked category — an
+// explicit allowlist rather than keyword matching. A keyword match on
+// "squat" (excluding a hand-maintained list of known-not-comparable
+// variants like hack/leg-press/goblet) let genuinely different lifts slip
+// through: e.g. exerciseDb.js has 16 different "squat"-named exercises
+// (Box Squat, Pin Squat, Zercher Squat, Sumo Squat (Dumbbell), ...), each
+// with a real, different loading profile — some meaningfully lighter, some
+// heavier, none of them actually the back squat these published standards
+// are calibrated against. Comparing any of them against back-squat
+// standards silently produced a wrong tier/score. An allowlist of the
+// single canonical lift per category (plus sumo deadlift, a genuinely
+// comparable full pull, not a partial-ROM variant) has no such failure
+// mode — anything not in the list simply isn't ranked, which matches this
+// file's own stated principle better than guessing at "close enough."
+const CLASSIFY_ALLOWLIST = {
+  squat: ['Back Squat'],
+  bench: ['Barbell Bench Press'],
+  deadlift: ['Conventional Deadlift', 'Sumo Deadlift'],
+  overheadPress: ['Barbell Overhead Press'],
+  row: ['Barbell Row (Overhand / Pendlay)', 'Barbell Row (Underhand / Yates)'],
+};
+const CLASSIFY_BY_NAME = new Map();
+for (const [cat, names] of Object.entries(CLASSIFY_ALLOWLIST)) {
+  for (const name of names) CLASSIFY_BY_NAME.set(name.toLowerCase(), cat);
+}
+
 function classifyLift(name) {
-  const n = name.toLowerCase();
-  const entry = findExercise(name);
-  if (entry && entry.equipment !== 'barbell') return null;
-  if (n.includes('squat') && !n.includes('hack') && !n.includes('leg press') && !n.includes('split') && !n.includes('goblet')) return 'squat';
-  if (n.includes('bench') && !n.includes('machine') && !n.includes('dumbbell') && !n.includes('cable')) return 'bench';
-  if (n.includes('deadlift') && !n.includes('romanian') && !n.includes('rdl') && !n.includes('stiff') && !n.includes('dumbbell')) return 'deadlift';
-  if ((n.includes('overhead press') || n.includes('military press') || n.includes('shoulder press')) && !n.includes('machine') && !n.includes('dumbbell')) return 'overheadPress';
-  if (n.includes('row') && !n.includes('machine') && !n.includes('dumbbell') && !n.includes('cable')) return 'row';
-  return null;
+  return CLASSIFY_BY_NAME.get((name || '').toLowerCase()) || null;
 }
 
 // Epley estimate, most reliable in the ~1-12 rep range; higher-rep sets are
