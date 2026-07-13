@@ -55,9 +55,31 @@ const CLASSIFY_ALLOWLIST = {
   overheadPress: ['Barbell Overhead Press'],
   row: ['Barbell Row (Overhand / Pendlay)', 'Barbell Row (Underhand / Yates)'],
 };
+// Real logged history (Hevy imports/backfill) never uses EXERCISE_DB's own
+// canonical names — it's Hevy's own "<name> (<equipment>)" convention, all
+// lowercase. Without this, classifyLift silently matched none of a real
+// account's 8000+ lifts despite obvious squat/bench/deadlift/press/row
+// entries being present (caught by checking live data directly). Same
+// exact-string-allowlist discipline as CLASSIFY_ALLOWLIST above, not a
+// keyword match — e.g. 'squat (machine)'/'hack squat (machine)'/'split
+// squat' deliberately have no entry here, for the same reason the machine/
+// partial-ROM variants aren't in CLASSIFY_ALLOWLIST itself.
+const CLASSIFY_ALIASES = {
+  'squat (barbell)': 'squat',
+  'bench press (barbell)': 'bench',
+  'deadlift (barbell)': 'deadlift',
+  'sumo deadlift (barbell)': 'deadlift',
+  'overhead press (barbell)': 'overheadPress',
+  'standing military press (barbell)': 'overheadPress', // "Military Press" is the standing barbell overhead press by another name
+  'bent over row (barbell)': 'row',
+  'pendlay row (barbell)': 'row', // Pendlay row is the overhand-grip bent-over row CLASSIFY_ALLOWLIST already lists by its full name
+};
 const CLASSIFY_BY_NAME = new Map();
 for (const [cat, names] of Object.entries(CLASSIFY_ALLOWLIST)) {
   for (const name of names) CLASSIFY_BY_NAME.set(name.toLowerCase(), cat);
+}
+for (const [name, cat] of Object.entries(CLASSIFY_ALIASES)) {
+  CLASSIFY_BY_NAME.set(name, cat);
 }
 
 function classifyLift(name) {
@@ -110,11 +132,16 @@ function bodyweightNear(weightHistory, dateStr) {
 // lifts: db.lifts array (all-time — no date window, so this always ranks each
 // lift's all-time best). weightHistory: db.weight (date -> kg), used to find
 // the bodyweight in effect when each PR was actually set. currentBodyweightKg:
-// fallback when no weigh-in history is available at all. sex: 'male'|'female'.
+// fallback when no weigh-in history is available at all. sex: 'male'|'female',
+// case-insensitive — profile.sex is stored as the UI's display casing
+// ('Male'/'Female'), not pre-normalized, so this must tolerate that rather
+// than silently returning null for every real profile (see commit history:
+// this was live-broken for exactly that reason before being caught).
 // Returns per-lift ranks plus a per-muscle-group rollup (chest/shoulders/back/legs),
 // matching the app's existing push/pull/legs muscle grouping. Deadlift counts
 // toward both back and legs since it's genuinely a hybrid posterior-chain lift.
 function computeStrengthLevels(lifts, weightHistory, currentBodyweightKg, sex) {
+  sex = (sex || '').toLowerCase();
   if ((!currentBodyweightKg && !Object.keys(weightHistory || {}).length) || (sex !== 'male' && sex !== 'female')) return null;
   const table = STANDARDS[sex];
 
