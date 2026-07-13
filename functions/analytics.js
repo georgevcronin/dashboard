@@ -2,6 +2,8 @@
 // /export/csv, and /plan/week — none of these close over the request-scoped
 // db state, they take exactly the data they need as parameters.
 
+const { e1rm: calcE1RM } = require('./strengthStandards');
+
 function alcoholStats(alcoholLog) {
   const ydayDate = new Date(); ydayDate.setDate(ydayDate.getDate() - 1);
   const ydayStr = ydayDate.toISOString().slice(0, 10);
@@ -27,7 +29,7 @@ function computeDataMaturity(lifts) {
   const byEx = {};
   for (const l of lifts) {
     if (!l.exercise || !l.kg || !l.reps) continue;
-    const e1rm = l.kg * (1 + l.reps / 30);
+    const e1rm = calcE1RM(l.kg, l.reps);
     const key = l.exercise.toLowerCase();
     (byEx[key] = byEx[key] || []).push({ date: l.date, e1rm });
   }

@@ -1,18 +1,28 @@
-// Strength-level ranking, in the spirit of sites like strengthlevel.com: rank a
-// lift by bodyweight-adjusted 1RM against published Beginner→Elite standards.
+const { MUSCLE_EXERCISE_MAP, MUSCLE_EXERCISE_ALIASES, thresholdsForMuscle } = require('./muscleStandards');
+const { findExercise, musclesForExercise } = require('./muscleTaxonomy');
+
+// Strength math shared across the app: e1RM estimation, and the "5 classic
+// lifts" (squat/bench/deadlift/OHP/row) classification used by the /trends
+// chart and the weekly-review PR banner. The actual per-muscle strength-level
+// RANKING display has moved to computeMuscleLevels/muscleStandards.js (28
+// muscles, real strengthlevel.com per-bodyweight data) — this file's flat
+// bodyweight-ratio STANDARDS table below is legacy in the sense that nothing
+// user-facing shows it directly anymore, but /trends and the PR banner still
+// need classifyLift's "which of the 5 classic lifts is this" classification,
+// so it stays.
 //
-// There's no public API for strengthlevel.com's live data, so this uses static
-// bodyweight-ratio tables built from widely-published strength-standards
-// methodology (the same shape Lon Kilgore's tables and similar sites use) —
-// approximate reference points, not a scrape of any specific site's numbers.
+// There's no public API for strengthlevel.com's live data, so STANDARDS uses
+// static bodyweight-ratio tables built from widely-published strength-
+// standards methodology (the same shape Lon Kilgore's tables and similar
+// sites use) — approximate reference points, not a scrape of any specific
+// site's numbers.
 //
 // Scope is deliberately limited to five barbell-style compounds that have a
 // legitimate public standard to compare against — and, within each, to the
 // single canonical exercise the standard is actually calibrated on (see
 // CLASSIFY_ALLOWLIST below). Every other variant — machine/cable, or a
 // same-equipment variant with a genuinely different loading profile like a
-// partial-ROM squat — is tracked elsewhere in the app but not ranked here;
-// there's no honest standard to compare it against.
+// partial-ROM squat — is tracked elsewhere in the app but not classified here.
 
 // [Beginner, Novice, Intermediate, Advanced, Elite] as a multiple of bodyweight.
 const STANDARDS = {
@@ -86,11 +96,25 @@ function classifyLift(name) {
   return CLASSIFY_BY_NAME.get((name || '').toLowerCase()) || null;
 }
 
-// Epley estimate, most reliable in the ~1-12 rep range; higher-rep sets are
-// excluded from the 1RM estimate since the formula degrades badly past that.
+// Two-exponential 1RM model (replaces the earlier Epley formula everywhere
+// in the app — this was previously hand-duplicated in progression.js,
+// analytics.js, fatigue.js, and src/app.jsx; now those all import e1rm from
+// here). Returns kg == W at reps == 1 by construction (the bracketed term
+// is 1 there), scaling down from there as reps increase.
+function e1rm(kg, reps) {
+  if (!kg || !reps) return null;
+  const decay = 0.12 * Math.exp(-0.35 * (reps - 1)) + 0.88 * Math.exp(-0.03 * (reps - 1));
+  return kg / (0.30 + 0.70 * decay);
+}
+
+// e1rm, restricted to the ~1-12 rep range where a 1RM estimate is reliable
+// enough to use for an absolute strength-standards comparison. Session-to-
+// session trend tracking (progression.js, fatigue.js's performance trend)
+// uses the uncapped e1rm directly since it only needs relative movement
+// between two same-formula numbers, not an absolute reliability cutoff.
 function estimate1RM(kg, reps) {
   if (!kg || !reps || reps > 12) return null;
-  return kg * (1 + reps / 30);
+  return e1rm(kg, reps);
 }
 
 // Continuous 0-100 score across the five-tier ladder: 20 points per tier,
@@ -129,56 +153,130 @@ function bodyweightNear(weightHistory, dateStr) {
   return onOrBefore ? weightHistory[onOrBefore] : null;
 }
 
-// lifts: db.lifts array (all-time — no date window, so this always ranks each
-// lift's all-time best). weightHistory: db.weight (date -> kg), used to find
-// the bodyweight in effect when each PR was actually set. currentBodyweightKg:
-// fallback when no weigh-in history is available at all. sex: 'male'|'female',
-// case-insensitive — profile.sex is stored as the UI's display casing
-// ('Male'/'Female'), not pre-normalized, so this must tolerate that rather
-// than silently returning null for every real profile (see commit history:
-// this was live-broken for exactly that reason before being caught).
-// Returns per-lift ranks plus a per-muscle-group rollup (chest/shoulders/back/legs),
-// matching the app's existing push/pull/legs muscle grouping. Deadlift counts
-// toward both back and legs since it's genuinely a hybrid posterior-chain lift.
-function computeStrengthLevels(lifts, weightHistory, currentBodyweightKg, sex) {
-  sex = (sex || '').toLowerCase();
-  if ((!currentBodyweightKg && !Object.keys(weightHistory || {}).length) || (sex !== 'male' && sex !== 'female')) return null;
-  const table = STANDARDS[sex];
-
-  const bestByCategory = {};
-  for (const l of lifts || []) {
-    const cat = classifyLift(l.exercise || '');
-    if (!cat) continue;
-    const e1RM = estimate1RM(l.kg, l.reps);
-    if (e1RM == null) continue;
-    if (!bestByCategory[cat] || e1RM > bestByCategory[cat].e1RM) {
-      bestByCategory[cat] = { e1RM: Math.round(e1RM * 10) / 10, exercise: l.exercise, date: l.date };
-    }
+// Whether `name` targets `muscle` as a primary or secondary target, or not
+// at all. Exact EXERCISE_DB entries distinguish primary/secondary directly;
+// names only resolvable via muscleTaxonomy.js's KEYWORD_FALLBACK carry no
+// such distinction, so they're treated as secondary (lower-confidence)
+// rather than assumed primary.
+function muscleRoleInExercise(name, muscle) {
+  const entry = findExercise(name);
+  if (entry) {
+    if ((entry.primary || []).includes(muscle)) return 'primary';
+    if ((entry.secondary || []).includes(muscle)) return 'secondary';
+    return null;
   }
-
-  const lifts_ = {};
-  for (const cat of Object.keys(table)) {
-    const best = bestByCategory[cat];
-    if (!best) { lifts_[cat] = null; continue; }
-    const bw = bodyweightNear(weightHistory, best.date) ?? currentBodyweightKg;
-    if (!bw) { lifts_[cat] = null; continue; }
-    const ratio = best.e1RM / bw;
-    const { tier, score } = scoreForRatio(ratio, table[cat]);
-    lifts_[cat] = { ...best, bodyweightKg: bw, ratio: Math.round(ratio * 100) / 100, tier, score };
-  }
-
-  const avgScore = (cats) => {
-    const vals = cats.map(c => lifts_[c]?.score).filter(v => v != null);
-    return vals.length ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length) : null;
-  };
-  const muscleGroups = {
-    chest: lifts_.bench ? { score: lifts_.bench.score, tier: lifts_.bench.tier } : null,
-    shoulders: lifts_.overheadPress ? { score: lifts_.overheadPress.score, tier: lifts_.overheadPress.tier } : null,
-    back: avgScore(['row', 'deadlift']) != null ? { score: avgScore(['row', 'deadlift']), tier: TIERS[Math.min(4, Math.floor(avgScore(['row', 'deadlift']) / 20))] } : null,
-    legs: avgScore(['squat', 'deadlift']) != null ? { score: avgScore(['squat', 'deadlift']), tier: TIERS[Math.min(4, Math.floor(avgScore(['squat', 'deadlift']) / 20))] } : null,
-  };
-
-  return { lifts: lifts_, muscleGroups };
+  return musclesForExercise(name).includes(muscle) ? 'secondary' : null;
 }
 
-module.exports = { computeStrengthLevels, classifyLift, estimate1RM, bodyweightNear, scoreForRatio, STANDARDS, TIERS };
+// Minimum distinct session-dates required in a contributing exercise before
+// it's trusted enough to normalize against the canonical lift and enter the
+// blend — matches the "not enough data yet, don't claim a pattern" precedent
+// analytics.js's computeDataMaturity already uses elsewhere in this codebase,
+// scaled down since this is a per-exercise-pair check, not a whole-account one.
+const MIN_SESSIONS_FOR_AGGREGATION = 2;
+
+// Per-muscle analogue of computeStrengthLevels, using muscleStandards.js's
+// real per-bodyweight tables instead of a flat ratio (no allometric/age
+// scaling needed — strengthlevel.com's own numbers are already bodyweight-
+// specific). Each muscle's score is anchored on its canonical exercise
+// (MUSCLE_EXERCISE_MAP), then blended with every other exercise that also
+// trains it (via muscleRoleInExercise), each normalized into the canonical
+// exercise's scale using this person's own historical average ratio between
+// the two — never a fixed/invented cross-exercise conversion. A contributing
+// exercise only enters the blend once MIN_SESSIONS_FOR_AGGREGATION is met in
+// both it and the canonical lift; short of that, the muscle's score is just
+// the canonical exercise alone (identical to having no aggregation at all).
+function computeMuscleLevels(lifts, weightHistory, currentBodyweightKg, sex) {
+  sex = (sex || '').toLowerCase();
+  if ((!currentBodyweightKg && !Object.keys(weightHistory || {}).length) || (sex !== 'male' && sex !== 'female')) return null;
+
+  const e1rmsByExercise = {};
+  for (const l of lifts || []) {
+    // Capped estimate1RM, not raw e1rm — this whole function compares against
+    // absolute strength-standard thresholds, same as computeStrengthLevels,
+    // so it needs the same >12-rep reliability cutoff (uncapped e1rm is only
+    // for session-to-session trend tracking elsewhere in the app).
+    const e1RM = estimate1RM(l.kg, l.reps);
+    if (e1RM == null) continue;
+    const key = l.exercise || '';
+    (e1rmsByExercise[key] = e1rmsByExercise[key] || []).push({ e1RM, date: l.date });
+  }
+
+  const muscles = {};
+  for (const muscle of Object.keys(MUSCLE_EXERCISE_MAP)) {
+    const exerciseName = MUSCLE_EXERCISE_MAP[muscle];
+    const exerciseNameLower = exerciseName.toLowerCase();
+    const canonicalEntries = Object.entries(e1rmsByExercise).filter(([name]) => {
+      const n = name.toLowerCase();
+      return n === exerciseNameLower || MUSCLE_EXERCISE_ALIASES[n] === exerciseName;
+    }).flatMap(([, entries]) => entries);
+
+    let best = null;
+    for (const e of canonicalEntries) if (!best || e.e1RM > best.e1RM) best = e;
+    if (!best) { muscles[muscle] = null; continue; }
+    const bw = bodyweightNear(weightHistory, best.date) ?? currentBodyweightKg;
+    if (!bw) { muscles[muscle] = null; continue; }
+    const found = thresholdsForMuscle(muscle, sex, bw);
+    if (!found || !found.thresholds) { muscles[muscle] = null; continue; }
+
+    let weightedSum = best.e1RM * 1.0;
+    let weightTotal = 1.0;
+    const blendedFrom = [];
+    if (canonicalEntries.length >= MIN_SESSIONS_FOR_AGGREGATION) {
+      const avgCanonical = canonicalEntries.reduce((a, e) => a + e.e1RM, 0) / canonicalEntries.length;
+      const primaryContribs = [];
+      const secondaryContribs = [];
+      for (const [name, entries] of Object.entries(e1rmsByExercise)) {
+        const nameLower = name.toLowerCase();
+        if (nameLower === exerciseNameLower || MUSCLE_EXERCISE_ALIASES[nameLower] === exerciseName) continue;
+        const role = muscleRoleInExercise(name, muscle);
+        if (!role) continue;
+        const dates = new Set(entries.map(e => e.date));
+        if (dates.size < MIN_SESSIONS_FOR_AGGREGATION) continue;
+        const avgContrib = entries.reduce((a, e) => a + e.e1RM, 0) / entries.length;
+        if (!(avgContrib > 0)) continue;
+        const ratio = avgCanonical / avgContrib;
+        const bestContrib = Math.max(...entries.map(e => e.e1RM));
+        (role === 'primary' ? primaryContribs : secondaryContribs).push({ name, equivalent: bestContrib * ratio });
+      }
+      for (const c of primaryContribs) {
+        weightedSum += c.equivalent * 1.0;
+        weightTotal += 1.0;
+        blendedFrom.push(c.name);
+      }
+      // Secondary movers share a fixed total budget (0.5, half the canonical
+      // lift's own weight) no matter how many qualify — a per-contributor
+      // weight alone doesn't work: 48 secondary exercises at 0.15 each still
+      // out-weighs the canonical lift 7:1 by sheer count. Caught via a real
+      // account where unweighted/under-capped secondary contributors dragged
+      // biceps from Novice to Beginner purely by diluting with ~48 row/
+      // pulldown variants where biceps is incidental, not the limiting
+      // factor — more logged history in tangentially-related lifts must not
+      // be able to keep growing its pull on the score.
+      const SECONDARY_WEIGHT_BUDGET = 0.5;
+      if (secondaryContribs.length) {
+        const perContribWeight = SECONDARY_WEIGHT_BUDGET / secondaryContribs.length;
+        for (const c of secondaryContribs) {
+          weightedSum += c.equivalent * perContribWeight;
+          weightTotal += perContribWeight;
+          blendedFrom.push(c.name);
+        }
+      }
+    }
+    const blendedE1RM = weightedSum / weightTotal;
+
+    const { tier, score } = scoreForRatio(blendedE1RM, found.thresholds);
+    muscles[muscle] = {
+      e1RM: Math.round(blendedE1RM * 10) / 10,
+      exercise: exerciseName,
+      date: best.date,
+      bodyweightKg: bw,
+      tier, score,
+      ...(blendedFrom.length ? { blendedFrom } : {}),
+    };
+  }
+
+  return muscles;
+}
+
+module.exports = { computeMuscleLevels, classifyLift, estimate1RM, e1rm, bodyweightNear, scoreForRatio, STANDARDS, TIERS };

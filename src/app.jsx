@@ -6,6 +6,7 @@ import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, on
 import muscleTaxonomyPkg from '../functions/muscleTaxonomy.js';
 import fatiguePkg from '../functions/fatigue.js';
 import sessionPlannerPkg from '../functions/sessionPlanner.js';
+import strengthStandardsPkg from '../functions/strengthStandards.js';
 import { EXERCISE_DB } from '../functions/exerciseDb.js';
 import { PRESS_CSS } from './pressCss.js';
 import { AreaChart, BarChart, Sparkline } from './charts.jsx';
@@ -18,9 +19,10 @@ import { AreaChart, BarChart, Sparkline } from './charts.jsx';
 // couldn't see at all). One implementation, bundled into both. EXERCISE_DB
 // itself is imported separately for the session-logging autocomplete, which
 // needs the full exercise name list rather than a derived lookup.
-const { ALL_MUSCLES, musclesForExercise, isCompoundExercise } = muscleTaxonomyPkg;
+const { ALL_MUSCLES, musclesForExercise, isCompoundExercise, findExercise } = muscleTaxonomyPkg;
 const { computeStructuralFatigue, computeACWR, computePerformanceTrend, computeMetabolicFatigue, computeCNSFatigue, cnsLoad } = fatiguePkg;
 const { progressionFor } = sessionPlannerPkg;
+const { e1rm: calcE1RM } = strengthStandardsPkg;
 
 const FIREBASE_CONFIG = {
   apiKey: "AIzaSyDlVzSc9yow5GHbQipRWuYAZ5QTQ-jmXiY",
@@ -611,7 +613,7 @@ function S2({ s, refresh }) {
 // keeps the suggestion list and the actual data in permanent sync.
 const BASE_EXERCISES = EXERCISE_DB.map(e => e.name.toLowerCase());
 
-const e1rm = (kg, reps) => (kg > 0 && reps > 0) ? Math.round(kg * (1 + reps / 30)) : null;
+const e1rm = (kg, reps) => (kg > 0 && reps > 0) ? Math.round(calcE1RM(kg, reps)) : null;
 const SET_TYPES = ['W','N','D','F'];
 const SET_LABELS = { W: 'Warm-up', N: 'Normal', D: 'Drop Set', F: 'Failure' };
 const REST_DEFAULT = 90;
@@ -1455,47 +1457,104 @@ function WorkoutHistory({ s, onClose }) {
 }
 
 // ── S3: TRAINING ──────────────────────────────────────────────────────────────
-const STRENGTH_LIFT_LABELS = { squat: 'Squat', bench: 'Bench Press', deadlift: 'Deadlift', overheadPress: 'Overhead Press', row: 'Row' };
-const STRENGTH_MUSCLE_LABELS = { chest: 'Chest', shoulders: 'Shoulders', back: 'Back', legs: 'Legs' };
 const TIER_COLOR = { Untrained: 'var(--dim)', Beginner: 'var(--ember)', Novice: 'var(--gold)', Intermediate: 'var(--navy)', Advanced: 'var(--forest)', Elite: 'var(--plum)' };
 
-function StrengthLevelPanel({ strengthLevels, hasSex }) {
+// Unified per-muscle strength panel: 22 of the 28 tracked muscles have a
+// real strengthlevel.com bodyweight-standard (muscleLevels, from the
+// backend's computeMuscleLevels) and show a Beginner→Elite tier; the
+// remainder (hip-flexors, lower-traps, mid-traps, rhomboids, tibialis,
+// transverse-abs, core — no published standard exists for any exercise
+// that trains them, and front-delt/obliques/rotator-cuff until logged
+// under a recognized name) fall back to your own all-time-best e1RM with
+// no tier claimed, computed client-side the same way S7's PR list does.
+// Previously two separate panels; merged since claiming "no standard
+// exists per muscle" stopped being true once computeMuscleLevels shipped.
+function StrengthLevelPanel({ muscleLevels, lifts, hasSex }) {
+  const cutoff14 = toLocalDateStr(new Date(Date.now() - 14 * 864e5));
+  const personalBests = useMemo(() => {
+    const byMuscle = {};
+    const sorted = [...(lifts || [])].sort((a, b) => a.date.localeCompare(b.date));
+    for (const l of sorted) {
+      if (!l.exercise) continue;
+      const e1 = calcE1RM(l.kg, l.reps);
+      if (l.reps > 12 || e1 == null) continue;
+      const entry = findExercise(l.exercise);
+      if (!entry) continue;
+      for (const m of entry.primary || []) {
+        if (!byMuscle[m] || e1 > byMuscle[m].e1rm) {
+          byMuscle[m] = { muscle: m, exercise: entry.name, e1rm: Math.round(e1 * 10) / 10, date: l.date };
+        }
+      }
+    }
+    return byMuscle;
+  }, [lifts]);
+
   if (!hasSex) return (
     <div className="fade" style={{ borderTop: '1px solid var(--rule)', paddingTop: 10 }}>
       <div className="kicker" style={{ marginBottom: 4 }}>Strength Level</div>
       <div style={{ fontSize: 11, color: 'var(--dim)', fontStyle: 'italic' }}>Set your sex in Settings → Profile to unlock strength-level rankings.</div>
     </div>
   );
-  const rankedLifts = Object.entries(strengthLevels?.lifts || {}).filter(([, v]) => v);
-  if (!rankedLifts.length) return (
+
+  const rankedMuscles = Object.entries(muscleLevels || {}).filter(([, v]) => v)
+    .sort(([, a], [, b]) => b.score - a.score);
+  const unrankedWithPR = Object.entries(personalBests).filter(([m]) => !muscleLevels?.[m])
+    .sort(([, a], [, b]) => b.e1rm - a.e1rm);
+
+  if (!rankedMuscles.length && !unrankedWithPR.length) return (
     <div className="fade" style={{ borderTop: '1px solid var(--rule)', paddingTop: 10 }}>
       <div className="kicker" style={{ marginBottom: 4 }}>Strength Level</div>
-      <div style={{ fontSize: 11, color: 'var(--dim)', fontStyle: 'italic' }}>Log a squat, bench press, deadlift, overhead press, or row to see your tier — ranked against published bodyweight-ratio standards, Beginner→Elite.</div>
+      <div style={{ fontSize: 11, color: 'var(--dim)', fontStyle: 'italic' }}>Log some lifts to see per-muscle strength levels — ranked against published bodyweight standards where one exists, Beginner→Elite.</div>
     </div>
   );
+
   return (
     <div className="fade" style={{ borderTop: '1px solid var(--rule)', paddingTop: 10 }}>
-      <div className="kicker" style={{ marginBottom: 8 }}>All-Time Best · vs. Published Standards</div>
-      {rankedLifts.map(([cat, v]) => (
-        <div key={cat} style={{ marginBottom: 8 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', fontFamily: "'JetBrains Mono',monospace", fontSize: 10, marginBottom: 3 }}>
-            <span style={{ color: 'var(--ink)' }}>{STRENGTH_LIFT_LABELS[cat]}</span>
-            <span style={{ color: TIER_COLOR[v.tier] }}>{v.tier} · {v.e1RM}kg e1RM</span>
+      <div className="kicker" style={{ marginBottom: 8 }}>Strength Level · By Muscle</div>
+      {rankedMuscles.map(([muscle, v]) => {
+        const isNew = v.date >= cutoff14;
+        return (
+          <div key={muscle} style={{ marginBottom: 8 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontFamily: "'JetBrains Mono',monospace", fontSize: 10, marginBottom: 3 }}>
+              <span style={{ color: 'var(--ink)', textTransform: 'capitalize', display: 'flex', alignItems: 'center', gap: 6 }}>
+                {muscle.replace(/-/g, ' ')}
+                {isNew && <span style={{ fontSize: 7, letterSpacing: '.1em', background: 'var(--gold)', color: 'var(--paper)', padding: '1px 4px' }}>NEW</span>}
+              </span>
+              <span style={{ color: TIER_COLOR[v.tier] }}>{v.tier} · {v.e1RM}kg e1RM</span>
+            </div>
+            <div className="macro-track"><div className="macro-fill" style={{ width: `${v.score}%`, background: TIER_COLOR[v.tier] }} /></div>
+            <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, color: 'var(--dim)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {v.exercise} · {localDateFromYMD(v.date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })} at {v.bodyweightKg}kg bodyweight
+              {v.blendedFrom?.length ? ` · blended with ${v.blendedFrom.length} other exercise${v.blendedFrom.length === 1 ? '' : 's'}` : ''}
+            </div>
           </div>
-          <div className="macro-track"><div className="macro-fill" style={{ width: `${v.score}%`, background: TIER_COLOR[v.tier] }} /></div>
-          <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, color: 'var(--dim)', marginTop: 2 }}>
-            PR set {localDateFromYMD(v.date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })} at {v.bodyweightKg}kg bodyweight — ratio {v.ratio}×
+        );
+      })}
+      {unrankedWithPR.length > 0 && (
+        <div style={{ marginTop: rankedMuscles.length ? 10 : 0, borderTop: rankedMuscles.length ? '1px solid var(--rule)' : 'none', paddingTop: rankedMuscles.length ? 8 : 0 }}>
+          <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)', fontStyle: 'italic', marginBottom: 6 }}>
+            No published standard exists for these — your own all-time-best e1RM instead:
           </div>
+          {unrankedWithPR.map(([muscle, r]) => {
+            const isNew = r.date >= cutoff14;
+            return (
+              <div key={muscle} style={{ display: 'flex', alignItems: 'center', padding: '5px 0', borderBottom: '1px solid var(--rule)', gap: 8 }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, textTransform: 'capitalize', color: 'var(--ink)' }}>{muscle.replace(/-/g, ' ')}</span>
+                    {isNew && <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 7, letterSpacing: '.1em', background: 'var(--gold)', color: 'var(--paper)', padding: '1px 4px', flexShrink: 0 }}>NEW</span>}
+                  </div>
+                  <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, color: 'var(--dim)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.exercise} · {r.date}</div>
+                </div>
+                <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                  <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 14, fontWeight: 700, color: 'var(--gold)', lineHeight: 1 }}>{r.e1rm}<span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, color: 'var(--dim)', marginLeft: 2 }}>kg</span></div>
+                  <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 7, color: 'var(--dim)', marginTop: 1 }}>e1RM</div>
+                </div>
+              </div>
+            );
+          })}
         </div>
-      ))}
-      <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', marginTop: 10, borderTop: '1px solid var(--rule)', paddingTop: 8 }}>
-        {Object.entries(strengthLevels?.muscleGroups || {}).filter(([, v]) => v).map(([mg, v]) => (
-          <div key={mg}>
-            <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, color: 'var(--dim)', textTransform: 'uppercase', letterSpacing: '.1em' }}>{STRENGTH_MUSCLE_LABELS[mg]}</div>
-            <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 12, color: TIER_COLOR[v.tier] }}>{v.tier}</div>
-          </div>
-        ))}
-      </div>
+      )}
     </div>
   );
 }
@@ -1634,7 +1693,7 @@ function S3({ s, onStartWorkout, onImport, onHistory, refresh }) {
           <div className="stat-cell"><div className="sc-label">Month</div><div className="sc-num forest" style={{ fontSize: 22 }}>{s?.workoutsMonth ?? '—'}<span style={{ fontSize: '.5em', color: 'var(--dim)' }}>sessions</span></div></div>
         </div>
       </div>
-      <StrengthLevelPanel strengthLevels={s?.strengthLevels} hasSex={!!s?.profile?.sex} />
+      <StrengthLevelPanel muscleLevels={s?.muscleLevels} lifts={lifts} hasSex={!!s?.profile?.sex} />
       <div className="fade" style={{ marginTop: 'auto' }}>
         {guidance ? (
           <div style={{ borderTop: '1px solid var(--rule)', paddingTop: 10 }}>

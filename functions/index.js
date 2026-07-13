@@ -5,7 +5,7 @@ const webpush = require("web-push");
 const { EXERCISE_DB, EXERCISE_MAP } = require('./exerciseDb');
 const { isCompoundExercise } = require('./muscleTaxonomy');
 const { generateWeeklyGuidance, pickBackboneExercises, computeMusclePriority, scoreBucket, MUSCLE_GROUPS } = require('./weeklyPlanner');
-const { computeStrengthLevels, classifyLift, estimate1RM } = require('./strengthStandards');
+const { computeMuscleLevels, classifyLift, estimate1RM } = require('./strengthStandards');
 const { computeProgression } = require('./progression');
 const { generateSessionExercises, progressionFor } = require('./sessionPlanner');
 const { computeSleepScore } = require('./sleepScore');
@@ -643,7 +643,7 @@ app.get("/summary", async (req, res) => {
     experiments: (db.experiments || []),
     travelMode: db.profile?.travelMode || false,
     dataMaturity: computeDataMaturity(db.lifts),
-    strengthLevels: computeStrengthLevels(db.lifts, db.weight, weights.at(-1)?.value ?? Object.values(db.weight).at(-1), db.profile?.sex),
+    muscleLevels: computeMuscleLevels(db.lifts, db.weight, weights.at(-1)?.value ?? Object.values(db.weight).at(-1), db.profile?.sex),
   });
 });
 

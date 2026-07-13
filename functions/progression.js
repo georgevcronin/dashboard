@@ -1,4 +1,5 @@
 const { isLowerBodyExercise, findExercise } = require('./muscleTaxonomy');
+const { e1rm: calcE1RM } = require('./strengthStandards');
 
 // Deterministic double-progression calculator: given an exercise's session
 // history, decide whether to add weight, add a rep, deload, or hold — no LLM
@@ -37,7 +38,7 @@ function computeProgression(lifts, name) {
   const sessions = Object.entries(byDate).sort(([a],[b]) => a.localeCompare(b)).slice(-6).map(([date, sets]) => {
     const topKg = Math.max(...sets.map(s => s.kg || 0));
     const topSet = sets.find(s => s.kg === topKg) || sets[0];
-    const e1rm = topSet.kg > 0 && topSet.reps > 0 ? Math.round(topSet.kg * (1 + topSet.reps / 30)) : 0;
+    const e1rm = topSet.kg > 0 && topSet.reps > 0 ? Math.round(calcE1RM(topSet.kg, topSet.reps)) : 0;
     return { date, kg: topSet.kg, reps: topSet.reps, e1rm, setCount: sets.length };
   });
   const last = sessions.at(-1);

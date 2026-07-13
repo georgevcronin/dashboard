@@ -6,6 +6,7 @@
 // in functions/muscleTaxonomy.js). One implementation, imported by both.
 
 const { RECOVERY_H, findExercise, musclesForExercise, isCompoundExercise } = require('./muscleTaxonomy');
+const { e1rm: calcE1RM } = require('./strengthStandards');
 
 const avg = (a) => (a.length ? a.reduce((x, y) => x + y, 0) / a.length : null);
 const liftTime = (l) => new Date(l.start || l.date).getTime();
@@ -137,7 +138,7 @@ function computeACWR(lifts) {
   return chronicWeekly < 1 ? null : acute / chronicWeekly;
 }
 
-// Session-to-session estimated-1RM (Epley) trend per exercise, most recent 2 sessions vs.
+// Session-to-session estimated-1RM trend per exercise, most recent 2 sessions vs.
 // the 2 before that. Positive = declining performance under similar loads — a direct
 // performance-based fatigue signal, independent of volume or ACWR.
 function computePerformanceTrend(lifts) {
@@ -147,7 +148,7 @@ function computePerformanceTrend(lifts) {
     const daysAgo = (Date.now() - liftTime(l)) / 86_400_000;
     if (daysAgo < 0 || daysAgo > 21) continue;
     const date = l.date || l.start;
-    const e1rm = l.kg * (1 + l.reps / 30);
+    const e1rm = calcE1RM(l.kg, l.reps);
     // Lowercased so the same exercise logged via different sources (Hevy
     // import lowercases; other paths may not) doesn't silently split into
     // two untracked trend buckets.
