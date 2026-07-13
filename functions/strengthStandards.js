@@ -199,6 +199,33 @@ function recentAverage(entries, anchorDateStr) {
   return pool.reduce((a, e) => a + e.e1RM, 0) / pool.length;
 }
 
+// Picks the best (max raw) entry within RECENT_AVERAGE_WINDOW_DAYS of today
+// — "what can I actually do right now," not an all-time PR that may no
+// longer be representative (e.g. a 2022 peak on an exercise someone's since
+// deloaded or stopped training, while their 2025 sessions are genuinely
+// lighter). If nothing was logged in the recent window at all (a training
+// gap on this specific exercise), falls back to the single most recent
+// session regardless of its date — deliberately NOT the all-time-highest
+// value: searching backward for a historical peak resurfaced a 3-year-old
+// PR a real user no longer considered representative ("my max is 20x5" —
+// their last real attempt, over a year old, not a much heavier 2022 set).
+function recentBest(entries) {
+  const now = Date.now();
+  const windowMs = RECENT_AVERAGE_WINDOW_DAYS * 86_400_000;
+  const recent = entries.filter(e => {
+    const t = new Date(e.date).getTime();
+    return !isNaN(t) && now - t >= 0 && now - t <= windowMs;
+  });
+  if (recent.length) {
+    let best = null;
+    for (const e of recent) if (!best || e.raw > best.raw) best = e;
+    return best;
+  }
+  let mostRecent = null;
+  for (const e of entries) if (!mostRecent || new Date(e.date).getTime() > new Date(mostRecent.date).getTime()) mostRecent = e;
+  return mostRecent;
+}
+
 // Minimum distinct session-dates required in a contributing exercise before
 // it's trusted enough to normalize against the canonical lift and enter the
 // blend — matches the "not enough data yet, don't claim a pattern" precedent
@@ -280,10 +307,9 @@ function computeMuscleLevels(lifts, weightHistory, currentBodyweightKg, sex, fat
       .map(({ l, i }) => ({ raw: estimate1RM(l.kg, l.reps), e1RM: correctedE1RM(l, i, muscle), date: l.date }))
       .filter(e => e.raw != null));
 
-    let best = null;
-    for (const e of canonicalEntries) if (!best || e.raw > best.raw) best = e;
-    if (!best) { muscles[muscle] = null; continue; }
-    best = { e1RM: best.raw, date: best.date };
+    const best0 = recentBest(canonicalEntries);
+    if (!best0) { muscles[muscle] = null; continue; }
+    const best = { e1RM: best0.raw, date: best0.date };
     const bw = bodyweightNear(weightHistory, best.date) ?? currentBodyweightKg;
     if (!bw) { muscles[muscle] = null; continue; }
     const found = thresholdsForMuscle(muscle, sex, bw);
@@ -320,9 +346,9 @@ function computeMuscleLevels(lifts, weightHistory, currentBodyweightKg, sex, fat
             .filter(e => e.raw != null);
           const dates = new Set(entries.map(e => e.date));
           if (dates.size < MIN_SESSIONS_FOR_AGGREGATION) continue;
-          const bestContrib = Math.max(...entries.map(e => e.raw));
-          const bestContribDate = entries.find(e => e.raw === bestContrib).date;
-          const avgContrib = recentAverage(entries, bestContribDate);
+          const bestContribEntry = recentBest(entries);
+          const bestContrib = bestContribEntry.raw;
+          const avgContrib = recentAverage(entries, bestContribEntry.date);
           if (!(avgContrib > 0)) continue;
           const ratio = avgCanonical / avgContrib;
           const label = tag ? `${name} (${tag})` : name;

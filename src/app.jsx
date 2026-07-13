@@ -7,6 +7,7 @@ import muscleTaxonomyPkg from '../functions/muscleTaxonomy.js';
 import fatiguePkg from '../functions/fatigue.js';
 import sessionPlannerPkg from '../functions/sessionPlanner.js';
 import strengthStandardsPkg from '../functions/strengthStandards.js';
+import { EXERCISE_NAME_ALIASES } from '../functions/exerciseNameAliases.js';
 import { EXERCISE_DB } from '../functions/exerciseDb.js';
 import { PRESS_CSS } from './pressCss.js';
 import { AreaChart, BarChart, Sparkline } from './charts.jsx';
@@ -1487,7 +1488,12 @@ function StrengthLevelPanel({ muscleLevels, lifts, hasSex }) {
       if (!l.exercise) continue;
       const e1 = calcE1RM(l.kg, l.reps);
       if (l.reps > 12 || e1 == null) continue;
-      const entry = findExercise(l.exercise);
+      // Same alias resolution the backend uses (exerciseNameAliases.js) —
+      // without it, real Hevy-imported names almost never exact-match
+      // exerciseDb.js (93% failure rate on a real account), so this whole
+      // fallback panel would silently show nothing for most muscles.
+      const canonicalName = EXERCISE_NAME_ALIASES[(l.exercise || '').toLowerCase()];
+      const entry = findExercise(canonicalName || l.exercise);
       if (!entry) continue;
       for (const m of entry.primary || []) {
         if (!byMuscle[m] || e1 > byMuscle[m].e1rm) {

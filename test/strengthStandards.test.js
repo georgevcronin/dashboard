@@ -214,3 +214,34 @@ test('computeMuscleLevels does not pool a machine-tagged session with an untagge
   const result = computeMuscleLevels(lifts, weights, null, 'male');
   assert.equal(result.biceps.blendedFrom, undefined, 'neither the tagged nor untagged pool alone has 2 sessions, so neither should qualify');
 });
+
+test('computeMuscleLevels prefers a recent-window best over a stale, higher all-time PR', () => {
+  const daysAgo = (n) => new Date(Date.now() - n * 86400000).toISOString().slice(0, 10);
+  const weights = { [daysAgo(1000)]: 80, [daysAgo(1)]: 80 };
+  // Old PR (>90 days ago): heavier. Recent sessions: genuinely lighter, but
+  // within the last 90 days -- should win over the stale PR.
+  const lifts = [
+    mkLift(daysAgo(1000), 'Barbell Curl', 60, 6), // old, heavy PR -- should be ignored in favor of recent
+    mkLift(daysAgo(10), 'Barbell Curl', 20, 5),
+    mkLift(daysAgo(3), 'Barbell Curl', 20, 5),
+  ];
+  const result = computeMuscleLevels(lifts, weights, null, 'male');
+  assert.ok(result.biceps.e1RM < 30, `expected the recent, lighter session to win, got e1RM=${result.biceps.e1RM}`);
+});
+
+test('computeMuscleLevels falls back to the single most recent session (not the all-time highest) when nothing was logged in the recent window', () => {
+  const daysAgo = (n) => new Date(Date.now() - n * 86400000).toISOString().slice(0, 10);
+  const weights = { [daysAgo(1000)]: 80, [daysAgo(500)]: 80 };
+  // Both outside the 90-day window. The older one is HEAVIER -- a naive
+  // "all-time best" fallback would pick it, but a real account's "my max is
+  // 20x5" referred to their last actual attempt, not a heavier, much older
+  // set, so the more recent (lighter) one should win.
+  const lifts = [
+    mkLift(daysAgo(1000), 'Barbell Curl', 60, 6), // heavier, but older
+    mkLift(daysAgo(500), 'Barbell Curl', 20, 5),  // lighter, but more recent
+  ];
+  const result = computeMuscleLevels(lifts, weights, null, 'male');
+  const recentOnly = computeMuscleLevels([mkLift(daysAgo(500), 'Barbell Curl', 20, 5)], weights, null, 'male');
+  assert.equal(result.biceps.e1RM, recentOnly.biceps.e1RM, 'should match the more recent, lighter session, not the older heavier one');
+  assert.equal(result.biceps.date, daysAgo(500));
+});
