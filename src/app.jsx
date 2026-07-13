@@ -1693,7 +1693,6 @@ function S3({ s, onStartWorkout, onImport, onHistory, refresh }) {
           <div className="stat-cell"><div className="sc-label">Month</div><div className="sc-num forest" style={{ fontSize: 22 }}>{s?.workoutsMonth ?? '—'}<span style={{ fontSize: '.5em', color: 'var(--dim)' }}>sessions</span></div></div>
         </div>
       </div>
-      <StrengthLevelPanel muscleLevels={s?.muscleLevels} lifts={lifts} hasSex={!!s?.profile?.sex} />
       <div className="fade" style={{ marginTop: 'auto' }}>
         {guidance ? (
           <div style={{ borderTop: '1px solid var(--rule)', paddingTop: 10 }}>
@@ -3061,7 +3060,7 @@ function S7({ s }) {
     const history = {};
     const lifts = [...(s?.lifts || [])].sort((a,b) => a.date.localeCompare(b.date));
     for (const l of lifts) {
-      const e1 = l.kg > 0 && l.reps > 0 ? Math.round(l.kg * (1 + l.reps / 30)) : 0;
+      const e1 = l.kg > 0 && l.reps > 0 ? Math.round(calcE1RM(l.kg, l.reps)) : 0;
       if (!e1 || !l.exercise) continue;
       // Case-insensitive key — CSV/bulk-imported history can carry different
       // casing than the app's own (always-lowercase) session logging, and
@@ -3101,10 +3100,11 @@ function S7({ s }) {
         <div className="headline" style={{ fontSize: 'clamp(24px,6vw,44px)', lineHeight: '.96' }}>All-Time<br />Bests</div>
         <div className="deck">{prs.length} exercise{prs.length !== 1 ? 's' : ''} tracked</div>
       </div>
-      <div className="fade" style={{ flexShrink: 0 }}>
-        <input className="pr-search" placeholder="Filter exercise…" value={search} onChange={e => setSearch(e.target.value)} />
-      </div>
       <div className="fade" style={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>
+        <StrengthLevelPanel muscleLevels={s?.muscleLevels} lifts={s?.lifts} hasSex={!!s?.profile?.sex} />
+        <div style={{ marginTop: 12 }}>
+          <input className="pr-search" placeholder="Filter exercise…" value={search} onChange={e => setSearch(e.target.value)} />
+        </div>
         {!prs.length && (
           <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 11, color: 'var(--dim)', fontStyle: 'italic', padding: '24px 0' }}>No records yet — log some lifts.</div>
         )}
