@@ -7,7 +7,6 @@ import muscleTaxonomyPkg from '../functions/muscleTaxonomy.js';
 import fatiguePkg from '../functions/fatigue.js';
 import sessionPlannerPkg from '../functions/sessionPlanner.js';
 import strengthStandardsPkg from '../functions/strengthStandards.js';
-import { EXERCISE_NAME_ALIASES } from '../functions/exerciseNameAliases.js';
 import { EXERCISE_DB } from '../functions/exerciseDb.js';
 import { PRESS_CSS } from './pressCss.js';
 import { AreaChart, BarChart, Sparkline } from './charts.jsx';
@@ -1469,40 +1468,23 @@ function WorkoutHistory({ s, onClose }) {
 // ── S3: TRAINING ──────────────────────────────────────────────────────────────
 const TIER_COLOR = { Untrained: 'var(--dim)', Beginner: 'var(--ember)', Novice: 'var(--gold)', Intermediate: 'var(--navy)', Advanced: 'var(--forest)', Elite: 'var(--plum)' };
 
-// Unified per-muscle strength panel: 22 of the 28 tracked muscles have a
-// real strengthlevel.com bodyweight-standard (muscleLevels, from the
-// backend's computeMuscleLevels) and show a Beginner→Elite tier; the
-// remainder (hip-flexors, lower-traps, mid-traps, rhomboids, tibialis,
-// transverse-abs, core — no published standard exists for any exercise
-// that trains them, and front-delt/obliques/rotator-cuff until logged
-// under a recognized name) fall back to your own all-time-best e1RM with
-// no tier claimed, computed client-side the same way S7's PR list does.
-// Previously two separate panels; merged since claiming "no standard
-// exists per muscle" stopped being true once computeMuscleLevels shipped.
-function StrengthLevelPanel({ muscleLevels, lifts, hasSex }) {
+// Per-muscle strength panel: shows every muscle in muscleLevels (backend's
+// computeMuscleLevels) with a real strengthlevel.com-sourced Beginner→Elite
+// tier. Muscles with no ranking yet (no published standard for any exercise
+// that trains them, or a canonical exercise not yet logged under a
+// recognized name) are simply omitted — no unranked/personal-best fallback
+// section, by request.
+//
+// Display-only relabeling — the underlying taxonomy key stays 'abductors'
+// everywhere else (fatigue tracking, weekly planning, etc. all key off it),
+// this only changes what this one panel shows, since 'abductors' as a
+// muscle is really gluteus medius/TFL work (see Abductor Machine's own
+// exerciseDb.js note) and that's a clearer label for a ranked score.
+const MUSCLE_DISPLAY_LABELS = { abductors: 'Gluteus Medius' };
+const muscleDisplayLabel = m => MUSCLE_DISPLAY_LABELS[m] || m.replace(/-/g, ' ');
+
+function StrengthLevelPanel({ muscleLevels, hasSex }) {
   const cutoff14 = toLocalDateStr(new Date(Date.now() - 14 * 864e5));
-  const personalBests = useMemo(() => {
-    const byMuscle = {};
-    const sorted = [...(lifts || [])].sort((a, b) => a.date.localeCompare(b.date));
-    for (const l of sorted) {
-      if (!l.exercise) continue;
-      const e1 = calcE1RM(l.kg, l.reps);
-      if (l.reps > 12 || e1 == null) continue;
-      // Same alias resolution the backend uses (exerciseNameAliases.js) —
-      // without it, real Hevy-imported names almost never exact-match
-      // exerciseDb.js (93% failure rate on a real account), so this whole
-      // fallback panel would silently show nothing for most muscles.
-      const canonicalName = EXERCISE_NAME_ALIASES[(l.exercise || '').toLowerCase()];
-      const entry = findExercise(canonicalName || l.exercise);
-      if (!entry) continue;
-      for (const m of entry.primary || []) {
-        if (!byMuscle[m] || e1 > byMuscle[m].e1rm) {
-          byMuscle[m] = { muscle: m, exercise: entry.name, e1rm: Math.round(e1 * 10) / 10, date: l.date };
-        }
-      }
-    }
-    return byMuscle;
-  }, [lifts]);
 
   if (!hasSex) return (
     <div className="fade" style={{ borderTop: '1px solid var(--rule)', paddingTop: 10 }}>
@@ -1513,10 +1495,8 @@ function StrengthLevelPanel({ muscleLevels, lifts, hasSex }) {
 
   const rankedMuscles = Object.entries(muscleLevels || {}).filter(([, v]) => v)
     .sort(([, a], [, b]) => b.score - a.score);
-  const unrankedWithPR = Object.entries(personalBests).filter(([m]) => !muscleLevels?.[m])
-    .sort(([, a], [, b]) => b.e1rm - a.e1rm);
 
-  if (!rankedMuscles.length && !unrankedWithPR.length) return (
+  if (!rankedMuscles.length) return (
     <div className="fade" style={{ borderTop: '1px solid var(--rule)', paddingTop: 10 }}>
       <div className="kicker" style={{ marginBottom: 4 }}>Strength Level</div>
       <div style={{ fontSize: 11, color: 'var(--dim)', fontStyle: 'italic' }}>Log some lifts to see per-muscle strength levels — ranked against published bodyweight standards where one exists, Beginner→Elite.</div>
@@ -1532,7 +1512,7 @@ function StrengthLevelPanel({ muscleLevels, lifts, hasSex }) {
           <div key={muscle} style={{ marginBottom: 8 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontFamily: "'JetBrains Mono',monospace", fontSize: 10, marginBottom: 3 }}>
               <span style={{ color: 'var(--ink)', textTransform: 'capitalize', display: 'flex', alignItems: 'center', gap: 6 }}>
-                {muscle.replace(/-/g, ' ')}
+                {muscleDisplayLabel(muscle)}
                 {isNew && <span style={{ fontSize: 7, letterSpacing: '.1em', background: 'var(--gold)', color: 'var(--paper)', padding: '1px 4px' }}>NEW</span>}
               </span>
               <span style={{ color: TIER_COLOR[v.tier] }}>{v.tier} · {v.score}/100</span>
@@ -1545,31 +1525,6 @@ function StrengthLevelPanel({ muscleLevels, lifts, hasSex }) {
           </div>
         );
       })}
-      {unrankedWithPR.length > 0 && (
-        <div style={{ marginTop: rankedMuscles.length ? 10 : 0, borderTop: rankedMuscles.length ? '1px solid var(--rule)' : 'none', paddingTop: rankedMuscles.length ? 8 : 0 }}>
-          <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)', fontStyle: 'italic', marginBottom: 6 }}>
-            No published standard exists for these — your own all-time-best e1RM instead:
-          </div>
-          {unrankedWithPR.map(([muscle, r]) => {
-            const isNew = r.date >= cutoff14;
-            return (
-              <div key={muscle} style={{ display: 'flex', alignItems: 'center', padding: '5px 0', borderBottom: '1px solid var(--rule)', gap: 8 }}>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, textTransform: 'capitalize', color: 'var(--ink)' }}>{muscle.replace(/-/g, ' ')}</span>
-                    {isNew && <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 7, letterSpacing: '.1em', background: 'var(--gold)', color: 'var(--paper)', padding: '1px 4px', flexShrink: 0 }}>NEW</span>}
-                  </div>
-                  <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, color: 'var(--dim)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.exercise} · {r.date}</div>
-                </div>
-                <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                  <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 14, fontWeight: 700, color: 'var(--gold)', lineHeight: 1 }}>{r.e1rm}<span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, color: 'var(--dim)', marginLeft: 2 }}>kg</span></div>
-                  <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 7, color: 'var(--dim)', marginTop: 1 }}>e1RM</div>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
     </div>
   );
 }
@@ -2444,9 +2399,25 @@ const BODY_BASE = '';
 // will show up in fatigue scores and the muscle-sensitivity/soreness pickers
 // but won't highlight on the diagram until someone adds regions for them.
 
+// Ranked muscles (MUSCLE_EXERCISE_MAP in muscleStandards.js) that have no
+// data-muscle region in body-anterior/lateral/posterior.svg — same gap
+// documented above for the fatigue diagram, just affecting a different
+// (smaller, since fewer muscles are ranked than tracked) set: gluteus
+// medius/abductors, brachialis, and brachioradialis have no dedicated
+// artwork; mid-delt only has generic "shoulders" regions, not split by head.
+const MUSCLES_WITHOUT_BODY_REGION = ['abductors', 'brachialis', 'brachioradialis', 'mid-delt'];
+
 function S5({ s, refresh }) {
   const antRef = useRef(), latRef = useRef(), postRef = useRef();
   const [svgsReady, setSvgsReady] = useState(false);
+  // Ranking tab gets its own separate triptych/refs rather than sharing the
+  // fatigue tab's — the fatigue triptych's div only mounts while tab ===
+  // 'fatigue', so switching away and back would leave an empty container
+  // (the SVG-fetch effect only runs once, deps=[]). Duplicating the small
+  // fetch-and-inject pattern avoids risking that same issue here, at the
+  // cost of one extra (browser-cached) fetch of the same 3 static files.
+  const rankAntRef = useRef(), rankLatRef = useRef(), rankPostRef = useRef();
+  const [rankSvgsReady, setRankSvgsReady] = useState(false);
   const [tab, setTab] = useState('fatigue');
   const [selectedMuscle, setSelectedMuscle] = useState(null);
   const [sliderVal, setSliderVal] = useState(5);
@@ -2492,6 +2463,39 @@ function S5({ s, refresh }) {
     });
   }, [svgsReady, fatigue]);
 
+  useEffect(() => {
+    Promise.all([
+      fetch(`${BODY_BASE}/body-anterior.svg`).then(r => r.text()),
+      fetch(`${BODY_BASE}/body-lateral.svg`).then(r => r.text()),
+      fetch(`${BODY_BASE}/body-posterior.svg`).then(r => r.text()),
+    ]).then(([ant, lat, post]) => {
+      if (rankAntRef.current)  rankAntRef.current.innerHTML  = ant;
+      if (rankLatRef.current)  rankLatRef.current.innerHTML  = lat;
+      if (rankPostRef.current) rankPostRef.current.innerHTML = post;
+      setRankSvgsReady(true);
+    }).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    if (!rankSvgsReady) return;
+    const containers = [rankAntRef.current, rankLatRef.current, rankPostRef.current].filter(Boolean);
+    // Same 5-tier boundaries scoreForRatio itself uses (20 points per tier:
+    // Beginner/Novice/Intermediate/Advanced/Elite) — fm-neutral is reused
+    // for Advanced since it's already a forest-green filter, matching
+    // TIER_COLOR's --forest for that tier, no need for a 6th filter.
+    Object.entries(s?.muscleLevels || {}).forEach(([m, v]) => {
+      const score = v?.score;
+      const f = score == null ? null
+        : score < 20 ? 'url(#fm-ember)'
+        : score < 40 ? 'url(#fm-gold)'
+        : score < 60 ? 'url(#fm-navy)'
+        : score < 80 ? 'url(#fm-neutral)'
+        : 'url(#fm-plum)';
+      if (!f) return;
+      containers.forEach(c => c.querySelectorAll(`[data-muscle="${m}"]`).forEach(el => el.setAttribute('filter', f)));
+    });
+  }, [rankSvgsReady, s?.muscleLevels]);
+
   const hl1 = topMuscles[0] ? `${topMuscles[0][0].toUpperCase() + topMuscles[0].slice(1)} Loaded —` : 'Fresh —';
   const hl2 = topMuscles[1] ? `Train ${topMuscles[1][0].toUpperCase() + topMuscles[1].slice(1)} Today` : 'All Systems Go';
 
@@ -2519,6 +2523,7 @@ function S5({ s, refresh }) {
 
       <div className="fade tab-bar" style={{ flexShrink: 0 }}>
         <button className={`tab-btn${tab === 'fatigue' ? ' active' : ''}`} onClick={() => setTab('fatigue')}>Structural</button>
+        <button className={`tab-btn${tab === 'ranking' ? ' active' : ''}`} onClick={() => setTab('ranking')}>Ranking</button>
         <button className={`tab-btn${tab === 'types' ? ' active' : ''}`} onClick={() => setTab('types')}>Types</button>
         <button className={`tab-btn${tab === 'soreness' ? ' active' : ''}`} onClick={() => setTab('soreness')}>Soreness</button>
         <button className={`tab-btn${tab === 'niggles' ? ' active' : ''}`} onClick={() => setTab('niggles')}>
@@ -2588,6 +2593,49 @@ function S5({ s, refresh }) {
             </div>
           ))}
         </div>
+      </>}
+
+      {tab === 'ranking' && <>
+        {/* Body triptych, colored by strength-ranking tier instead of fatigue */}
+        <div className="fade" style={{ flexShrink: 0, display: 'flex', justifyContent: 'center', alignItems: 'flex-start', borderTop: '2px solid var(--ink)', borderBottom: '2px solid var(--ink)', margin: '6px 0' }}>
+          {[['Anterior', rankAntRef], ['Lateral', rankLatRef], ['Posterior', rankPostRef]].map(([label, ref]) => (
+            <div key={label} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', flexShrink: 0 }}>
+              <div style={{ fontSize: 7, letterSpacing: '.20em', textTransform: 'uppercase', color: 'var(--dim)', padding: '5px 0', whiteSpace: 'nowrap' }}>{label}</div>
+              <div className="body-view" ref={ref} />
+            </div>
+          ))}
+        </div>
+
+        <div className="fade" style={{ display: 'flex', gap: 12, flexShrink: 0, marginTop: 8, flexWrap: 'wrap', fontFamily: "'JetBrains Mono',monospace", fontSize: 9 }}>
+          {['Beginner', 'Novice', 'Intermediate', 'Advanced', 'Elite'].map(tier => (
+            <div key={tier} style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+              <div style={{ width: 7, height: 7, borderRadius: '50%', background: TIER_COLOR[tier] }} />
+              <span style={{ color: 'var(--dim)', letterSpacing: '.08em' }}>{tier}</span>
+            </div>
+          ))}
+        </div>
+
+        {/* Muscles this diagram has no body-map region for -- shown as text so
+            "all of the muscles" actually means all of them, not just the 14
+            of 19 ranked muscles the SVGs happen to have artwork for. */}
+        {MUSCLES_WITHOUT_BODY_REGION.some(m => s?.muscleLevels?.[m]) && (
+          <div className="fade" style={{ flexShrink: 0, marginTop: 10, borderTop: '1px solid var(--rule)', paddingTop: 8 }}>
+            <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, color: 'var(--dim)', fontStyle: 'italic', marginBottom: 6 }}>
+              Not shown on the diagram (no body-map region drawn for these yet):
+            </div>
+            <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap' }}>
+              {MUSCLES_WITHOUT_BODY_REGION.filter(m => s?.muscleLevels?.[m]).map(m => {
+                const v = s.muscleLevels[m];
+                return (
+                  <div key={m} style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10 }}>
+                    <span style={{ textTransform: 'capitalize', color: 'var(--ink)' }}>{muscleDisplayLabel(m)}</span>
+                    {' '}<span style={{ color: TIER_COLOR[v.tier] }}>{v.tier}</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
       </>}
 
       {tab === 'types' && (
@@ -3116,7 +3164,7 @@ function S7({ s }) {
         <div className="deck">{prs.length} exercise{prs.length !== 1 ? 's' : ''} tracked</div>
       </div>
       <div className="fade" style={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>
-        <StrengthLevelPanel muscleLevels={s?.muscleLevels} lifts={s?.lifts} hasSex={!!s?.profile?.sex} />
+        <StrengthLevelPanel muscleLevels={s?.muscleLevels} hasSex={!!s?.profile?.sex} />
         <div style={{ marginTop: 12 }}>
           <input className="pr-search" placeholder="Filter exercise…" value={search} onChange={e => setSearch(e.target.value)} />
         </div>

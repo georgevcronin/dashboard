@@ -24,11 +24,11 @@
 // combined) but the user opted to keep muscles on separate, distinct
 // exercises rather than share one across three — so 'core' stays unranked
 // since none of its own candidate exercises (Plank Shoulder Tap, Goblet
-// Carry) have published strengthlevel.com standards. rotator-cuff had a
-// real sourced standard (External Rotation (Cable)) but was removed from
-// the map by explicit user request, not for a data reason — re-add
-// 'rotator-cuff': 'External Rotation (Cable)' plus its MUSCLE_STANDARDS
-// table (still in git history) if that changes.
+// Carry) have published strengthlevel.com standards. rotator-cuff and
+// adductors both had real sourced standards (External Rotation (Cable),
+// Adductor Machine) but were removed from the map by explicit user request,
+// not for a data reason — re-add them plus their MUSCLE_STANDARDS tables
+// (still in git history) if that changes.
 //
 // Values are raw kg thresholds at that exact bodyweight (strengthlevel.com's
 // own numbers are already bodyweight-scaled — no ratio/allometric step
@@ -39,7 +39,6 @@
 const MUSCLE_EXERCISE_MAP = {
   abductors: 'Abductor Machine',
   abs: 'Cable Crunch',
-  adductors: 'Adductor Machine',
   biceps: 'Barbell Curl',
   brachialis: 'Hammer Curl',
   brachioradialis: 'Reverse Curl',
@@ -65,10 +64,6 @@ const MUSCLE_STANDARDS = {
   'Abductor Machine': {
     male: [[50,14,35,66,107,156],[55,18,40,73,116,166],[60,21,45,80,125,176],[65,25,50,86,133,186],[70,28,55,93,140,195],[75,31,59,98,147,203],[80,34,64,104,154,211],[85,38,68,110,161,219],[90,41,72,115,167,227],[95,44,76,120,174,234],[100,47,80,125,180,241],[105,50,84,130,185,247],[110,53,88,135,191,254],[115,56,92,139,196,260],[120,58,95,143,202,266],[125,61,99,148,207,272],[130,64,102,152,212,278],[135,67,106,156,217,283],[140,69,109,160,221,289]],
     female: [[40,18,36,62,96,134],[45,19,38,65,99,138],[50,20,40,67,102,142],[55,22,42,70,105,145],[60,23,43,72,107,148],[65,24,45,74,110,151],[70,25,46,75,112,154],[75,26,47,77,114,156],[80,27,49,79,116,158],[85,28,50,80,118,161],[90,29,51,82,120,163],[95,29,52,83,121,165],[100,30,53,85,123,166],[105,31,54,86,125,168],[110,32,55,87,126,170],[115,32,56,88,127,172],[120,33,57,89,129,173]],
-  },
-  'Adductor Machine': {
-    male: [[50,16,39,74,121,175],[55,20,44,81,129,186],[60,23,49,88,138,195],[65,26,54,94,146,205],[70,29,59,100,153,214],[75,33,63,106,160,222],[80,36,68,112,167,230],[85,39,72,117,174,238],[90,42,76,122,180,245],[95,45,80,127,186,252],[100,48,84,132,192,259],[105,50,87,137,198,266],[110,53,91,141,203,272],[115,56,95,146,208,278],[120,59,98,150,213,284],[125,61,101,154,218,290],[130,64,105,158,223,295],[135,66,108,162,228,301],[140,69,111,166,232,306]],
-    female: [[40,14,31,55,86,122],[45,16,34,59,91,128],[50,18,36,62,95,132],[55,20,38,65,98,137],[60,21,41,68,102,141],[65,23,43,71,105,145],[70,24,45,73,108,149],[75,26,47,75,111,152],[80,27,48,78,114,155],[85,28,50,80,117,158],[90,29,52,82,119,161],[95,31,53,84,122,164],[100,32,55,86,124,167],[105,33,56,88,126,169],[110,34,58,90,128,172],[115,35,59,91,130,174],[120,36,60,93,132,176]],
   },
   'Cable Crunch': {
     male: [[50,7,23,49,85,128],[55,9,27,54,92,137],[60,12,30,60,99,145],[65,14,34,65,105,153],[70,16,38,70,112,161],[75,19,41,75,118,168],[80,21,45,79,124,175],[85,23,48,84,129,182],[90,26,52,88,135,188],[95,28,55,92,140,194],[100,30,58,96,145,200],[105,32,61,100,150,206],[110,35,64,104,154,211],[115,37,67,108,159,216],[120,39,70,112,163,222],[125,41,73,115,168,227],[130,43,75,119,172,231],[135,45,78,122,176,236],[140,47,81,125,180,241]],
@@ -156,7 +151,6 @@ const MUSCLE_STANDARDS = {
 // are deliberately excluded, same discipline as CLASSIFY_ALIASES.
 const MUSCLE_EXERCISE_ALIASES = {
   'hip abduction (machine)': 'Abductor Machine',
-  'hip adduction (machine)': 'Adductor Machine',
   'bench press (barbell)': 'Barbell Bench Press',
   'bicep curl (barbell)': 'Barbell Curl',
   'hammer curl (dumbbell)': 'Hammer Curl',

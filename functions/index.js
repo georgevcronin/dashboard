@@ -6,6 +6,8 @@ const { EXERCISE_DB, EXERCISE_MAP } = require('./exerciseDb');
 const { isCompoundExercise } = require('./muscleTaxonomy');
 const { generateWeeklyGuidance, pickBackboneExercises, computeMusclePriority, scoreBucket, MUSCLE_GROUPS } = require('./weeklyPlanner');
 const { computeMuscleLevels, classifyLift, estimate1RM } = require('./strengthStandards');
+const { loadAllLifts, appendLifts, removeLiftsAndAppend } = require('./liftChunks');
+const { DEFAULTS, loadForUserDoc, saveDocExcludingLifts } = require('./userDoc');
 const { computeProgression } = require('./progression');
 const { generateSessionExercises, progressionFor } = require('./sessionPlanner');
 const { computeSleepScore } = require('./sleepScore');
@@ -51,15 +53,9 @@ const { personalizedRecoveryHours, trainingMonthsIfKnown } = require('./recovery
 const { alcoholStats, computeDataMaturity, compVerdict, toCsv, weekLiftSessionsCompleted } = require('./analytics');
 
 // ---------- Firestore-backed state — per user ----------
-const DEFAULTS = () => ({
-  metrics: {}, workouts: [], water: {}, weight: {}, lifts: [],
-  thoughts: [], nutrition: {}, nutritionLog: [], waterEvents: [],
-  strava: null, weeklyPlan: null, soreness: [], muscleSensitivity: {}, cnsSensitivity: 1.0,
-  injuries: [], measurements: [], supplements: [], supplementLog: [],
-  alcoholLog: [], photos: [], experiments: [], customExercises: [],
-  profile: { name: null, heightCm: null, sex: null, waterTarget: 7,
-    macroTargets: { calories: 2400, protein: 160, carbs: 250, fat: 75 }, macroMode: "manual" },
-});
+// DEFAULTS/loadForUserDoc/saveDocExcludingLifts live in functions/userDoc.js
+// so the migration-on-load logic can be unit-tested directly against the
+// Firestore emulator, not just indirectly through the full Express app.
 
 // In-memory cache keyed by uid. 1st-gen Cloud Functions handle one request at a time per
 // instance so the request-scoped globals below are safe to use without race conditions.
@@ -68,26 +64,24 @@ const userDocRef = uid => firestore.collection('users').doc(uid);
 
 async function loadForUser(uid) {
   if (userDbs[uid]) return userDbs[uid];
-  const snap = await userDocRef(uid).get();
-  if (snap.exists) {
-    userDbs[uid] = { ...DEFAULTS(), ...snap.data() };
-  } else if (uid === process.env.PRESS_OWNER_UID) {
+  const ref = userDocRef(uid);
+  const snap = await ref.get();
+  let fallbackData = null;
+  if (!snap.exists && uid === process.env.PRESS_OWNER_UID) {
     // First login for the original owner only: one-time migration from the
     // legacy single-user peak/state document. Any other new account must
     // NOT inherit this data.
     const legacy = await firestore.collection('peak').doc('state').get();
-    userDbs[uid] = legacy.exists ? { ...DEFAULTS(), ...legacy.data() } : DEFAULTS();
-    await userDocRef(uid).set(userDbs[uid]);
-  } else {
-    userDbs[uid] = DEFAULTS();
-    await userDocRef(uid).set(userDbs[uid]);
+    fallbackData = legacy.exists ? legacy.data() : null;
   }
+  userDbs[uid] = await loadForUserDoc(ref, snap, fallbackData);
   return userDbs[uid];
 }
 
 // Request-scoped globals (safe because 1st gen = single concurrent request per instance)
 let db = null;
 let save = async () => {};
+let liftsDocRef = null;
 
 // Single-user app currently (see PRODUCT.md) — no per-user timezone is
 // wired up anywhere in the profile, so this is a fixed IANA zone rather
@@ -130,12 +124,19 @@ async function loadOwner() {
   const uid = process.env.PRESS_OWNER_UID;
   if (uid) {
     db = await loadForUser(uid);
-    save = async () => { await userDocRef(uid).set(db); };
+    liftsDocRef = userDocRef(uid);
+    save = async () => { await saveDocExcludingLifts(liftsDocRef, db); };
   } else {
-    // Legacy fallback: single-user peak/state document
-    const snap = await firestore.collection('peak').doc('state').get();
-    db = snap.exists ? { ...DEFAULTS(), ...snap.data() } : DEFAULTS();
-    save = async () => { await firestore.collection('peak').doc('state').set(db); };
+    // Legacy fallback: single-user peak/state document — this is the
+    // document actually in active use for the original account (verified
+    // directly against production data: users/ has zero documents, all
+    // real history lives here), so it needs the same chunk-aware loading
+    // as loadForUser, not a raw embedded-field read.
+    const ref = firestore.collection('peak').doc('state');
+    const snap = await ref.get();
+    db = await loadForUserDoc(ref, snap, null);
+    liftsDocRef = ref;
+    save = async () => { await saveDocExcludingLifts(liftsDocRef, db); };
   }
 }
 
@@ -152,7 +153,8 @@ app.use(async (req, res, next) => {
     const { uid } = await admin.auth().verifyIdToken(header.slice(7));
     req.uid = uid;
     db = await loadForUser(uid);
-    save = async () => { await userDocRef(uid).set(db); };
+    liftsDocRef = userDocRef(uid);
+    save = async () => { await saveDocExcludingLifts(liftsDocRef, db); };
     next();
   } catch {
     res.status(401).json({ error: 'invalid token' });
@@ -286,7 +288,7 @@ function hevyKey() {
   return process.env.HEVY_API_KEY || functions.config().hevy?.key;
 }
 
-function ingestWorkout(w) {
+async function ingestWorkout(w) {
   // Hevy sends UTC timestamps with no local-time field, unlike Strava (see
   // ingestActivity below). Slicing the UTC string directly took the UTC
   // calendar date, which is wrong by a day for a workout logged near
@@ -305,7 +307,11 @@ function ingestWorkout(w) {
     db.workouts.push({ date: wDate, name: wTitle, duration, kcal: null, source: "hevy" });
   }
 
-  let added = 0;
+  // Collected and appended to the liftChunks subcollection in one batch at
+  // the end rather than pushed to db.lifts one at a time — lifts no longer
+  // live embedded in this document (see liftChunks.js), so each new entry
+  // needs an actual Firestore write, not just an in-memory array mutation.
+  const newEntries = [];
   for (const ex of (w.exercises || [])) {
     const name = (ex.title || ex.name || "").toLowerCase();
     if (!name) continue;
@@ -318,12 +324,15 @@ function ingestWorkout(w) {
       if (!isDupe && (kg > 0 || reps > 0)) {
         const entry = { date: wDate, exercise: name, kg: Math.round(kg * 100) / 100, reps, source: "hevy" };
         if (set.rpe != null) entry.rir = Math.max(0, Math.round((10 - set.rpe) * 10) / 10);
-        db.lifts.push(entry);
-        added++;
+        newEntries.push(entry);
       }
     }
   }
-  return added;
+  if (newEntries.length) {
+    await appendLifts(liftsDocRef, newEntries);
+    db.lifts.push(...newEntries);
+  }
+  return newEntries.length;
 }
 
 // ---------- Hevy webhook ----------
@@ -346,7 +355,7 @@ app.post("/hevy/webhook", async (req, res) => {
     });
     if (!r.ok) { console.log("[hevy] fetch failed:", r.status); return; }
     const w = await r.json();
-    const added = ingestWorkout(w);
+    const added = await ingestWorkout(w);
     if (added) await save();
   } catch (e) { console.log("[hevy] webhook failed:", e.message); }
 });
@@ -366,7 +375,7 @@ app.post("/hevy/backfill", async (req, res) => {
       const data = await r.json();
       const workouts = data.workouts || [];
       if (!workouts.length) break;
-      for (const w of workouts) totalAdded += ingestWorkout(w);
+      for (const w of workouts) totalAdded += await ingestWorkout(w);
       totalWorkouts += workouts.length;
       if (workouts.length < PAGE_SIZE) break;
       page++;
@@ -388,14 +397,16 @@ app.post("/import", async (req, res) => {
     const isDupe = (db.workouts || []).find(x => x.date === w.date && x.name === w.name && x.source === "hevy");
     if (!isDupe) { db.workouts = db.workouts || []; db.workouts.push({ date: w.date, name: w.name, duration: w.duration || null, kcal: w.kcal || null, source: "hevy" }); addedWorkouts++; }
   }
+  const newLiftEntries = [];
   for (const l of lifts) {
     if (!l.date || !l.exercise) continue;
     const isDupe = db.lifts.find(x => x.date === l.date && x.exercise === l.exercise && Math.abs((x.kg || 0) - (l.kg || 0)) < 0.1 && x.reps === l.reps);
-    if (!isDupe) { const e = { date: l.date, exercise: l.exercise, kg: l.kg || 0, reps: l.reps || 0, source: "hevy" }; if (l.rir != null) e.rir = l.rir; db.lifts.push(e); addedLifts++; }
+    if (!isDupe) { const e = { date: l.date, exercise: l.exercise, kg: l.kg || 0, reps: l.reps || 0, source: "hevy" }; if (l.rir != null) e.rir = l.rir; newLiftEntries.push(e); addedLifts++; }
   }
   for (const [date, kg] of Object.entries(weights)) {
     if (kg && !db.weight[date]) { db.weight[date] = kg; addedWeights++; }
   }
+  if (newLiftEntries.length) { await appendLifts(liftsDocRef, newLiftEntries); db.lifts.push(...newLiftEntries); }
   if (addedLifts || addedWeights || addedWorkouts) await save();
   res.json({ ok: true, addedLifts, addedWeights, addedWorkouts });
 });
@@ -939,6 +950,7 @@ app.post("/import/hevy", async (req, res) => {
   db.workouts = db.workouts || [];
   db.lifts = db.lifts || [];
   let imported = 0, skipped = 0;
+  const newLiftEntries = [];
   for (const session of sessions) {
     const exists = db.workouts.some(w => w.date === session.date && w.name === session.name);
     if (exists) { skipped++; continue; }
@@ -946,13 +958,27 @@ app.post("/import/hevy", async (req, res) => {
     for (const ex of (session.exercises || [])) {
       for (const set of (ex.sets || [])) {
         if ((set.kg || 0) > 0 || (set.reps || 0) > 0) {
-          db.lifts.push({ date: session.date, exercise: ex.name, kg: set.kg || 0, reps: set.reps || 0, source: 'hevy' });
+          newLiftEntries.push({ date: session.date, exercise: ex.name, kg: set.kg || 0, reps: set.reps || 0, source: 'hevy' });
         }
       }
     }
     imported++;
   }
-  try { await save(); } catch (e) { console.error('[import/hevy] save failed:', e.message); }
+  // Errors here used to be silently swallowed (server-side console.error
+  // only), which is exactly how this bug went unnoticed: the write failed
+  // every time (embedded-lifts document over Firestore's 1MB limit) but the
+  // client still got back { ok: true, imported: N } and looked successful.
+  // Lifts now live in liftChunks (see functions/liftChunks.js) specifically
+  // so this class of failure shouldn't recur, but a real failure should
+  // still be visible to the client, not just logged.
+  try {
+    if (newLiftEntries.length) await appendLifts(liftsDocRef, newLiftEntries);
+    db.lifts.push(...newLiftEntries);
+    await save();
+  } catch (e) {
+    console.error('[import/hevy] save failed:', e.message);
+    return res.status(500).json({ ok: false, error: 'Save failed: ' + e.message });
+  }
   res.json({ ok: true, imported, skipped });
 });
 
@@ -1117,11 +1143,13 @@ app.post('/session/complete', async (req, res) => {
       }
     }
 
-    db.lifts = (db.lifts || []).filter(l => !(l.date === workout.date && sets.some(s => s.exercise === l.exercise)));
-    sets.forEach(s => {
-      if (!s.exercise || !s.kg || !s.reps) return;
-      db.lifts.push({ exercise: s.exercise, kg: +s.kg, reps: +s.reps, rpe: s.rpe || null, date: workout.date, ...(s.machine ? { machine: s.machine } : {}) });
-    });
+    const newLiftEntries = sets
+      .filter(s => s.exercise && s.kg && s.reps)
+      .map(s => ({ exercise: s.exercise, kg: +s.kg, reps: +s.reps, rpe: s.rpe || null, date: workout.date, ...(s.machine ? { machine: s.machine } : {}) }));
+    const isReplacedToday = l => l.date === workout.date && sets.some(s => s.exercise === l.exercise);
+    await removeLiftsAndAppend(liftsDocRef, isReplacedToday, newLiftEntries);
+    db.lifts = db.lifts.filter(l => !isReplacedToday(l));
+    db.lifts.push(...newLiftEntries);
 
     if (customExercises.length) {
       db.customExercises = db.customExercises || [];
