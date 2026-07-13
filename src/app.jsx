@@ -2464,6 +2464,12 @@ function S5({ s, refresh }) {
   }, [svgsReady, fatigue]);
 
   useEffect(() => {
+    // Unlike the fatigue triptych above, this container only mounts (and
+    // attaches its refs) once the user switches to the 'ranking' tab, which
+    // happens strictly after a mount-time (deps=[]) effect would already
+    // have resolved and found the refs null. Gate on tab and re-run when it
+    // changes; rankSvgsReady guards against re-fetching once it's loaded.
+    if (tab !== 'ranking' || rankSvgsReady) return;
     Promise.all([
       fetch(`${BODY_BASE}/body-anterior.svg`).then(r => r.text()),
       fetch(`${BODY_BASE}/body-lateral.svg`).then(r => r.text()),
@@ -2474,7 +2480,7 @@ function S5({ s, refresh }) {
       if (rankPostRef.current) rankPostRef.current.innerHTML = post;
       setRankSvgsReady(true);
     }).catch(() => {});
-  }, []);
+  }, [tab, rankSvgsReady]);
 
   useEffect(() => {
     if (!rankSvgsReady) return;
