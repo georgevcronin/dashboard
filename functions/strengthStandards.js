@@ -1,5 +1,6 @@
 const { MUSCLE_EXERCISE_MAP, MUSCLE_EXERCISE_ALIASES, thresholdsForMuscle } = require('./muscleStandards');
 const { findExercise, musclesForExercise } = require('./muscleTaxonomy');
+const { EXERCISE_NAME_ALIASES } = require('./exerciseNameAliases');
 
 // Strength math shared across the app: e1RM estimation, and the "5 classic
 // lifts" (squat/bench/deadlift/OHP/row) classification used by the /trends
@@ -159,7 +160,8 @@ function bodyweightNear(weightHistory, dateStr) {
 // such distinction, so they're treated as secondary (lower-confidence)
 // rather than assumed primary.
 function muscleRoleInExercise(name, muscle) {
-  const entry = findExercise(name);
+  const canonicalName = EXERCISE_NAME_ALIASES[(name || '').toLowerCase()];
+  const entry = findExercise(canonicalName || name);
   if (entry) {
     if ((entry.primary || []).includes(muscle)) return 'primary';
     if ((entry.secondary || []).includes(muscle)) return 'secondary';
@@ -186,30 +188,59 @@ const MIN_SESSIONS_FOR_AGGREGATION = 2;
 // exercise only enters the blend once MIN_SESSIONS_FOR_AGGREGATION is met in
 // both it and the canonical lift; short of that, the muscle's score is just
 // the canonical exercise alone (identical to having no aggregation at all).
-function computeMuscleLevels(lifts, weightHistory, currentBodyweightKg, sex) {
+// Invented heuristic, NOT sourced from published research — there is no
+// validated conversion from this app's own structural-fatigue score (a
+// training-load index, see fatigue.js) to an actual 1RM performance
+// decrement. Chosen deliberately conservative and simple: a straight line
+// from 0% correction at fatigue=0 to a 25% correction at fatigue=100. Exists
+// specifically so that comparing two different exercises' sessions (e.g. a
+// Preacher Curl done shortly after a hard Barbell Curl session) doesn't let
+// residual fatigue in one exercise masquerade as genuine weakness in the
+// other when computing their personal ratio. If this number ever needs
+// tuning, there's no research to appeal to — it's a judgment call, made
+// explicitly at the user's request despite the sourcing gap.
+const MAX_FATIGUE_1RM_DECREMENT = 0.25;
+
+// lifts: db.lifts. weightHistory/currentBodyweightKg/sex: see
+// computeStrengthLevels. fatigueTimeline: optional, index-aligned with
+// `lifts` (fatigueTimeline.js's fatigueTimeline() output) — each entry maps
+// muscle -> fatigue (0-100) immediately before that lift. Omit it (or pass
+// undefined) to skip fatigue correction entirely, e.g. in tests that don't
+// need it — every e1RM is then treated as if fatigue were 0.
+function computeMuscleLevels(lifts, weightHistory, currentBodyweightKg, sex, fatigueTimeline) {
   sex = (sex || '').toLowerCase();
   if ((!currentBodyweightKg && !Object.keys(weightHistory || {}).length) || (sex !== 'male' && sex !== 'female')) return null;
 
-  const e1rmsByExercise = {};
-  for (const l of lifts || []) {
-    // Capped estimate1RM, not raw e1rm — this whole function compares against
-    // absolute strength-standard thresholds, same as computeStrengthLevels,
-    // so it needs the same >12-rep reliability cutoff (uncapped e1rm is only
-    // for session-to-session trend tracking elsewhere in the app).
-    const e1RM = estimate1RM(l.kg, l.reps);
-    if (e1RM == null) continue;
+  const liftsByExercise = {};
+  (lifts || []).forEach((l, i) => {
     const key = l.exercise || '';
-    (e1rmsByExercise[key] = e1rmsByExercise[key] || []).push({ e1RM, date: l.date });
+    (liftsByExercise[key] = liftsByExercise[key] || []).push({ l, i });
+  });
+
+  // Capped estimate1RM, not raw e1rm — this whole function compares against
+  // absolute strength-standard thresholds, same as computeStrengthLevels, so
+  // it needs the same >12-rep reliability cutoff (uncapped e1rm is only for
+  // session-to-session trend tracking elsewhere in the app). Fatigue
+  // correction is muscle-specific (the same lift can carry different
+  // fatigue levels for different muscles it touches), so this can't be
+  // precomputed once per lift — it's computed fresh per (lift, muscle) pair.
+  function correctedE1RM(l, liftIndex, muscle) {
+    const raw = estimate1RM(l.kg, l.reps);
+    if (raw == null) return null;
+    const fatigueBefore = fatigueTimeline?.[liftIndex]?.[muscle] ?? 0;
+    return raw / (1 - (fatigueBefore / 100) * MAX_FATIGUE_1RM_DECREMENT);
   }
 
   const muscles = {};
   for (const muscle of Object.keys(MUSCLE_EXERCISE_MAP)) {
     const exerciseName = MUSCLE_EXERCISE_MAP[muscle];
     const exerciseNameLower = exerciseName.toLowerCase();
-    const canonicalEntries = Object.entries(e1rmsByExercise).filter(([name]) => {
+    const canonicalEntries = Object.entries(liftsByExercise).filter(([name]) => {
       const n = name.toLowerCase();
       return n === exerciseNameLower || MUSCLE_EXERCISE_ALIASES[n] === exerciseName;
-    }).flatMap(([, entries]) => entries);
+    }).flatMap(([, entries]) => entries
+      .map(({ l, i }) => ({ e1RM: correctedE1RM(l, i, muscle), date: l.date }))
+      .filter(e => e.e1RM != null));
 
     let best = null;
     for (const e of canonicalEntries) if (!best || e.e1RM > best.e1RM) best = e;
@@ -226,11 +257,14 @@ function computeMuscleLevels(lifts, weightHistory, currentBodyweightKg, sex) {
       const avgCanonical = canonicalEntries.reduce((a, e) => a + e.e1RM, 0) / canonicalEntries.length;
       const primaryContribs = [];
       const secondaryContribs = [];
-      for (const [name, entries] of Object.entries(e1rmsByExercise)) {
+      for (const [name, rawEntries] of Object.entries(liftsByExercise)) {
         const nameLower = name.toLowerCase();
         if (nameLower === exerciseNameLower || MUSCLE_EXERCISE_ALIASES[nameLower] === exerciseName) continue;
         const role = muscleRoleInExercise(name, muscle);
         if (!role) continue;
+        const entries = rawEntries
+          .map(({ l, i }) => ({ e1RM: correctedE1RM(l, i, muscle), date: l.date }))
+          .filter(e => e.e1RM != null);
         const dates = new Set(entries.map(e => e.date));
         if (dates.size < MIN_SESSIONS_FOR_AGGREGATION) continue;
         const avgContrib = entries.reduce((a, e) => a + e.e1RM, 0) / entries.length;
@@ -263,7 +297,16 @@ function computeMuscleLevels(lifts, weightHistory, currentBodyweightKg, sex) {
         }
       }
     }
-    const blendedE1RM = weightedSum / weightTotal;
+    // Floored at the canonical lift's own verified best — the ratio anchor
+    // above uses this person's ALL-TIME AVERAGE for the canonical exercise
+    // (needed to get a stable personal conversion factor), which is often
+    // well below their peak. Blending can only pull a muscle's score UP by
+    // showing extra capability elsewhere; it must never erode a real,
+    // directly-observed PR down toward a historical average. Caught via a
+    // real account: biceps showed 39kg despite a verified 45kg Barbell Curl
+    // PR, entirely because 46 blended secondary exercises regressed the
+    // value toward the ~29kg all-time average rather than the peak.
+    const blendedE1RM = Math.max(weightedSum / weightTotal, best.e1RM);
 
     const { tier, score } = scoreForRatio(blendedE1RM, found.thresholds);
     muscles[muscle] = {

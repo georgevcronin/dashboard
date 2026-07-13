@@ -75,6 +75,45 @@ function computeCurrentFatigueScores(lifts, peaks, soreness = [], sensitivity = 
   return computeStructuralFatigue(lifts, peaks, soreness, sensitivity, recoveryHours);
 }
 
+// Structural fatigue for every muscle a lift touches, evaluated at the
+// moment immediately BEFORE that lift happened (using only earlier lifts) —
+// used by strengthStandards.js's computeMuscleLevels to correct a session's
+// e1RM for residual fatigue before comparing it against a different exercise
+// (e.g. doing Preacher Curl shortly after a hard Barbell Curl session
+// shouldn't make Preacher Curl look weaker than it really is). Same decay
+// math and RECOVERY_H constants as computeStructuralFatigue, but a single
+// chronological pass with a running per-muscle decay accumulator instead of
+// re-summing the whole history at every point — computeStructuralFatigue
+// itself is O(lifts) per call; calling it once per lift here would be
+// O(lifts^2), which matters at the scale of a multi-year real account
+// (8000+ lifts).
+function fatigueTimeline(lifts, musclePeaks, recoveryHours = RECOVERY_H) {
+  const withIndex = (lifts || [])
+    .map((l, i) => ({ l, i, t: liftTime(l) }))
+    .filter(x => !isNaN(x.t));
+  const sorted = [...withIndex].sort((a, b) => a.t - b.t);
+
+  const acc = {}; // muscle -> { value, lastMs } — decayed running load total
+  const out = new Array(lifts.length).fill(null);
+  for (const { l, i, t } of sorted) {
+    const load = (l.kg || 0) * (l.reps || 1);
+    const fatigueBefore = {};
+    for (const m of musclesForExercise(l.exercise)) {
+      const hl = recoveryHours[m] || RECOVERY_H[m] || 72;
+      const state = acc[m];
+      let decayedValue = 0;
+      if (state) {
+        const hoursSince = (t - state.lastMs) / 3_600_000;
+        decayedValue = state.value * Math.exp(-0.693 * hoursSince / hl);
+      }
+      fatigueBefore[m] = Math.min(100, Math.round(decayedValue / (musclePeaks?.[m] || 2000) * 100));
+      acc[m] = { value: decayedValue + load, lastMs: t };
+    }
+    out[i] = fatigueBefore;
+  }
+  return out; // index-aligned with the input lifts array; out[i][muscle] = fatigue (0-100) right before lifts[i]
+}
+
 // All-time peak single-day load per muscle, used as computeStructuralFatigue's
 // normalization denominator ("100" = as hard as you've ever hit this muscle).
 function musclePeaksFromLifts(lifts) {
@@ -228,7 +267,7 @@ function cnsLoad(exercises) {
 }
 
 module.exports = {
-  computeStructuralFatigue, computeCurrentFatigueScores, musclePeaksFromLifts,
+  computeStructuralFatigue, computeCurrentFatigueScores, musclePeaksFromLifts, fatigueTimeline,
   INJURY_HEALING_DAYS, injuryFatiguePenalty, applyInjuryTaper,
   computeACWR, computePerformanceTrend, computeMetabolicFatigue, computeCNSFatigue,
   cnsLoad, computeMuscleLastTrainedDays,

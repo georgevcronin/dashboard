@@ -111,7 +111,7 @@ test('computeMuscleLevels does not blend a secondary contributor until MIN_SESSI
   assert.equal(result.biceps.blendedFrom, undefined, 'single-session contributor should not enter the blend');
 });
 
-test('computeMuscleLevels blends a qualifying secondary contributor, bounded by the capped secondary weight budget', () => {
+test('computeMuscleLevels never lets a blend pull a muscle\'s score below its canonical lift\'s own verified best', () => {
   const weights = { '2026-01-01': 80 };
   const canonicalOnly = computeMuscleLevels([
     mkLift('2026-01-01', 'Barbell Curl', 40, 6),
@@ -122,17 +122,62 @@ test('computeMuscleLevels blends a qualifying secondary contributor, bounded by 
     mkLift('2026-01-01', 'Barbell Curl', 40, 6),
     mkLift('2026-01-08', 'Barbell Curl', 42, 6),
     // Hammer Curl: biceps is secondary here (primary is brachialis/brachioradialis).
-    // Much heavier than the curl to make its pull on the blend obvious if unbounded.
+    // Identical weight both sessions -> ratio-normalized equivalent lands at
+    // the canonical exercise's AVERAGE (below its best) -- exactly the real
+    // account scenario that dragged biceps from a verified 45kg PR to 39kg.
     mkLift('2026-01-01', 'Hammer Curl', 100, 6),
     mkLift('2026-01-08', 'Hammer Curl', 100, 6),
   ], weights, null, 'male');
 
   assert.deepEqual(withContributor.biceps.blendedFrom, ['Hammer Curl']);
-  assert.notEqual(withContributor.biceps.e1RM, canonicalOnly.biceps.e1RM, 'blend should move the number at all');
+  assert.equal(withContributor.biceps.e1RM, canonicalOnly.biceps.e1RM, 'a contributor that would drag the score down must be floored at the canonical best instead');
+});
+
+test('computeMuscleLevels still lets a strong secondary contributor pull a muscle\'s score up above the canonical lift alone', () => {
+  const weights = { '2026-01-01': 80 };
+  const canonicalOnly = computeMuscleLevels([
+    mkLift('2026-01-01', 'Barbell Curl', 40, 6),
+    mkLift('2026-01-08', 'Barbell Curl', 42, 6),
+  ], weights, null, 'male');
+
+  const withContributor = computeMuscleLevels([
+    mkLift('2026-01-01', 'Barbell Curl', 40, 6),
+    mkLift('2026-01-08', 'Barbell Curl', 42, 6),
+    // Hammer Curl's peak session (90kg) is well above its own average
+    // (65kg midpoint of 40/90) -- a genuine upward trend, not just noise,
+    // so its ratio-normalized equivalent should land above the canonical
+    // exercise's own average and can legitimately push the blend up.
+    mkLift('2026-01-01', 'Hammer Curl', 40, 6),
+    mkLift('2026-01-08', 'Hammer Curl', 90, 6),
+  ], weights, null, 'male');
+
+  assert.deepEqual(withContributor.biceps.blendedFrom, ['Hammer Curl']);
+  assert.ok(withContributor.biceps.e1RM > canonicalOnly.biceps.e1RM, 'a contributor showing genuine extra capability should still be able to raise the score');
   // Secondary budget is capped at 0.5 vs the canonical lift's own weight of
-  // 1.0, so however the contributor's ratio-normalized value compares, the
-  // blend can never move more than 1/3 of the way toward it (0.5 / (1.0 +
-  // 0.5)) — it can shift the score, but never dominate or swing it wildly.
-  const shift = Math.abs(withContributor.biceps.e1RM - canonicalOnly.biceps.e1RM);
+  // 1.0, so the blend can move at most 1/3 of the way toward the
+  // contributor's equivalent value -- it can shift the score, but never
+  // swing it wildly.
+  const shift = withContributor.biceps.e1RM - canonicalOnly.biceps.e1RM;
   assert.ok(shift < canonicalOnly.biceps.e1RM / 2, `shift of ${shift} should be well bounded relative to canonical e1RM ${canonicalOnly.biceps.e1RM}`);
+});
+
+test('computeMuscleLevels applies the invented fatigue correction when a fatigueTimeline is provided', () => {
+  const weights = { '2026-01-01': 80 };
+  const lifts = [mkLift('2026-01-01', 'Barbell Curl', 40, 6)];
+
+  const fresh = computeMuscleLevels(lifts, weights, null, 'male');
+  const fatigued = computeMuscleLevels(lifts, weights, null, 'male', [{ biceps: 100 }]);
+
+  // MAX_FATIGUE_1RM_DECREMENT = 0.25, so at fatigue=100 the correction factor
+  // is 1 / (1 - 1.0*0.25) = 1/0.75.
+  assert.ok(Math.abs(fatigued.biceps.e1RM / fresh.biceps.e1RM - 1 / 0.75) < 0.01,
+    `expected ~1.333x correction, got ${fatigued.biceps.e1RM / fresh.biceps.e1RM}`);
+});
+
+test('computeMuscleLevels treats a missing fatigueTimeline exactly like fatigue=0 everywhere (backward compatible)', () => {
+  const weights = { '2026-01-01': 80 };
+  const lifts = [mkLift('2026-01-01', 'Barbell Curl', 40, 6)];
+  const withoutTimeline = computeMuscleLevels(lifts, weights, null, 'male');
+  const withZeroTimeline = computeMuscleLevels(lifts, weights, null, 'male', [{ biceps: 0 }]);
+  assert.equal(withoutTimeline.biceps.e1RM, withZeroTimeline.biceps.e1RM);
 });

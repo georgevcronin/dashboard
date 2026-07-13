@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const {
   computeStructuralFatigue, musclePeaksFromLifts, applyInjuryTaper,
   injuryFatiguePenalty, computeACWR, computePerformanceTrend, computeCNSFatigue,
-  computeMuscleLastTrainedDays,
+  computeMuscleLastTrainedDays, fatigueTimeline,
 } = require('../functions/fatigue');
 
 const daysAgo = (n) => new Date(Date.now() - n * 86400000).toISOString().slice(0, 10);
@@ -137,4 +137,48 @@ test('computeMuscleLastTrainedDays only counts PRIMARY targets, not secondary', 
   const out = computeMuscleLastTrainedDays(lifts);
   assert.ok('chest' in out);
   assert.ok(!('serratus' in out), 'secondary-only muscles should not count as a genuine training focus');
+});
+
+test('fatigueTimeline reports zero fatigue for the very first lift of a muscle', () => {
+  const lifts = [{ date: daysAgo(0), exercise: 'Back Squat', kg: 100, reps: 8 }];
+  const out = fatigueTimeline(lifts, { quads: 2000 });
+  assert.equal(out[0].quads, 0, 'no prior history means no fatigue going into the first lift');
+});
+
+test('fatigueTimeline shows elevated fatigue for a second lift shortly after a heavy first one', () => {
+  const lifts = [
+    { date: daysAgo(2), exercise: 'Back Squat', kg: 150, reps: 8 },
+    { date: daysAgo(1), exercise: 'Front Squat', kg: 80, reps: 8 },
+  ];
+  const out = fatigueTimeline(lifts, { quads: 2000 });
+  assert.ok(out[1].quads > 0, 'quads fatigue from the prior squat session should carry into the next day');
+});
+
+test('fatigueTimeline is order-independent — results align with lifts regardless of input array order', () => {
+  const early = { date: daysAgo(5), exercise: 'Back Squat', kg: 150, reps: 8 };
+  const late = { date: daysAgo(1), exercise: 'Front Squat', kg: 80, reps: 8 };
+  const forward = fatigueTimeline([early, late], { quads: 2000 });
+  const reversed = fatigueTimeline([late, early], { quads: 2000 });
+  assert.equal(forward[1].quads, reversed[0].quads, 'the later lift should see the same fatigue-before value regardless of array order');
+});
+
+test('fatigueTimeline decays fatigue toward 0 the further apart two sessions are', () => {
+  const near = fatigueTimeline([
+    { date: daysAgo(2), exercise: 'Back Squat', kg: 150, reps: 8 },
+    { date: daysAgo(1), exercise: 'Front Squat', kg: 80, reps: 8 },
+  ], { quads: 2000 });
+  const far = fatigueTimeline([
+    { date: daysAgo(20), exercise: 'Back Squat', kg: 150, reps: 8 },
+    { date: daysAgo(1), exercise: 'Front Squat', kg: 80, reps: 8 },
+  ], { quads: 2000 });
+  assert.ok(near[1].quads > far[1].quads, 'a squat session 20 days prior should leave far less residual fatigue than one 1 day prior');
+});
+
+test('fatigueTimeline keeps muscles independent — an untouched muscle is not present in the fatigue map', () => {
+  const lifts = [
+    { date: daysAgo(1), exercise: 'Back Squat', kg: 150, reps: 8 },
+    { date: daysAgo(0), exercise: 'Barbell Curl', kg: 40, reps: 6 },
+  ];
+  const out = fatigueTimeline(lifts, { quads: 2000, biceps: 500 });
+  assert.equal(out[1].quads, undefined, 'a Barbell Curl session should not carry quads fatigue in its own entry');
 });

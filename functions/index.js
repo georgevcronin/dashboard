@@ -42,7 +42,7 @@ app.use((req, res, next) => {
 // hand-copied duplicate that had drifted from src/app.jsx's mirror. See
 // functions/muscleTaxonomy.js for why.
 const {
-  computeStructuralFatigue, computeCurrentFatigueScores, musclePeaksFromLifts,
+  computeStructuralFatigue, computeCurrentFatigueScores, musclePeaksFromLifts, fatigueTimeline,
   INJURY_HEALING_DAYS, injuryFatiguePenalty, applyInjuryTaper,
   computeACWR, computePerformanceTrend, computeMetabolicFatigue, computeCNSFatigue,
   computeMuscleLastTrainedDays,
@@ -643,7 +643,7 @@ app.get("/summary", async (req, res) => {
     experiments: (db.experiments || []),
     travelMode: db.profile?.travelMode || false,
     dataMaturity: computeDataMaturity(db.lifts),
-    muscleLevels: computeMuscleLevels(db.lifts, db.weight, weights.at(-1)?.value ?? Object.values(db.weight).at(-1), db.profile?.sex),
+    muscleLevels: computeMuscleLevels(db.lifts, db.weight, weights.at(-1)?.value ?? Object.values(db.weight).at(-1), db.profile?.sex, fatigueTimeline(db.lifts, musclePeaksFromLifts(db.lifts))),
   });
 });
 
