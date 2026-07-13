@@ -1120,7 +1120,7 @@ app.post('/session/complete', async (req, res) => {
     db.lifts = (db.lifts || []).filter(l => !(l.date === workout.date && sets.some(s => s.exercise === l.exercise)));
     sets.forEach(s => {
       if (!s.exercise || !s.kg || !s.reps) return;
-      db.lifts.push({ exercise: s.exercise, kg: +s.kg, reps: +s.reps, rpe: s.rpe || null, date: workout.date });
+      db.lifts.push({ exercise: s.exercise, kg: +s.kg, reps: +s.reps, rpe: s.rpe || null, date: workout.date, ...(s.machine ? { machine: s.machine } : {}) });
     });
 
     if (customExercises.length) {

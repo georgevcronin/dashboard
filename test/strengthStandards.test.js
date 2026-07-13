@@ -161,17 +161,23 @@ test('computeMuscleLevels still lets a strong secondary contributor pull a muscl
   assert.ok(shift < canonicalOnly.biceps.e1RM / 2, `shift of ${shift} should be well bounded relative to canonical e1RM ${canonicalOnly.biceps.e1RM}`);
 });
 
-test('computeMuscleLevels applies the invented fatigue correction when a fatigueTimeline is provided', () => {
+// Regression test for a real reported bug: a 95kg x10 Adductor Machine set
+// logged at 100% fatigue corrected up to 163.7kg, beat a genuinely stronger,
+// fresher 109kg x5 PR (125.7kg raw) for "best", and the floor then locked
+// that fatigue-inflated number in as an unbreakable minimum. Fatigue
+// correction must only ever influence the cross-exercise RATIO (comparing
+// two different exercises fairly), never which single session counts as a
+// muscle's own genuine best or its floor.
+test('computeMuscleLevels never lets fatigue correction change which session counts as a canonical lift\'s own best', () => {
   const weights = { '2026-01-01': 80 };
-  const lifts = [mkLift('2026-01-01', 'Barbell Curl', 40, 6)];
-
-  const fresh = computeMuscleLevels(lifts, weights, null, 'male');
-  const fatigued = computeMuscleLevels(lifts, weights, null, 'male', [{ biceps: 100 }]);
-
-  // MAX_FATIGUE_1RM_DECREMENT = 0.25, so at fatigue=100 the correction factor
-  // is 1 / (1 - 1.0*0.25) = 1/0.75.
-  assert.ok(Math.abs(fatigued.biceps.e1RM / fresh.biceps.e1RM - 1 / 0.75) < 0.01,
-    `expected ~1.333x correction, got ${fatigued.biceps.e1RM / fresh.biceps.e1RM}`);
+  const lifts = [
+    mkLift('2026-01-01', 'Barbell Curl', 40, 10), // raw ~103kg, would correct to ~137kg at fatigue=100
+    mkLift('2026-01-08', 'Barbell Curl', 45, 5),  // raw ~54kg, genuinely the lower session
+  ];
+  const noFatigue = computeMuscleLevels(lifts, weights, null, 'male');
+  const firstSessionFullyFatigued = computeMuscleLevels(lifts, weights, null, 'male', [{ biceps: 100 }, { biceps: 0 }]);
+  assert.equal(noFatigue.biceps.e1RM, firstSessionFullyFatigued.biceps.e1RM,
+    'the muscle\'s headline e1RM must be identical regardless of fatigue correction -- it is always picked from raw, uncorrected values');
 });
 
 test('computeMuscleLevels treats a missing fatigueTimeline exactly like fatigue=0 everywhere (backward compatible)', () => {
@@ -180,4 +186,31 @@ test('computeMuscleLevels treats a missing fatigueTimeline exactly like fatigue=
   const withoutTimeline = computeMuscleLevels(lifts, weights, null, 'male');
   const withZeroTimeline = computeMuscleLevels(lifts, weights, null, 'male', [{ biceps: 0 }]);
   assert.equal(withoutTimeline.biceps.e1RM, withZeroTimeline.biceps.e1RM);
+});
+
+test('computeMuscleLevels treats different machine/technique tags on the same exercise name as separate contributors', () => {
+  const weights = { '2026-01-01': 80 };
+  const lifts = [
+    mkLift('2026-01-01', 'Barbell Curl', 40, 6),
+    mkLift('2026-01-08', 'Barbell Curl', 42, 6),
+    { ...mkLift('2026-01-01', 'Hammer Curl', 60, 6), machine: 'Precor' },
+    { ...mkLift('2026-01-08', 'Hammer Curl', 60, 6), machine: 'Precor' },
+    { ...mkLift('2026-01-01', 'Hammer Curl', 30, 6), machine: 'Life Fitness' },
+    { ...mkLift('2026-01-08', 'Hammer Curl', 30, 6), machine: 'Life Fitness' },
+  ];
+  const result = computeMuscleLevels(lifts, weights, null, 'male');
+  assert.ok(result.biceps.blendedFrom.includes('Hammer Curl (Precor)'), 'Precor-tagged sessions should form their own contributor');
+  assert.ok(result.biceps.blendedFrom.includes('Hammer Curl (Life Fitness)'), 'Life Fitness-tagged sessions should form their own contributor');
+});
+
+test('computeMuscleLevels does not pool a machine-tagged session with an untagged one of the same exercise to reach the aggregation minimum', () => {
+  const weights = { '2026-01-01': 80 };
+  const lifts = [
+    mkLift('2026-01-01', 'Barbell Curl', 40, 6),
+    mkLift('2026-01-08', 'Barbell Curl', 42, 6),
+    { ...mkLift('2026-01-01', 'Hammer Curl', 60, 6), machine: 'Precor' },
+    mkLift('2026-01-08', 'Hammer Curl', 60, 6), // untagged -- separate pool, 1 session each
+  ];
+  const result = computeMuscleLevels(lifts, weights, null, 'male');
+  assert.equal(result.biceps.blendedFrom, undefined, 'neither the tagged nor untagged pool alone has 2 sessions, so neither should qualify');
 });

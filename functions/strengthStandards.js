@@ -170,6 +170,35 @@ function muscleRoleInExercise(name, muscle) {
   return musclesForExercise(name).includes(muscle) ? 'secondary' : null;
 }
 
+// Window (trailing, ending at the given anchor date) used to compute a
+// "current form" average for the ratio math, instead of averaging across a
+// lifter's entire history. Judgment call, not deeply sourced — chosen to
+// roughly bracket a training block/mesocycle: long enough to gather a
+// stable read for most training frequencies, short enough to exclude who
+// someone was over a year ago. Caught via a real account: leg press's
+// all-time average (227kg) was averaged across 2.5 years spanning a genuine
+// 50kg->345kg progression, making a real, steady, non-anomalous peak look
+// like a near-2x outlier purely because the average included how weak they
+// used to be, not because anything was actually wrong with the data.
+const RECENT_AVERAGE_WINDOW_DAYS = 90;
+
+// Average of `entries` within RECENT_AVERAGE_WINDOW_DAYS trailing up to and
+// including `anchorDateStr` (usually the date of that exercise's own best
+// session) — answers "was this peak representative of sustained recent
+// capability, or an isolated spike relative to what was typical around
+// then." Falls back to the full all-time average if the window happens to
+// be empty (e.g. an exercise logged only once), rather than dividing by zero.
+function recentAverage(entries, anchorDateStr) {
+  const anchor = new Date(anchorDateStr).getTime();
+  const windowMs = RECENT_AVERAGE_WINDOW_DAYS * 86_400_000;
+  const recent = entries.filter(e => {
+    const t = new Date(e.date).getTime();
+    return !isNaN(t) && t <= anchor && anchor - t <= windowMs;
+  });
+  const pool = recent.length ? recent : entries;
+  return pool.reduce((a, e) => a + e.e1RM, 0) / pool.length;
+}
+
 // Minimum distinct session-dates required in a contributing exercise before
 // it's trusted enough to normalize against the canonical lift and enter the
 // blend — matches the "not enough data yet, don't claim a pattern" precedent
@@ -235,16 +264,26 @@ function computeMuscleLevels(lifts, weightHistory, currentBodyweightKg, sex, fat
   for (const muscle of Object.keys(MUSCLE_EXERCISE_MAP)) {
     const exerciseName = MUSCLE_EXERCISE_MAP[muscle];
     const exerciseNameLower = exerciseName.toLowerCase();
+    // Each entry carries both a raw e1RM (real, uncorrected — what you
+    // actually achieved) and a fatigue-corrected one. `best`/floor/bestContrib
+    // are always picked by RAW value: fatigue correction exists to make a
+    // fair cross-exercise comparison in the ratio math below, never to
+    // inflate which single session counts as a genuine PR. Getting this
+    // backwards was a real bug: a 95kg x10 set logged at 100% fatigue
+    // corrected up to 163.7kg, beat a genuinely stronger, fresher 109kg x5
+    // PR (125.7kg raw) for "best", and the floor then locked that inflated
+    // number in as an unbreakable minimum.
     const canonicalEntries = Object.entries(liftsByExercise).filter(([name]) => {
       const n = name.toLowerCase();
       return n === exerciseNameLower || MUSCLE_EXERCISE_ALIASES[n] === exerciseName;
     }).flatMap(([, entries]) => entries
-      .map(({ l, i }) => ({ e1RM: correctedE1RM(l, i, muscle), date: l.date }))
-      .filter(e => e.e1RM != null));
+      .map(({ l, i }) => ({ raw: estimate1RM(l.kg, l.reps), e1RM: correctedE1RM(l, i, muscle), date: l.date }))
+      .filter(e => e.raw != null));
 
     let best = null;
-    for (const e of canonicalEntries) if (!best || e.e1RM > best.e1RM) best = e;
+    for (const e of canonicalEntries) if (!best || e.raw > best.raw) best = e;
     if (!best) { muscles[muscle] = null; continue; }
+    best = { e1RM: best.raw, date: best.date };
     const bw = bodyweightNear(weightHistory, best.date) ?? currentBodyweightKg;
     if (!bw) { muscles[muscle] = null; continue; }
     const found = thresholdsForMuscle(muscle, sex, bw);
@@ -254,7 +293,7 @@ function computeMuscleLevels(lifts, weightHistory, currentBodyweightKg, sex, fat
     let weightTotal = 1.0;
     const blendedFrom = [];
     if (canonicalEntries.length >= MIN_SESSIONS_FOR_AGGREGATION) {
-      const avgCanonical = canonicalEntries.reduce((a, e) => a + e.e1RM, 0) / canonicalEntries.length;
+      const avgCanonical = recentAverage(canonicalEntries, best.date);
       const primaryContribs = [];
       const secondaryContribs = [];
       for (const [name, rawEntries] of Object.entries(liftsByExercise)) {
@@ -262,16 +301,33 @@ function computeMuscleLevels(lifts, weightHistory, currentBodyweightKg, sex, fat
         if (nameLower === exerciseNameLower || MUSCLE_EXERCISE_ALIASES[nameLower] === exerciseName) continue;
         const role = muscleRoleInExercise(name, muscle);
         if (!role) continue;
-        const entries = rawEntries
-          .map(({ l, i }) => ({ e1RM: correctedE1RM(l, i, muscle), date: l.date }))
-          .filter(e => e.e1RM != null);
-        const dates = new Set(entries.map(e => e.date));
-        if (dates.size < MIN_SESSIONS_FOR_AGGREGATION) continue;
-        const avgContrib = entries.reduce((a, e) => a + e.e1RM, 0) / entries.length;
-        if (!(avgContrib > 0)) continue;
-        const ratio = avgCanonical / avgContrib;
-        const bestContrib = Math.max(...entries.map(e => e.e1RM));
-        (role === 'primary' ? primaryContribs : secondaryContribs).push({ name, equivalent: bestContrib * ratio });
+        // Split by machine/technique tag (if any set of this exercise carries
+        // one) into separate contributors, each with its own ratio — a
+        // different machine for the same exercise name can have a genuinely
+        // different resistance curve/leverage, so pooling "Leg Press (Precor)"
+        // and "Leg Press (Life Fitness)" together would compare apples to
+        // oranges the same way mixing exercises does. Untagged sets (all
+        // existing historical data, since this is opt-in) group by exercise
+        // name alone exactly as before — this only ever adds precision.
+        const byTag = {};
+        for (const { l, i } of rawEntries) {
+          const tag = l.machine || '';
+          (byTag[tag] = byTag[tag] || []).push({ l, i });
+        }
+        for (const [tag, taggedRawEntries] of Object.entries(byTag)) {
+          const entries = taggedRawEntries
+            .map(({ l, i }) => ({ raw: estimate1RM(l.kg, l.reps), e1RM: correctedE1RM(l, i, muscle), date: l.date }))
+            .filter(e => e.raw != null);
+          const dates = new Set(entries.map(e => e.date));
+          if (dates.size < MIN_SESSIONS_FOR_AGGREGATION) continue;
+          const bestContrib = Math.max(...entries.map(e => e.raw));
+          const bestContribDate = entries.find(e => e.raw === bestContrib).date;
+          const avgContrib = recentAverage(entries, bestContribDate);
+          if (!(avgContrib > 0)) continue;
+          const ratio = avgCanonical / avgContrib;
+          const label = tag ? `${name} (${tag})` : name;
+          (role === 'primary' ? primaryContribs : secondaryContribs).push({ name: label, equivalent: bestContrib * ratio });
+        }
       }
       for (const c of primaryContribs) {
         weightedSum += c.equivalent * 1.0;

@@ -158,8 +158,6 @@ const EXERCISE_NAME_ALIASES = {
   'straight arm lat pulldown (cable)': 'Cable Straight-Arm Pulldown',
   't bar row': 'T-Bar Row',
   'the maddest lateral raise ever': 'Lateral Raise (Dumbbell)',
-  'tnf adductions': 'Adductor Machine',
-  'tnf squat': 'Back Squat',
   'triceps dip': 'Tricep Dips (Parallel Bars)',
   'triceps dip (weighted)': 'Tricep Dips (Parallel Bars)',
   'triceps extension (barbell)': 'Skullcrusher (Barbell)',

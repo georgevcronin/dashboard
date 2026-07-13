@@ -879,6 +879,7 @@ function WorkoutLogger({ planDay, lifts, customExercises, onClose, refresh }) {
     const today = todayLocalStr();
     const allSets = valid.flatMap(ex => ex.sets.map(s => ({
       exercise: ex.name, kg: parseFloat(s.kg) || 0, reps: parseInt(s.reps) || 0, rpe: parseInt(s.rpe) || null,
+      ...(ex.machine ? { machine: ex.machine } : {}),
     })));
     try {
       const r = await api('session/complete', {
@@ -1044,13 +1045,21 @@ function WorkoutLogger({ planDay, lifts, customExercises, onClose, refresh }) {
                   }
                 </div>
 
-                {/* BW toggle + volume */}
-                <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 }}>
+                {/* BW toggle + volume + optional machine/technique tag */}
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8, flexWrap: 'wrap' }}>
                   <button onClick={() => setExercises(p => p.map((e, j) => j !== i ? e : { ...e, bw: !e.bw }))}
                     style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, letterSpacing: '.1em', textTransform: 'uppercase', padding: '3px 8px', cursor: 'pointer', border: '1px solid var(--rule)', background: ex.bw ? 'var(--ink)' : 'none', color: ex.bw ? 'var(--paper)' : 'var(--dim)' }}>
                     BW
                   </button>
                   {vol > 0 && <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)' }}>{Math.round(vol).toLocaleString()} kg total</span>}
+                  <input list={`machine-tags-${i}`} value={ex.machine || ''} placeholder="Machine/technique (optional)"
+                    onChange={e => setExercises(p => p.map((el, j) => j !== i ? el : { ...el, machine: e.target.value }))}
+                    style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, letterSpacing: '.03em', padding: '3px 6px', border: '1px solid var(--rule)', background: 'none', color: 'var(--dim)', width: 150 }} />
+                  <datalist id={`machine-tags-${i}`}>
+                    {[...new Set((lifts || []).filter(l => l.exercise === ex.name && l.machine).map(l => l.machine))].map(m => (
+                      <option key={m} value={m} />
+                    ))}
+                  </datalist>
                 </div>
 
                 {/* Sets table */}
