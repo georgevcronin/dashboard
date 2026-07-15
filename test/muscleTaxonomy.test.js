@@ -40,6 +40,14 @@ test('isCompoundExercise recognizes Olympic-lift derivatives and push press', ()
 test('isCompoundExercise does not false-positive on isolation moves', () => {
   assert.equal(isCompoundExercise('Hammer Curl'), false);
   assert.equal(isCompoundExercise('Cable Crossover'), false);
+  assert.equal(isCompoundExercise('Preacher Curl (Machine)'), false);
+});
+
+test('isCompoundExercise recognizes non-barbell row variants, not just "barbell row"', () => {
+  assert.equal(isCompoundExercise('T-Bar Row'), true);
+  assert.equal(isCompoundExercise('Seated Cable Row'), true);
+  assert.equal(isCompoundExercise('Chest-Supported Dumbbell Row'), true);
+  assert.equal(isCompoundExercise('Machine Row (Seated)'), true);
 });
 
 test('isLowerBodyExercise is true for squat/deadlift/hip-thrust family, false for upper body', () => {
