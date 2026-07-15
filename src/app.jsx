@@ -632,6 +632,34 @@ const repsForPR = (kg, targetE1RM) => {
 const SET_TYPES = ['W','N','D','F'];
 const SET_LABELS = { W: 'Warm-up', N: 'Normal', D: 'Drop Set', F: 'Failure' };
 const REST_DEFAULT = 90;
+
+// In-progress session persistence — WorkoutLogger previously held its whole
+// state (exercises, elapsed timer, custom-exercise additions) in plain React
+// state with nowhere else to live. Mobile browsers/PWAs routinely discard a
+// backgrounded tab's JS state and reload the page when you switch back to
+// it, which silently wiped an entire session mid-workout. Mirrored to
+// localStorage on every change and restored on mount instead.
+const ACTIVE_SESSION_KEY = 'press_active_session';
+const ACTIVE_SESSION_MAX_AGE_MS = 24 * 3600000; // abandoned, not resumable
+
+function saveActiveSession(data) {
+  try { localStorage.setItem(ACTIVE_SESSION_KEY, JSON.stringify(data)); } catch {}
+}
+function loadActiveSession() {
+  try {
+    const raw = localStorage.getItem(ACTIVE_SESSION_KEY);
+    if (!raw) return null;
+    const data = JSON.parse(raw);
+    if (!data.startedAt || Date.now() - data.startedAt > ACTIVE_SESSION_MAX_AGE_MS) {
+      localStorage.removeItem(ACTIVE_SESSION_KEY);
+      return null;
+    }
+    return data;
+  } catch { return null; }
+}
+function clearActiveSession() {
+  try { localStorage.removeItem(ACTIVE_SESSION_KEY); } catch {}
+}
 // cnsLoad and progression (computeProgression via progressionFor) are
 // imported — see the top-of-file comment by the muscleTaxonomy/fatigue/
 // sessionPlanner imports.
@@ -693,19 +721,23 @@ function ExHistoryChart({ name, lifts }) {
 }
 
 function WorkoutLogger({ planDay, lifts, customExercises, onClose, refresh }) {
-  const [exercises, setExercises] = useState([]);
-  const [loading, setLoading] = useState(!!planDay);
+  // Read once, on mount — a session already restored into `exercises` below
+  // shouldn't be re-read on every render (the App-level restore that opened
+  // this component in the first place already matched on the same key).
+  const [restored] = useState(() => loadActiveSession());
+  const [exercises, setExercises] = useState(() => restored?.exercises || []);
+  const [loading, setLoading] = useState(() => !restored && !!planDay);
   const [expandedEx, setExpandedEx] = useState(null);
   const [coachNotes, setCoachNotes] = useState({});
   const [coachLoading, setCoachLoading] = useState({});
   const [newEx, setNewEx] = useState('');
   const [suggestions, setSuggestions] = useState([]);
-  const [start] = useState(Date.now());
-  const [elapsed, setElapsed] = useState(0);
+  const [start] = useState(() => restored?.startedAt || Date.now());
+  const [elapsed, setElapsed] = useState(() => Math.floor((Date.now() - (restored?.startedAt || Date.now())) / 1000));
   const [rest, setRest] = useState(null);
   const [saving, setSaving] = useState(false);
   const [summary, setSummary] = useState(null);
-  const [newCustomExercises, setNewCustomExercises] = useState([]);
+  const [newCustomExercises, setNewCustomExercises] = useState(() => restored?.newCustomExercises || []);
   const inputRef = useRef();
 
   const allExercises = useMemo(() => {
@@ -738,9 +770,12 @@ function WorkoutLogger({ planDay, lifts, customExercises, onClose, refresh }) {
     return out;
   }, [lifts]);
 
-  // Load exercises — use preloaded if available, otherwise fetch from AI
+  // Load exercises — use preloaded if available, otherwise fetch from AI.
+  // Skipped entirely when resuming a restored session: `exercises` is
+  // already hydrated from storage above, and re-running this would replace
+  // real in-progress sets with a freshly (re)generated plan.
   useEffect(() => {
-    if (!planDay) return;
+    if (!planDay || restored) return;
     const session = planDay.sessions?.[0];
     if (!session || session.type === 'rest') { setLoading(false); return; }
 
@@ -768,9 +803,23 @@ function WorkoutLogger({ planDay, lifts, customExercises, onClose, refresh }) {
   }, []);
 
   useEffect(() => {
-    const t = setInterval(() => setElapsed(s => s + 1), 1000);
+    // Derived from `start` on every tick rather than incremented — a plain
+    // counter reads correctly while the tab stays alive, but resets to 0 on
+    // restore/remount even though `start` (and the persisted session) still
+    // know when the session actually began.
+    const t = setInterval(() => setElapsed(Math.floor((Date.now() - start) / 1000)), 1000);
     return () => clearInterval(t);
-  }, []);
+  }, [start]);
+
+  // Mirror the live session to localStorage on every change so a
+  // backgrounded-tab reload (common on mobile) can restore it instead of
+  // losing it — see the ACTIVE_SESSION_KEY comment above. Stops once the
+  // session is complete; `finish()`/discard clear the key outright at that
+  // point instead of leaving a finished session's snapshot behind.
+  useEffect(() => {
+    if (summary || loading) return;
+    saveActiveSession({ planDay, exercises, newCustomExercises, startedAt: start });
+  }, [planDay, exercises, newCustomExercises, start, summary, loading]);
 
   useEffect(() => {
     if (!rest || rest.remaining <= 0) { if (rest) setRest(null); return; }
@@ -901,7 +950,7 @@ function WorkoutLogger({ planDay, lifts, customExercises, onClose, refresh }) {
     const valid = exercises.map(ex => ({
       ...ex, sets: ex.sets.filter(s => s.done || s.kg !== '' || s.reps !== ''),
     })).filter(ex => ex.sets.length > 0);
-    if (!valid.length) { onClose(); return; }
+    if (!valid.length) { clearActiveSession(); onClose(); return; }
     setSaving(true);
     const today = todayLocalStr();
     const allSets = valid.flatMap(ex => ex.sets.map(s => ({
@@ -913,6 +962,7 @@ function WorkoutLogger({ planDay, lifts, customExercises, onClose, refresh }) {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ workout: { name: planDay?.sessions?.[0]?.title || 'Session', date: today }, sets: allSets, customExercises: newCustomExercises }),
       });
+      clearActiveSession(); // saved server-side now — stop persisting/offering to restore this one
       await api('summary').then(refresh);
       setSummary({
         name: planDay?.sessions?.[0]?.title || 'Session',
@@ -921,6 +971,8 @@ function WorkoutLogger({ planDay, lifts, customExercises, onClose, refresh }) {
         atlasSummary: r.atlasSummary,
       });
     } catch (e) {
+      // Left persisted deliberately: session/complete failed (network etc.),
+      // so the in-progress draft is still the only copy of this data.
       onClose();
     }
     setSaving(false);
@@ -950,7 +1002,7 @@ function WorkoutLogger({ planDay, lifts, customExercises, onClose, refresh }) {
           <button className="ol-btn ol-btn-solid" onClick={onClose}>Back to Press</button>
         ) : (
           <div style={{ display: 'flex', gap: 8 }}>
-            <button className="ol-btn ol-btn-ghost" onClick={onClose}>Discard</button>
+            <button className="ol-btn ol-btn-ghost" onClick={() => { clearActiveSession(); onClose(); }}>Discard</button>
             <button className="ol-btn ol-btn-solid" onClick={finish} disabled={saving}>{saving ? 'Saving…' : 'Finish'}</button>
           </div>
         )}
@@ -4348,7 +4400,10 @@ function LoginScreen() {
 function App() {
   const [user, setUser] = useState(undefined); // undefined = checking, null = signed out
   const [s, setS] = useState(null);
-  const [loggerPlanDay, setLoggerPlanDay] = useState(undefined);
+  const [loggerPlanDay, setLoggerPlanDay] = useState(() => {
+    const restored = loadActiveSession();
+    return restored ? restored.planDay : undefined;
+  });
   const loggerOpen = loggerPlanDay !== undefined;
   const [showImport, setShowImport] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
