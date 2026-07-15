@@ -826,6 +826,8 @@ function WorkoutLogger({ planDay, lifts, customExercises, onClose, refresh }) {
     const exLifts = (lifts || []).filter(l => l.exercise === ex.name && l.date < weekAgo);
     const weekOldMax = exLifts.length ? Math.max(...exLifts.map(l => l.kg || 0)) : null;
     const weekProgressionPct = (weekOldMax && kg) ? ((kg - weekOldMax) / weekOldMax * 100) : 0;
+    const setE1rm = !ex.bw ? e1rm(kg, reps) : null;
+    const isNewPR = setE1rm && setE1rm > (prData[ex.name] || 0);
 
     let feedback = null;
     let feedbackType = 'neutral';
@@ -843,6 +845,12 @@ function WorkoutLogger({ planDay, lifts, customExercises, onClose, refresh }) {
           }));
         }
       }).catch(() => {});
+    } else if (isNewPR) {
+      // A rep count under targetReps still reads as "short" by the branch
+      // below, but a heavier set that lands a new e1RM PR is the opposite of
+      // a shortfall — check this before the rep-count comparison, not after.
+      feedback = 'New e1RM PR — strong set';
+      feedbackType = 'green';
     } else if (reps < targetReps - 2) {
       feedback = 'Short of target — hold weight next set';
       feedbackType = 'amber';
