@@ -2577,15 +2577,25 @@ function S5({ s, refresh }) {
     // Beginner/Novice/Intermediate/Advanced/Elite) — fm-neutral is reused
     // for Advanced since it's already a forest-green filter, matching
     // TIER_COLOR's --forest for that tier, no need for a 6th filter.
-    Object.entries(s?.muscleLevels || {}).forEach(([m, v]) => {
-      const score = v?.score;
-      const f = score == null ? null
+    //
+    // Iterates ALL_MUSCLES and explicitly clears anything without a score,
+    // rather than only ever setting filters for muscles present in the
+    // current s.muscleLevels — the previous version left whatever was last
+    // painted on a muscle region in place once set, with no path to reset
+    // it. Since this SVG DOM persists across re-renders (only injected once
+    // via rankSvgsReady) and s.muscleLevels can legitimately change to have
+    // fewer entries (a fresh account's mostly-empty data loading in, a
+    // muscle dropping below the ranking eligibility threshold), that meant
+    // the diagram could keep showing a previous snapshot's colors overlaid
+    // on the current one instead of reflecting only the current data.
+    ALL_MUSCLES.forEach(m => {
+      const score = s?.muscleLevels?.[m]?.score;
+      const f = score == null ? 'none'
         : score < 20 ? 'url(#fm-ember)'
         : score < 40 ? 'url(#fm-gold)'
         : score < 60 ? 'url(#fm-navy)'
         : score < 80 ? 'url(#fm-neutral)'
         : 'url(#fm-plum)';
-      if (!f) return;
       containers.forEach(c => c.querySelectorAll(`[data-muscle="${m}"]`).forEach(el => el.setAttribute('filter', f)));
     });
   }, [rankSvgsReady, s?.muscleLevels]);
