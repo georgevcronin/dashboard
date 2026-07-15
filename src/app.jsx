@@ -614,6 +614,19 @@ function S2({ s, refresh }) {
 const BASE_EXERCISES = EXERCISE_DB.map(e => e.name.toLowerCase());
 
 const e1rm = (kg, reps) => (kg > 0 && reps > 0) ? Math.round(calcE1RM(kg, reps)) : null;
+
+// Minimum whole reps at `kg` needed to match/exceed `targetE1RM` — e1rm rises
+// monotonically with reps at a fixed weight (see strengthStandards.js), so
+// walking reps up from 1 against the raw curve is simpler and just as exact
+// as inverting it algebraically. Capped at 20: past that a "reps needed for
+// a PR" hint stops being an answerable (or useful) question.
+const repsForPR = (kg, targetE1RM) => {
+  if (!kg || !targetE1RM) return null;
+  for (let r = 1; r <= 20; r++) {
+    if (calcE1RM(kg, r) >= targetE1RM) return r;
+  }
+  return null;
+};
 const SET_TYPES = ['W','N','D','F'];
 const SET_LABELS = { W: 'Warm-up', N: 'Normal', D: 'Drop Set', F: 'Failure' };
 const REST_DEFAULT = 90;
@@ -1094,6 +1107,7 @@ function WorkoutLogger({ planDay, lifts, customExercises, onClose, refresh }) {
                       const setIsPR = setE1rm && setE1rm > (prData[ex.name] || 0);
                       const isWorking = set.type !== 'W';
                       const fbColor = set.feedbackType === 'green' ? 'var(--forest)' : set.feedbackType === 'red' ? 'var(--red)' : set.feedbackType === 'amber' ? 'var(--gold)' : 'var(--dim)';
+                      const minRepsForPR = (!ex.bw && !set.done && isWorking && +set.kg > 0) ? repsForPR(+set.kg, prData[ex.name]) : null;
                       return (
                         <React.Fragment key={j}>
                         <tr style={{ opacity: set.done ? 0.45 : 1 }}>
@@ -1140,6 +1154,15 @@ function WorkoutLogger({ planDay, lifts, customExercises, onClose, refresh }) {
                           <tr>
                             <td colSpan={ex.bw ? 5 : 6} style={{ paddingBottom: 4 }}>
                               <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, letterSpacing: '.09em', color: fbColor }}>↳ {set.feedback}</span>
+                            </td>
+                          </tr>
+                        )}
+                        {minRepsForPR != null && (
+                          <tr>
+                            <td colSpan={ex.bw ? 5 : 6} style={{ paddingBottom: 4 }}>
+                              <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, letterSpacing: '.09em', color: 'var(--dim)' }}>
+                                ↳ PR pace at {set.kg}kg — {minRepsForPR}–{minRepsForPR + 3} reps
+                              </span>
                             </td>
                           </tr>
                         )}
