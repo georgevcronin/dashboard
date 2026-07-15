@@ -1,38 +1,52 @@
         <svg viewBox="0 0 874 1886" style="width:98px;height:212px;display:block" xmlns="http://www.w3.org/2000/svg">
 <defs>
+  <filter id="fm-dim" color-interpolation-filters="sRGB">
+    <feColorMatrix type="matrix" values="
+      0 0 0 0.4196 0
+      0 0 0 0.3647 0
+      0 0 0 0.2667 0
+      0 0 0 1.0000 0"/>
+  </filter>
   <filter id="fm-ember" color-interpolation-filters="sRGB">
     <feColorMatrix type="matrix" values="
-      0 0 0 0.7220 0
-      0 0 0 0.2820 0
+      0 0 0 0.4784 0
+      0 0 0 0.2039 0
       0 0 0 0.0000 0
       0 0 0 1.0000 0"/>
   </filter>
   <filter id="fm-gold" color-interpolation-filters="sRGB">
     <feColorMatrix type="matrix" values="
-      0 0 0 0.6080 0
-      0 0 0 0.4860 0
+      0 0 0 0.4196 0
+      0 0 0 0.3451 0
       0 0 0 0.0000 0
       0 0 0 1.0000 0"/>
   </filter>
   <filter id="fm-neutral" color-interpolation-filters="sRGB">
     <feColorMatrix type="matrix" values="
-      0 0 0 0.2275 0
-      0 0 0 0.4706 0
-      0 0 0 0.1255 0
+      0 0 0 0.1020 0
+      0 0 0 0.3098 0
+      0 0 0 0.1647 0
       0 0 0 1.0000 0"/>
   </filter>
   <filter id="fm-navy" color-interpolation-filters="sRGB">
     <feColorMatrix type="matrix" values="
-      0 0 0 0.1800 0
-      0 0 0 0.3200 0
-      0 0 0 0.6500 0
+      0 0 0 0.1020 0
+      0 0 0 0.1843 0
+      0 0 0 0.3294 0
       0 0 0 1.0000 0"/>
   </filter>
   <filter id="fm-plum" color-interpolation-filters="sRGB">
     <feColorMatrix type="matrix" values="
-      0 0 0 0.4200 0
-      0 0 0 0.1800 0
-      0 0 0 0.5500 0
+      0 0 0 0.2392 0
+      0 0 0 0.1412 0
+      0 0 0 0.3216 0
+      0 0 0 1.0000 0"/>
+  </filter>
+  <filter id="fm-teal" color-interpolation-filters="sRGB">
+    <feColorMatrix type="matrix" values="
+      0 0 0 0.1020 0
+      0 0 0 0.3098 0
+      0 0 0 0.3098 0
       0 0 0 1.0000 0"/>
   </filter>
 </defs>

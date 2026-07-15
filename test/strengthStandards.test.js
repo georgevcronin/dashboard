@@ -6,14 +6,15 @@ function mkLift(date, exercise, kg, reps) {
   return { date, exercise, kg, reps };
 }
 
-test('scoreForRatio is monotonically non-decreasing across the Advanced -> Elite tier boundary', () => {
+test('scoreForRatio is monotonically non-decreasing across the Advanced -> Elite tier boundary, and keeps climbing past Elite instead of capping', () => {
   const t = STANDARDS.male.squat; // [0.50, 0.75, 1.25, 1.75, 2.25]
   const belowElite = scoreForRatio(2.24, t);
   const atElite = scoreForRatio(2.25, t);
   const deepElite = scoreForRatio(3.00, t);
   assert.ok(atElite.score >= belowElite.score, `score dropped crossing into Elite: ${belowElite.score} -> ${atElite.score}`);
   assert.equal(atElite.tier, 'Elite');
-  assert.equal(deepElite.score, 100);
+  assert.ok(deepElite.score > atElite.score, `score should keep climbing past Elite instead of flatlining: ${atElite.score} -> ${deepElite.score}`);
+  assert.equal(deepElite.tier, 'Ultra Elite');
 });
 
 test('scoreForRatio scales 0-20 below the Beginner threshold', () => {
@@ -23,10 +24,19 @@ test('scoreForRatio scales 0-20 below the Beginner threshold', () => {
   assert.equal(half.score, 10);
 });
 
-test('scoreForRatio never exceeds 100 or goes below 0', () => {
+test('scoreForRatio never goes below 0, and can legitimately exceed 100 past Elite', () => {
   const t = STANDARDS.male.squat;
   assert.ok(scoreForRatio(0, t).score >= 0);
-  assert.ok(scoreForRatio(100, t).score <= 100);
+  assert.ok(scoreForRatio(t[4] * 2, t).score > 100, 'a ratio double the Elite threshold should score well past 100, not cap at it');
+});
+
+test('scoreForRatio uses the finer in-between tier names, not just the original 5', () => {
+  const t = STANDARDS.male.squat; // [0.50, 0.75, 1.25, 1.75, 2.25]
+  // Midpoint of the real Beginner->Intermediate span (the "Novice" 20-point
+  // band, score 40-60) should read the finer name for its own midpoint.
+  const mid = scoreForRatio(1.00, t);
+  assert.equal(mid.score, 50);
+  assert.equal(mid.tier, 'Competent');
 });
 
 test('classifyLift is an allowlist — only the exact canonical exercise per category matches', () => {
