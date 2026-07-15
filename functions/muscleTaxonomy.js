@@ -132,7 +132,12 @@ function isLowerBodyExercise(name) {
 // primary-muscle count (e.g. Hammer Curl has 2 primary muscles but isn't
 // CNS-heavy), so this stays an explicit, whole-word-matched list — just one of
 // them now, normalized against hyphens like everything else here.
-const COMPOUND_FALLBACK = /\b(squat|deadlift|hack squat|bench press|overhead press|leg press|barbell row|pull up|chin up|hip thrust|power clean|hang clean|push press)\b/;
+// "row" is generic (not "barbell row") so it also catches the T-bar/cable/
+// dumbbell/machine variants in exerciseDb.js — those are equally multi-joint
+// pulling compounds, just previously missed because only the literal phrase
+// "barbell row" was listed, silently undercounting session CNS load on any
+// back day built around them instead of the specific barbell variant.
+const COMPOUND_FALLBACK = /\b(squat|deadlift|hack squat|bench press|overhead press|leg press|row|pull up|chin up|hip thrust|power clean|hang clean|push press)\b/;
 function isCompoundExercise(name) {
   return COMPOUND_FALLBACK.test(normalizeForMatch(name));
 }
