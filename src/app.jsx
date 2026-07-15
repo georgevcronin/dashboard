@@ -1554,11 +1554,42 @@ function WorkoutHistory({ s, onClose }) {
 }
 
 // ── S3: TRAINING ──────────────────────────────────────────────────────────────
-const TIER_COLOR = { Untrained: 'var(--dim)', Beginner: 'var(--ember)', Novice: 'var(--gold)', Intermediate: 'var(--navy)', Advanced: 'var(--forest)', Elite: 'var(--plum)' };
+// Mirrors functions/strengthStandards.js's TIER_BANDS — every name
+// computeMuscleLevels can return needs a color here. The "in-between" names
+// share their parent band's color (Developing reads as a shade of Beginner,
+// etc.) rather than getting a distinct hue each: with 11 names total, giving
+// each its own color would make adjacent bands visually indistinguishable
+// anyway, and the shared color still tells you the right ballpark at a
+// glance while the text gives the precise rank.
+const TIER_COLOR = {
+  Untrained: 'var(--dim)',
+  Beginner: 'var(--ember)', Developing: 'var(--ember)',
+  Novice: 'var(--gold)', Competent: 'var(--gold)',
+  Intermediate: 'var(--navy)', Proficient: 'var(--navy)',
+  Advanced: 'var(--forest)', Exceptional: 'var(--forest)',
+  Elite: 'var(--plum)',
+  'Ultra Elite': 'var(--teal)',
+};
+// The diagram itself only has room for 7 visually-distinct colors (see the
+// SVG filters) — the finer in-between names above are a text-only layer of
+// precision on top of these same broad bands.
+const DIAGRAM_TIER_BANDS = [
+  [0, 'Untrained', 'url(#fm-dim)'], [20, 'Beginner', 'url(#fm-ember)'],
+  [40, 'Novice', 'url(#fm-gold)'], [60, 'Intermediate', 'url(#fm-navy)'],
+  [80, 'Advanced', 'url(#fm-neutral)'], [100, 'Elite', 'url(#fm-plum)'],
+  [120, 'Ultra Elite', 'url(#fm-teal)'],
+];
+function diagramFilterForScore(score) {
+  let filter = DIAGRAM_TIER_BANDS[0][2];
+  for (const [floor, , f] of DIAGRAM_TIER_BANDS) { if (score < floor) break; filter = f; }
+  return filter;
+}
 
 // Per-muscle strength panel: shows every muscle in muscleLevels (backend's
-// computeMuscleLevels) with a real strengthlevel.com-sourced Beginner→Elite
-// tier. Muscles with no ranking yet (no published standard for any exercise
+// computeMuscleLevels) with a real strengthlevel.com-sourced tier, plus the
+// finer named checkpoints and Ultra Elite extrapolation TIER_BANDS layers on
+// top (see strengthStandards.js). Muscles with no ranking yet (no published
+// standard for any exercise
 // that trains them, or a canonical exercise not yet logged under a
 // recognized name) are simply omitted — no unranked/personal-best fallback
 // section, by request.
@@ -1587,7 +1618,7 @@ function StrengthLevelPanel({ muscleLevels, hasSex }) {
   if (!rankedMuscles.length) return (
     <div className="fade" style={{ borderTop: '1px solid var(--rule)', paddingTop: 10 }}>
       <div className="kicker" style={{ marginBottom: 4 }}>Strength Level</div>
-      <div style={{ fontSize: 11, color: 'var(--dim)', fontStyle: 'italic' }}>Log some lifts to see per-muscle strength levels — ranked against published bodyweight standards where one exists, Beginner→Elite.</div>
+      <div style={{ fontSize: 11, color: 'var(--dim)', fontStyle: 'italic' }}>Log some lifts to see per-muscle strength levels — ranked against published bodyweight standards where one exists, Beginner→Ultra Elite.</div>
     </div>
   );
 
@@ -1603,9 +1634,12 @@ function StrengthLevelPanel({ muscleLevels, hasSex }) {
                 {muscleDisplayLabel(muscle)}
                 {isNew && <span style={{ fontSize: 7, letterSpacing: '.1em', background: 'var(--gold)', color: 'var(--paper)', padding: '1px 4px' }}>NEW</span>}
               </span>
-              <span style={{ color: TIER_COLOR[v.tier] }}>{v.tier} · {v.score}/100</span>
+              <span style={{ color: TIER_COLOR[v.tier] }}>{v.tier} · {v.score}{v.score <= 100 ? '/100' : ''}</span>
             </div>
-            <div className="macro-track"><div className="macro-fill" style={{ width: `${v.score}%`, background: TIER_COLOR[v.tier] }} /></div>
+            {/* Bar itself stays capped at a full track even past 100 — the
+                number above still shows the true score, this just keeps a
+                >100 score from overflowing the track's fixed width. */}
+            <div className="macro-track"><div className="macro-fill" style={{ width: `${Math.min(100, v.score)}%`, background: TIER_COLOR[v.tier] }} /></div>
             <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, color: 'var(--dim)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {v.exercise} · {v.e1RM}kg e1RM · {localDateFromYMD(v.date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })} at {v.bodyweightKg}kg bodyweight
               {v.blendedFrom?.length ? ` · blended with ${v.blendedFrom.length} other exercise${v.blendedFrom.length === 1 ? '' : 's'}` : ''}
@@ -2573,10 +2607,12 @@ function S5({ s, refresh }) {
   useEffect(() => {
     if (!rankSvgsReady) return;
     const containers = [rankAntRef.current, rankLatRef.current, rankPostRef.current].filter(Boolean);
-    // Same 5-tier boundaries scoreForRatio itself uses (20 points per tier:
-    // Beginner/Novice/Intermediate/Advanced/Elite) — fm-neutral is reused
-    // for Advanced since it's already a forest-green filter, matching
-    // TIER_COLOR's --forest for that tier, no need for a 6th filter.
+    // Uses DIAGRAM_TIER_BANDS/diagramFilterForScore (declared alongside
+    // TIER_COLOR above) so the diagram's buckets and the legend key's
+    // colors can never drift apart the way they previously did — the old
+    // inline brackets here were off by one tier against TIER_COLOR (e.g.
+    // score 20-40, real "Beginner" range, rendered gold — Novice's color —
+    // not ember) and merged Advanced and Elite into a single plum bucket.
     //
     // Iterates ALL_MUSCLES and explicitly clears anything without a score,
     // rather than only ever setting filters for muscles present in the
@@ -2590,12 +2626,7 @@ function S5({ s, refresh }) {
     // on the current one instead of reflecting only the current data.
     ALL_MUSCLES.forEach(m => {
       const score = s?.muscleLevels?.[m]?.score;
-      const f = score == null ? 'none'
-        : score < 20 ? 'url(#fm-ember)'
-        : score < 40 ? 'url(#fm-gold)'
-        : score < 60 ? 'url(#fm-navy)'
-        : score < 80 ? 'url(#fm-neutral)'
-        : 'url(#fm-plum)';
+      const f = score == null ? 'none' : diagramFilterForScore(score);
       containers.forEach(c => c.querySelectorAll(`[data-muscle="${m}"]`).forEach(el => el.setAttribute('filter', f)));
     });
   }, [rankSvgsReady, s?.muscleLevels]);
@@ -2711,7 +2742,7 @@ function S5({ s, refresh }) {
         </div>
 
         <div className="fade" style={{ display: 'flex', gap: 12, flexShrink: 0, marginTop: 8, flexWrap: 'wrap', fontFamily: "'JetBrains Mono',monospace", fontSize: 9 }}>
-          {['Beginner', 'Novice', 'Intermediate', 'Advanced', 'Elite'].map(tier => (
+          {DIAGRAM_TIER_BANDS.map(([, tier]) => (
             <div key={tier} style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
               <div style={{ width: 7, height: 7, borderRadius: '50%', background: TIER_COLOR[tier] }} />
               <span style={{ color: 'var(--dim)', letterSpacing: '.08em' }}>{tier}</span>

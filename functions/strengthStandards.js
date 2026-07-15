@@ -118,22 +118,54 @@ function estimate1RM(kg, reps) {
   return e1rm(kg, reps);
 }
 
-// Continuous 0-100 score across the five-tier ladder: 20 points per tier,
-// linearly interpolated between adjacent thresholds. Below Beginner scales
-// 0-20; above Elite is capped at 100. The second-to-last tier's interpolation
+// Named display bands layered on top of the continuous score below — the
+// real sourced data (strengthlevel.com) only defines 5 checkpoints, one
+// every 20 points (Beginner/Novice/Intermediate/Advanced/Elite); everything
+// here is a finer label for where an already-interpolated score falls
+// within/beyond those checkpoints, not a new set of invented thresholds.
+// The classic 5 names still land exactly on their real sourced ratio (e.g.
+// crossing the real Novice threshold always reads "Novice", at score 40)
+// — each just now has one extra named checkpoint at its own midpoint too.
+// Sorted ascending; tierNameForScore takes the last one the score clears.
+const TIER_BANDS = [
+  [0, 'Untrained'], [20, 'Beginner'], [30, 'Developing'], [40, 'Novice'],
+  [50, 'Competent'], [60, 'Intermediate'], [70, 'Proficient'], [80, 'Advanced'],
+  [90, 'Exceptional'], [100, 'Elite'], [120, 'Ultra Elite'],
+];
+function tierNameForScore(score) {
+  let name = TIER_BANDS[0][1];
+  for (const [floor, label] of TIER_BANDS) { if (score < floor) break; name = label; }
+  return name;
+}
+
+// Continuous score across the tier ladder: 20 points per real checkpoint,
+// linearly interpolated between adjacent thresholds, uncapped above Elite.
+// Below Beginner scales 0-20. The second-to-last checkpoint's interpolation
 // already asymptotically approaches 100 as ratio approaches the Elite
-// threshold, so Elite itself is simply 100 flat — an earlier version instead
-// restarted the Elite band's own 0-20 sub-scale at a base of 80, which made
-// the score *drop* by up to 20 points the moment a lifter crossed into Elite.
+// threshold; past that, there's no further real checkpoint to interpolate
+// toward, so it continues at the same per-ratio slope the last real segment
+// (Advanced -> Elite) used, rather than flatlining at 100 — an earlier
+// version *did* flatline there, which made every lifter past Elite score
+// identically regardless of how far past they actually were (and before
+// that, a version that instead restarted Elite's own 0-20 sub-scale at a
+// base of 80 made the score visibly *drop* by up to 20 points the moment a
+// lifter crossed into Elite at all — both wrong for the same underlying
+// reason: treating the top checkpoint as a ceiling instead of a floor).
 function scoreForRatio(ratio, thresholds) {
   let tierIdx = -1;
   for (let i = 0; i < thresholds.length; i++) if (ratio >= thresholds[i]) tierIdx = i;
-  const tier = tierIdx === -1 ? 'Untrained' : TIERS[tierIdx];
   let score;
-  if (tierIdx === -1) score = (ratio / thresholds[0]) * 20;
-  else if (tierIdx === thresholds.length - 1) score = 100;
-  else score = 20 * (tierIdx + 1) + 20 * ((ratio - thresholds[tierIdx]) / (thresholds[tierIdx + 1] - thresholds[tierIdx]));
-  return { tier, score: Math.round(Math.max(0, Math.min(100, score))) };
+  if (tierIdx === -1) {
+    score = (ratio / thresholds[0]) * 20;
+  } else if (tierIdx === thresholds.length - 1) {
+    const prevSpan = thresholds[tierIdx] - thresholds[tierIdx - 1];
+    const over = prevSpan > 0 ? (ratio - thresholds[tierIdx]) / prevSpan : 0;
+    score = 100 + 20 * Math.max(0, over);
+  } else {
+    score = 20 * (tierIdx + 1) + 20 * ((ratio - thresholds[tierIdx]) / (thresholds[tierIdx + 1] - thresholds[tierIdx]));
+  }
+  score = Math.round(Math.max(0, score));
+  return { tier: tierNameForScore(score), score };
 }
 
 // Finds the bodyweight that was actually in effect on a given date: the most
