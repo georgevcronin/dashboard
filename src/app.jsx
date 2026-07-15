@@ -829,7 +829,11 @@ function WorkoutLogger({ planDay, lifts, customExercises, onClose, refresh }) {
 
     let feedback = null;
     let feedbackType = 'neutral';
-    if (rpe !== null && rpe >= 9 && weekProgressionPct > 5) {
+    if (set.type === 'W') {
+      // Warmup sets are deliberately low-rep ramp-ups, not attempts at the
+      // working-set target — comparing them to targetReps flagged every
+      // warmup as "short of target" regardless of how the set actually went.
+    } else if (rpe !== null && rpe >= 9 && weekProgressionPct > 5) {
       feedback = 'High effort + rapid load increase — check form before adding weight';
       feedbackType = 'red';
       api(`exercises/${encodeURIComponent(ex.name.replace(/\s+/g, '-'))}`).then(d => {
