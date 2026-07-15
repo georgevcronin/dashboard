@@ -782,7 +782,6 @@ function WorkoutLogger({ planDay, lifts, customExercises, onClose, refresh }) {
     const toExercise = ex => ({
       name: ex.name.toLowerCase().trim(),
       bw: false,
-      note: ex.note || '',
       targetReps: ex.sets?.[0]?.reps || 8,
       sets: (ex.sets || Array.from({length:3},()=>({type:'N',kg:'',reps:'8'}))).map(s => ({ type: s.type || 'N', kg: String(s.kg || ''), reps: String(s.reps || ''), rpe: '', done: false })),
     });
@@ -845,15 +844,14 @@ function WorkoutLogger({ planDay, lifts, customExercises, onClose, refresh }) {
     const prev = prevData[key];
     const sets = prev?.sets?.map(s => ({ type: 'N', kg: String(s.kg || ''), reps: String(s.reps || ''), rpe: '', done: false }))
       || [{ type: 'N', kg: '', reps: '', rpe: '', done: false }];
-    setExercises(p => [...p, { name: key, bw: false, note: '', targetReps: 8, sets }]);
+    setExercises(p => [...p, { name: key, bw: false, targetReps: 8, sets }]);
     setNewEx(''); setSuggestions([]);
     setTimeout(() => inputRef.current?.focus(), 50);
-    // Fetch progression note from backend (fire-and-forget)
-    api(`progression/${encodeURIComponent(key)}`).then(d => {
-      if (d.progression?.note) {
-        setExercises(p => p.map(ex => ex.name === key && !ex.note ? { ...ex, note: d.progression.note } : ex));
-      }
-    }).catch(() => {});
+    // No progression fetch here — the render below already calls
+    // progressionFor(lifts, ex.name) live for every exercise, including
+    // ones just added here, so a separate backend round-trip for the same
+    // computation was redundant (and, worse, rendered as a visible
+    // duplicate of the exact same note text once it resolved).
   };
 
   // expandedEx tracks a raw array index, so removing an earlier exercise
@@ -1099,17 +1097,15 @@ function WorkoutLogger({ planDay, lifts, customExercises, onClose, refresh }) {
                   </div>
                 )}
 
-                {/* Progressive overload suggestion */}
+                {/* Progressive overload suggestion — used to be duplicated by a
+                    second "AI-generated" note fetched from the backend, back
+                    when the session planner called Gemini for this. Since the
+                    planner went fully deterministic (both paths call the same
+                    progressionFor()), that second fetch just reproduced this
+                    exact same string a beat later and rendered it twice. */}
                 {progression && (
                   <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: prog.trend === 'stalled' ? 'var(--ember)' : 'var(--forest)', marginBottom: 5 }}>
                     {progression}
-                  </div>
-                )}
-
-                {/* AI-generated progression note */}
-                {ex.note && (
-                  <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--navy)', marginBottom: 6, letterSpacing: '.04em' }}>
-                    {ex.note}
                   </div>
                 )}
 
