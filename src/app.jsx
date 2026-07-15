@@ -7,6 +7,7 @@ import muscleTaxonomyPkg from '../functions/muscleTaxonomy.js';
 import fatiguePkg from '../functions/fatigue.js';
 import sessionPlannerPkg from '../functions/sessionPlanner.js';
 import strengthStandardsPkg from '../functions/strengthStandards.js';
+import machineBrandsPkg from '../functions/machineBrands.js';
 import { EXERCISE_DB } from '../functions/exerciseDb.js';
 import { PRESS_CSS } from './pressCss.js';
 import { AreaChart, BarChart, Sparkline } from './charts.jsx';
@@ -23,6 +24,7 @@ const { ALL_MUSCLES, musclesForExercise, isCompoundExercise, findExercise } = mu
 const { computeStructuralFatigue, computeACWR, computePerformanceTrend, computeMetabolicFatigue, computeCNSFatigue, cnsLoad } = fatiguePkg;
 const { progressionFor } = sessionPlannerPkg;
 const { e1rm: calcE1RM } = strengthStandardsPkg;
+const { defaultMachineBrands } = machineBrandsPkg;
 
 const FIREBASE_CONFIG = {
   apiKey: "AIzaSyDlVzSc9yow5GHbQipRWuYAZ5QTQ-jmXiY",
@@ -1081,7 +1083,10 @@ function WorkoutLogger({ planDay, lifts, customExercises, onClose, refresh }) {
                     onChange={e => setExercises(p => p.map((el, j) => j !== i ? el : { ...el, machine: e.target.value }))}
                     style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, letterSpacing: '.03em', padding: '3px 6px', border: '1px solid var(--rule)', background: 'none', color: 'var(--dim)', width: 150 }} />
                   <datalist id={`machine-tags-${i}`}>
-                    {[...new Set((lifts || []).filter(l => l.exercise === ex.name && l.machine).map(l => l.machine))].map(m => (
+                    {[...new Set([
+                      ...(lifts || []).filter(l => l.exercise === ex.name && l.machine).map(l => l.machine),
+                      ...defaultMachineBrands(findExercise(ex.name)?.equipment),
+                    ])].map(m => (
                       <option key={m} value={m} />
                     ))}
                   </datalist>
