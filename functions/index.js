@@ -940,7 +940,12 @@ app.get("/coach/:exercise", async (req, res) => {
   for (const l of sets) { if (!byDate[l.date]) byDate[l.date] = []; byDate[l.date].push(l); }
   const ctx = Object.keys(byDate).sort().slice(-5).map(d => `${d}: ${byDate[d].map(s => `${s.kg}kg×${s.reps}`).join(', ')}`).join('; ');
   const prompt = `One specific coaching cue for ${ex}. History: ${ctx || 'no data'}. Max 14 words. Evidence-based, specific to their numbers. No intro words.`;
-  const result = await callGeminiResilient({ messages: [{ role: "user", content: prompt }], maxTokens: 60 });
+  // gemini.js's thinkingLevel: "LOW" still spends real output-token budget on
+  // its thinking pass for gemini-3.x models (the same issue /mentor hit and
+  // fixed by raising 400->700 — see that commit) — 60 tokens left almost
+  // nothing for the actual ~14-word answer once thinking ate its share,
+  // producing cues visibly cut off mid-sentence ("Drive your").
+  const result = await callGeminiResilient({ messages: [{ role: "user", content: prompt }], maxTokens: 200 });
   res.json({ note: result.ok ? result.content.trim() : null });
 });
 
