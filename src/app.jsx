@@ -633,6 +633,30 @@ const SET_TYPES = ['W','N','D','F'];
 const SET_LABELS = { W: 'Warm-up', N: 'Normal', D: 'Drop Set', F: 'Failure' };
 const REST_DEFAULT = 90;
 
+// Shown at the top of Settings. Newest first — add a new entry (bump the
+// version, today's date, a feature-list bullet per notable change) whenever
+// shipping something worth calling out, rather than editing this comment
+// instead of the list. v0.1 is the first tracked release, not literally the
+// app's first version — everything before this had no changelog at all.
+const CHANGELOG = [
+  {
+    version: '0.1',
+    date: '2026-07-15',
+    features: [
+      'Session CNS-load badge no longer misreads row-heavy sessions as "Light"',
+      'Warmup sets no longer flagged "Short of target"',
+      'A set that lands a new e1RM PR no longer flagged "Short of target"',
+      'Live "PR pace" hint shows the rep range needed to beat your PR as you enter a weight',
+      'Machine/technique tag suggests real UK commercial-gym equipment brands',
+      'In-progress sessions now survive backgrounding the app (no more lost workouts)',
+      'Removed a duplicate progression note and fixed truncated AI coaching cues',
+      'Ranking tab body diagram no longer shows stale colors from previous data',
+      'Ranking tab diagram colors now correctly match the legend key',
+      'Finer strength ranks added between the original 5, plus an open-ended "Ultra Elite" tier above 100',
+    ],
+  },
+];
+
 // In-progress session persistence — WorkoutLogger previously held its whole
 // state (exercises, elapsed timer, custom-exercise additions) in plain React
 // state with nowhere else to live. Mobile browsers/PWAs routinely discard a
@@ -3798,6 +3822,21 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, setBrie
         <button className="settings-close" onClick={onClose}>Close ×</button>
       </div>
       <div className="settings-body">
+
+        {/* ── WHAT'S NEW ── */}
+        <div className="settings-sec">
+          <div className="settings-sh">v{CHANGELOG[0].version} · What's New</div>
+          {CHANGELOG.map(entry => (
+            <div key={entry.version} style={{ marginBottom: 14 }}>
+              <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)', marginBottom: 6 }}>
+                v{entry.version} — {localDateFromYMD(entry.date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
+              </div>
+              <ul style={{ margin: 0, paddingLeft: 18, fontFamily: "'Times New Roman',serif", fontSize: 13, lineHeight: 1.6, color: 'var(--ink)' }}>
+                {entry.features.map((f, i) => <li key={i}>{f}</li>)}
+              </ul>
+            </div>
+          ))}
+        </div>
 
         {/* ── PROFILE ── */}
         <div className="settings-sec">

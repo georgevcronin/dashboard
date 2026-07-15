@@ -10,6 +10,7 @@ Sole user is George. See `PRODUCT.md` for what this is and who it's for, `ARCHIT
 - `npm run build` after any `src/app.jsx` change — it's the only thing that catches syntax/import errors on the frontend (no frontend test suite).
 - `npm test` after any `functions/*.js` change — extract pure logic into its own module (pattern: `analytics.js`, `recoveryPersonalization.js`) and add a test file in `test/` rather than growing `index.js`.
 - `main` deploys on every push with no staging environment — treat it as production. Don't push to `main` without being asked.
+- After shipping something worth calling out (a fix or feature a user would actually notice — not internal refactors), add an entry to `CHANGELOG` in `src/app.jsx` (near the top, alongside `SET_TYPES`): bump the version, today's date, one bullet per notable change. Shown at the top of Settings, newest first.
 
 ## Code style
 - No comments unless the WHY is genuinely non-obvious (matches the pattern already in this codebase — see the muscle-taxonomy and request-scoped-state notes in `ARCHITECTURE.md` for what "non-obvious" looks like here).
