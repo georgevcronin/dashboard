@@ -642,6 +642,13 @@ const REST_DEFAULT = 90;
 // app's first version — everything before this had no changelog at all.
 const CHANGELOG = [
   {
+    version: '0.9',
+    date: '2026-07-16',
+    features: [
+      'Added a real home-screen icon (a bold serif "P" on the app\'s own paper/ink colours) plus a web app manifest, so "Add to Home Screen" no longer falls back to a screenshot — also fixes push notifications, which were already referencing an icon file that never existed',
+    ],
+  },
+  {
     version: '0.8',
     date: '2026-07-16',
     features: [
