@@ -642,6 +642,13 @@ const REST_DEFAULT = 90;
 // app's first version — everything before this had no changelog at all.
 const CHANGELOG = [
   {
+    version: '0.10',
+    date: '2026-07-16',
+    features: [
+      'Soreness logging now has a body diagram picker, matching Fatigue and Ranking — tap a muscle on the diagram instead of hunting through a 31-button grid (muscles without a diagram region still list separately below it)',
+    ],
+  },
+  {
     version: '0.9',
     date: '2026-07-16',
     features: [
@@ -2680,6 +2687,16 @@ const BODY_BASE = '';
 // artwork; mid-delt only has generic "shoulders" regions, not split by head.
 const MUSCLES_WITHOUT_BODY_REGION = ['abductors', 'brachialis', 'brachioradialis', 'mid-delt'];
 
+// Every muscle the SVGs actually have a data-muscle region for (verified
+// directly against the 3 files) — the soreness picker's diagram can only
+// be clickable for these; the rest of ALL_MUSCLES still need the fallback
+// button list below it, same reasoning as MUSCLES_WITHOUT_BODY_REGION above.
+const SORENESS_DIAGRAM_MUSCLES = [
+  'abs', 'adductors', 'biceps', 'calves', 'chest', 'erectors', 'forearms',
+  'front-delt', 'glutes', 'hamstrings', 'lats', 'obliques', 'quads',
+  'rear-delt', 'rhomboids', 'traps', 'triceps',
+];
+
 function S5({ s, refresh }) {
   const antRef = useRef(), latRef = useRef(), postRef = useRef();
   const [svgsReady, setSvgsReady] = useState(false);
@@ -2691,6 +2708,10 @@ function S5({ s, refresh }) {
   // cost of one extra (browser-cached) fetch of the same 3 static files.
   const rankAntRef = useRef(), rankLatRef = useRef(), rankPostRef = useRef();
   const [rankSvgsReady, setRankSvgsReady] = useState(false);
+  // Soreness tab's own triptych/refs, same reasoning as the Ranking tab's —
+  // its container only mounts once the user switches to 'soreness'.
+  const soreAntRef = useRef(), soreLatRef = useRef(), sorePostRef = useRef();
+  const [soreSvgsReady, setSoreSvgsReady] = useState(false);
   const [tab, setTab] = useState('fatigue');
   const [selectedMuscle, setSelectedMuscle] = useState(null);
   const [sliderVal, setSliderVal] = useState(5);
@@ -2781,6 +2802,69 @@ function S5({ s, refresh }) {
       containers.forEach(c => c.querySelectorAll(`[data-muscle="${m}"]`).forEach(el => el.setAttribute('filter', f)));
     });
   }, [rankSvgsReady, s?.muscleLevels]);
+
+  useEffect(() => {
+    if (tab !== 'soreness' || soreSvgsReady) return;
+    Promise.all([
+      fetch(`${BODY_BASE}/body-anterior.svg`).then(r => r.text()),
+      fetch(`${BODY_BASE}/body-lateral.svg`).then(r => r.text()),
+      fetch(`${BODY_BASE}/body-posterior.svg`).then(r => r.text()),
+    ]).then(([ant, lat, post]) => {
+      if (soreAntRef.current)  soreAntRef.current.innerHTML  = ant;
+      if (soreLatRef.current)  soreLatRef.current.innerHTML  = lat;
+      if (sorePostRef.current) sorePostRef.current.innerHTML = post;
+      setSoreSvgsReady(true);
+    }).catch(() => {});
+  }, [tab, soreSvgsReady]);
+
+  // Nearest-centroid matching rather than raw e.target hit-testing: these
+  // muscle-region images are irregularly shaped and their *bounding boxes*
+  // overlap heavily even where the drawn artwork doesn't (e.g. a wide
+  // "forearms" cutout with a fully transparent gap over the torso where
+  // abs/obliques actually are) — standard hit-testing/pointer-events
+  // doesn't account for PNG alpha, so a click landing in that transparent
+  // gap would hit whichever image paints on top there, not the muscle
+  // actually drawn at that pixel. Verified directly: naive closest()
+  // hit-testing mis-picked the wrong muscle on roughly a third of clicks
+  // (e.g. clicking dead-center on biceps or obliques resolved to chest or
+  // forearms instead). Comparing the click point against every region's
+  // on-screen center sidesteps z-order entirely and got every muscle
+  // right except two visually-thin ones (adductors, rear-delt) even at
+  // their own bounding box's exact center — the worst case a real tap
+  // (which lands on visible pixels, not a raw bbox center) should ever hit.
+  useEffect(() => {
+    if (!soreSvgsReady) return;
+    const containers = [soreAntRef.current, soreLatRef.current, sorePostRef.current].filter(Boolean);
+    const onClick = e => {
+      const container = containers.find(c => c.contains(e.target));
+      if (!container) return;
+      let closest = null, closestDist = Infinity;
+      container.querySelectorAll('[data-muscle]').forEach(el => {
+        const m = el.getAttribute('data-muscle');
+        if (!SORENESS_DIAGRAM_MUSCLES.includes(m)) return;
+        const r = el.getBoundingClientRect();
+        const dist = Math.hypot(e.clientX - (r.left + r.width / 2), e.clientY - (r.top + r.height / 2));
+        if (dist < closestDist) { closestDist = dist; closest = m; }
+      });
+      if (!closest) return;
+      setSelectedMuscle(prev => prev === closest ? null : closest);
+      setSliderVal(5);
+    };
+    containers.forEach(c => c.addEventListener('click', onClick));
+    return () => containers.forEach(c => c.removeEventListener('click', onClick));
+  }, [soreSvgsReady]);
+
+  useEffect(() => {
+    if (!soreSvgsReady) return;
+    const containers = [soreAntRef.current, soreLatRef.current, sorePostRef.current].filter(Boolean);
+    SORENESS_DIAGRAM_MUSCLES.forEach(m => {
+      const f = selectedMuscle === m ? 'url(#fm-ember)' : sorenessSet.has(m) ? 'url(#fm-navy)' : 'none';
+      containers.forEach(c => c.querySelectorAll(`[data-muscle="${m}"]`).forEach(el => {
+        el.setAttribute('filter', f);
+        el.style.cursor = 'pointer';
+      }));
+    });
+  }, [soreSvgsReady, selectedMuscle, sorenessSet]);
 
   const hl1 = topMuscles[0] ? `${topMuscles[0][0].toUpperCase() + topMuscles[0].slice(1)} Loaded —` : 'Fresh —';
   const hl2 = topMuscles[1] ? `Train ${topMuscles[1][0].toUpperCase() + topMuscles[1].slice(1)} Today` : 'All Systems Go';
@@ -2955,10 +3039,34 @@ function S5({ s, refresh }) {
       {tab === 'soreness' && (
         <div className="fade" style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0, overflowY: 'auto' }}>
           <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)', letterSpacing: '.08em', marginBottom: 10 }}>
-            Tap a muscle to log soreness (1–10)
+            Tap a muscle on the diagram (or in the list below it) to log soreness (1–10)
+          </div>
+
+          {/* Body triptych — click a region to select it, same tap-to-toggle
+              behavior as the fallback buttons below. */}
+          <div style={{ flexShrink: 0, display: 'flex', justifyContent: 'center', alignItems: 'flex-start', borderTop: '2px solid var(--ink)', borderBottom: '2px solid var(--ink)', margin: '6px 0' }}>
+            {[['Anterior', soreAntRef], ['Lateral', soreLatRef], ['Posterior', sorePostRef]].map(([label, ref]) => (
+              <div key={label} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', flexShrink: 0 }}>
+                <div style={{ fontSize: 7, letterSpacing: '.20em', textTransform: 'uppercase', color: 'var(--dim)', padding: '5px 0', whiteSpace: 'nowrap' }}>{label}</div>
+                <div className="body-view" ref={ref} />
+              </div>
+            ))}
+          </div>
+          <div style={{ display: 'flex', gap: 14, flexShrink: 0, margin: '2px 0 10px', fontFamily: "'JetBrains Mono',monospace", fontSize: 9 }}>
+            {[['Selected', 'var(--ember)'], ['Logged recently', 'var(--navy)']].map(([lbl, css]) => (
+              <div key={lbl} style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                <div style={{ width: 7, height: 7, borderRadius: '50%', background: css }} />
+                <span style={{ color: 'var(--dim)', letterSpacing: '.08em' }}>{lbl}</span>
+              </div>
+            ))}
+          </div>
+
+          {/* Muscles the diagram has no region for (see SORENESS_DIAGRAM_MUSCLES) */}
+          <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, color: 'var(--dim)', fontStyle: 'italic', marginBottom: 6 }}>
+            Not shown above:
           </div>
           <div className="soreness-grid" style={{ flexShrink: 0 }}>
-            {SORENESS_MUSCLES.map(m => (
+            {SORENESS_MUSCLES.filter(m => !SORENESS_DIAGRAM_MUSCLES.includes(m)).map(m => (
               <button key={m} className={`soreness-btn${sorenessSet.has(m) ? ' has-log' : ''}${selectedMuscle === m ? ' active' : ''}`}
                 onClick={() => { setSelectedMuscle(selectedMuscle === m ? null : m); setSliderVal(5); }}
                 style={selectedMuscle === m ? { borderColor: 'var(--ink)', color: 'var(--ink)' } : {}}>
