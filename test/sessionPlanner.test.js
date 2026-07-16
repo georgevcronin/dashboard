@@ -1,6 +1,24 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { generateSessionExercises, progressionFor } = require('../functions/sessionPlanner');
+const { generateSessionExercises, progressionFor, suggestedWorkingSetCount, suggestedRirSequence } = require('../functions/sessionPlanner');
+
+test('suggestedWorkingSetCount cycles 2/3/4 by how many times this exercise has been logged', () => {
+  assert.equal(suggestedWorkingSetCount(0), 2);
+  assert.equal(suggestedWorkingSetCount(1), 3);
+  assert.equal(suggestedWorkingSetCount(2), 4);
+  assert.equal(suggestedWorkingSetCount(3), 2, 'should wrap back around');
+  assert.equal(suggestedWorkingSetCount(undefined), 2, 'missing session count defaults to the first slot in the cycle');
+});
+
+test('suggestedRirSequence descends to 0 on the last set and never repeats a value', () => {
+  assert.deepEqual(suggestedRirSequence(1), [0]);
+  assert.deepEqual(suggestedRirSequence(2), [1, 0]);
+  assert.deepEqual(suggestedRirSequence(3), [2, 1, 0]);
+  assert.deepEqual(suggestedRirSequence(4), [3, 2, 1, 0]);
+  const seq = suggestedRirSequence(4);
+  assert.equal(new Set(seq).size, seq.length, 'no RIR value should repeat across sets');
+  assert.equal(seq.at(-1), 0, 'last set should always be true failure');
+});
 
 test('generateSessionExercises returns nothing for a non-lift session type', () => {
   assert.deepEqual(generateSessionExercises({ type: 'cardio', targetMuscles: ['chest'] }), []);

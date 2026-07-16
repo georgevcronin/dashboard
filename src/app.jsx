@@ -23,7 +23,7 @@ import { AreaChart, BarChart, Sparkline } from './charts.jsx';
 // needs the full exercise name list rather than a derived lookup.
 const { ALL_MUSCLES, musclesForExercise, isCompoundExercise, findExercise } = muscleTaxonomyPkg;
 const { computeStructuralFatigue, computeACWR, computePerformanceTrend, computeMetabolicFatigue, computeCNSFatigue, cnsLoad } = fatiguePkg;
-const { progressionFor } = sessionPlannerPkg;
+const { progressionFor, suggestedWorkingSetCount, suggestedRirSequence } = sessionPlannerPkg;
 const { e1rm: calcE1RM } = strengthStandardsPkg;
 const { defaultMachineBrands } = machineBrandsPkg;
 const { computeSessionStimulus } = stimulusPkg;
@@ -642,6 +642,13 @@ const REST_DEFAULT = 90;
 // app's first version — everything before this had no changelog at all.
 const CHANGELOG = [
   {
+    version: '0.8',
+    date: '2026-07-16',
+    features: [
+      'Freestyle-logged exercises now suggest a set count and a descending RIR target per set (e.g. "3 sets · RIR 2→1→0"), matching the same guidance a pre-planned session already gets for free',
+    ],
+  },
+  {
     version: '0.7',
     date: '2026-07-16',
     features: [
@@ -1162,6 +1169,17 @@ function WorkoutLogger({ planDay, lifts, customExercises, onClose, refresh }) {
             const vol = ex.sets.filter(s => s.done).reduce((a, s) => a + (+s.kg || 0) * (+s.reps || 1), 0);
             const prog = progressionFor(lifts, ex.name);
             const progression = prog?.note || null;
+            // Freestyle-only: a planned session already communicates its set
+            // count by pre-filling that many rows (see
+            // generateSessionExercises), but a freestyle-added exercise
+            // starts with just one blank/carried-over set and no RIR
+            // guidance at all — this fills that specific gap.
+            let freestyleSuggestion = null;
+            if (!planDay) {
+              const sessionCount = new Set(lifts.filter(l => l.exercise === ex.name).map(l => l.date)).size;
+              const setCount = suggestedWorkingSetCount(sessionCount);
+              freestyleSuggestion = `Suggested: ${setCount} sets · RIR ${suggestedRirSequence(setCount).join('→')}`;
+            }
             const isExpanded = expandedEx === i;
             const coach = coachNotes[ex.name];
             const isLoadingCoach = coachLoading[ex.name];
@@ -1200,6 +1218,14 @@ function WorkoutLogger({ planDay, lifts, customExercises, onClose, refresh }) {
                 {progression && (
                   <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: prog.trend === 'stalled' ? 'var(--ember)' : 'var(--forest)', marginBottom: 5 }}>
                     {progression}
+                  </div>
+                )}
+
+                {/* Freestyle set-count/RIR guidance — see freestyleSuggestion
+                    above for why this only appears outside a planned session. */}
+                {freestyleSuggestion && (
+                  <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--navy)', marginBottom: 5 }}>
+                    {freestyleSuggestion}
                   </div>
                 )}
 

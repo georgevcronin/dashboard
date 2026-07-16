@@ -117,6 +117,26 @@ function experimentalSetCount(ceiling, sessionCount) {
   return Math.min(raw, ceiling + 1);
 }
 
+// Same 2/3/4 rotation experimentalSetCount uses for auto-generated
+// sessions, without the fatigue-ceiling cap — freestyle logging (picking
+// exercises manually, outside the planner entirely) doesn't have a live
+// fatigue read easily available at the point an exercise gets added, so
+// this is the same base autoregulation pattern minus that one input,
+// rather than no set-count guidance at all in that flow.
+function suggestedWorkingSetCount(exerciseSessionCount) {
+  const cycle = [2, 3, 4];
+  return cycle[(exerciseSessionCount || 0) % cycle.length];
+}
+
+// Descending RIR target per set, ending at true failure (RIR 0) on the
+// last set and never repeating a value — exactly TRAINING_ETHOS's
+// (index.js) stated rule: "the first working set leaves more in reserve,
+// each subsequent set gets closer to true failure, with the last set at
+// RIR 0-1; never repeat the same RIR across sets of the same exercise."
+function suggestedRirSequence(setCount) {
+  return Array.from({ length: setCount }, (_, i) => setCount - 1 - i);
+}
+
 // Fatigue budget for very new lifters, expressed as a working-set count
 // rather than a numeric RIR the app doesn't track: under 3 months, the
 // budget is one failure-equivalent set, spendable as a single true-failure
@@ -216,4 +236,4 @@ function generateSessionExercises({ type, targetMuscles, backboneExerciseNames, 
   });
 }
 
-module.exports = { generateSessionExercises, progressionFor };
+module.exports = { generateSessionExercises, progressionFor, suggestedWorkingSetCount, suggestedRirSequence };
