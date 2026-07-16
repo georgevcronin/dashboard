@@ -176,6 +176,94 @@ function scoreForRatio(ratio, thresholds) {
   return { tier: tierNameForScore(score), score };
 }
 
+// Exact inverse of scoreForRatio's segments (including its open-ended
+// extrapolation past the last real threshold) — given a target score,
+// what ratio/kg would produce it. Used to find how much further is needed
+// to reach the next named checkpoint, in the same units `thresholds` is in.
+function ratioForScore(score, thresholds) {
+  if (score <= 0) return 0;
+  if (score < 20) return (score / 20) * thresholds[0];
+  const tierIdx = Math.min(Math.floor(score / 20) - 1, thresholds.length - 1);
+  if (tierIdx === thresholds.length - 1) {
+    const prevSpan = thresholds[tierIdx] - thresholds[tierIdx - 1];
+    return thresholds[tierIdx] + prevSpan * ((score - 100) / 20);
+  }
+  const frac = (score - 20 * (tierIdx + 1)) / 20;
+  return thresholds[tierIdx] + (thresholds[tierIdx + 1] - thresholds[tierIdx]) * frac;
+}
+
+// Minimum distinct-date sessions and real-world elapsed time before a
+// progression rate is trusted enough to extrapolate from — a slope fit
+// through 2-3 sessions bunched in the same week is noise, not a trend.
+// Matches this file's existing "don't claim a pattern without enough data"
+// precedent (MIN_SESSIONS_FOR_AGGREGATION below).
+const MIN_SESSIONS_FOR_TREND = 4;
+const MIN_SPAN_DAYS_FOR_TREND = 21;
+
+// How wide a range to quote around the point-estimate ETA. Not a real
+// statistical confidence interval — there isn't enough data in a personal
+// lift log to compute one meaningfully — just an explicit, documented
+// multiplier so a single invented-precision number never gets shown for
+// something this inherently noisy (training response varies session to
+// session far more than a straight line admits).
+const ETA_RANGE_LOW = 0.5;
+const ETA_RANGE_HIGH = 2.0;
+
+// Ordinary-least-squares slope of e1RM (kg/day) against real calendar time,
+// using the canonical exercise's own raw (uncorrected) history — the same
+// progression a lifter would see on the /trends chart, not the fatigue-
+// corrected or cross-exercise-blended value the score itself uses. One
+// point per distinct date (the day's best set) so a multi-set session
+// doesn't outweigh a single-set one. Returns null — "not enough signal to
+// trust" — below MIN_SESSIONS_FOR_TREND distinct dates, below
+// MIN_SPAN_DAYS_FOR_TREND between the first and last, or a flat/negative
+// fit (not currently progressing; extrapolating an ETA from that would be
+// meaningless, not just imprecise).
+function e1rmTrendSlope(entries) {
+  const byDate = {};
+  for (const e of entries) {
+    if (e.raw == null) continue;
+    if (!(e.date in byDate) || e.raw > byDate[e.date]) byDate[e.date] = e.raw;
+  }
+  const points = Object.entries(byDate)
+    .map(([date, raw]) => ({ t: new Date(date).getTime(), raw }))
+    .filter(p => !isNaN(p.t))
+    .sort((a, b) => a.t - b.t);
+  if (points.length < MIN_SESSIONS_FOR_TREND) return null;
+  if ((points.at(-1).t - points[0].t) / 86_400_000 < MIN_SPAN_DAYS_FOR_TREND) return null;
+
+  const t0 = points[0].t;
+  const xs = points.map(p => (p.t - t0) / 86_400_000);
+  const ys = points.map(p => p.raw);
+  const n = xs.length;
+  const sumX = xs.reduce((a, x) => a + x, 0);
+  const sumY = ys.reduce((a, y) => a + y, 0);
+  const sumXY = xs.reduce((a, x, i) => a + x * ys[i], 0);
+  const sumXX = xs.reduce((a, x) => a + x * x, 0);
+  const denom = n * sumXX - sumX * sumX;
+  if (denom === 0) return null;
+  const slopePerDay = (n * sumXY - sumX * sumY) / denom;
+  return slopePerDay > 0 ? slopePerDay : null;
+}
+
+// Wide-range ETA (in weeks) to the next TIER_BANDS checkpoint from the
+// current score, based on this exercise's own real logged progression
+// rate. null whenever there isn't enough data to trust a trend, or the
+// score is already at the last checkpoint (Elite 3 — no further band to
+// project toward).
+function etaToNextLevel(canonicalEntries, currentRatio, currentScore, thresholds) {
+  const nextBand = TIER_BANDS.find(([floor]) => floor > currentScore);
+  if (!nextBand) return null;
+  const slopePerDay = e1rmTrendSlope(canonicalEntries);
+  if (!slopePerDay) return null;
+  const kgNeeded = ratioForScore(nextBand[0], thresholds) - currentRatio;
+  if (!(kgNeeded > 0)) return null;
+  const days = kgNeeded / slopePerDay;
+  const weeksLow = Math.max(1, Math.round(days * ETA_RANGE_LOW / 7));
+  const weeksHigh = Math.max(weeksLow + 1, Math.round(days * ETA_RANGE_HIGH / 7));
+  return { nextTier: nextBand[1], weeksLow, weeksHigh };
+}
+
 // Finds the bodyweight that was actually in effect on a given date: the most
 // recent logged weight on or before that date, falling back to the earliest
 // entry after it if the PR predates any weigh-in. Ranking an all-time-best
@@ -431,12 +519,22 @@ function computeMuscleLevels(lifts, weightHistory, currentBodyweightKg, sex, fat
     const blendedE1RM = Math.max(weightedSum / weightTotal, best.e1RM);
 
     const { tier, score } = scoreForRatio(blendedE1RM, found.thresholds);
+    // bandFloor/bandCeiling: the current named checkpoint's score and the
+    // next one's — lets the frontend fill a progress bar toward the next
+    // level instead of toward a flat 100, without duplicating TIER_BANDS
+    // itself client-side. bandCeiling is null at the last checkpoint
+    // (Elite 3): no further named level to fill toward.
+    const bandFloor = TIER_BANDS.filter(([floor]) => floor <= score).at(-1)?.[0] ?? 0;
+    const nextBand = TIER_BANDS.find(([floor]) => floor > score);
+    const eta = etaToNextLevel(canonicalEntries, blendedE1RM, score, found.thresholds);
     muscles[muscle] = {
       e1RM: Math.round(blendedE1RM * 10) / 10,
       exercise: exerciseName,
       date: best.date,
       bodyweightKg: bw,
       tier, score,
+      bandFloor, bandCeiling: nextBand ? nextBand[0] : null,
+      ...(eta ? { nextTier: eta.nextTier, etaWeeksLow: eta.weeksLow, etaWeeksHigh: eta.weeksHigh } : {}),
       ...(blendedFrom.length ? { blendedFrom } : {}),
     };
   }
