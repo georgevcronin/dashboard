@@ -114,22 +114,50 @@ function fatigueTimeline(lifts, musclePeaks, recoveryHours = RECOVERY_H) {
   return out; // index-aligned with the input lifts array; out[i][muscle] = fatigue (0-100) right before lifts[i]
 }
 
-// All-time peak single-day load per muscle, used as computeStructuralFatigue's
-// normalization denominator ("100" = as hard as you've ever hit this muscle).
+// How far back to look for "peak daily load" when normalizing fatigue.
+// Unbounded all-time meant a single old specialization day (e.g. a leg day
+// stacking squat+leg press+extension+curl all on quads) permanently set a
+// ceiling a lighter, spread-out full-body day's single quad exercise could
+// never approach, silently suppressing that muscle's fatigue% forever
+// regardless of how training style later changed — same failure mode
+// already caught and fixed for strength-standard peaks (see
+// strengthStandards.js's RECENT_AVERAGE_WINDOW_DAYS: "a real, steady,
+// non-anomalous peak look[ed] like a near-2x outlier" there too). Same
+// 90-day rationale: roughly a training block/mesocycle.
+const PEAK_WINDOW_DAYS = 90;
+
+// Peak single-day load per muscle within the last PEAK_WINDOW_DAYS, used as
+// computeStructuralFatigue's normalization denominator ("100" = as hard as
+// you've recently hit this muscle). Falls back to the all-time peak for any
+// muscle with nothing in the recent window at all — e.g. one you haven't
+// trained in months — rather than an undefined/zero denominator, same
+// graceful-degradation shape as strengthStandards.js's recentBest.
 function musclePeaksFromLifts(lifts) {
+  const now = Date.now();
+  const windowMs = PEAK_WINDOW_DAYS * 86_400_000;
   const byDate = {};
   for (const l of (lifts || [])) {
     if (!byDate[l.date]) byDate[l.date] = [];
     byDate[l.date].push(l);
   }
-  const peaks = {};
-  for (const dayLifts of Object.values(byDate)) {
+  const recentPeaks = {};
+  const allTimePeaks = {};
+  for (const [date, dayLifts] of Object.entries(byDate)) {
+    const t = new Date(date).getTime();
+    const isRecent = !isNaN(t) && now - t <= windowMs;
     const day = {};
     for (const l of dayLifts) {
       const load = (l.kg || 0) * (l.reps || 1);
       for (const m of musclesForExercise(l.exercise)) day[m] = (day[m] || 0) + load;
     }
-    for (const [m, v] of Object.entries(day)) { if (v > (peaks[m] || 0)) peaks[m] = v; }
+    for (const [m, v] of Object.entries(day)) {
+      if (v > (allTimePeaks[m] || 0)) allTimePeaks[m] = v;
+      if (isRecent && v > (recentPeaks[m] || 0)) recentPeaks[m] = v;
+    }
+  }
+  const peaks = {};
+  for (const m of new Set([...Object.keys(allTimePeaks), ...Object.keys(recentPeaks)])) {
+    peaks[m] = recentPeaks[m] || allTimePeaks[m];
   }
   return peaks;
 }
