@@ -8,6 +8,7 @@ import fatiguePkg from '../functions/fatigue.js';
 import sessionPlannerPkg from '../functions/sessionPlanner.js';
 import strengthStandardsPkg from '../functions/strengthStandards.js';
 import machineBrandsPkg from '../functions/machineBrands.js';
+import stimulusPkg from '../functions/stimulus.js';
 import { EXERCISE_DB } from '../functions/exerciseDb.js';
 import { PRESS_CSS } from './pressCss.js';
 import { AreaChart, BarChart, Sparkline } from './charts.jsx';
@@ -25,6 +26,7 @@ const { computeStructuralFatigue, computeACWR, computePerformanceTrend, computeM
 const { progressionFor } = sessionPlannerPkg;
 const { e1rm: calcE1RM } = strengthStandardsPkg;
 const { defaultMachineBrands } = machineBrandsPkg;
+const { computeSessionStimulus } = stimulusPkg;
 
 const FIREBASE_CONFIG = {
   apiKey: "AIzaSyDlVzSc9yow5GHbQipRWuYAZ5QTQ-jmXiY",
@@ -640,6 +642,13 @@ const REST_DEFAULT = 90;
 // app's first version — everything before this had no changelog at all.
 const CHANGELOG = [
   {
+    version: '0.7',
+    date: '2026-07-16',
+    features: [
+      'New "Session Stimulus" readout while logging a workout: 100% = optimal hard-set dose for a muscle this session, above 100% means you\'ve gone past the useful dose into diminishing returns',
+    ],
+  },
+  {
     version: '0.6',
     date: '2026-07-16',
     features: [
@@ -1041,6 +1050,14 @@ function WorkoutLogger({ planDay, lifts, customExercises, onClose, refresh }) {
   const cns = cnsLoad(exercises);
   const fatigue = sessionFatigue(exercises);
   const fatigueMuscles = Object.entries(fatigue).sort(([,a],[,b]) => b - a);
+  // Stimulus is a different question from the fatigue block below it: not
+  // "which muscles got hit hardest relative to each other this session"
+  // (sessionFatigue, normalized against the session's own max), but "did
+  // each muscle get the optimal hard-set dose for growth" against a fixed
+  // external target — 100 = optimal, >100 = past the useful dose. See
+  // functions/stimulus.js for why 4 sets is that target.
+  const stimulus = computeSessionStimulus(exercises);
+  const stimulusMuscles = Object.entries(stimulus).sort(([,a],[,b]) => b - a);
   const th = { fontSize: 8, letterSpacing: '.14em', textTransform: 'uppercase', color: 'var(--dim)', fontWeight: 400, padding: '3px 0', borderBottom: '1px solid var(--rule)', textAlign: 'right' };
 
   return (
@@ -1114,6 +1131,22 @@ function WorkoutLogger({ planDay, lifts, customExercises, onClose, refresh }) {
                   <div key={m} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                     <div style={{ width: 8, height: 8, borderRadius: '50%', background: pct > 70 ? 'var(--ember)' : pct > 35 ? 'var(--gold)' : 'var(--forest)', flexShrink: 0 }} />
                     <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)', textTransform: 'capitalize' }}>{m}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Stimulus dose preview — 100 = optimal hard-set dose for that
+              muscle this session, >100 = past the useful dose. */}
+          {stimulusMuscles.length > 0 && (
+            <div style={{ marginBottom: 16 }}>
+              <div className="kicker" style={{ marginBottom: 6 }}>Session Stimulus</div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
+                {stimulusMuscles.map(([m, pct]) => (
+                  <div key={m} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                    <div style={{ width: 8, height: 8, borderRadius: '50%', background: pct > 100 ? 'var(--ember)' : pct === 100 ? 'var(--forest)' : 'var(--gold)', flexShrink: 0 }} />
+                    <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)', textTransform: 'capitalize' }}>{m} {pct}%</span>
                   </div>
                 ))}
               </div>
