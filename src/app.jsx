@@ -187,7 +187,7 @@ function S1({ s, briefing, onShowBriefing, onShowAfternoon, onShowNight, onShowW
   const sleep = today.sleepH;
   const sleepEff = today.sleepEff;
   const sleepDebt = s?.sleepDebtH ?? 0;
-  const fatigue = useMemo(() => computeStructuralFatigue(s?.lifts, s?.musclePeaks, s?.soreness, s?.muscleSensitivity), [s?.lifts, s?.soreness, s?.muscleSensitivity]);
+  const fatigue = useMemo(() => computeStructuralFatigue(s?.lifts, s?.musclePeaks, s?.soreness, s?.muscleSensitivity), [s?.lifts, s?.musclePeaks, s?.soreness, s?.muscleSensitivity]);
   const fatigueVals = Object.values(fatigue);
   const overallFatigue = fatigueVals.length ? Math.round(fatigueVals.reduce((a,b) => a+b, 0) / fatigueVals.length) : null;
   const highFatigueMuscles = Object.values(fatigue).filter(v => v > 70).length;
@@ -639,6 +639,13 @@ const REST_DEFAULT = 90;
 // instead of the list. v0.1 is the first tracked release, not literally the
 // app's first version — everything before this had no changelog at all.
 const CHANGELOG = [
+  {
+    version: '0.4',
+    date: '2026-07-16',
+    features: [
+      'Fixed Hevy live-sync webhook responding before the workout was actually saved, so a sync could silently fail to update anything (fatigue included) despite Hevy reporting success',
+    ],
+  },
   {
     version: '0.3',
     date: '2026-07-16',
