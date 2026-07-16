@@ -345,19 +345,29 @@ app.post("/hevy/key", async (req, res) => {
 });
 
 app.post("/hevy/webhook", async (req, res) => {
-  res.sendStatus(200);
+  // Awaited rather than fire-and-forget: this is a 1st-gen Cloud Function,
+  // where the platform can freeze or recycle the instance immediately once
+  // the response is sent, with no guarantee that work still in flight at
+  // that point completes. Responding before the fetch+ingest+save chain
+  // even started meant Hevy saw a 200 and considered the webhook delivered
+  // while the actual save could be silently killed mid-flight — the workout
+  // never lands, and nothing downstream (fatigue, PRs, history) ever
+  // reflects it, indistinguishable from the sync having done nothing at
+  // all. Same fix already applied to /shortcut and /strava/callback; the
+  // 300s function timeout gives plenty of room for a single Hevy API call.
   const workoutId = req.body.workoutId;
   const key = hevyKey();
-  if (!workoutId || !key) return;
+  if (!workoutId || !key) return res.sendStatus(200);
   try {
     const r = await fetch("https://api.hevyapp.com/v1/workouts/" + workoutId, {
       headers: { "api-key": key, "accept": "application/json" }
     });
-    if (!r.ok) { console.log("[hevy] fetch failed:", r.status); return; }
+    if (!r.ok) { console.log("[hevy] fetch failed:", r.status); return res.sendStatus(200); }
     const w = await r.json();
     const added = await ingestWorkout(w);
     if (added) await save();
   } catch (e) { console.log("[hevy] webhook failed:", e.message); }
+  res.sendStatus(200);
 });
 
 // ---------- Hevy backfill ----------
