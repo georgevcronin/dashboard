@@ -640,6 +640,13 @@ const REST_DEFAULT = 90;
 // app's first version — everything before this had no changelog at all.
 const CHANGELOG = [
   {
+    version: '0.6',
+    date: '2026-07-16',
+    features: [
+      'Fixed muscle fatigue reading far too low after a real session — the fatigue denominator was an unbounded all-time peak, so one old specialization day (e.g. 4 quad exercises stacked in one leg day) could permanently suppress that muscle\'s fatigue% forever, even years later',
+    ],
+  },
+  {
     version: '0.5',
     date: '2026-07-16',
     features: [

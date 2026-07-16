@@ -49,6 +49,31 @@ test('musclePeaksFromLifts finds the single highest-volume day per muscle', () =
   assert.equal(peaks.quads, 1000);
 });
 
+test('musclePeaksFromLifts prefers a recent (90-day) peak over a bigger old one, so an old specialization day cannot permanently suppress fatigue%', () => {
+  // A dedicated leg day ~2 years ago stacked 4 quad exercises into one big
+  // day; a recent full-body session's single quad exercise is much smaller
+  // in isolation but should still register as meaningfully close to peak
+  // for a lifter who now trains full-body, not against a 2-year-old outlier.
+  const lifts = [
+    { date: daysAgo(700), exercise: 'Back Squat', kg: 100, reps: 8 },       // 800
+    { date: daysAgo(700), exercise: 'Leg Press', kg: 200, reps: 10 },       // 2000
+    { date: daysAgo(700), exercise: 'Leg Extension', kg: 60, reps: 12 },    // 720
+    { date: daysAgo(700), exercise: 'Hack Squat (Machine)', kg: 80, reps: 10 }, // 800
+    { date: daysAgo(1), exercise: 'Back Squat', kg: 100, reps: 8 },         // 800
+  ];
+  const peaks = musclePeaksFromLifts(lifts);
+  assert.equal(peaks.quads, 800, 'should use the recent 800 peak, not the 2-year-old 4320 total');
+
+  const fatigue = computeStructuralFatigue(lifts, peaks, [], {});
+  assert.ok(fatigue.quads > 50, `a full-body session done yesterday should read well above 50% fatigue, got ${fatigue.quads}%`);
+});
+
+test('musclePeaksFromLifts falls back to the all-time peak for a muscle with nothing in the last 90 days', () => {
+  const lifts = [{ date: daysAgo(700), exercise: 'Barbell Curl', kg: 40, reps: 8 }]; // 320
+  const peaks = musclePeaksFromLifts(lifts);
+  assert.equal(peaks.biceps, 320, 'a muscle untouched recently should still get a usable (all-time) peak, not undefined/0');
+});
+
 test('injuryFatiguePenalty tapers linearly from 100 to 0 over the healing window', () => {
   const now = Date.now();
   const freshInjury = { severity: 'mild', ts: now };
