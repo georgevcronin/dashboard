@@ -12,9 +12,9 @@ test('scoreForRatio is monotonically non-decreasing across the Advanced -> Elite
   const atElite = scoreForRatio(2.25, t);
   const deepElite = scoreForRatio(3.00, t);
   assert.ok(atElite.score >= belowElite.score, `score dropped crossing into Elite: ${belowElite.score} -> ${atElite.score}`);
-  assert.equal(atElite.tier, 'Elite');
+  assert.equal(atElite.tier, 'Elite 1');
   assert.ok(deepElite.score > atElite.score, `score should keep climbing past Elite instead of flatlining: ${atElite.score} -> ${deepElite.score}`);
-  assert.equal(deepElite.tier, 'Ultra Elite');
+  assert.equal(deepElite.tier, 'Elite 3');
 });
 
 test('scoreForRatio scales 0-20 below the Beginner threshold', () => {
@@ -30,13 +30,13 @@ test('scoreForRatio never goes below 0, and can legitimately exceed 100 past Eli
   assert.ok(scoreForRatio(t[4] * 2, t).score > 100, 'a ratio double the Elite threshold should score well past 100, not cap at it');
 });
 
-test('scoreForRatio uses the finer in-between tier names, not just the original 5', () => {
+test('scoreForRatio splits each of the original 5 tiers into 3 numbered sub-levels', () => {
   const t = STANDARDS.male.squat; // [0.50, 0.75, 1.25, 1.75, 2.25]
   // Midpoint of the real Beginner->Intermediate span (the "Novice" 20-point
-  // band, score 40-60) should read the finer name for its own midpoint.
+  // band, score 40-60) should land in that band's middle numbered sub-level.
   const mid = scoreForRatio(1.00, t);
   assert.equal(mid.score, 50);
-  assert.equal(mid.tier, 'Competent');
+  assert.equal(mid.tier, 'Novice 2');
 });
 
 test('classifyLift is an allowlist — only the exact canonical exercise per category matches', () => {
