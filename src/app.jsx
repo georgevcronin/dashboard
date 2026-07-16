@@ -640,6 +640,14 @@ const REST_DEFAULT = 90;
 // app's first version — everything before this had no changelog at all.
 const CHANGELOG = [
   {
+    version: '0.5',
+    date: '2026-07-16',
+    features: [
+      'Nutrition log entries can now carry a free-text description/note, editable regardless of whether it came from a photo scan — shown in the meal log table, Recent Foods, and CSV export',
+      'Fixed Recent Foods always showing empty (it was matching on a field no nutrition entry actually has)',
+    ],
+  },
+  {
     version: '0.4',
     date: '2026-07-16',
     features: [
@@ -2089,6 +2097,7 @@ function S4({ s, refresh }) {
     setProtein(String(food.protein || ''));
     setCarbs(String(food.carbs || ''));
     setFat(String(food.fat || ''));
+    setDescription(food.description || '');
     baseNutrition.current = { calories: food.calories || 0, protein: food.protein || 0, carbs: food.carbs || 0, fat: food.fat || 0 };
     setAnalysed(true);
     setPortion(1);
@@ -2216,14 +2225,14 @@ function S4({ s, refresh }) {
   const logMeal = async () => {
     if (!calories && !protein) return;
     setLogging(true);
-    const { entry, nutritionToday } = await postMeal({ label, protein: +protein || 0, carbs: +carbs || 0, fat: +fat || 0, calories: +calories || 0 });
+    const { entry, nutritionToday } = await postMeal({ label, protein: +protein || 0, carbs: +carbs || 0, fat: +fat || 0, calories: +calories || 0, ...(description.trim() ? { description: description.trim() } : {}) });
     setLabel(''); setProtein(''); setCarbs(''); setFat(''); setCalories(''); setDescription(''); setAnalysed(false);
     setLogging(false);
     refresh({ ...s, nutritionToday, nutritionLog: [...(s?.nutritionLog || []), entry] });
   };
 
   const logFood = async (food) => {
-    const { entry, nutritionToday } = await postMeal({ label: food.name || food.label, protein: food.protein || 0, carbs: food.carbs || 0, fat: food.fat || 0, calories: food.calories || 0 });
+    const { entry, nutritionToday } = await postMeal({ label: food.name || food.label, protein: food.protein || 0, carbs: food.carbs || 0, fat: food.fat || 0, calories: food.calories || 0, ...(food.description ? { description: food.description } : {}) });
     refresh({ ...s, nutritionToday, nutritionLog: [...(s?.nutritionLog || []), entry] });
   };
 
@@ -2398,7 +2407,10 @@ function S4({ s, refresh }) {
                 <button className="nutri-photo-btn" onClick={() => photoRef.current?.click()} disabled={analysing}>
                   {analysing ? 'Analysing…' : photoPreview ? 'Scan Again' : 'Scan Photo'}
                 </button>
-                {description && <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)', marginTop: 4, lineHeight: 1.4 }}>{description}</div>}
+                {/* AI-scanned description now lands in the editable field below
+                    in the manual log form instead of a separate read-only
+                    caption here — showing the same text twice was redundant,
+                    and the editable version lets it actually be corrected. */}
                 {photoErr && <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--red)', marginTop: 4, lineHeight: 1.4 }}>{photoErr}</div>}
               </div>
             </div>
@@ -2433,6 +2445,12 @@ function S4({ s, refresh }) {
             <div className="nutri-log-form">
               <div className="nutri-log-row">
                 <input className="nutri-input wide" placeholder="Meal name…" value={label} onChange={e => setLabel(e.target.value)} />
+              </div>
+              <div className="nutri-log-row">
+                {/* Pre-filled from photo analysis when there is one, but always
+                    editable and independent of it — a manually-typed note is
+                    just as valid as an AI-scan description. */}
+                <input className="nutri-input wide" placeholder="Description / notes (optional)…" value={description} onChange={e => setDescription(e.target.value)} />
               </div>
               <div className="nutri-log-row">
                 {[['Protein', protein, setProtein], ['Carbs', carbs, setCarbs], ['Fat', fat, setFat], ['kcal', calories, setCalories]].map(([lbl, val, set]) => (
@@ -2475,7 +2493,12 @@ function S4({ s, refresh }) {
                   <tbody>
                     {todayLog.map((m, i) => (
                       <tr key={i}>
-                        <td>{m.label || m.name || 'Meal'}</td>
+                        <td>
+                          {m.label || m.name || 'Meal'}
+                          {m.description && (
+                            <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, color: 'var(--dim)', fontWeight: 400, marginTop: 1 }}>{m.description}</div>
+                          )}
+                        </td>
                         <td>{m.time || '—'}</td>
                         <td className="up">{m.protein ? `${m.protein}g` : '—'}</td>
                         <td className="hi">{m.calories || '—'}</td>
@@ -2502,6 +2525,7 @@ function S4({ s, refresh }) {
                   <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)', marginTop: 2 }}>
                     {f.protein ? `${f.protein}g P` : ''}{f.carbs ? ` · ${f.carbs}g C` : ''}{f.fat ? ` · ${f.fat}g F` : ''}{f.calories ? ` · ${f.calories}kcal` : ''}
                   </div>
+                  {f.description && <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, color: 'var(--dim)', marginTop: 2, fontStyle: 'italic' }}>{f.description}</div>}
                 </div>
                 <div style={{ display: 'flex', gap: 6 }}>
                   <button onClick={() => { fillForm({ name: f.label || f.name, ...f }); switchTab('log'); }}

@@ -739,7 +739,7 @@ app.get("/export/csv", async (req, res) => {
     csv = toCsv(rows, cols);
   } else if (type === "nutrition") {
     filename = "nutrition-log.csv";
-    csv = toCsv(db.nutritionLog || [], ["date", "time", "label", "calories", "protein", "carbs", "fat"]);
+    csv = toCsv(db.nutritionLog || [], ["date", "time", "label", "calories", "protein", "carbs", "fat", "description"]);
   } else if (type === "measurements") {
     filename = "measurements.csv";
     csv = toCsv(db.measurements || [], ["date", "type", "value", "unit"]);
@@ -783,7 +783,11 @@ app.post("/nutrition", async (req, res) => {
   db.nutrition[k] = db.nutrition[k] || { protein: 0, carbs: 0, fat: 0, calories: 0 };
   for (const m of ["protein", "carbs", "fat", "calories"]) db.nutrition[k][m] = (db.nutrition[k][m] || 0) + (req.body[m] || 0);
   db.nutritionLog = db.nutritionLog || [];
-  if (req.body.label) db.nutritionLog.push({ date: k, time: new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }), label: req.body.label, protein: req.body.protein || 0, carbs: req.body.carbs || 0, fat: req.body.fat || 0, calories: req.body.calories || 0 });
+  if (req.body.label) db.nutritionLog.push({
+    date: k, time: new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }),
+    label: req.body.label, protein: req.body.protein || 0, carbs: req.body.carbs || 0, fat: req.body.fat || 0, calories: req.body.calories || 0,
+    ...(req.body.description?.trim() ? { description: req.body.description.trim() } : {}),
+  });
   await save(); res.json(db.nutrition[k]);
 });
 app.post("/nutrition/analyze", async (req, res) => {
@@ -1204,7 +1208,10 @@ app.get('/food/recent', async (req, res) => {
   const seen = new Set();
   const recent = [];
   for (const entry of [...log].reverse()) {
-    const key = entry.name?.toLowerCase();
+    // Every nutritionLog entry is stored under `label` (see POST /nutrition),
+    // never `name` -- this was reading a field that never existed, so `key`
+    // was always undefined and this route always returned an empty list.
+    const key = entry.label?.toLowerCase();
     if (key && !seen.has(key)) { seen.add(key); recent.push(entry); }
     if (recent.length >= 20) break;
   }
