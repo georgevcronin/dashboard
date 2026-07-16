@@ -640,6 +640,14 @@ const REST_DEFAULT = 90;
 // app's first version — everything before this had no changelog at all.
 const CHANGELOG = [
   {
+    version: '0.3',
+    date: '2026-07-16',
+    features: [
+      'Strength Level bars now fill toward the next numbered sub-level instead of a flat 0-100',
+      'Wide-range time estimate to your next strength level, shown only when you have a real, sustained progression trend behind it',
+    ],
+  },
+  {
     version: '0.2',
     date: '2026-07-16',
     features: [
@@ -1664,14 +1672,25 @@ function StrengthLevelPanel({ muscleLevels, hasSex }) {
               </span>
               <span style={{ color: TIER_COLOR[v.tier] }}>{v.tier} · {v.score}{v.score <= 100 ? '/100' : ''}</span>
             </div>
-            {/* Bar itself stays capped at a full track even past 100 — the
-                number above still shows the true score, this just keeps a
-                >100 score from overflowing the track's fixed width. */}
-            <div className="macro-track"><div className="macro-fill" style={{ width: `${Math.min(100, v.score)}%`, background: TIER_COLOR[v.tier] }} /></div>
+            {/* Fills toward the next numbered sub-level (bandFloor->bandCeiling),
+                not toward a flat 100 — bandCeiling is null only at the very top
+                (Elite 3, no further checkpoint), where it just shows full. */}
+            <div className="macro-track"><div className="macro-fill" style={{
+              width: `${v.bandCeiling == null ? 100 : Math.max(0, Math.min(100, (v.score - v.bandFloor) / (v.bandCeiling - v.bandFloor) * 100))}%`,
+              background: TIER_COLOR[v.tier],
+            }} /></div>
             <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, color: 'var(--dim)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {v.exercise} · {v.e1RM}kg e1RM · {localDateFromYMD(v.date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })} at {v.bodyweightKg}kg bodyweight
               {v.blendedFrom?.length ? ` · blended with ${v.blendedFrom.length} other exercise${v.blendedFrom.length === 1 ? '' : 's'}` : ''}
             </div>
+            {/* Only shown with a real, sustained upward trend behind it (see
+                etaToNextLevel in strengthStandards.js) — blank rather than a
+                guess when there isn't enough logged history to trust one. */}
+            {v.etaWeeksLow != null && (
+              <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, color: 'var(--dim)', marginTop: 1, fontStyle: 'italic' }}>
+                Est. {v.etaWeeksLow}–{v.etaWeeksHigh} weeks to {v.nextTier} at current pace
+              </div>
+            )}
           </div>
         );
       })}

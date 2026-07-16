@@ -109,6 +109,55 @@ test('computeMuscleLevels leaves a muscle null when it has no logged data, while
   assert.equal(result.triceps, null, 'triceps has no logged data');
 });
 
+test('computeMuscleLevels always returns bandFloor/bandCeiling bracketing the current score', () => {
+  const lifts = [mkLift('2026-01-01', 'Barbell Curl', 20, 8)];
+  const result = computeMuscleLevels(lifts, { '2026-01-01': 80 }, null, 'male');
+  const { score, bandFloor, bandCeiling } = result.biceps;
+  assert.ok(bandFloor <= score, `bandFloor ${bandFloor} should be <= score ${score}`);
+  assert.ok(bandCeiling == null || bandCeiling > score, `bandCeiling ${bandCeiling} should be > score ${score} (or null at the top)`);
+});
+
+test('computeMuscleLevels gives a wide-range ETA to the next level given a real, sustained progression', () => {
+  const weights = { '2026-01-01': 80 };
+  // 5 sessions, ~8 weeks, clean upward trend.
+  const lifts = [
+    mkLift('2026-01-01', 'Barbell Curl', 20, 8),
+    mkLift('2026-01-15', 'Barbell Curl', 22, 8),
+    mkLift('2026-01-29', 'Barbell Curl', 24, 8),
+    mkLift('2026-02-12', 'Barbell Curl', 26, 8),
+    mkLift('2026-02-26', 'Barbell Curl', 28, 8),
+  ];
+  const { nextTier, etaWeeksLow, etaWeeksHigh } = computeMuscleLevels(lifts, weights, null, 'male').biceps;
+  assert.ok(nextTier, 'should name the next tier');
+  assert.ok(etaWeeksLow >= 1, 'low estimate should be at least 1 week out');
+  assert.ok(etaWeeksHigh > etaWeeksLow, 'high estimate should exceed the low estimate — this is a range, not a point');
+});
+
+test('computeMuscleLevels leaves the ETA blank without enough sessions to trust a trend', () => {
+  const weights = { '2026-01-01': 80 };
+  const lifts = [
+    mkLift('2026-01-01', 'Barbell Curl', 20, 8),
+    mkLift('2026-01-15', 'Barbell Curl', 22, 8),
+  ];
+  const result = computeMuscleLevels(lifts, weights, null, 'male').biceps;
+  assert.equal(result.etaWeeksLow, undefined);
+  assert.equal(result.etaWeeksHigh, undefined);
+  assert.equal(result.nextTier, undefined);
+});
+
+test('computeMuscleLevels leaves the ETA blank when there is no real progression, even with plenty of sessions', () => {
+  const weights = { '2026-01-01': 80 };
+  const lifts = [
+    mkLift('2026-01-01', 'Barbell Curl', 25, 8),
+    mkLift('2026-01-15', 'Barbell Curl', 25, 8),
+    mkLift('2026-01-29', 'Barbell Curl', 24, 8),
+    mkLift('2026-02-12', 'Barbell Curl', 25, 8),
+    mkLift('2026-02-26', 'Barbell Curl', 24, 8),
+  ];
+  const result = computeMuscleLevels(lifts, weights, null, 'male').biceps;
+  assert.equal(result.etaWeeksLow, undefined, 'a flat/declining trend should not produce an ETA');
+});
+
 test('computeMuscleLevels does not blend a secondary contributor until MIN_SESSIONS_FOR_AGGREGATION is met in both exercises', () => {
   const weights = { '2026-01-01': 80 };
   // Only one Hammer Curl session (biceps secondary) — below the 2-session bar.
