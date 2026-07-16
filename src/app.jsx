@@ -640,6 +640,13 @@ const REST_DEFAULT = 90;
 // app's first version — everything before this had no changelog at all.
 const CHANGELOG = [
   {
+    version: '0.2',
+    date: '2026-07-16',
+    features: [
+      'Strength ranks simplified back to the original 5, each split into 3 numbered sub-levels (e.g. Beginner 1/2/3) instead of separate invented names',
+    ],
+  },
+  {
     version: '0.1',
     date: '2026-07-15',
     features: [
@@ -1579,29 +1586,27 @@ function WorkoutHistory({ s, onClose }) {
 
 // ── S3: TRAINING ──────────────────────────────────────────────────────────────
 // Mirrors functions/strengthStandards.js's TIER_BANDS — every name
-// computeMuscleLevels can return needs a color here. The "in-between" names
-// share their parent band's color (Developing reads as a shade of Beginner,
-// etc.) rather than getting a distinct hue each: with 11 names total, giving
-// each its own color would make adjacent bands visually indistinguishable
-// anyway, and the shared color still tells you the right ballpark at a
-// glance while the text gives the precise rank.
+// computeMuscleLevels can return needs a color here. The 3 numbered
+// sub-levels within a tier (Beginner 1/2/3, etc.) share their parent tier's
+// color rather than getting a distinct hue each — the number already gives
+// the precise sub-rank, the color just needs to place it in the right
+// broad band at a glance.
 const TIER_COLOR = {
   Untrained: 'var(--dim)',
-  Beginner: 'var(--ember)', Developing: 'var(--ember)',
-  Novice: 'var(--gold)', Competent: 'var(--gold)',
-  Intermediate: 'var(--navy)', Proficient: 'var(--navy)',
-  Advanced: 'var(--forest)', Exceptional: 'var(--forest)',
-  Elite: 'var(--plum)',
-  'Ultra Elite': 'var(--teal)',
+  'Beginner 1': 'var(--ember)', 'Beginner 2': 'var(--ember)', 'Beginner 3': 'var(--ember)',
+  'Novice 1': 'var(--gold)', 'Novice 2': 'var(--gold)', 'Novice 3': 'var(--gold)',
+  'Intermediate 1': 'var(--navy)', 'Intermediate 2': 'var(--navy)', 'Intermediate 3': 'var(--navy)',
+  'Advanced 1': 'var(--forest)', 'Advanced 2': 'var(--forest)', 'Advanced 3': 'var(--forest)',
+  'Elite 1': 'var(--plum)', 'Elite 2': 'var(--plum)', 'Elite 3': 'var(--plum)',
 };
-// The diagram itself only has room for 7 visually-distinct colors (see the
-// SVG filters) — the finer in-between names above are a text-only layer of
-// precision on top of these same broad bands.
+// The diagram/legend show the broad 6-tier version (no sub-level numbers) —
+// same bands TIER_COLOR above already keys its sub-levels into, so a
+// muscle's diagram color always matches whichever tier its precise
+// (text-only) sub-level belongs to.
 const DIAGRAM_TIER_BANDS = [
   [0, 'Untrained', 'url(#fm-dim)'], [20, 'Beginner', 'url(#fm-ember)'],
   [40, 'Novice', 'url(#fm-gold)'], [60, 'Intermediate', 'url(#fm-navy)'],
   [80, 'Advanced', 'url(#fm-neutral)'], [100, 'Elite', 'url(#fm-plum)'],
-  [120, 'Ultra Elite', 'url(#fm-teal)'],
 ];
 function diagramFilterForScore(score) {
   let filter = DIAGRAM_TIER_BANDS[0][2];
@@ -1610,10 +1615,9 @@ function diagramFilterForScore(score) {
 }
 
 // Per-muscle strength panel: shows every muscle in muscleLevels (backend's
-// computeMuscleLevels) with a real strengthlevel.com-sourced tier, plus the
-// finer named checkpoints and Ultra Elite extrapolation TIER_BANDS layers on
-// top (see strengthStandards.js). Muscles with no ranking yet (no published
-// standard for any exercise
+// computeMuscleLevels) with a real strengthlevel.com-sourced tier, split
+// into 3 numbered sub-levels each by TIER_BANDS (see strengthStandards.js).
+// Muscles with no ranking yet (no published standard for any exercise
 // that trains them, or a canonical exercise not yet logged under a
 // recognized name) are simply omitted — no unranked/personal-best fallback
 // section, by request.
@@ -1642,7 +1646,7 @@ function StrengthLevelPanel({ muscleLevels, hasSex }) {
   if (!rankedMuscles.length) return (
     <div className="fade" style={{ borderTop: '1px solid var(--rule)', paddingTop: 10 }}>
       <div className="kicker" style={{ marginBottom: 4 }}>Strength Level</div>
-      <div style={{ fontSize: 11, color: 'var(--dim)', fontStyle: 'italic' }}>Log some lifts to see per-muscle strength levels — ranked against published bodyweight standards where one exists, Beginner→Ultra Elite.</div>
+      <div style={{ fontSize: 11, color: 'var(--dim)', fontStyle: 'italic' }}>Log some lifts to see per-muscle strength levels — ranked against published bodyweight standards where one exists, Beginner→Elite.</div>
     </div>
   );
 

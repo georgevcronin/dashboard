@@ -123,14 +123,22 @@ function estimate1RM(kg, reps) {
 // every 20 points (Beginner/Novice/Intermediate/Advanced/Elite); everything
 // here is a finer label for where an already-interpolated score falls
 // within/beyond those checkpoints, not a new set of invented thresholds.
-// The classic 5 names still land exactly on their real sourced ratio (e.g.
-// crossing the real Novice threshold always reads "Novice", at score 40)
-// — each just now has one extra named checkpoint at its own midpoint too.
+// Each of the 5 real names still starts exactly at its own real sourced
+// ratio (e.g. crossing the real Novice threshold always reads "Novice 1",
+// at score 40) — split into 3 numbered sub-levels each (widths 7/6/7 to
+// cover the 20-point band in whole numbers) instead of separate invented
+// words. Elite's sub-levels are the last named checkpoints; scoreForRatio
+// keeps climbing unbounded past Elite 3's start (113) with no further
+// checkpoint, so a score far beyond it still reads "Elite 3" — the number
+// itself carries how far past, not another tier name.
 // Sorted ascending; tierNameForScore takes the last one the score clears.
 const TIER_BANDS = [
-  [0, 'Untrained'], [20, 'Beginner'], [30, 'Developing'], [40, 'Novice'],
-  [50, 'Competent'], [60, 'Intermediate'], [70, 'Proficient'], [80, 'Advanced'],
-  [90, 'Exceptional'], [100, 'Elite'], [120, 'Ultra Elite'],
+  [0, 'Untrained'],
+  [20, 'Beginner 1'], [27, 'Beginner 2'], [33, 'Beginner 3'],
+  [40, 'Novice 1'], [47, 'Novice 2'], [53, 'Novice 3'],
+  [60, 'Intermediate 1'], [67, 'Intermediate 2'], [73, 'Intermediate 3'],
+  [80, 'Advanced 1'], [87, 'Advanced 2'], [93, 'Advanced 3'],
+  [100, 'Elite 1'], [107, 'Elite 2'], [113, 'Elite 3'],
 ];
 function tierNameForScore(score) {
   let name = TIER_BANDS[0][1];
