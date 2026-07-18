@@ -47,7 +47,7 @@ const {
   computeStructuralFatigue, computeCurrentFatigueScores, musclePeaksFromLifts, fatigueTimeline,
   INJURY_HEALING_DAYS, injuryFatiguePenalty, applyInjuryTaper,
   computeACWR, computePerformanceTrend, computeMetabolicFatigue, computeCNSFatigue,
-  computeMuscleLastTrainedDays,
+  computeMuscleLastTrainedDays, computeCompoundIsolationSplit,
 } = require('./fatigue');
 const { personalizedRecoveryHours, trainingMonthsIfKnown } = require('./recoveryPersonalization');
 const { alcoholStats, computeDataMaturity, compVerdict, toCsv, weekLiftSessionsCompleted } = require('./analytics');
@@ -902,12 +902,21 @@ app.post("/plan/session-exercises", async (req, res) => {
       .filter(Boolean);
 
     targetMuscles = bucketPicks.map(p => p.muscle);
+    // 2 exercises per bucket, matching the pre-full-body single-bucket
+    // session's total count — but the 2nd slot's type (another compound vs.
+    // an isolation accessory) follows whichever the athlete has actually
+    // favored over the last 90 days (computeCompoundIsolationSplit), not a
+    // fixed ratio: "continue doing what you already do." No history (new
+    // athlete, or a tie) defaults to compound, matching pickBackboneExercises'
+    // "compound-first" ethos above.
+    const split = computeCompoundIsolationSplit(lifts);
+    const isolationLeaning = split.isolation > split.compound;
     const exercises = bucketPicks.flatMap(({ muscle }) => {
-      const backbone = pickBackboneExercises([muscle], { travelMode, count: 1 }).map(e => e.name);
+      const backbone = pickBackboneExercises([muscle], { travelMode, count: isolationLeaning ? 1 : 2 }).map(e => e.name);
       return generateSessionExercises({
         type, targetMuscles: [muscle], backboneExerciseNames: backbone, lifts, travelMode,
         avoidMuscles, offlineMuscles, cnsFatigue, metabolicFatigue, trainingMonths,
-        skipAccessories: true,
+        accessoryCountOverride: isolationLeaning ? 1 : 0, isolationOnly: isolationLeaning,
       });
     });
     return res.json({ exercises, targetMuscles, backboneExercises: exercises.map(e => e.name), bucket: 'full body' });

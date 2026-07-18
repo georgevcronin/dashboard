@@ -294,9 +294,32 @@ function cnsLoad(exercises) {
   return { label: 'Max Effort', color: 'var(--red)' };
 }
 
+// "Continue doing what you already do": the full-body auto-pick session
+// (functions/index.js) decides whether each bucket's 2nd exercise slot is
+// another compound or an isolation accessory based on which the athlete has
+// actually favored recently, rather than a fixed ratio. 90-day window
+// matches PEAK_WINDOW_DAYS above — roughly a training block. Counted per
+// (date, exercise) occurrence rather than per logged set, so a 5x5 day
+// doesn't outweigh a session that logged the same exercise once.
+function computeCompoundIsolationSplit(lifts, windowDays = 90) {
+  const cutoff = Date.now() - windowDays * 86_400_000;
+  const seen = new Set();
+  let compound = 0, isolation = 0;
+  for (const l of (lifts || [])) {
+    if (!l.exercise) continue;
+    const t = liftTime(l);
+    if (isNaN(t) || t < cutoff) continue;
+    const key = `${l.date}|${l.exercise.toLowerCase()}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    if (isCompoundExercise(l.exercise)) compound++; else isolation++;
+  }
+  return { compound, isolation, total: compound + isolation };
+}
+
 module.exports = {
   computeStructuralFatigue, computeCurrentFatigueScores, musclePeaksFromLifts, fatigueTimeline,
   INJURY_HEALING_DAYS, injuryFatiguePenalty, applyInjuryTaper,
   computeACWR, computePerformanceTrend, computeMetabolicFatigue, computeCNSFatigue,
-  cnsLoad, computeMuscleLastTrainedDays,
+  cnsLoad, computeMuscleLastTrainedDays, computeCompoundIsolationSplit,
 };

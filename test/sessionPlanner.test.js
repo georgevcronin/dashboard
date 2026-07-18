@@ -1,6 +1,7 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const { generateSessionExercises, progressionFor, suggestedWorkingSetCount, suggestedRirSequence } = require('../functions/sessionPlanner');
+const { isCompoundExercise } = require('../functions/muscleTaxonomy');
 
 test('suggestedWorkingSetCount cycles 2/3/4 by how many times this exercise has been logged', () => {
   assert.equal(suggestedWorkingSetCount(0), 2);
@@ -126,4 +127,24 @@ test('without skipAccessories, the same call adds accessory exercises as before 
     backboneExerciseNames: ['Barbell Bench Press'], lifts: [],
   });
   assert.ok(out.length > 1, 'default behavior should still include accessories');
+});
+
+test('accessoryCountOverride pins the accessory count regardless of metabolicFatigue', () => {
+  const out = generateSessionExercises({
+    type: 'lift', targetMuscles: ['chest', 'triceps', 'front-delt'],
+    backboneExerciseNames: ['Barbell Bench Press'], lifts: [],
+    metabolicFatigue: 0, accessoryCountOverride: 1,
+  });
+  assert.equal(out.length, 2, '1 backbone + accessoryCountOverride of 1, not the usual metabolicFatigue-derived count of 2');
+});
+
+test('isolationOnly fills the accessory slot with a non-compound exercise', () => {
+  const out = generateSessionExercises({
+    type: 'lift', targetMuscles: ['chest', 'triceps', 'front-delt'],
+    backboneExerciseNames: ['Barbell Bench Press'], lifts: [],
+    accessoryCountOverride: 1, isolationOnly: true,
+  });
+  const accessory = out.find(e => e.name !== 'Barbell Bench Press');
+  assert.ok(accessory, 'should still add an accessory');
+  assert.ok(!isCompoundExercise(accessory.name), `${accessory.name} should be an isolation pick, not a compound one`);
 });

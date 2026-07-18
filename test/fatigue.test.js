@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const {
   computeStructuralFatigue, musclePeaksFromLifts, applyInjuryTaper,
   injuryFatiguePenalty, computeACWR, computePerformanceTrend, computeCNSFatigue,
-  computeMuscleLastTrainedDays, fatigueTimeline,
+  computeMuscleLastTrainedDays, fatigueTimeline, computeCompoundIsolationSplit,
 } = require('../functions/fatigue');
 
 const daysAgo = (n) => new Date(Date.now() - n * 86400000).toISOString().slice(0, 10);
@@ -206,4 +206,46 @@ test('fatigueTimeline keeps muscles independent — an untouched muscle is not p
   ];
   const out = fatigueTimeline(lifts, { quads: 2000, biceps: 500 });
   assert.equal(out[1].quads, undefined, 'a Barbell Curl session should not carry quads fatigue in its own entry');
+});
+
+test('computeCompoundIsolationSplit counts a mostly-compound history as compound-leaning', () => {
+  const lifts = [
+    { date: daysAgo(1), exercise: 'Back Squat', kg: 150, reps: 5 },
+    { date: daysAgo(3), exercise: 'Bench Press', kg: 100, reps: 5 },
+    { date: daysAgo(5), exercise: 'Barbell Row', kg: 90, reps: 8 },
+    { date: daysAgo(7), exercise: 'Barbell Curl', kg: 30, reps: 10 },
+  ];
+  const split = computeCompoundIsolationSplit(lifts);
+  assert.equal(split.compound, 3);
+  assert.equal(split.isolation, 1);
+  assert.equal(split.total, 4);
+});
+
+test('computeCompoundIsolationSplit counts a mostly-isolation history as isolation-leaning', () => {
+  const lifts = [
+    { date: daysAgo(1), exercise: 'Barbell Curl', kg: 30, reps: 10 },
+    { date: daysAgo(3), exercise: 'Lateral Raise', kg: 10, reps: 12 },
+    { date: daysAgo(5), exercise: 'Tricep Pushdown', kg: 25, reps: 12 },
+    { date: daysAgo(7), exercise: 'Back Squat', kg: 150, reps: 5 },
+  ];
+  const split = computeCompoundIsolationSplit(lifts);
+  assert.equal(split.compound, 1);
+  assert.equal(split.isolation, 3);
+  assert.ok(split.isolation > split.compound);
+});
+
+test('computeCompoundIsolationSplit ignores lifts outside the 90-day window', () => {
+  const lifts = [{ date: daysAgo(200), exercise: 'Barbell Curl', kg: 30, reps: 10 }];
+  const split = computeCompoundIsolationSplit(lifts);
+  assert.equal(split.total, 0);
+});
+
+test('computeCompoundIsolationSplit counts each (date, exercise) once, not once per logged set', () => {
+  const lifts = [
+    { date: daysAgo(1), exercise: 'Barbell Curl', kg: 30, reps: 10 },
+    { date: daysAgo(1), exercise: 'Barbell Curl', kg: 30, reps: 10 },
+    { date: daysAgo(1), exercise: 'Barbell Curl', kg: 30, reps: 10 },
+  ];
+  const split = computeCompoundIsolationSplit(lifts);
+  assert.equal(split.isolation, 1, 'three sets of the same exercise on the same day should count once');
 });

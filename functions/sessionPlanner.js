@@ -6,6 +6,7 @@
 
 const { EXERCISE_DB } = require('./exerciseDb');
 const { computeProgression } = require('./progression');
+const { isCompoundExercise } = require('./muscleTaxonomy');
 
 // Free-weight/barbell-style compounds carry the highest CNS demand — when CNS
 // fatigue is high, swap them for a machine/cable exercise hitting the same
@@ -58,7 +59,7 @@ function lastAccessoryPick(lifts, targetMuscles, excludeNames) {
 // rotation list from lastAccessoryPick — excluded unless doing so would
 // leave zero candidates (a muscle with exactly one viable exercise shouldn't
 // get artificially starved just to satisfy rotation).
-function pickAccessories(targetMuscles, alreadySelected, excludeNames, avoidMuscles, { travelMode, avoidEquipment = [], avoidNames = [], count }) {
+function pickAccessories(targetMuscles, alreadySelected, excludeNames, avoidMuscles, { travelMode, avoidEquipment = [], avoidNames = [], count, isolationOnly = false }) {
   const coveredMuscles = new Set(alreadySelected.flatMap(e => e.primary));
   const remainingMuscles = targetMuscles.filter(m => !coveredMuscles.has(m));
   const basePool = EXERCISE_DB.filter(e =>
@@ -68,8 +69,15 @@ function pickAccessories(targetMuscles, alreadySelected, excludeNames, avoidMusc
     !e.primary.some(m => avoidMuscles.includes(m)) &&
     e.primary.some(m => targetMuscles.includes(m))
   );
-  const rotatedPool = avoidNames.length ? basePool.filter(e => !avoidNames.includes(e.name.toLowerCase())) : basePool;
-  const pool = rotatedPool.length ? rotatedPool : basePool;
+  // isolationOnly: used by the full-body auto-pick path when the athlete's
+  // own 90-day history leans isolation (fatigue.js's
+  // computeCompoundIsolationSplit) — falls back to the unfiltered pool
+  // rather than returning nothing if a muscle genuinely has no isolation
+  // exercise available.
+  const typePool = isolationOnly ? basePool.filter(e => !isCompoundExercise(e.name)) : basePool;
+  const scopedPool = typePool.length ? typePool : basePool;
+  const rotatedPool = avoidNames.length ? scopedPool.filter(e => !avoidNames.includes(e.name.toLowerCase())) : scopedPool;
+  const pool = rotatedPool.length ? rotatedPool : scopedPool;
   const scored = pool
     .map(e => ({ e, score: e.primary.filter(m => remainingMuscles.includes(m)).length * 2 + e.primary.filter(m => targetMuscles.includes(m)).length }))
     .sort((a, b) => b.score - a.score);
@@ -188,7 +196,7 @@ function setsFor(prog, workingSetCount, { failureSolo = false, higherRirPair = f
 // new-lifter fatigue budget. trainingMonths is null for an athlete who
 // hasn't self-reported training experience, in which case the new-lifter
 // budget is skipped entirely rather than assumed.
-function generateSessionExercises({ type, targetMuscles, backboneExerciseNames, lifts, travelMode, avoidMuscles = [], offlineMuscles = [], cnsFatigue = 0, metabolicFatigue = 0, trainingMonths = null, skipAccessories = false }) {
+function generateSessionExercises({ type, targetMuscles, backboneExerciseNames, lifts, travelMode, avoidMuscles = [], offlineMuscles = [], cnsFatigue = 0, metabolicFatigue = 0, trainingMonths = null, skipAccessories = false, accessoryCountOverride = null, isolationOnly = false }) {
   if (type !== 'lift' || !targetMuscles?.length) return [];
 
   const excludeMuscles = [...new Set([...avoidMuscles, ...offlineMuscles])];
@@ -213,13 +221,14 @@ function generateSessionExercises({ type, targetMuscles, backboneExerciseNames, 
   // per-bucket-call would stack extra volume onto whichever buckets happen to
   // score highest instead of keeping the session evenly spread, which is the
   // whole point of picking one exercise per bucket in the first place.
-  const accessoryCount = skipAccessories ? 0 : (metabolicFatigue > 60 ? 1 : 2);
+  const accessoryCount = accessoryCountOverride != null ? accessoryCountOverride
+    : skipAccessories ? 0 : (metabolicFatigue > 60 ? 1 : 2);
 
   const excludeNames = new Set([...originalNames, ...backboneEntries.map(e => e.name)]);
   const avoidEquipment = cnsFatigue > 70 ? HIGH_CNS_EQUIPMENT : [];
   const lastPick = accessoryCount > 0 ? lastAccessoryPick(lifts, targetMuscles, excludeNames) : null;
   const accessories = accessoryCount > 0 ? pickAccessories(targetMuscles, backboneEntries, excludeNames, excludeMuscles, {
-    travelMode, avoidEquipment, avoidNames: lastPick ? [lastPick] : [], count: accessoryCount,
+    travelMode, avoidEquipment, avoidNames: lastPick ? [lastPick] : [], count: accessoryCount, isolationOnly,
   }) : [];
 
   return [...backboneEntries, ...accessories].map(e => {

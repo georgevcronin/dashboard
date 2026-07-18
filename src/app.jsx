@@ -617,6 +617,14 @@ function S2({ s, refresh }) {
 // keeps the suggestion list and the actual data in permanent sync.
 const BASE_EXERCISES = EXERCISE_DB.map(e => e.name.toLowerCase());
 
+// Lets exercise search match on muscles/equipment/category ("lats" finds
+// every row/pulldown variant) without those tags cluttering the visible
+// suggestion list — keyed by the same lowercase name used in allExercises.
+const EXERCISE_SEARCH_TAGS = new Map(EXERCISE_DB.map(e => [
+  e.name.toLowerCase(),
+  [...(e.primary || []), ...(e.secondary || []), e.equipment, e.category].join(' ').toLowerCase(),
+]));
+
 const e1rm = (kg, reps) => (kg > 0 && reps > 0) ? Math.round(calcE1RM(kg, reps)) : null;
 
 // Minimum whole reps at `kg` needed to match/exceed `targetE1RM` — e1rm rises
@@ -641,6 +649,17 @@ const REST_DEFAULT = 90;
 // instead of the list. v0.1 is the first tracked release, not literally the
 // app's first version — everything before this had no changelog at all.
 const CHANGELOG = [
+  {
+    version: '0.12',
+    date: '2026-07-18',
+    features: [
+      'Exercise search now also matches muscle, equipment, and category — searching "lats" finds every pulldown/row variant, not just exercises with "lats" literally in the name',
+      'Full-body auto-picked sessions now give 2 exercises per muscle group instead of 1, with the split between compound and isolation work following whichever you\'ve actually favored over your last 90 days of training',
+      'Fixed the Strength Level panel (All-Time Bests) never appearing on mobile — a scroll-reveal effect required 35% of the section on-screen at once, which a long PR list can never reach on a phone-sized viewport',
+      'App now shows a proper loading screen on open instead of the full page appearing with every section empty for a few seconds while data loads',
+      'Moved What\'s New to the bottom of Settings, out of the way of the settings you actually came to change',
+    ],
+  },
   {
     version: '0.11',
     date: '2026-07-18',
@@ -931,7 +950,9 @@ function WorkoutLogger({ planDay, lifts, customExercises, onClose, refresh }) {
     setNewEx(val);
     if (!val.trim()) { setSuggestions([]); return; }
     const q = val.toLowerCase();
-    setSuggestions(allExercises.filter(e => e.includes(q)).slice(0, 8));
+    const nameMatches = allExercises.filter(e => e.includes(q));
+    const tagMatches = allExercises.filter(e => !e.includes(q) && (EXERCISE_SEARCH_TAGS.get(e) || '').includes(q));
+    setSuggestions([...nameMatches, ...tagMatches].slice(0, 8));
   };
 
   const addExercise = name => {
@@ -4088,21 +4109,6 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, setBrie
       </div>
       <div className="settings-body">
 
-        {/* ── WHAT'S NEW ── */}
-        <div className="settings-sec">
-          <div className="settings-sh">v{CHANGELOG[0].version} · What's New</div>
-          {CHANGELOG.map(entry => (
-            <div key={entry.version} style={{ marginBottom: 14 }}>
-              <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)', marginBottom: 6 }}>
-                v{entry.version} — {localDateFromYMD(entry.date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
-              </div>
-              <ul style={{ margin: 0, paddingLeft: 18, fontFamily: "'Times New Roman',serif", fontSize: 13, lineHeight: 1.6, color: 'var(--ink)' }}>
-                {entry.features.map((f, i) => <li key={i}>{f}</li>)}
-              </ul>
-            </div>
-          ))}
-        </div>
-
         {/* ── PROFILE ── */}
         <div className="settings-sec">
           <div className="settings-sh">Profile</div>
@@ -4425,6 +4431,21 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, setBrie
           <button className="prof-btn" style={{ width: '100%', padding: '11px', textAlign: 'center', marginTop: 4 }} onClick={onSignOut}>Sign Out</button>
         </div>
 
+        {/* ── WHAT'S NEW ── */}
+        <div className="settings-sec">
+          <div className="settings-sh">v{CHANGELOG[0].version} · What's New</div>
+          {CHANGELOG.map(entry => (
+            <div key={entry.version} style={{ marginBottom: 14 }}>
+              <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)', marginBottom: 6 }}>
+                v{entry.version} — {localDateFromYMD(entry.date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
+              </div>
+              <ul style={{ margin: 0, paddingLeft: 18, fontFamily: "'Times New Roman',serif", fontSize: 13, lineHeight: 1.6, color: 'var(--ink)' }}>
+                {entry.features.map((f, i) => <li key={i}>{f}</li>)}
+              </ul>
+            </div>
+          ))}
+        </div>
+
       </div>
     </div>
   );
@@ -4645,6 +4666,14 @@ function BriefingOverlay({ briefing, onClose }) {
 }
 
 // ── APP ──────────────────────────────────────────────────────────────────────
+function LoadingScreen() {
+  return (
+    <div style={{ minHeight: '100svh', background: '#f5f0e2', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <div style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 11, letterSpacing: '.14em', textTransform: 'uppercase', color: '#8a7a5c' }}>Loading…</div>
+    </div>
+  );
+}
+
 function LoginScreen() {
   const [showEmail, setShowEmail] = useState(false);
   const [mode, setMode] = useState('signin');
@@ -4849,6 +4878,15 @@ function App() {
   // Scrollspy: reveal each section's .fade content once it enters the viewport, and mark its
   // nav dot active while visible. Keyed to [user] (not [s]) so a failed data fetch can never
   // leave the observer unattached — the section DOM exists as soon as the user is signed in.
+  //
+  // threshold was 0.35 (35% of the section's own height visible at once) — fine for
+  // roughly viewport-sized sections, but S7 (All-Time Bests) grows with logged PR
+  // history and easily exceeds 2500-3500px. On a mobile viewport (~700px tall) the
+  // max possible visible fraction of a 3000px section is ~23%, so .visible never got
+  // added and the whole section (Strength Level panel included) stayed opacity:0
+  // forever — reproducible on any device short enough relative to that section's
+  // height, which in practice meant mobile only. A near-zero threshold fires as soon
+  // as any part of a section enters view, independent of how tall it grows.
   useEffect(() => {
     const scroll = document.getElementById('press-scroll');
     if (!scroll) return;
@@ -4864,19 +4902,23 @@ function App() {
         if (e.isIntersecting) e.target.classList.add('visible');
         if (dots[idx]) dots[idx].classList.toggle('active', e.isIntersecting);
       });
-    }, { threshold: 0.35 });
+    }, { threshold: 0.01 });
     sections.forEach(sec => obs.observe(sec));
 
     return () => obs.disconnect();
   }, [user]);
 
-  if (user === undefined) return (
-    <div style={{ minHeight: '100svh', background: '#f5f0e2', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-      <div style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 11, letterSpacing: '.14em', textTransform: 'uppercase', color: '#8a7a5c' }}>Loading…</div>
-    </div>
-  );
+  if (user === undefined) return <LoadingScreen />;
 
   if (!user) return <LoginScreen />;
+
+  // Without this, the app shell (header, tabs, sections) rendered immediately
+  // with s still null, so every section showed its own empty state for the
+  // ~3s /summary round trip instead of one clean loading screen. Only gates
+  // the very first load — refresh()/loadSummary() calls after that update s
+  // in place without ever setting it back to null, so switching tabs or
+  // pulling to refresh doesn't re-trigger this.
+  if (s === null && !summaryError) return <LoadingScreen />;
 
   const trackingLevel = s?.profile?.trackingLevel || 'full';
   const showSleep = trackingLevel !== 'workout';
