@@ -642,6 +642,14 @@ const REST_DEFAULT = 90;
 // app's first version — everything before this had no changelog at all.
 const CHANGELOG = [
   {
+    version: '0.11',
+    date: '2026-07-18',
+    features: [
+      'Fixed the Ranking legend showing no color at all for 5 of its 6 tiers (Beginner through Elite) — a key mismatch left every dot but Untrained blank',
+      'Ranking tier colors now run grey → green → blue → purple → orange → gold as you climb, ending Elite on literal gold, instead of an arbitrary hue per tier',
+    ],
+  },
+  {
     version: '0.10',
     date: '2026-07-16',
     features: [
@@ -1694,22 +1702,44 @@ function WorkoutHistory({ s, onClose }) {
 // color rather than getting a distinct hue each — the number already gives
 // the precise sub-rank, the color just needs to place it in the right
 // broad band at a glance.
-const TIER_COLOR = {
+//
+// Ordered as an ascending "rarity" ramp (grey → green → blue → purple →
+// orange → gold) rather than an arbitrary hue assignment, so the color
+// itself hints at rank without reading the label: grey reads as "nothing
+// yet", and Elite lands on literal gold — the one color association
+// (gold medal, "going for gold") that needs no legend at all. Every tier
+// still carries its name as text alongside the color (never color-alone),
+// so this is a readability upgrade, not a new colorblind-accessibility
+// dependency.
+const TIER_BASE_COLOR = {
   Untrained: 'var(--dim)',
-  'Beginner 1': 'var(--ember)', 'Beginner 2': 'var(--ember)', 'Beginner 3': 'var(--ember)',
-  'Novice 1': 'var(--gold)', 'Novice 2': 'var(--gold)', 'Novice 3': 'var(--gold)',
-  'Intermediate 1': 'var(--navy)', 'Intermediate 2': 'var(--navy)', 'Intermediate 3': 'var(--navy)',
-  'Advanced 1': 'var(--forest)', 'Advanced 2': 'var(--forest)', 'Advanced 3': 'var(--forest)',
-  'Elite 1': 'var(--plum)', 'Elite 2': 'var(--plum)', 'Elite 3': 'var(--plum)',
+  Beginner: 'var(--forest)',
+  Novice: 'var(--navy)',
+  Intermediate: 'var(--plum)',
+  Advanced: 'var(--ember)',
+  Elite: 'var(--gold)',
 };
+// Keyed by both the broad tier name (diagram/legend) and each numbered
+// sub-level (per-muscle panel, e.g. "Beginner 1") — both forms need to
+// resolve to a color and previously only the numbered form did, leaving
+// the legend's dots for every tier but Untrained with no color at all.
+const TIER_COLOR = { Untrained: TIER_BASE_COLOR.Untrained };
+for (const tier of ['Beginner', 'Novice', 'Intermediate', 'Advanced', 'Elite']) {
+  TIER_COLOR[tier] = TIER_BASE_COLOR[tier];
+  for (const n of [1, 2, 3]) TIER_COLOR[`${tier} ${n}`] = TIER_BASE_COLOR[tier];
+}
 // The diagram/legend show the broad 6-tier version (no sub-level numbers) —
 // same bands TIER_COLOR above already keys its sub-levels into, so a
 // muscle's diagram color always matches whichever tier its precise
-// (text-only) sub-level belongs to.
+// (text-only) sub-level belongs to. Filter ids are named after the raw
+// hue (fm-neutral is the forest-green filter, fm-gold is gold, etc.,
+// defined once in each body-*.svg) rather than after a tier, since
+// fm-neutral is shared with the Fatigue tab's own (unrelated) coloring —
+// see TIER_BASE_COLOR above for which hue backs which tier.
 const DIAGRAM_TIER_BANDS = [
-  [0, 'Untrained', 'url(#fm-dim)'], [20, 'Beginner', 'url(#fm-ember)'],
-  [40, 'Novice', 'url(#fm-gold)'], [60, 'Intermediate', 'url(#fm-navy)'],
-  [80, 'Advanced', 'url(#fm-neutral)'], [100, 'Elite', 'url(#fm-plum)'],
+  [0, 'Untrained', 'url(#fm-dim)'], [20, 'Beginner', 'url(#fm-neutral)'],
+  [40, 'Novice', 'url(#fm-navy)'], [60, 'Intermediate', 'url(#fm-plum)'],
+  [80, 'Advanced', 'url(#fm-ember)'], [100, 'Elite', 'url(#fm-gold)'],
 ];
 function diagramFilterForScore(score) {
   let filter = DIAGRAM_TIER_BANDS[0][2];
