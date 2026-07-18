@@ -148,3 +148,31 @@ test('isolationOnly fills the accessory slot with a non-compound exercise', () =
   assert.ok(accessory, 'should still add an accessory');
   assert.ok(!isCompoundExercise(accessory.name), `${accessory.name} should be an isolation pick, not a compound one`);
 });
+
+test('accessory selection avoids isometric holds when a non-isometric alternative covers the same muscles', () => {
+  const out = generateSessionExercises({
+    type: 'lift', targetMuscles: ['obliques', 'transverse-abs'],
+    backboneExerciseNames: [], lifts: [], accessoryCountOverride: 3,
+  });
+  const names = out.map(e => e.name);
+  assert.ok(!names.includes('Pallof Press') && !names.includes('Plank (Front)') && !names.includes('Side Plank'),
+    `isometric holds should lose out to dynamic alternatives: got ${names}`);
+});
+
+test('accessory selection heavily prefers a previously-logged exercise over an untried higher-coverage one', () => {
+  // Two logged dates, not one: lastAccessoryPick's own rotation logic
+  // excludes whichever oblique exercise was hit *most* recently (here,
+  // Landmine Rotation) to avoid repeating it verbatim — that's a separate,
+  // intentional mechanism, not what this test is checking. Russian Twist is
+  // the older of the two, so it stays eligible and should win purely on the
+  // logged-history bonus.
+  const lifts = [
+    { date: '2026-06-01', exercise: 'Russian Twist', kg: 10, reps: 15 },
+    { date: '2026-07-01', exercise: 'Landmine Rotation', kg: 10, reps: 15 },
+  ];
+  const out = generateSessionExercises({
+    type: 'lift', targetMuscles: ['obliques'],
+    backboneExerciseNames: [], lifts, accessoryCountOverride: 1,
+  });
+  assert.equal(out[0].name, 'Russian Twist', 'a logged exercise should outrank untried alternatives targeting the same muscle');
+});

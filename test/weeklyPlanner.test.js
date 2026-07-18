@@ -43,6 +43,20 @@ test('pickBackboneExercises prefers compounds covering more target muscles, excl
   for (const p of picks) assert.equal(p.lesserKnown, false);
 });
 
+test('pickBackboneExercises excludes isometric holds even when not lesserKnown', () => {
+  const picks = pickBackboneExercises(['transverse-abs', 'obliques'], { count: 5 });
+  assert.ok(!picks.some(p => p.isometric), 'no isometric exercise should ever be picked as a backbone lift');
+});
+
+test('pickBackboneExercises heavily prefers a previously-logged exercise over an equal-coverage untried one', () => {
+  const unbiased = pickBackboneExercises(['chest', 'front-delt'], { count: 1 });
+  assert.notEqual(unbiased[0].name, 'Dumbbell Incline Bench Press', 'sanity check: without history this should not already be the top pick');
+
+  const lifts = [{ date: '2026-07-01', exercise: 'Dumbbell Incline Bench Press', kg: 30, reps: 8 }];
+  const picks = pickBackboneExercises(['chest', 'front-delt'], { lifts, count: 1 });
+  assert.equal(picks[0].name, 'Dumbbell Incline Bench Press', 'a logged exercise should outrank an equal-coverage exercise that has never been logged');
+});
+
 test('planLiftSessionsTarget caps sessions hard when systemic fatigue is very high', () => {
   assert.ok(planLiftSessionsTarget(90, 0, 4, 'strength') <= 2);
 });

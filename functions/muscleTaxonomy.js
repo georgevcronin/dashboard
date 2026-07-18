@@ -142,7 +142,15 @@ function isCompoundExercise(name) {
   return COMPOUND_FALLBACK.test(normalizeForMatch(name));
 }
 
+// Used by weeklyPlanner.js/sessionPlanner.js's exercise scoring to heavily
+// prefer whatever the athlete has actually done before over something novel —
+// case-insensitive since logged history (Hevy imports especially) is
+// inconsistently cased against exerciseDb.js's canonical Title Case names.
+function loggedExerciseNames(lifts) {
+  return new Set((lifts || []).map(l => (l.exercise || '').toLowerCase()).filter(Boolean));
+}
+
 module.exports = {
   ALL_MUSCLES, PRIMARY_MUSCLES, RECOVERY_H, MUSCLE_GROUPS,
-  findExercise, musclesForExercise, isLowerBodyExercise, isCompoundExercise,
+  findExercise, musclesForExercise, isLowerBodyExercise, isCompoundExercise, loggedExerciseNames,
 };

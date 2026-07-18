@@ -5,6 +5,12 @@ export const PRESS_CSS = `
 @import url('https://fonts.googleapis.com/css2?family=Syne:wght@800&family=Playfair+Display:ital,wght@0,700;0,900;1,400;1,700&family=JetBrains+Mono:wght@400;600&display=swap');
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 :root{--paper:#f5f0e2;--paper2:#ede8d4;--ink:#0d0b08;--rule:#c4b898;--dim:#6b5d44;--gold:#6b5800;--navy:#1a2f54;--forest:#1a4f2a;--ember:#7a3400;--red:#7a1414;--plum:#3d2452;--hdr:72px}
+/* Night edition — same paper/ink structure inverted, not a generic app dark
+   theme: a dark charcoal "newsprint" ground rather than pure black, with
+   accent hues brightened (they were tuned as dark text on a light page, so
+   need lifting to stay AA-legible on a dark one). Toggled via data-theme,
+   set from profile.darkMode once loaded — see App()'s theme effect. */
+:root[data-theme="dark"]{--paper:#1b1812;--paper2:#26221a;--ink:#f0e9d8;--rule:#4a4030;--dim:#ab9a78;--gold:#d9b23c;--navy:#7194d6;--forest:#5cb86f;--ember:#e08a4a;--red:#e0685a;--plum:#b58ee0}
 html,body{height:100%;background:var(--paper)}
 body{font-family:'Times New Roman',Times,Georgia,serif;color:var(--ink)}
 .hdr{position:fixed;top:0;left:0;right:0;z-index:100;background:var(--paper);border-bottom:3px solid var(--ink)}

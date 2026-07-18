@@ -1239,7 +1239,7 @@ const EXERCISE_DB = [
     curve: 'matching',
     curveNote: 'Anti-rotation exercise — cable pulling laterally at all times demands core resist rotation throughout the press. Maximum resistance at full extension where rotary demand is highest.',
     form: ['Stand perpendicular to cable', 'Press handle straight out from sternum', 'Hold briefly at full extension', 'Return without rotating'],
-    lesserKnown: false
+    lesserKnown: true, isometric: true
   },
   {
     id: 'dead-bug',
@@ -1269,7 +1269,7 @@ const EXERCISE_DB = [
     curve: 'partial',
     curveNote: 'Isometric anti-extension hold. Gravity loads at consistent level throughout hold. Best used for endurance-focused core work or as a foundation for more complex movements.',
     form: ['Forearms on floor, body rigid', 'Do not let hips sag or pike', 'Squeeze glutes and brace abs simultaneously', '30–60 second holds for most purposes'],
-    lesserKnown: false
+    lesserKnown: false, isometric: true
   },
   {
     id: 'side-plank',
@@ -1279,7 +1279,7 @@ const EXERCISE_DB = [
     curve: 'partial',
     curveNote: 'Anti-lateral flexion isometric. One of the strongest lateral core loading methods. Can be progressed with hip dips or raised leg.',
     form: ['Elbow directly under shoulder', 'Body in straight line from head to feet', 'Top hip stacked over bottom hip', 'Do not let hips sag'],
-    lesserKnown: false
+    lesserKnown: false, isometric: true
   },
   {
     id: 'landmine-rotation',
@@ -1319,7 +1319,7 @@ const EXERCISE_DB = [
     curve: 'partial',
     curveNote: 'Full body anti-extension isometric with arms and legs extended. Foundation of gymnastic strength training. High demand on TVA and rectus to maintain lumbar contact with floor.',
     form: ['Lower back pressed into floor throughout', 'Arms overhead, legs extended low', 'Raise shoulders off floor slightly', 'Do not let lower back arch'],
-    lesserKnown: false
+    lesserKnown: false, isometric: true
   },
   // ── ADDITIONAL CHEST ─────────────────────────────────────────────────────────
   {
@@ -1730,7 +1730,7 @@ const EXERCISE_DB = [
     curve: 'partial',
     curveNote: 'Anti-rotation demand added to standard plank by lifting one hand to opposite shoulder. Forces lateral stability from TVA and glutes. More challenging than standard plank.',
     form: ['Standard push-up position', 'Touch opposite shoulder while resisting rotation', 'Feet slightly wider than normal for stability', 'Hips stay perfectly level throughout'],
-    lesserKnown: false
+    lesserKnown: false, isometric: true
   },
   {
     id: 'leg-raise-lying',
@@ -1818,9 +1818,9 @@ const EXERCISE_DB = [
   { id: 'hip-thrust-smith', name: 'Hip Thrust (Smith Machine)', category: 'hinge', equipment: 'smith', primary: ['glutes'], secondary: ['hamstrings', 'quads'], curve: 'matching', curveNote: 'Smith machine allows fixed horizontal bar path — easier setup and potentially heavier loading than barbell. Same glute-alignment at peak as barbell version.', form: ['Upper back on bench, bar across hips', 'Drive hips to horizontal', 'Squeeze glutes hard at top', 'Use pad for comfort'], lesserKnown: false },
   { id: 'glute-ham-developer-curl', name: 'GHD Sit-Up', category: 'core', equipment: 'machine', primary: ['abs', 'hip-flexors'], secondary: ['glutes', 'hamstrings'], curve: 'matching', curveNote: 'GHD sit-up allows hyperextension at the bottom — full ab stretch followed by full contraction. One of the highest ab loading exercises when full ROM is used.', form: ['Feet in GHD pads', 'Lower back to horizontal or beyond', 'Rise to vertical — do not just partial rep', 'Start conservatively — DOMS is severe'], lesserKnown: true },
   { id: 'incline-bench-leg-raise', name: 'Incline Bench Leg Raise', category: 'core', equipment: 'bodyweight', primary: ['abs', 'hip-flexors'], secondary: [], curve: 'matching', curveNote: 'Decline angle from incline bench adds bodyweight resistance at the top of leg raise — increasing load where hanging leg raises decrease it. Excellent lower ab loaing.', form: ['Grip top of incline bench', 'Legs hang at bottom', 'Raise to 90° or above', 'Lower under control — key part of the exercise'], lesserKnown: false },
-  { id: 'stir-the-pot', name: 'Stir the Pot (Ball Plank)', category: 'core', equipment: 'bodyweight', primary: ['transverse-abs', 'obliques'], secondary: ['abs', 'shoulders'], curve: 'partial', curveNote: 'Elbows on stability ball, draw circles — anti-rotation demand extremely high throughout. Higher TVA activation than standard plank due to instability.', form: ['Elbows on ball, body plank', 'Draw small clockwise then counter-clockwise circles', 'Hips completely still — only arms move', 'Small circles first — increase size as strength improves'], lesserKnown: true },
+  { id: 'stir-the-pot', name: 'Stir the Pot (Ball Plank)', category: 'core', equipment: 'bodyweight', primary: ['transverse-abs', 'obliques'], secondary: ['abs', 'shoulders'], curve: 'partial', curveNote: 'Elbows on stability ball, draw circles — anti-rotation demand extremely high throughout. Higher TVA activation than standard plank due to instability.', form: ['Elbows on ball, body plank', 'Draw small clockwise then counter-clockwise circles', 'Hips completely still — only arms move', 'Small circles first — increase size as strength improves'], lesserKnown: true, isometric: true },
   { id: 'goblet-carry', name: 'Goblet Carry', category: 'core', equipment: 'dumbbell', primary: ['transverse-abs', 'core'], secondary: ['front-delt', 'traps'], curve: 'partial', curveNote: 'Dumbbell at chest level carried for distance — front-loaded carry demands strong TVA engagement and upright posture. Core anti-flexion under load.', form: ['Dumbbell pressed to chest, elbows in', 'Walk tall — do not lean back', 'Core braced throughout', 'Heavier than suitcase carry typically'], lesserKnown: false },
-  { id: 'press-pallof', name: 'Half-Kneeling Pallof Press', category: 'core', equipment: 'cable', primary: ['obliques', 'transverse-abs'], secondary: ['glutes', 'hip-flexors'], curve: 'matching', curveNote: 'Kneeling removes leg base of support — forces core and glute to resist rotation and lateral lean simultaneously. More demanding than standing version.', form: ['Kneel on inside knee relative to cable', 'Press handle straight out', 'Resist rotation and lateral lean', 'Keep hips square'], lesserKnown: true },
+  { id: 'press-pallof', name: 'Half-Kneeling Pallof Press', category: 'core', equipment: 'cable', primary: ['obliques', 'transverse-abs'], secondary: ['glutes', 'hip-flexors'], curve: 'matching', curveNote: 'Kneeling removes leg base of support — forces core and glute to resist rotation and lateral lean simultaneously. More demanding than standing version.', form: ['Kneel on inside knee relative to cable', 'Press handle straight out', 'Resist rotation and lateral lean', 'Keep hips square'], lesserKnown: true, isometric: true },
   { id: 'barbell-rollout-standing', name: 'Standing Ab Rollout', category: 'core', equipment: 'barbell', primary: ['abs', 'transverse-abs'], secondary: ['lats', 'erectors'], curve: 'matching', curveNote: 'Most advanced version of ab rollout — full body extension from standing. Extremely high anti-extension demand. Only appropriate for very advanced trainees.', form: ['Stand upright, bend to grip bar', 'Roll out to horizontal or below', 'Return using abs and lats combined', 'Very few people can do this correctly'], lesserKnown: true },
   { id: 'dumbbell-row-pronated', name: 'Dumbbell Row (Pronated)', category: 'pull', equipment: 'dumbbell', primary: ['lats', 'rhomboids'], secondary: ['rear-delt', 'brachioradialis'], curve: 'partial', curveNote: 'Pronated grip shifts emphasis from biceps to brachioradialis and increases rhomboid/mid-trap recruitment. Varied grip for complete back development.', form: ['Overhand grip on dumbbell', 'Pull to lower ribcage area', 'Elbow more flared than supinated version', 'Control the descent'], lesserKnown: false },
   { id: 'cable-row-wide', name: 'Wide-Grip Cable Row', category: 'pull', equipment: 'cable', primary: ['rhomboids', 'mid-traps', 'rear-delt'], secondary: ['lats', 'biceps'], curve: 'matching', curveNote: 'Wide bar attachment on seated row shifts emphasis to upper back — elbows flare and pull to upper chest. More mid-trap and rhomboid, less lat than close-grip version.', form: ['Wide pronated grip on straight bar', 'Pull to upper chest', 'Elbows flare to 90° at end', 'Squeeze upper back hard'], lesserKnown: false },

@@ -912,7 +912,7 @@ app.post("/plan/session-exercises", async (req, res) => {
     const split = computeCompoundIsolationSplit(lifts);
     const isolationLeaning = split.isolation > split.compound;
     const exercises = bucketPicks.flatMap(({ muscle }) => {
-      const backbone = pickBackboneExercises([muscle], { travelMode, count: isolationLeaning ? 1 : 2 }).map(e => e.name);
+      const backbone = pickBackboneExercises([muscle], { travelMode, lifts, count: isolationLeaning ? 1 : 2 }).map(e => e.name);
       return generateSessionExercises({
         type, targetMuscles: [muscle], backboneExerciseNames: backbone, lifts, travelMode,
         avoidMuscles, offlineMuscles, cnsFatigue, metabolicFatigue, trainingMonths,
@@ -934,7 +934,7 @@ app.post("/plan/session-exercises", async (req, res) => {
   }
 
   if (type === 'lift' && targetMuscles?.length && !backboneExercises?.length) {
-    backboneExercises = pickBackboneExercises(targetMuscles, { travelMode }).map(e => e.name);
+    backboneExercises = pickBackboneExercises(targetMuscles, { travelMode, lifts }).map(e => e.name);
   }
 
   const exercises = generateSessionExercises({

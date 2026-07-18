@@ -8,10 +8,10 @@ import fatiguePkg from '../functions/fatigue.js';
 import sessionPlannerPkg from '../functions/sessionPlanner.js';
 import strengthStandardsPkg from '../functions/strengthStandards.js';
 import machineBrandsPkg from '../functions/machineBrands.js';
-import stimulusPkg from '../functions/stimulus.js';
+import adaptationPkg from '../functions/adaptation.js';
 import { EXERCISE_DB } from '../functions/exerciseDb.js';
 import { PRESS_CSS } from './pressCss.js';
-import { AreaChart, BarChart, Sparkline } from './charts.jsx';
+import { AreaChart, BarChart, Sparkline, AdaptationChart } from './charts.jsx';
 
 // Muscle taxonomy + fatigue math + progression logic are shared with the
 // backend (functions/muscleTaxonomy.js, functions/fatigue.js,
@@ -26,7 +26,10 @@ const { computeStructuralFatigue, computeACWR, computePerformanceTrend, computeM
 const { progressionFor, suggestedWorkingSetCount, suggestedRirSequence } = sessionPlannerPkg;
 const { e1rm: calcE1RM } = strengthStandardsPkg;
 const { defaultMachineBrands } = machineBrandsPkg;
-const { computeSessionStimulus } = stimulusPkg;
+const {
+  sessionStimulusScore, adaptationCurve, computeStimulusContributions, computeAdaptationLevel,
+  computeAdaptationSeries, estimateAtrophyRate, DEFAULT_ATROPHY_RATE, SECONDARY_MUSCLE_WEIGHT, DEFAULT_RIR,
+} = adaptationPkg;
 
 const FIREBASE_CONFIG = {
   apiKey: "AIzaSyDlVzSc9yow5GHbQipRWuYAZ5QTQ-jmXiY",
@@ -53,6 +56,13 @@ const api = async (path, opts = {}) => {
     ...(opts.headers || {}),
   };
   const r = await fetch(`${API_BASE}/${path}`, { ...opts, headers });
+  // Most callers read data.error out of a non-2xx JSON body themselves (many
+  // routes intentionally return e.g. 400/500 with {error: '...'}), so this
+  // stays opt-in via opts.throwOnError rather than a blanket change — used by
+  // loadSummary, where silently accepting an error body as if it were real
+  // summary data would defeat the initial loading-screen gate (s becomes
+  // non-null "garbage" instead of staying null until real data arrives).
+  if (!r.ok && opts.throwOnError) throw new Error(`${path}: ${r.status}`);
   return r.json();
 };
 
@@ -317,11 +327,11 @@ function S1({ s, briefing, onShowBriefing, onShowAfternoon, onShowNight, onShowW
       <div className="fade" style={{ flexShrink: 0 }}>
         <div className="prog-head">Daily Progress</div>
         {[
-          { label: 'Sleep',    color: '#3d2452', val: sleep,                       target: sleepTarget,   fmt: v => `${v.toFixed(1)}h`,                 tgt: `${sleepTarget}` },
-          { label: 'Recovery', color: '#6b5800', val: recovery,                    target: 100,           fmt: v => `${Math.round(v)}`,                   tgt: '100' },
-          { label: 'Steps',    color: '#1a4f2a', val: steps ? steps/1000 : null,   target: 10,            fmt: v => `${Math.round(v*1000).toLocaleString()}`, tgt: '10k' },
-          { label: 'Protein',  color: '#7a3400', val: protein,                     target: proteinTarget, fmt: v => `${Math.round(v)}g`,                  tgt: `${proteinTarget}g` },
-          { label: 'Fatigue',  color: '#7a1414', val: overallFatigue,              target: 100,           fmt: v => `${Math.round(v)}`,                   tgt: '100' },
+          { label: 'Sleep',    color: 'var(--plum)',   val: sleep,                       target: sleepTarget,   fmt: v => `${v.toFixed(1)}h`,                 tgt: `${sleepTarget}` },
+          { label: 'Recovery', color: 'var(--gold)',   val: recovery,                    target: 100,           fmt: v => `${Math.round(v)}`,                   tgt: '100' },
+          { label: 'Steps',    color: 'var(--forest)', val: steps ? steps/1000 : null,   target: 10,            fmt: v => `${Math.round(v*1000).toLocaleString()}`, tgt: '10k' },
+          { label: 'Protein',  color: 'var(--ember)',  val: protein,                     target: proteinTarget, fmt: v => `${Math.round(v)}g`,                  tgt: `${proteinTarget}g` },
+          { label: 'Fatigue',  color: 'var(--red)',    val: overallFatigue,              target: 100,           fmt: v => `${Math.round(v)}`,                   tgt: '100' },
         ].map(({ label, color, val, target, fmt, tgt }, i) => {
           const p = val != null && target ? Math.min(100, val / target * 100) : 0;
           return (
@@ -642,6 +652,13 @@ const repsForPR = (kg, targetE1RM) => {
 const SET_TYPES = ['W','N','D','F'];
 const SET_LABELS = { W: 'Warm-up', N: 'Normal', D: 'Drop Set', F: 'Failure' };
 const REST_DEFAULT = 90;
+// Rest timer displays live muscle glycogen replenishment instead of a plain
+// countdown — exponential recovery toward 100%, half-life 45s (50% back at
+// 45s, 75% at 90s, ~94% by the time the RPE9+ 180s rest window ends). Still
+// bounded by the same effort-scaled total (90/120/180s) as before; only the
+// displayed metric changed from "time remaining" to "% recovered."
+const GLYCOGEN_HALF_LIFE_S = 45;
+const glycogenPct = elapsedS => Math.round(100 * (1 - Math.pow(0.5, elapsedS / GLYCOGEN_HALF_LIFE_S)));
 
 // Shown at the top of Settings. Newest first — add a new entry (bump the
 // version, today's date, a feature-list bullet per notable change) whenever
@@ -649,6 +666,35 @@ const REST_DEFAULT = 90;
 // instead of the list. v0.1 is the first tracked release, not literally the
 // app's first version — everything before this had no changelog at all.
 const CHANGELOG = [
+  {
+    version: '0.15',
+    date: '2026-07-18',
+    features: [
+      'Replaced the flat "hard sets this session ÷ 4" Stimulus score with a continuous per-muscle adaptation model: each session contributes a rise-and-decay curve peaking 48h later, and curves from different sessions stack — a frequency-first week of small sessions can now correctly read as fully dosed, instead of every individual session looking under-dosed in isolation',
+      'New Adaptation tab (Recovery section): a per-muscle chart of that stacked curve, plus a dashed projection of where it heads with no further training — the projected decay rate calibrates automatically from your own real training gaps where there\'s enough history, with a manual override',
+      'The live "Session Stimulus" badge while logging a workout now shows a projected peak (recent history + this session so far) instead of a flat this-session-only dose',
+    ],
+  },
+  {
+    version: '0.14',
+    date: '2026-07-18',
+    features: [
+      'Added Dark Mode — toggle it in Settings → Profile, syncs across logins/devices',
+      'Fixed a gap where a failed /summary request could silently defeat the loading screen and briefly show empty data instead',
+      'Rest timer now shows live glycogen replenishment (half-life 45s) instead of a plain time countdown',
+      'Fatigue Types (Structural/Metabolic/CNS) now shown as a plain percentage',
+      'Session Stimulus no longer credits a secondary/assistor muscle (e.g. biceps on a row) the same as the actual primary target — secondary muscles now count at half weight',
+    ],
+  },
+  {
+    version: '0.13',
+    date: '2026-07-18',
+    features: [
+      'Exercise selection now heavily favors whatever you\'ve actually done before over something novel, whether picking a backbone lift or an accessory',
+      'Big disincentive against isometric holds (Plank, Pallof Press, Side Plank, ...) in favor of exercises with a normal, progressively-loadable range of motion — mechanical tension through full ROM is the primary driver of strength stimulus',
+      'Obscure/novel exercises (like the Pallof Press) are now scored down hard as accessories, and were already excluded from backbone picks entirely',
+    ],
+  },
   {
     version: '0.12',
     date: '2026-07-18',
@@ -793,6 +839,49 @@ const sessionFatigue = exercises => {
   }
   const max = Math.max(...Object.values(scores), 1);
   return Object.fromEntries(Object.entries(scores).map(([m, v]) => [m, Math.min(100, Math.round(v / max * 100))]));
+};
+
+// Live preview of the continuous adaptation model (functions/adaptation.js):
+// for each muscle touched so far this session, projects where that muscle's
+// stacked adaptation curve would peak (48h out) if the session ended right
+// now — the already-logged history's own curves at that future point, plus
+// this in-progress session's own contribution evaluated at its peak (48h is
+// exactly the peak for a session dated "now", so this is
+// sessionStimulusScore(...) directly, just expressed via adaptationCurve to
+// stay visibly consistent with the rest of the model). Replaces the old flat
+// "hard sets this session ÷ a fixed target" badge, which couldn't see that a
+// frequency-first program's small per-session doses are meant to stack
+// across the week, not clear a bar in any single session.
+const liveAdaptationPreview = (exercises, lifts) => {
+  const peakMs = Date.now() + 48 * 3600000;
+  const historicalContributions = computeStimulusContributions(lifts);
+
+  const liveScore = {};
+  for (const ex of exercises) {
+    const doneSets = ex.sets.filter(s => s.type !== 'W' && s.done);
+    if (!doneSets.length) continue;
+    const avgRIR = doneSets.reduce((acc, s) => {
+      const rpe = s.rpe === '' || s.rpe == null ? null : +s.rpe;
+      return acc + (rpe != null ? Math.max(0, 10 - rpe) : DEFAULT_RIR);
+    }, 0) / doneSets.length;
+    const score = sessionStimulusScore(doneSets.length, avgRIR);
+    const entry = findExercise(ex.name);
+    if (entry) {
+      for (const m of entry.primary || []) liveScore[m] = (liveScore[m] || 0) + score;
+      for (const m of entry.secondary || []) liveScore[m] = (liveScore[m] || 0) + score * SECONDARY_MUSCLE_WEIGHT;
+    } else {
+      for (const m of musclesForExercise(ex.name)) liveScore[m] = (liveScore[m] || 0) + score;
+    }
+  }
+
+  const muscles = new Set([...Object.keys(historicalContributions), ...Object.keys(liveScore)]);
+  const out = {};
+  for (const m of muscles) {
+    const historicalLevel = computeAdaptationLevel(historicalContributions[m], peakMs);
+    const liveContribution = adaptationCurve(48, liveScore[m] || 0);
+    out[m] = Math.round((historicalLevel + liveContribution) * 100);
+  }
+  return out;
 };
 
 function ExHistoryChart({ name, lifts }) {
@@ -1102,11 +1191,12 @@ function WorkoutLogger({ planDay, lifts, customExercises, onClose, refresh }) {
   const fatigueMuscles = Object.entries(fatigue).sort(([,a],[,b]) => b - a);
   // Stimulus is a different question from the fatigue block below it: not
   // "which muscles got hit hardest relative to each other this session"
-  // (sessionFatigue, normalized against the session's own max), but "did
-  // each muscle get the optimal hard-set dose for growth" against a fixed
-  // external target — 100 = optimal, >100 = past the useful dose. See
-  // functions/stimulus.js for why 4 sets is that target.
-  const stimulus = computeSessionStimulus(exercises);
+  // (sessionFatigue, normalized against the session's own max), but "if this
+  // session ended right now, where would each muscle's continuous adaptation
+  // level peak" — see liveAdaptationPreview and functions/adaptation.js.
+  // 100 = the single-session peak a maximal-effort session on its own would
+  // reach; recent history stacks on top, so this can (correctly) exceed 100.
+  const stimulus = liveAdaptationPreview(exercises, lifts);
   const stimulusMuscles = Object.entries(stimulus).sort(([,a],[,b]) => b - a);
   const th = { fontSize: 8, letterSpacing: '.14em', textTransform: 'uppercase', color: 'var(--dim)', fontWeight: 400, padding: '3px 0', borderBottom: '1px solid var(--rule)', textAlign: 'right' };
 
@@ -1187,15 +1277,18 @@ function WorkoutLogger({ planDay, lifts, customExercises, onClose, refresh }) {
             </div>
           )}
 
-          {/* Stimulus dose preview — 100 = optimal hard-set dose for that
-              muscle this session, >100 = past the useful dose. */}
+          {/* Live projected peak — where each muscle's stacked adaptation
+              curve (recent history + this session so far) would peak 48h
+              from now if the session ended right now. 100 = a single maximal
+              session's own peak; recent history stacking on top can push
+              this past 100, which is expected, not a warning. */}
           {stimulusMuscles.length > 0 && (
             <div style={{ marginBottom: 16 }}>
               <div className="kicker" style={{ marginBottom: 6 }}>Session Stimulus</div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
                 {stimulusMuscles.map(([m, pct]) => (
                   <div key={m} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                    <div style={{ width: 8, height: 8, borderRadius: '50%', background: pct > 100 ? 'var(--ember)' : pct === 100 ? 'var(--forest)' : 'var(--gold)', flexShrink: 0 }} />
+                    <div style={{ width: 8, height: 8, borderRadius: '50%', background: pct > 130 ? 'var(--ember)' : pct >= 70 ? 'var(--forest)' : 'var(--gold)', flexShrink: 0 }} />
                     <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)', textTransform: 'capitalize' }}>{m} {pct}%</span>
                   </div>
                 ))}
@@ -1423,13 +1516,15 @@ function WorkoutLogger({ planDay, lifts, customExercises, onClose, refresh }) {
         </div>
       )}
 
-      {/* Rest timer */}
+      {/* Rest timer — shows live glycogen replenishment (% recovered, half-life
+          45s) rather than a plain time countdown; still auto-clears at the
+          same effort-scaled total as before. */}
       {rest && (
         <div style={{ position: 'fixed', bottom: 0, left: 0, right: 0, background: 'var(--ink)', color: 'var(--paper)', zIndex: 1100, padding: '12px 20px', display: 'flex', alignItems: 'center', gap: 14 }}>
           <div style={{ flex: 1, height: 3, background: 'rgba(255,255,255,.2)', borderRadius: 2 }}>
-            <div style={{ height: '100%', background: 'var(--paper)', borderRadius: 2, width: `${(rest.remaining / rest.total) * 100}%`, transition: 'width 1s linear' }} />
+            <div style={{ height: '100%', background: 'var(--paper)', borderRadius: 2, width: `${glycogenPct(rest.total - rest.remaining)}%`, transition: 'width 1s linear' }} />
           </div>
-          <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 16, fontWeight: 600, whiteSpace: 'nowrap' }}>Rest {fmt(rest.remaining)}</div>
+          <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 16, fontWeight: 600, whiteSpace: 'nowrap' }}>Glycogen {glycogenPct(rest.total - rest.remaining)}%</div>
           <button onClick={() => setRest(null)} style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, letterSpacing: '.1em', textTransform: 'uppercase', background: 'none', border: '1px solid rgba(255,255,255,.3)', color: 'var(--paper)', padding: '4px 10px', cursor: 'pointer' }}>Skip</button>
         </div>
       )}
@@ -2739,9 +2834,11 @@ const BODY_BASE = '';
 const MUSCLES_WITHOUT_BODY_REGION = ['abductors', 'brachialis', 'brachioradialis', 'mid-delt'];
 
 // Every muscle the SVGs actually have a data-muscle region for (verified
-// directly against the 3 files) — the soreness picker's diagram can only
-// be clickable for these; the rest of ALL_MUSCLES still need the fallback
-// button list below it, same reasoning as MUSCLES_WITHOUT_BODY_REGION above.
+// directly against the 3 files) — any diagram-based muscle picker (Soreness,
+// Adaptation) can only be clickable for these; the rest still need a
+// fallback button list alongside it, same reasoning as
+// MUSCLES_WITHOUT_BODY_REGION above. Named for Soreness, where it was first
+// introduced, but not soreness-specific.
 const SORENESS_DIAGRAM_MUSCLES = [
   'abs', 'adductors', 'biceps', 'calves', 'chest', 'erectors', 'forearms',
   'front-delt', 'glutes', 'hamstrings', 'lats', 'obliques', 'quads',
@@ -2763,6 +2860,9 @@ function S5({ s, refresh }) {
   // its container only mounts once the user switches to 'soreness'.
   const soreAntRef = useRef(), soreLatRef = useRef(), sorePostRef = useRef();
   const [soreSvgsReady, setSoreSvgsReady] = useState(false);
+  // Adaptation tab's own triptych/refs, same reasoning again.
+  const adaptAntRef = useRef(), adaptLatRef = useRef(), adaptPostRef = useRef();
+  const [adaptSvgsReady, setAdaptSvgsReady] = useState(false);
   const [tab, setTab] = useState('fatigue');
   const [selectedMuscle, setSelectedMuscle] = useState(null);
   const [sliderVal, setSliderVal] = useState(5);
@@ -2771,6 +2871,9 @@ function S5({ s, refresh }) {
   const [niggleSev, setNiggleSev] = useState('mild');
   const [niggleNote, setNiggleNote] = useState('');
   const [niggleLogging, setNiggleLogging] = useState(false);
+  const [adaptMuscle, setAdaptMuscle] = useState(null);
+  const [atrophyRate, setAtrophyRate] = useState(DEFAULT_ATROPHY_RATE);
+  const [atrophyCalibrated, setAtrophyCalibrated] = useState(false);
 
   const fatigue = useMemo(() => computeStructuralFatigue(s?.lifts, s?.musclePeaks, s?.soreness, s?.muscleSensitivity), [s?.lifts, s?.musclePeaks, s?.soreness, s?.muscleSensitivity]);
   const metabolic = useMemo(() => computeMetabolicFatigue(s?.lifts, s?.nutritionToday?.carbs || 0), [s?.lifts, s?.nutritionToday?.carbs]);
@@ -2784,6 +2887,22 @@ function S5({ s, refresh }) {
   const SORENESS_MUSCLES = ALL_MUSCLES;
   const recentSoreness = useMemo(() => (s?.soreness || []).filter(e => Date.now() - e.ts < 5 * 24 * 3600000), [s?.soreness]);
   const sorenessSet = new Set(recentSoreness.map(e => e.muscle));
+
+  const adaptationSeries = useMemo(() => computeAdaptationSeries(s?.lifts), [s?.lifts]);
+  const adaptMuscles = Object.keys(adaptationSeries).sort();
+  const activeAdaptMuscle = adaptMuscle || adaptMuscles[0] || null;
+  const activeAdaptSeries = activeAdaptMuscle ? (adaptationSeries[activeAdaptMuscle] || []) : [];
+  // Calibrated from the athlete's own real 14-90 day training gaps where
+  // there's enough signal (estimateAtrophyRate); auto-applied once, then left
+  // alone so a manual override via the slider below isn't silently
+  // overwritten on every lift-history change.
+  const estimatedAtrophyRate = useMemo(() => estimateAtrophyRate(s?.lifts), [s?.lifts]);
+  useEffect(() => {
+    if (estimatedAtrophyRate != null && !atrophyCalibrated) {
+      setAtrophyRate(estimatedAtrophyRate);
+      setAtrophyCalibrated(true);
+    }
+  }, [estimatedAtrophyRate]);
 
   useEffect(() => {
     Promise.all([
@@ -2917,6 +3036,55 @@ function S5({ s, refresh }) {
     });
   }, [soreSvgsReady, selectedMuscle, sorenessSet]);
 
+  useEffect(() => {
+    if (tab !== 'adaptation' || adaptSvgsReady) return;
+    Promise.all([
+      fetch(`${BODY_BASE}/body-anterior.svg`).then(r => r.text()),
+      fetch(`${BODY_BASE}/body-lateral.svg`).then(r => r.text()),
+      fetch(`${BODY_BASE}/body-posterior.svg`).then(r => r.text()),
+    ]).then(([ant, lat, post]) => {
+      if (adaptAntRef.current)  adaptAntRef.current.innerHTML  = ant;
+      if (adaptLatRef.current)  adaptLatRef.current.innerHTML  = lat;
+      if (adaptPostRef.current) adaptPostRef.current.innerHTML = post;
+      setAdaptSvgsReady(true);
+    }).catch(() => {});
+  }, [tab, adaptSvgsReady]);
+
+  // Same nearest-centroid click matching as the Soreness picker above — see
+  // that effect's comment for why raw hit-testing misattributes clicks on
+  // these irregularly-shaped, alpha-transparent region images.
+  useEffect(() => {
+    if (!adaptSvgsReady) return;
+    const containers = [adaptAntRef.current, adaptLatRef.current, adaptPostRef.current].filter(Boolean);
+    const onClick = e => {
+      const container = containers.find(c => c.contains(e.target));
+      if (!container) return;
+      let closest = null, closestDist = Infinity;
+      container.querySelectorAll('[data-muscle]').forEach(el => {
+        const m = el.getAttribute('data-muscle');
+        if (!SORENESS_DIAGRAM_MUSCLES.includes(m)) return;
+        const r = el.getBoundingClientRect();
+        const dist = Math.hypot(e.clientX - (r.left + r.width / 2), e.clientY - (r.top + r.height / 2));
+        if (dist < closestDist) { closestDist = dist; closest = m; }
+      });
+      if (closest) setAdaptMuscle(closest);
+    };
+    containers.forEach(c => c.addEventListener('click', onClick));
+    return () => containers.forEach(c => c.removeEventListener('click', onClick));
+  }, [adaptSvgsReady]);
+
+  useEffect(() => {
+    if (!adaptSvgsReady) return;
+    const containers = [adaptAntRef.current, adaptLatRef.current, adaptPostRef.current].filter(Boolean);
+    SORENESS_DIAGRAM_MUSCLES.forEach(m => {
+      const f = activeAdaptMuscle === m ? 'url(#fm-ember)' : 'none';
+      containers.forEach(c => c.querySelectorAll(`[data-muscle="${m}"]`).forEach(el => {
+        el.setAttribute('filter', f);
+        el.style.cursor = 'pointer';
+      }));
+    });
+  }, [adaptSvgsReady, activeAdaptMuscle]);
+
   const hl1 = topMuscles[0] ? `${topMuscles[0][0].toUpperCase() + topMuscles[0].slice(1)} Loaded —` : 'Fresh —';
   const hl2 = topMuscles[1] ? `Train ${topMuscles[1][0].toUpperCase() + topMuscles[1].slice(1)} Today` : 'All Systems Go';
 
@@ -2946,6 +3114,7 @@ function S5({ s, refresh }) {
         <button className={`tab-btn${tab === 'fatigue' ? ' active' : ''}`} onClick={() => setTab('fatigue')}>Structural</button>
         <button className={`tab-btn${tab === 'ranking' ? ' active' : ''}`} onClick={() => setTab('ranking')}>Ranking</button>
         <button className={`tab-btn${tab === 'types' ? ' active' : ''}`} onClick={() => setTab('types')}>Types</button>
+        <button className={`tab-btn${tab === 'adaptation' ? ' active' : ''}`} onClick={() => setTab('adaptation')}>Adaptation</button>
         <button className={`tab-btn${tab === 'soreness' ? ' active' : ''}`} onClick={() => setTab('soreness')}>Soreness</button>
         <button className={`tab-btn${tab === 'niggles' ? ' active' : ''}`} onClick={() => setTab('niggles')}>
           Niggles{(s?.injuries?.length > 0) ? ` (${s.injuries.length})` : ''}
@@ -3070,7 +3239,7 @@ function S5({ s, refresh }) {
               <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, marginBottom: 4 }}>
                 <div className="sc-label" style={{ width: 80, flexShrink: 0 }}>{label}</div>
                 <div style={{ fontFamily: "'Syne',sans-serif", fontWeight: 800, fontSize: 28, letterSpacing: '-.03em', color, lineHeight: 1 }}>
-                  {value ?? '—'}{value != null && <span style={{ fontSize: '.4em', color: 'var(--dim)', fontWeight: 700 }}>/100</span>}
+                  {value != null ? `${value}%` : '—'}
                 </div>
               </div>
               {value != null && (
@@ -3084,6 +3253,68 @@ function S5({ s, refresh }) {
           <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)', fontStyle: 'italic', paddingBottom: 8 }}>
             Recovery times are defaults and will personalise as your data accumulates.
           </div>
+        </div>
+      )}
+
+      {tab === 'adaptation' && (
+        <div className="fade" style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0, overflowY: 'auto' }}>
+          <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)', letterSpacing: '.08em', marginBottom: 10 }}>
+            Tap a muscle to see its continuous adaptation curve — how much productive stimulus is currently banked from recent training, and (past "now") where it's headed with no further training.
+          </div>
+
+          {/* Body triptych — click a region to select it, same tap-to-toggle
+              behavior as the Soreness/Ranking pickers. */}
+          <div style={{ flexShrink: 0, display: 'flex', justifyContent: 'center', alignItems: 'flex-start', borderTop: '2px solid var(--ink)', borderBottom: '2px solid var(--ink)', margin: '6px 0' }}>
+            {[['Anterior', adaptAntRef], ['Lateral', adaptLatRef], ['Posterior', adaptPostRef]].map(([label, ref]) => (
+              <div key={label} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', flexShrink: 0 }}>
+                <div style={{ fontSize: 7, letterSpacing: '.20em', textTransform: 'uppercase', color: 'var(--dim)', padding: '5px 0', whiteSpace: 'nowrap' }}>{label}</div>
+                <div className="body-view" ref={ref} />
+              </div>
+            ))}
+          </div>
+
+          {/* Muscles the diagram has no region for (see SORENESS_DIAGRAM_MUSCLES) */}
+          {adaptMuscles.some(m => !SORENESS_DIAGRAM_MUSCLES.includes(m)) && (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, margin: '10px 0' }}>
+              {adaptMuscles.filter(m => !SORENESS_DIAGRAM_MUSCLES.includes(m)).map(m => (
+                <button key={m} className="prof-btn" onClick={() => setAdaptMuscle(m)}
+                  style={activeAdaptMuscle === m ? { background: 'var(--ink)', color: 'var(--paper)', borderColor: 'var(--ink)' } : {}}>
+                  {muscleDisplayLabel(m)}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {adaptMuscles.length === 0 && (
+            <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 11, color: 'var(--dim)', fontStyle: 'italic', padding: '24px 0' }}>Log some lifts to see adaptation curves.</div>
+          )}
+
+          {activeAdaptMuscle && (
+            <>
+              <div className="kicker" style={{ marginTop: 12, marginBottom: 8 }}>{muscleDisplayLabel(activeAdaptMuscle)}</div>
+              <AdaptationChart series={activeAdaptSeries} atrophyRate={atrophyRate} />
+
+              <div style={{ marginTop: 14, display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 10 }}>
+                {estimatedAtrophyRate != null ? (
+                  <button className="prof-btn" onClick={() => { setAtrophyRate(estimatedAtrophyRate); setAtrophyCalibrated(true); }}
+                    style={atrophyCalibrated ? { background: 'var(--ink)', color: 'var(--paper)', borderColor: 'var(--ink)' } : {}}
+                    title={`Calibrated from your own training gaps (14-90 days). Median 1RM drop = ${(estimatedAtrophyRate * 24 * 100).toFixed(3)}%/day`}>
+                    {atrophyCalibrated ? '✓ calibrated from your gaps' : 'calibrate from your gaps'}
+                  </button>
+                ) : (
+                  <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)', fontStyle: 'italic' }}>Needs a 14+ day training gap to calibrate — using a default rate.</span>
+                )}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, minWidth: 160 }}>
+                  <input type="range" min="0.0005" max="0.015" step="0.0005" value={atrophyRate}
+                    onChange={e => { setAtrophyRate(+e.target.value); setAtrophyCalibrated(false); }}
+                    style={{ flex: 1, accentColor: 'var(--ink)' }} />
+                  <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)', minWidth: 62, textAlign: 'right' }}>
+                    {(atrophyRate * 24 * 100).toFixed(2)}%/day
+                  </span>
+                </div>
+              </div>
+            </>
+          )}
         </div>
       )}
 
@@ -4175,6 +4406,21 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, setBrie
               }}
               placeholder="e.g. 2" style={{ flex: 1, minWidth: 0, maxWidth: 80 }} />
           </div>
+          <div className="prof-field">
+            <span className="prof-lbl">Dark Mode</span>
+            <div style={{ display: 'flex', gap: 6 }}>
+              {[['off', false], ['on', true]].map(([label, val]) => (
+                <button key={label} className="prof-btn"
+                  onClick={() => {
+                    refresh({ ...s, profile: { ...s.profile, darkMode: val } });
+                    api('profile', { method: 'POST', body: JSON.stringify({ darkMode: val }) }).then(profile => refresh({ ...s, profile }));
+                  }}
+                  style={{ textTransform: 'capitalize', ...(!!s?.profile?.darkMode === val ? { background: 'var(--ink)', color: 'var(--paper)', borderColor: 'var(--ink)' } : {}) }}>
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
         </div>
 
         {/* ── TRACKING LEVEL ── */}
@@ -4668,8 +4914,8 @@ function BriefingOverlay({ briefing, onClose }) {
 // ── APP ──────────────────────────────────────────────────────────────────────
 function LoadingScreen() {
   return (
-    <div style={{ minHeight: '100svh', background: '#f5f0e2', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-      <div style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 11, letterSpacing: '.14em', textTransform: 'uppercase', color: '#8a7a5c' }}>Loading…</div>
+    <div style={{ minHeight: '100svh', background: 'var(--paper)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <div style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 11, letterSpacing: '.14em', textTransform: 'uppercase', color: 'var(--dim)' }}>Loading…</div>
     </div>
   );
 }
@@ -4792,7 +5038,7 @@ function App() {
   const [showSettings, setShowSettings] = useState(false);
   const [summaryError, setSummaryError] = useState('');
 
-  const loadSummary = () => api('summary')
+  const loadSummary = () => api('summary', { throwOnError: true })
     .then(data => { setS(data); setSummaryError(''); })
     .catch(() => setSummaryError('Failed to load — check your connection and try again.'));
 
@@ -4829,6 +5075,18 @@ function App() {
   };
 
   const handleOnboardDone = () => { localStorage.setItem('press_onboarded', '1'); setOnboarded(true); };
+
+  // Applies the synced preference once real profile data loads, and caches it
+  // so index.html's bootstrap script (which runs before this JS even loads)
+  // can apply the right theme immediately on the next visit without a flash.
+  // Skipped entirely while darkMode is unset (undefined, not just false) --
+  // that's "never chosen yet," so whatever the bootstrap script/CSS default
+  // already applied stands rather than being forced back to light.
+  useEffect(() => {
+    if (s?.profile?.darkMode == null) return;
+    document.documentElement.dataset.theme = s.profile.darkMode ? 'dark' : 'light';
+    try { localStorage.setItem('press_dark_mode', s.profile.darkMode ? '1' : '0'); } catch {}
+  }, [s?.profile?.darkMode]);
 
   useEffect(() => {
     getRedirectResult(auth)

@@ -6,7 +6,21 @@
 
 const { EXERCISE_DB } = require('./exerciseDb');
 const { computeProgression } = require('./progression');
-const { isCompoundExercise } = require('./muscleTaxonomy');
+const { isCompoundExercise, loggedExerciseNames } = require('./muscleTaxonomy');
+
+// Same reasoning/magnitude as weeklyPlanner.js's LOGGED_EXERCISE_BONUS — a
+// heavy preference for whatever the athlete has actually done before,
+// dominating the small (0-8 point) muscle-coverage score below rather than
+// just nudging it.
+const LOGGED_EXERCISE_BONUS = 20;
+// Disincentives, not hard exclusions — obscure/isometric exercises can still
+// win if they're genuinely the only thing covering a required muscle, but
+// lose to almost anything else. ISOMETRIC_PENALTY is the larger of the two:
+// mechanical tension through a full, progressively-loadable ROM is the
+// primary driver of strength stimulus, so a static hold (Plank, Pallof
+// Press, ...) is disincentivized harder than a merely-novel exercise.
+const OBSCURE_PENALTY = 8;
+const ISOMETRIC_PENALTY = 15;
 
 // Free-weight/barbell-style compounds carry the highest CNS demand — when CNS
 // fatigue is high, swap them for a machine/cable exercise hitting the same
@@ -50,8 +64,12 @@ function lastAccessoryPick(lifts, targetMuscles, excludeNames) {
 
 // Fills in exercises for muscles the backbone picks don't already cover.
 // Unlike the weekly planner's backbone selection, this includes lesserKnown
-// (novel/accessory) variations — appropriate here since the compound-first
-// requirement was already satisfied by the backbone lifts passed in.
+// (novel/accessory) variations and isometric holds as candidates — appropriate
+// here since the compound-first requirement was already satisfied by the
+// backbone lifts passed in — but both are heavily disincentivized in scoring
+// (OBSCURE_PENALTY, ISOMETRIC_PENALTY) and previously-logged exercises are
+// heavily preferred (LOGGED_EXERCISE_BONUS), so they only actually get picked
+// when nothing better covers a required muscle.
 // excludeNames covers both the final (possibly CNS-substituted) backbone
 // picks AND their pre-substitution originals — otherwise a barbell exercise
 // swapped out for being too CNS-taxing can wander back in as an "accessory"
@@ -59,7 +77,7 @@ function lastAccessoryPick(lifts, targetMuscles, excludeNames) {
 // rotation list from lastAccessoryPick — excluded unless doing so would
 // leave zero candidates (a muscle with exactly one viable exercise shouldn't
 // get artificially starved just to satisfy rotation).
-function pickAccessories(targetMuscles, alreadySelected, excludeNames, avoidMuscles, { travelMode, avoidEquipment = [], avoidNames = [], count, isolationOnly = false }) {
+function pickAccessories(targetMuscles, alreadySelected, excludeNames, avoidMuscles, { travelMode, avoidEquipment = [], avoidNames = [], count, isolationOnly = false, lifts }) {
   const coveredMuscles = new Set(alreadySelected.flatMap(e => e.primary));
   const remainingMuscles = targetMuscles.filter(m => !coveredMuscles.has(m));
   const basePool = EXERCISE_DB.filter(e =>
@@ -78,8 +96,15 @@ function pickAccessories(targetMuscles, alreadySelected, excludeNames, avoidMusc
   const scopedPool = typePool.length ? typePool : basePool;
   const rotatedPool = avoidNames.length ? scopedPool.filter(e => !avoidNames.includes(e.name.toLowerCase())) : scopedPool;
   const pool = rotatedPool.length ? rotatedPool : scopedPool;
+  const logged = loggedExerciseNames(lifts);
   const scored = pool
-    .map(e => ({ e, score: e.primary.filter(m => remainingMuscles.includes(m)).length * 2 + e.primary.filter(m => targetMuscles.includes(m)).length }))
+    .map(e => ({
+      e,
+      score: e.primary.filter(m => remainingMuscles.includes(m)).length * 2 + e.primary.filter(m => targetMuscles.includes(m)).length
+        + (logged.has(e.name.toLowerCase()) ? LOGGED_EXERCISE_BONUS : 0)
+        - (e.lesserKnown ? OBSCURE_PENALTY : 0)
+        - (e.isometric ? ISOMETRIC_PENALTY : 0),
+    }))
     .sort((a, b) => b.score - a.score);
   const out = [];
   for (const { e } of scored) {
@@ -228,7 +253,7 @@ function generateSessionExercises({ type, targetMuscles, backboneExerciseNames, 
   const avoidEquipment = cnsFatigue > 70 ? HIGH_CNS_EQUIPMENT : [];
   const lastPick = accessoryCount > 0 ? lastAccessoryPick(lifts, targetMuscles, excludeNames) : null;
   const accessories = accessoryCount > 0 ? pickAccessories(targetMuscles, backboneEntries, excludeNames, excludeMuscles, {
-    travelMode, avoidEquipment, avoidNames: lastPick ? [lastPick] : [], count: accessoryCount, isolationOnly,
+    travelMode, avoidEquipment, avoidNames: lastPick ? [lastPick] : [], count: accessoryCount, isolationOnly, lifts,
   }) : [];
 
   return [...backboneEntries, ...accessories].map(e => {

@@ -10,7 +10,8 @@
 <link rel="icon" href="/icon-192.png">
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <title>Press</title>
-<style>body{margin:0;background:#f5f0e2}input,select,button{font-family:inherit}</style>
+<style>html{background:#f5f0e2}html[data-theme="dark"]{background:#1b1812}body{margin:0;background:inherit}input,select,button{font-family:inherit}</style>
+<script>try{if(localStorage.getItem('press_dark_mode')==='1')document.documentElement.dataset.theme='dark'}catch(e){}</script>
 </head>
 <body><div id="root"></div><script src="/app.js"></script></body>
 </html>

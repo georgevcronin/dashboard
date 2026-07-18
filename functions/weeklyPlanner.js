@@ -14,7 +14,13 @@
 // started, rather than reading back a pre-committed slot.
 
 const { EXERCISE_DB } = require('./exerciseDb');
-const { PRIMARY_MUSCLES, MUSCLE_GROUPS } = require('./muscleTaxonomy');
+const { PRIMARY_MUSCLES, MUSCLE_GROUPS, loggedExerciseNames } = require('./muscleTaxonomy');
+
+// Dominates the small (0-4 point) muscle-coverage score below by design — "a
+// heavy preference for exercises you've done before" means history should
+// decide the pick over marginal coverage differences almost every time, not
+// just nudge it.
+const LOGGED_EXERCISE_BONUS = 20;
 
 const FATIGUE_CEILING = 65; // ethos: don't load a muscle already this fatigued
 
@@ -38,15 +44,26 @@ function muscleWeight(m) { return MAJOR_MUSCLES.has(m) ? 1 : ASSISTOR_WEIGHT; }
 
 // Compound-first exercise selection: excludes lesserKnown (novel/accessory)
 // variations, which the ethos treats as a "final 5%" addition, not a starting
-// strategy. Picks the exercises whose primary muscles best cover the target set.
-function pickBackboneExercises(targetMuscles, { travelMode, count = 2 } = {}) {
+// strategy, and isometric holds (Plank, Pallof Press, ...) — mechanical
+// tension through a full, progressively-loadable ROM is the primary driver
+// of strength stimulus, and a static hold doesn't give double-progression
+// (the app's core mechanism) anything to work with the way a normal lift
+// does. Picks the exercises whose primary muscles best cover the target set,
+// heavily boosted (LOGGED_EXERCISE_BONUS) toward whatever the athlete has
+// actually logged before over something novel.
+function pickBackboneExercises(targetMuscles, { travelMode, lifts, count = 2 } = {}) {
+  const logged = loggedExerciseNames(lifts);
   const pool = EXERCISE_DB.filter(e =>
-    !e.lesserKnown &&
+    !e.lesserKnown && !e.isometric &&
     (travelMode ? e.equipment === 'bodyweight' : true) &&
     e.primary.some(m => targetMuscles.includes(m))
   );
   const scored = pool
-    .map(e => ({ e, score: e.primary.filter(m => targetMuscles.includes(m)).length }))
+    .map(e => ({
+      e,
+      score: e.primary.filter(m => targetMuscles.includes(m)).length
+        + (logged.has(e.name.toLowerCase()) ? LOGGED_EXERCISE_BONUS : 0),
+    }))
     .sort((a, b) => b.score - a.score);
   const out = [];
   for (const { e } of scored) {
