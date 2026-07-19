@@ -71,6 +71,26 @@ test('a staple exercise is not rotated away from as an accessory, unlike a non-s
   assert.ok(names.includes('Dumbbell Incline Bench Press'), 'a staple should stay eligible as an accessory instead of being rotated away from');
 });
 
+test('accessory selection skips a candidate sharing pattern and an overlapping muscle with the backbone', () => {
+  const out = generateSessionExercises({
+    type: 'lift', targetMuscles: ['chest', 'triceps', 'front-delt'],
+    backboneExerciseNames: ['Barbell Bench Press'], lifts: [], accessoryCountOverride: 2,
+  });
+  const accessories = out.slice(1);
+  assert.ok(!accessories.some(a => a.pattern === 'press' && a.primary.includes('chest')),
+    'a second press for the same muscle is redundant with the backbone press, not real accessory variety');
+});
+
+test('a staple exercise is exempt from the same-function redundancy guard', () => {
+  const stapleLifts = Array.from({ length: STAPLE_SESSION_THRESHOLD }, (_, i) => ({ date: daysAgo(i), exercise: 'Dumbbell Incline Bench Press', sets: [] }));
+  const out = generateSessionExercises({
+    type: 'lift', targetMuscles: ['chest', 'triceps', 'front-delt'],
+    backboneExerciseNames: ['Barbell Bench Press'], lifts: stapleLifts, favoriteExercises: ['Dumbbell Incline Bench Press'],
+  });
+  const names = out.map(e => e.name);
+  assert.ok(names.includes('Dumbbell Incline Bench Press'), 'a staple should still be pickable even though it shares a pattern/muscle with the backbone press');
+});
+
 test('CNS-fatigue substitution swaps a barbell/dumbbell backbone for a machine/cable alternative', () => {
   const out = generateSessionExercises({
     type: 'lift', targetMuscles: ['chest', 'triceps', 'front-delt'],

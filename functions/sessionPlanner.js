@@ -100,12 +100,21 @@ function lastAccessoryPick(lifts, targetMuscles, excludeNames) {
 function pickAccessories(targetMuscles, alreadySelected, excludeNames, avoidMuscles, { travelMode, avoidEquipment = [], avoidNames = [], count, isolationOnly = false, lifts, favoriteExercises = [] }) {
   const coveredMuscles = new Set(alreadySelected.flatMap(e => e.primary));
   const remainingMuscles = targetMuscles.filter(m => !coveredMuscles.has(m));
+  // Same-function guard: skip anything sharing both pattern and an
+  // overlapping primary muscle with something already selected (backbone or
+  // an earlier accessory pick) — e.g. a press backbone plus a press
+  // accessory for the same muscle is redundant, but a press backbone plus
+  // an isolation raise accessory is genuinely different work and stays
+  // allowed.
+  const isRedundant = e => !isStapleExercise(lifts, e.name) &&
+    alreadySelected.some(a => a.pattern === e.pattern && e.primary.some(m => a.primary.includes(m)));
   const basePool = EXERCISE_DB.filter(e =>
     !excludeNames.has(e.name) &&
     (travelMode ? e.equipment === 'bodyweight' : true) &&
     !avoidEquipment.includes(e.equipment) &&
     !e.primary.some(m => avoidMuscles.includes(m)) &&
-    e.primary.some(m => targetMuscles.includes(m))
+    e.primary.some(m => targetMuscles.includes(m)) &&
+    !isRedundant(e)
   );
   // isolationOnly: used by the full-body auto-pick path when the athlete's
   // own 90-day history leans isolation (fatigue.js's

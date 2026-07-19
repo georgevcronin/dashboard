@@ -66,6 +66,14 @@ test('pickBackboneExercises prefers a self-reported favorite over an equal-cover
   assert.equal(contestedPicks[0].name, 'Barbell Bench Press', 'demonstrated logged history should still outrank a merely self-reported favorite');
 });
 
+test('pickBackboneExercises never picks two exercises with the same pattern for an overlapping muscle', () => {
+  const picks = pickBackboneExercises(['chest', 'triceps', 'front-delt'], { count: 2 });
+  assert.equal(picks.length, 2);
+  const [a, b] = picks;
+  const sameFunctionOverlap = a.pattern === b.pattern && a.primary.some(m => b.primary.includes(m));
+  assert.ok(!sameFunctionOverlap, `expected genuinely different work, got two ${a.pattern} picks sharing a muscle: ${a.name} + ${b.name}`);
+});
+
 test('planLiftSessionsTarget caps sessions hard when systemic fatigue is very high', () => {
   assert.ok(planLiftSessionsTarget(90, 0, 4, 'strength') <= 2);
 });

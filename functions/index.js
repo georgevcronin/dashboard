@@ -933,7 +933,12 @@ app.post("/plan/session-exercises", async (req, res) => {
     // favored over the last 90 days (computeCompoundIsolationSplit), not a
     // fixed ratio: "continue doing what you already do." No history (new
     // athlete, or a tie) defaults to compound, matching pickBackboneExercises'
-    // "compound-first" ethos above.
+    // "compound-first" ethos above. Never two exercises of the *same
+    // function* though — pickBackboneExercises/pickAccessories both skip a
+    // candidate that shares pattern + an overlapping primary muscle with
+    // something already picked (e.g. won't pair Overhead Press with Machine
+    // Shoulder Press), so a 2nd same-muscle slot is always genuinely
+    // different work, not a redundant duplicate.
     const split = computeCompoundIsolationSplit(lifts);
     const isolationLeaning = split.isolation > split.compound;
     const exercises = bucketPicks.flatMap(({ muscle }) => {

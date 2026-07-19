@@ -10,6 +10,7 @@ import strengthStandardsPkg from '../functions/strengthStandards.js';
 import machineBrandsPkg from '../functions/machineBrands.js';
 import adaptationPkg from '../functions/adaptation.js';
 import plateCalculatorPkg from '../functions/plateCalculator.js';
+import weeklyPlannerPkg from '../functions/weeklyPlanner.js';
 import { EXERCISE_DB, EXERCISE_MUSCLE_GROUPS, EXERCISE_PATTERNS } from '../functions/exerciseDb.js';
 import { PRESS_CSS } from './pressCss.js';
 import { AreaChart, BarChart, Sparkline, AdaptationChart } from './charts.jsx';
@@ -32,6 +33,7 @@ const {
   computeAdaptationSeries, estimateAtrophyRate, DEFAULT_ATROPHY_RATE, SECONDARY_MUSCLE_WEIGHT, DEFAULT_RIR,
 } = adaptationPkg;
 const { platesForWeight, STANDARD_PLATES_KG } = plateCalculatorPkg;
+const { FATIGUE_CEILING } = weeklyPlannerPkg;
 
 const FIREBASE_CONFIG = {
   apiKey: "AIzaSyDlVzSc9yow5GHbQipRWuYAZ5QTQ-jmXiY",
@@ -204,8 +206,11 @@ function S1({ s, briefing, onShowBriefing, onShowAfternoon, onShowNight, onShowW
   const fatigue = useMemo(() => computeStructuralFatigue(s?.lifts, s?.musclePeaks, s?.soreness, s?.muscleSensitivity), [s?.lifts, s?.musclePeaks, s?.soreness, s?.muscleSensitivity]);
   const fatigueVals = Object.values(fatigue);
   const overallFatigue = fatigueVals.length ? Math.round(fatigueVals.reduce((a,b) => a+b, 0) / fatigueVals.length) : null;
-  const highFatigueMuscles = Object.values(fatigue).filter(v => v > 70).length;
-  const deloadRecommended = highFatigueMuscles >= 3;
+  // No scheduled deload weeks in this program (see the Wiki entry) — fatigue
+  // is per-muscle and autoregulated live, so the only thing worth surfacing
+  // here is which specific muscles are actually over the ceiling right now,
+  // not a blanket whole-body "recovery week" recommendation.
+  const overloadedMuscles = Object.entries(fatigue).filter(([, v]) => v >= FATIGUE_CEILING).sort((a, b) => b[1] - a[1]).map(([m]) => m);
   const steps = today.steps != null ? Math.round(today.steps * 1000) : null;
   const n = s?.nutritionToday || {};
   const mt = s?.macroTargets || {};
@@ -380,11 +385,15 @@ function S1({ s, briefing, onShowBriefing, onShowAfternoon, onShowNight, onShowW
         </div>
       )}
 
-      {deloadRecommended && (
-        <div className="deload-banner fade" style={{ flexShrink: 0 }}>
-          <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, fontWeight: 600, color: 'var(--paper)', letterSpacing: '.04em' }}>Recovery week recommended</div>
+      {overloadedMuscles.length > 0 && (
+        <div className="fatigue-banner fade" style={{ flexShrink: 0 }}>
+          <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, fontWeight: 600, color: 'var(--paper)', letterSpacing: '.04em', textTransform: 'capitalize' }}>
+            {overloadedMuscles.length === 1
+              ? `${muscleDisplayLabel(overloadedMuscles[0])} — leave it alone`
+              : `${overloadedMuscles.map(muscleDisplayLabel).join(', ')} — leave them alone`}
+          </div>
           <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'rgba(245,240,226,0.75)', marginTop: 3, lineHeight: 1.5 }}>
-            {highFatigueMuscles} muscle groups above 70% fatigue. Reduce load 40%, maintain reps — rebuild in 5 days.
+            Above the {FATIGUE_CEILING}% fatigue ceiling — skip {overloadedMuscles.length === 1 ? 'it' : 'them'} today and train everything else as normal.
           </div>
         </div>
       )}
@@ -695,6 +704,14 @@ const glycogenPct = elapsedS => Math.round(100 * (1 - Math.pow(0.5, elapsedS / G
 // instead of the list. v0.1 is the first tracked release, not literally the
 // app's first version — everything before this had no changelog at all.
 const CHANGELOG = [
+  {
+    version: '0.18',
+    date: '2026-07-19',
+    features: [
+      'Home screen no longer suggests a whole-week "recovery week" once several muscles get fatigued — it now names exactly which muscle(s) are over the fatigue ceiling and says to leave those alone, since this program never runs on a scheduled deload anyway',
+      'Full-body auto-generated sessions no longer pair up two exercises that do the same job on the same muscle (e.g. Barbell Overhead Press + Machine Shoulder Press) — a second exercise for the same muscle only shows up now if it\'s genuinely different work',
+    ],
+  },
   {
     version: '0.17',
     date: '2026-07-18',

@@ -76,9 +76,15 @@ function pickBackboneExercises(targetMuscles, { travelMode, lifts, favoriteExerc
         + (favorites.has(e.name.toLowerCase()) ? FAVORITE_EXERCISE_BONUS : 0),
     }))
     .sort((a, b) => b.score - a.score);
+  // Skip anything that's the same function as something already picked —
+  // same pattern (press/row/curl/...) hitting an overlapping primary muscle
+  // is a redundant pick (e.g. Barbell Overhead Press + Machine Shoulder
+  // Press), not real variety. A different pattern on the same muscle (a
+  // press plus an isolation raise) is fine and stays allowed.
   const out = [];
   for (const { e } of scored) {
     if (out.some(o => o.name === e.name)) continue;
+    if (out.some(o => o.pattern === e.pattern && e.primary.some(m => o.primary.includes(m)))) continue;
     out.push(e);
     if (out.length >= count) break;
   }

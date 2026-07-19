@@ -249,7 +249,7 @@ section.visible .fade:nth-child(6){transition-delay:.56s}
 .briefing-prose{font-family:'Times New Roman',serif;font-size:14px;line-height:1.85;color:var(--ink)}
 .briefing-open-btn{display:block;width:100%;background:var(--ink);color:var(--paper);border:none;padding:14px;font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.18em;text-transform:uppercase;cursor:pointer;margin-top:28px;break-inside:avoid}
 .briefing-preview{border-bottom:1px solid var(--rule);padding:10px 0;cursor:pointer}
-.deload-banner{background:var(--ember);padding:10px 12px;margin:8px 0;border-left:3px solid var(--ink)}
+.fatigue-banner{background:var(--ember);padding:10px 12px;margin:8px 0;border-left:3px solid var(--ink)}
 .week-strip{display:flex;gap:3px;overflow-x:auto;padding:8px 0;border-top:1px solid var(--rule);margin-top:8px;scrollbar-width:none}
 .week-strip::-webkit-scrollbar{display:none}
 .week-day{flex:1 0 0;min-width:34px;min-height:44px;padding:6px 3px 5px;border:1px solid var(--rule);text-align:center;cursor:default;position:relative;display:flex;flex-direction:column;justify-content:center;align-items:center}
