@@ -4617,7 +4617,7 @@ function Onboarding({ onComplete, onOpenImport }) {
                     <button onClick={e => { e.stopPropagation(); copyUrl(); }}>{urlCopied ? 'Copied!' : 'Copy'}</button>
                   </div>
                   <strong>6.</strong> Method: <strong>POST</strong> · Body: <strong>JSON</strong><br />
-                  <strong>7.</strong> Add fields: <code>sleep_hours</code>, <code>hrv</code>, <code>rhr</code><br />
+                  <strong>7.</strong> Add fields: <code>sleep</code>, <code>hrv</code>, <code>rhr</code><br />
                   <strong>8.</strong> Set values from <strong>Health</strong> actions in Shortcuts
                 </div>
               )}
@@ -5024,7 +5024,7 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
                   <button>{urlCopied ? 'Copied!' : 'Copy'}</button>
                 </div>
                 <strong>6.</strong> Method: <strong>POST</strong> · Body: <strong>JSON</strong><br />
-                <strong>7.</strong> Fields: <code>sleep_hours</code>, <code>hrv</code>, <code>rhr</code> from Health actions
+                <strong>7.</strong> Fields: <code>sleep</code>, <code>hrv</code>, <code>rhr</code> from Health actions
               </div>
             )}
           </div>

@@ -212,6 +212,11 @@ app.post("/health", async (req, res) => {
 // ---------- iOS Shortcuts endpoint ----------
 app.post("/shortcut", async (req, res) => {
   const d = req.body || {};
+  // TEMPORARY — logging the raw payload so we can see exactly how Shortcuts
+  // serializes a Health Sample list inside a JSON body, before writing real
+  // parsing logic against it rather than guessing. Remove once the shape is
+  // known and the field-reading logic below is updated to match it.
+  console.log('[shortcut] raw body:', JSON.stringify(d));
   // Allow an explicit date for historical syncs; default to today
   const k = d.date ? d.date.slice(0, 10) : day();
   db.metrics[k] = db.metrics[k] || {};
