@@ -1,5 +1,6 @@
 const functions = require("firebase-functions");
 const admin = require("firebase-admin");
+const crypto = require("crypto");
 const express = require("express");
 const webpush = require("web-push");
 const { EXERCISE_DB, EXERCISE_MAP } = require('./exerciseDb');
@@ -121,12 +122,16 @@ function utcToAppLocalDateStr(isoString) {
 // They resolve the owner uid via PRESS_OWNER_UID env var, with legacy fallback.
 const OPEN_PATHS = ['/health', '/shortcut', '/hevy/webhook', '/strava/auth', '/strava/callback', '/setup'];
 
+async function loadForUid(uid) {
+  db = await loadForUser(uid);
+  liftsDocRef = userDocRef(uid);
+  save = async () => { await saveDocExcludingLifts(liftsDocRef, db); };
+}
+
 async function loadOwner() {
   const uid = process.env.PRESS_OWNER_UID;
   if (uid) {
-    db = await loadForUser(uid);
-    liftsDocRef = userDocRef(uid);
-    save = async () => { await saveDocExcludingLifts(liftsDocRef, db); };
+    await loadForUid(uid);
   } else {
     // Legacy fallback: single-user peak/state document — this is the
     // document actually in active use for the original account (verified
@@ -145,7 +150,21 @@ async function loadOwner() {
 app.use(async (req, res, next) => {
   if (req.method === 'OPTIONS') return next();
   if (OPEN_PATHS.some(p => req.path === p || req.path.startsWith(p + '/'))) {
-    await loadOwner();
+    // ?token=... routes an open webhook to a specific user's own account —
+    // see /sync-token below. Without one, these fall back to the single
+    // legacy owner account (PRESS_OWNER_UID), which is what keeps the
+    // original account's already-configured Shortcut/webhooks working
+    // unchanged. An invalid token must fail loudly rather than silently
+    // fall back to the owner — otherwise a typo'd token would misroute
+    // someone else's health data straight into the owner's account, which
+    // is the exact bug this token system exists to prevent.
+    if (req.query.token) {
+      const tokSnap = await firestore.collection('syncTokens').doc(String(req.query.token)).get();
+      if (!tokSnap.exists) return res.status(400).json({ error: 'invalid sync token' });
+      await loadForUid(tokSnap.data().uid);
+    } else {
+      await loadOwner();
+    }
     return next();
   }
   const header = req.headers.authorization;
@@ -153,9 +172,7 @@ app.use(async (req, res, next) => {
   try {
     const { uid } = await admin.auth().verifyIdToken(header.slice(7));
     req.uid = uid;
-    db = await loadForUser(uid);
-    liftsDocRef = userDocRef(uid);
-    save = async () => { await saveDocExcludingLifts(liftsDocRef, db); };
+    await loadForUid(uid);
     next();
   } catch {
     res.status(401).json({ error: 'invalid token' });
@@ -877,6 +894,21 @@ app.post("/profile", async (req, res) => {
   db.profile = { ...db.profile, ...body };
   await save();
   res.json(db.profile);
+});
+
+// Per-user token for open webhook routes (/shortcut, /health) — lets each
+// account get its own personal sync URL instead of everyone sharing the
+// single owner account's, which was silently misrouting other people's
+// health data into the owner's own account. Idempotent: returns the
+// existing token if one's already been issued, rather than rotating it on
+// every call (that would invalidate any Shortcut already built against it).
+app.post("/sync-token", async (req, res) => {
+  if (db.profile?.syncToken) return res.json({ token: db.profile.syncToken });
+  const token = crypto.randomBytes(16).toString('hex');
+  await firestore.collection('syncTokens').doc(token).set({ uid: req.uid });
+  db.profile = { ...db.profile, syncToken: token };
+  await save();
+  res.json({ token });
 });
 
 // ---------- Personal Journalist ----------

@@ -4289,9 +4289,28 @@ function Onboarding({ onComplete, onOpenImport }) {
   const [saving, setSaving] = useState(false);
 
   const SHORTCUT_URL = `${API_BASE}/shortcut`;
+  // Personal sync URL — each account gets its own token so its data lands
+  // in its own account rather than everyone sharing the owner's URL (which
+  // silently misrouted a second person's health data into the owner's own
+  // account the first time this was actually tried). Falls back to the
+  // untokened URL until the token's fetched. Fetched lazily (only once the
+  // guide is actually opened) rather than on mount, so this doesn't cost
+  // every onboarding user a round trip they may never need.
+  const [syncUrl, setSyncUrl] = useState(SHORTCUT_URL);
+  const openHealthGuide = () => {
+    setHealthGuideOpen(v => {
+      const next = !v;
+      if (next && syncUrl === SHORTCUT_URL) {
+        api('sync-token', { method: 'POST' }).then(({ token }) => {
+          if (token) setSyncUrl(`${SHORTCUT_URL}?token=${token}`);
+        }).catch(() => {});
+      }
+      return next;
+    });
+  };
 
   const copyUrl = () => {
-    navigator.clipboard?.writeText(SHORTCUT_URL).then(() => {
+    navigator.clipboard?.writeText(syncUrl).then(() => {
       setUrlCopied(true); setTimeout(() => setUrlCopied(false), 2000);
     });
   };
@@ -4601,7 +4620,7 @@ function Onboarding({ onComplete, onOpenImport }) {
                   <div className="ob-svc-title">Apple Health</div>
                   <div className="ob-svc-desc">Stream sleep, HRV, steps, and heart rate from your iPhone</div>
                 </div>
-                <button className={`ob-svc-btn${healthGuideOpen ? ' done' : ''}`} onClick={() => setHealthGuideOpen(v => !v)}>
+                <button className={`ob-svc-btn${healthGuideOpen ? ' done' : ''}`} onClick={openHealthGuide}>
                   {healthGuideOpen ? 'Hide Guide' : 'Setup Guide'}
                 </button>
               </div>
@@ -4611,19 +4630,20 @@ function Onboarding({ onComplete, onOpenImport }) {
                     style={{ display: 'block', marginBottom: 10, fontWeight: 700, color: 'var(--gold)' }}>
                     Install the pre-built Shortcut →
                   </a>
+                  This is your personal sync link — after installing, open the Shortcut and make sure its URL matches the one below (replace it if it doesn't), so your data lands in your own account.<br /><br />
                   Or build it yourself:<br />
                   <strong>1.</strong> Open <strong>Shortcuts</strong> on your iPhone<br />
                   <strong>2.</strong> Create a new <strong>Personal Automation</strong><br />
                   <strong>3.</strong> Trigger: <strong>Daily</strong> — set up <strong>three</strong> automations (duplicate this one twice), one each in the morning, afternoon, and night, so your data is fresh for each of Press's Morning Briefing, Mid-Day Update, and Tonight's Report<br />
                   <strong>4.</strong> Add action: <strong>Get Contents of URL</strong><br />
-                  <strong>5.</strong> URL (tap to copy):
+                  <strong>5.</strong> URL (tap to copy — this is your own personal link, unique to your account):
                   <div className="ob-copy-url" onClick={copyUrl}>
-                    <span>{SHORTCUT_URL}</span>
+                    <span>{syncUrl}</span>
                     <button onClick={e => { e.stopPropagation(); copyUrl(); }}>{urlCopied ? 'Copied!' : 'Copy'}</button>
                   </div>
                   <strong>6.</strong> Method: <strong>POST</strong> · Body: <strong>JSON</strong><br />
-                  <strong>7.</strong> Add fields: <code>sleep</code>, <code>hrv</code>, <code>rhr</code><br />
-                  <strong>8.</strong> Set values from <strong>Health</strong> actions in Shortcuts
+                  <strong>7.</strong> Add a Dictionary with: <code>hr_values</code>/<code>hr_dates</code>, <code>rhr_values</code>/<code>rhr_dates</code>, <code>hrv_values</code>/<code>hrv_dates</code>, <code>bloodoxygen_values</code>/<code>bloodoxygen_dates</code>, <code>steps_values</code>/<code>steps_dates</code>, <code>wrist_values</code>/<code>wrist_dates</code>, and <code>sleep_start</code>/<code>sleep_end</code>/<code>sleep_types</code><br />
+                  <strong>8.</strong> Each pair comes from its own "Find Health Samples" block — Value+Start Date for the first six, Start Date+End Date+Type for Sleep
                 </div>
               )}
             </div>
@@ -4782,6 +4802,18 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
   };
 
   const SHORTCUT_URL = `${API_BASE}/shortcut`;
+  const [syncUrl, setSyncUrl] = useState(SHORTCUT_URL);
+  const openHealthGuide = () => {
+    setHealthGuideOpen(v => {
+      const next = !v;
+      if (next && syncUrl === SHORTCUT_URL) {
+        api('sync-token', { method: 'POST' }).then(({ token }) => {
+          if (token) setSyncUrl(`${SHORTCUT_URL}?token=${token}`);
+        }).catch(() => {});
+      }
+      return next;
+    });
+  };
   const supplements = s?.supplements || [];
   const inputStyle = { width: '100%', border: 'none', borderBottom: '2px solid var(--ink)', padding: '8px 0', background: 'transparent', fontFamily: 'Times New Roman,serif', fontSize: 16, outline: 'none', color: 'var(--ink)', boxSizing: 'border-box' };
 
@@ -5013,7 +5045,7 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
                 <div className="ob-svc-title">Apple Health</div>
                 <div className="ob-svc-desc">Stream sleep, HRV, steps, and heart rate from your iPhone</div>
               </div>
-              <button className={`ob-svc-btn${healthGuideOpen ? ' done' : ''}`} onClick={() => setHealthGuideOpen(v => !v)}>
+              <button className={`ob-svc-btn${healthGuideOpen ? ' done' : ''}`} onClick={openHealthGuide}>
                 {healthGuideOpen ? 'Hide' : 'Setup'}
               </button>
             </div>
@@ -5023,18 +5055,20 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
                   style={{ display: 'block', marginBottom: 10, fontWeight: 700, color: 'var(--gold)' }}>
                   Install the pre-built Shortcut →
                 </a>
+                This is your personal sync link — after installing, open the Shortcut and make sure its URL matches the one below (replace it if it doesn't), so your data lands in your own account.<br /><br />
                 Or build it yourself:<br />
                 <strong>1.</strong> Open <strong>Shortcuts</strong> on your iPhone<br />
                 <strong>2.</strong> Create a new <strong>Personal Automation</strong><br />
                 <strong>3.</strong> Trigger: <strong>Daily</strong> — set up <strong>three</strong> automations (duplicate this one twice), one each in the morning, afternoon, and night, so your data is fresh for each of Press's Morning Briefing, Mid-Day Update, and Tonight's Report<br />
                 <strong>4.</strong> Add action: <strong>Get Contents of URL</strong><br />
-                <strong>5.</strong> URL (tap to copy):
-                <div className="ob-copy-url" onClick={() => navigator.clipboard?.writeText(SHORTCUT_URL).then(() => { setUrlCopied(true); setTimeout(() => setUrlCopied(false), 2000); })}>
-                  <span>{SHORTCUT_URL}</span>
+                <strong>5.</strong> URL (tap to copy — this is your own personal link, unique to your account):
+                <div className="ob-copy-url" onClick={() => navigator.clipboard?.writeText(syncUrl).then(() => { setUrlCopied(true); setTimeout(() => setUrlCopied(false), 2000); })}>
+                  <span>{syncUrl}</span>
                   <button>{urlCopied ? 'Copied!' : 'Copy'}</button>
                 </div>
                 <strong>6.</strong> Method: <strong>POST</strong> · Body: <strong>JSON</strong><br />
-                <strong>7.</strong> Fields: <code>sleep</code>, <code>hrv</code>, <code>rhr</code> from Health actions
+                <strong>7.</strong> Add a Dictionary with: <code>hr_values</code>/<code>hr_dates</code>, <code>rhr_values</code>/<code>rhr_dates</code>, <code>hrv_values</code>/<code>hrv_dates</code>, <code>bloodoxygen_values</code>/<code>bloodoxygen_dates</code>, <code>steps_values</code>/<code>steps_dates</code>, <code>wrist_values</code>/<code>wrist_dates</code>, and <code>sleep_start</code>/<code>sleep_end</code>/<code>sleep_types</code><br />
+                <strong>8.</strong> Each pair comes from its own "Find Health Samples" block — Value+Start Date for the first six, Start Date+End Date+Type for Sleep
               </div>
             )}
           </div>
