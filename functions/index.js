@@ -12,6 +12,7 @@ const { computeProgression } = require('./progression');
 const { generateSessionExercises, progressionFor, isLowRepPattern, LOW_REP_THRESHOLD } = require('./sessionPlanner');
 const { computeSleepScore } = require('./sleepScore');
 const { callGeminiResilient } = require('./gemini');
+const { unwrapShortcutBody, average, sum, computeSleepMetrics } = require('./shortcutParsing');
 
 admin.initializeApp();
 const firestore = admin.firestore();
@@ -211,27 +212,43 @@ app.post("/health", async (req, res) => {
 
 // ---------- iOS Shortcuts endpoint ----------
 app.post("/shortcut", async (req, res) => {
-  const d = req.body || {};
-  // TEMPORARY — logging the raw payload so we can see exactly how Shortcuts
-  // serializes a Health Sample list inside a JSON body, before writing real
-  // parsing logic against it rather than guessing. Remove once the shape is
-  // known and the field-reading logic below is updated to match it.
-  console.log('[shortcut] raw body:', JSON.stringify(d));
+  const d = unwrapShortcutBody(req.body);
+  // TEMPORARY — logging the raw + unwrapped payload while the Shortcut setup
+  // is still being verified against real device data. Remove once this has
+  // been confirmed stable across a few real runs.
+  console.log('[shortcut] raw body:', JSON.stringify(req.body));
+  console.log('[shortcut] unwrapped:', JSON.stringify(d));
   // Allow an explicit date for historical syncs; default to today
   const k = d.date ? d.date.slice(0, 10) : day();
   db.metrics[k] = db.metrics[k] || {};
-  if (d.hrv) db.metrics[k].heart_rate_variability = d.hrv;
-  if (d.rhr) db.metrics[k].resting_heart_rate = d.rhr;
-  if (d.sleep) db.metrics[k].sleep_hours = d.sleep;
-  if (d.steps) db.metrics[k].step_count = d.steps;
+  // Health Sample lists arrive as newline-joined text (see
+  // shortcutParsing.js), one value per line — reduced here rather than in
+  // the fragile Shortcuts GUI, which has no error reporting of its own.
+  const hrv = average(d.hrv_values);
+  if (hrv != null) db.metrics[k].heart_rate_variability = hrv;
+  const rhr = average(d.rhr_values);
+  if (rhr != null) db.metrics[k].resting_heart_rate = rhr;
+  const stepCount = sum(d.steps_values);
+  if (stepCount != null) db.metrics[k].step_count = stepCount;
+  const wrist = average(d.wrist_values);
+  if (wrist != null) db.metrics[k].wrist_temperature = wrist;
+  const hr = average(d.hr_values);
+  if (hr != null) db.metrics[k].heart_rate = hr;
+  const bloodOxygen = average(d.bloodoxygen_values);
+  if (bloodOxygen != null) db.metrics[k].blood_oxygen = bloodOxygen;
   if (d.weight) { db.metrics[k].body_mass = d.weight; db.weight[k] = d.weight; }
   if (d.vo2max) db.metrics[k].vo2max = d.vo2max;
   if (d.hrr_bpm) db.metrics[k].hrr_bpm = d.hrr_bpm;
-  if (d.wrist) db.metrics[k].wrist_temperature = d.wrist;
-  if (d.hr) db.metrics[k].heart_rate = d.hr;
-  if (d.bloodoxygen) db.metrics[k].blood_oxygen = d.bloodoxygen;
-  // Sleep-score inputs: stage minutes, WASO, overnight HR, and efficiency
-  // (either sent directly or derived from time-in-bed vs. time-asleep).
+  // Sleep: total asleep hours, WASO, and efficiency all derived from the
+  // same start/end/type triple — see shortcutParsing.js's computeSleepMetrics
+  // for why (In Bed vs. Awake vs. genuine sleep-stage segments).
+  const { asleepHours, wasoMin, sleepEff } = computeSleepMetrics(d.sleep_start, d.sleep_end, d.sleep_types);
+  if (asleepHours != null) db.metrics[k].sleep_hours = asleepHours;
+  if (wasoMin != null) db.metrics[k].waso_min = wasoMin;
+  if (sleepEff != null) db.metrics[k].sleep_eff = sleepEff;
+  // Legacy direct-field inputs — still accepted for the /health (Health Auto
+  // Export) path or any future manual sync, which send scalars directly
+  // rather than the Shortcuts-specific newline-text lists above.
   if (d.deepmin != null) db.metrics[k].deep_sleep_min = d.deepmin;
   if (d.remmin != null) db.metrics[k].rem_sleep_min = d.remmin;
   if (d.coremin != null) db.metrics[k].light_sleep_min = d.coremin;
