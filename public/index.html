@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Press">
 <meta name="theme-color" content="#f5f0e2">
@@ -12,6 +12,14 @@
 <title>Press</title>
 <style>html{background:#f5f0e2}html[data-theme="dark"]{background:#1b1812}body{margin:0;background:inherit}input,select,button{font-family:inherit}</style>
 <script>try{if(localStorage.getItem('press_dark_mode')==='1')document.documentElement.dataset.theme='dark'}catch(e){}</script>
+<script>
+// maximum-scale/user-scalable in the viewport meta tag above is ignored by
+// modern iOS Safari (13+) for accessibility reasons — Apple deliberately
+// stopped honoring it so sites can't block zoom. This blocks the pinch
+// gesture directly instead, which iOS Safari does still respect.
+document.addEventListener('gesturestart', e => e.preventDefault());
+document.addEventListener('touchmove', e => { if (e.touches.length > 1) e.preventDefault(); }, { passive: false });
+</script>
 </head>
 <body><div id="root"></div><script src="/app.js"></script></body>
 </html>

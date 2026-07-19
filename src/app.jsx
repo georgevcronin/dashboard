@@ -231,7 +231,11 @@ function S1({ s, briefing, onShowBriefing, onShowAfternoon, onShowNight, onShowW
 
   const thought = s?.thoughts?.[0]?.text;
   const hour = new Date().getHours();
-  const canAfternoon = hour >= 12;
+  // Exclusive windows, not cumulative thresholds — hour >= 18 alone left
+  // canAfternoon (hour >= 12) also true all evening, showing both the
+  // mid-day and the night report slots at once past 6pm. Only one time-
+  // of-day slot should ever be current.
+  const canAfternoon = hour >= 12 && hour < 18;
   const canNight = hour >= 18;
 
   return (
@@ -710,6 +714,9 @@ const CHANGELOG = [
     features: [
       'Home screen no longer suggests a whole-week "recovery week" once several muscles get fatigued — it now names exactly which muscle(s) are over the fatigue ceiling and says to leave those alone, since this program never runs on a scheduled deload anyway',
       'Full-body auto-generated sessions no longer pair up two exercises that do the same job on the same muscle (e.g. Barbell Overhead Press + Machine Shoulder Press) — a second exercise for the same muscle only shows up now if it\'s genuinely different work',
+      'Home screen panels and Recovery tabs can now be reordered and hidden from Settings',
+      'Disabled pinch-to-zoom so the app behaves more like a native app rather than a zoomable page',
+      'Fixed the mid-day and evening report both being generatable at once in the evening — only the report matching the actual time of day shows now',
     ],
   },
   {
@@ -3187,7 +3194,10 @@ function S5({ s, refresh }) {
   // Adaptation tab's own triptych/refs, same reasoning again.
   const adaptAntRef = useRef(), adaptLatRef = useRef(), adaptPostRef = useRef();
   const [adaptSvgsReady, setAdaptSvgsReady] = useState(false);
-  const [tab, setTab] = useState('fatigue');
+  const recoveryTabOrder = s?.profile?.recoveryTabOrder?.length ? s.profile.recoveryTabOrder : DEFAULT_RECOVERY_TAB_ORDER;
+  const hiddenRecoveryTabSet = new Set(s?.profile?.hiddenRecoveryTabs || []);
+  const visibleRecoveryTabs = recoveryTabOrder.filter(id => !hiddenRecoveryTabSet.has(id));
+  const [tab, setTab] = useState(() => (visibleRecoveryTabs.includes('fatigue') ? 'fatigue' : visibleRecoveryTabs[0]) || 'fatigue');
   const [selectedMuscle, setSelectedMuscle] = useState(null);
   const [sliderVal, setSliderVal] = useState(5);
   const [soreLogging, setSoreLogging] = useState(false);
@@ -3455,14 +3465,11 @@ function S5({ s, refresh }) {
       </div>
 
       <div className="fade tab-bar" style={{ flexShrink: 0 }}>
-        <button className={`tab-btn${tab === 'fatigue' ? ' active' : ''}`} onClick={() => setTab('fatigue')}>Structural</button>
-        <button className={`tab-btn${tab === 'ranking' ? ' active' : ''}`} onClick={() => setTab('ranking')}>Ranking</button>
-        <button className={`tab-btn${tab === 'types' ? ' active' : ''}`} onClick={() => setTab('types')}>Types</button>
-        <button className={`tab-btn${tab === 'adaptation' ? ' active' : ''}`} onClick={() => setTab('adaptation')}>Adaptation</button>
-        <button className={`tab-btn${tab === 'soreness' ? ' active' : ''}`} onClick={() => setTab('soreness')}>Soreness</button>
-        <button className={`tab-btn${tab === 'injuries' ? ' active' : ''}`} onClick={() => setTab('injuries')}>
-          Injuries{(s?.injuries?.length > 0) ? ` (${s.injuries.length})` : ''}
-        </button>
+        {visibleRecoveryTabs.map(id => (
+          <button key={id} className={`tab-btn${tab === id ? ' active' : ''}`} onClick={() => setTab(id)}>
+            {RECOVERY_TAB_LABELS[id]}{id === 'injuries' && s?.injuries?.length > 0 ? ` (${s.injuries.length})` : ''}
+          </button>
+        ))}
       </div>
 
       {tab === 'fatigue' && <>
@@ -4690,6 +4697,40 @@ function Onboarding({ onComplete, onOpenImport }) {
 }
 
 // ── SETTINGS OVERLAY ─────────────────────────────────────────────────────────
+// Home-screen panel order/visibility, and Recovery tab order/visibility —
+// both stored on the profile (panelOrder/hiddenPanels,
+// recoveryTabOrder/hiddenRecoveryTabs) and consumed by App()/S5. Defaults
+// here double as the fallback when a profile has never set a preference.
+const DEFAULT_PANEL_ORDER = ['s1', 's2', 's3', 's4', 's5', 's6', 's7'];
+const PANEL_LABELS = { s1: 'Dispatch', s2: 'Sleep', s3: 'Training', s4: 'Nutrition', s5: 'Recovery', s6: 'Body & Supplements', s7: 'Personal Records' };
+const DEFAULT_RECOVERY_TAB_ORDER = ['fatigue', 'ranking', 'types', 'adaptation', 'soreness', 'injuries'];
+const RECOVERY_TAB_LABELS = { fatigue: 'Structural', ranking: 'Ranking', types: 'Types', adaptation: 'Adaptation', soreness: 'Soreness', injuries: 'Injuries' };
+
+function PanelOrderEditor({ order, hidden, labels, onChange }) {
+  const move = (id, dir) => {
+    const idx = order.indexOf(id);
+    const swap = idx + dir;
+    if (swap < 0 || swap >= order.length) return;
+    const next = [...order];
+    [next[idx], next[swap]] = [next[swap], next[idx]];
+    onChange(next, hidden);
+  };
+  const toggleHidden = id => onChange(order, hidden.includes(id) ? hidden.filter(h => h !== id) : [...hidden, id]);
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+      {order.map((id, i) => (
+        <div key={id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 0', borderBottom: '1px solid var(--paper2)', opacity: hidden.includes(id) ? 0.45 : 1 }}>
+          <span style={{ flex: 1, fontFamily: "'JetBrains Mono',monospace", fontSize: 11, color: 'var(--ink)' }}>{labels[id] || id}</span>
+          <button className="ol-btn ol-btn-ghost" style={{ fontSize: 10, padding: '5px 10px' }} disabled={i === 0} onClick={() => move(id, -1)} aria-label={`Move ${labels[id]} up`}>↑</button>
+          <button className="ol-btn ol-btn-ghost" style={{ fontSize: 10, padding: '5px 10px' }} disabled={i === order.length - 1} onClick={() => move(id, 1)} aria-label={`Move ${labels[id]} down`}>↓</button>
+          <button className="ol-btn ol-btn-ghost" style={{ fontSize: 9, padding: '5px 10px', minWidth: 48 }} onClick={() => toggleHidden(id)}>{hidden.includes(id) ? 'Show' : 'Hide'}</button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenWiki, setBriefing }) {
   const [nameVal, setNameVal] = useState(s?.profile?.name || '');
   const [trainingExpVal, setTrainingExpVal] = useState(s?.profile?.trainingExperienceYears ?? '');
@@ -4719,6 +4760,21 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
   const [sensMuscle, setSensMuscle] = useState(ALL_MUSCLES[0]);
   const [sensValue, setSensValue] = useState('1.0');
   const [savingSens, setSavingSens] = useState(false);
+  const [panelOrder, setPanelOrder] = useState(s?.profile?.panelOrder?.length ? s.profile.panelOrder : DEFAULT_PANEL_ORDER);
+  const [hiddenPanels, setHiddenPanels] = useState(s?.profile?.hiddenPanels || []);
+  const [recoveryTabOrder, setRecoveryTabOrder] = useState(s?.profile?.recoveryTabOrder?.length ? s.profile.recoveryTabOrder : DEFAULT_RECOVERY_TAB_ORDER);
+  const [hiddenRecoveryTabs, setHiddenRecoveryTabs] = useState(s?.profile?.hiddenRecoveryTabs || []);
+
+  const savePanels = async (order, hidden) => {
+    setPanelOrder(order); setHiddenPanels(hidden);
+    const profile = await api('profile', { method: 'POST', body: JSON.stringify({ panelOrder: order, hiddenPanels: hidden }) });
+    refresh({ ...s, profile });
+  };
+  const saveRecoveryTabs = async (order, hidden) => {
+    setRecoveryTabOrder(order); setHiddenRecoveryTabs(hidden);
+    const profile = await api('profile', { method: 'POST', body: JSON.stringify({ recoveryTabOrder: order, hiddenRecoveryTabs: hidden }) });
+    refresh({ ...s, profile });
+  };
 
   const SHORTCUT_URL = `${API_BASE}/shortcut`;
   const supplements = s?.supplements || [];
@@ -4890,6 +4946,17 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
               </div>
             </button>
           ))}
+        </div>
+
+        {/* ── LAYOUT ── */}
+        <div className="settings-sec">
+          <div className="settings-sh">Home Screen Order</div>
+          <PanelOrderEditor order={panelOrder} hidden={hiddenPanels} labels={PANEL_LABELS} onChange={savePanels} />
+        </div>
+
+        <div className="settings-sec">
+          <div className="settings-sh">Recovery Tab Order</div>
+          <PanelOrderEditor order={recoveryTabOrder} hidden={hiddenRecoveryTabs} labels={RECOVERY_TAB_LABELS} onChange={saveRecoveryTabs} />
         </div>
 
         {/* ── TARGETS ── */}
@@ -5790,7 +5857,28 @@ function App() {
   const trackingLevel = s?.profile?.trackingLevel || 'full';
   const showSleep = trackingLevel !== 'workout';
   const showFuel = trackingLevel === 'full';
-  const sectionIds = ['s1', ...(showSleep ? ['s2'] : []), 's3', ...(showFuel ? ['s4'] : []), 's5', 's6', 's7'];
+  const panelOrder = s?.profile?.panelOrder?.length ? s.profile.panelOrder : DEFAULT_PANEL_ORDER;
+  const hiddenPanelSet = new Set(s?.profile?.hiddenPanels || []);
+  // trackingLevel's own s2/s4 gating still applies on top of the user's own
+  // order/hide preference — a "workout" tracking level shouldn't show Sleep
+  // just because it isn't in hiddenPanels.
+  const sectionIds = panelOrder.filter(id =>
+    !hiddenPanelSet.has(id) && (id !== 's2' || showSleep) && (id !== 's4' || showFuel)
+  );
+  const sectionEls = {
+    s1: <S1 key="s1" s={s} briefing={briefing} onShowBriefing={() => setShowBriefing(true)}
+            onShowAfternoon={() => afternoonNewscast ? setShowAfternoonNewscast(true) : fetchNewscast('afternoon')}
+            onShowNight={() => nightNewscast ? setShowNightNewscast(true) : fetchNewscast('night')}
+            onShowWeekly={() => weeklyReview ? setShowWeeklyReview(true) : fetchWeeklyReview()}
+            afternoonLoaded={!!afternoonNewscast} nightLoaded={!!nightNewscast} weeklyLoaded={!!weeklyReview}
+            newscastLoading={newscastLoading} newscastError={newscastError} />,
+    s2: <S2 key="s2" s={s} refresh={refresh} />,
+    s3: <S3 key="s3" s={s} onStartWorkout={planDay => setLoggerPlanDay(planDay ?? null)} onImport={() => setShowImport(true)} onHistory={() => setShowHistory(true)} refresh={refresh} />,
+    s4: <S4 key="s4" s={s} refresh={refresh} />,
+    s5: <S5 key="s5" s={s} refresh={refresh} />,
+    s6: <S6 key="s6" s={s} onOpenSettings={() => setShowSettings(true)} refresh={refresh} />,
+    s7: <S7 key="s7" s={s} />,
+  };
 
   return (
     <>
@@ -5806,18 +5894,7 @@ function App() {
         {sectionIds.map(id => <div key={id} className="sn-dot" />)}
       </nav>
       <div className="scroll" id="press-scroll">
-        <S1 s={s} briefing={briefing} onShowBriefing={() => setShowBriefing(true)}
-            onShowAfternoon={() => afternoonNewscast ? setShowAfternoonNewscast(true) : fetchNewscast('afternoon')}
-            onShowNight={() => nightNewscast ? setShowNightNewscast(true) : fetchNewscast('night')}
-            onShowWeekly={() => weeklyReview ? setShowWeeklyReview(true) : fetchWeeklyReview()}
-            afternoonLoaded={!!afternoonNewscast} nightLoaded={!!nightNewscast} weeklyLoaded={!!weeklyReview}
-            newscastLoading={newscastLoading} newscastError={newscastError} />
-        {showSleep && <S2 s={s} refresh={refresh} />}
-        <S3 s={s} onStartWorkout={planDay => setLoggerPlanDay(planDay ?? null)} onImport={() => setShowImport(true)} onHistory={() => setShowHistory(true)} refresh={refresh} />
-        {showFuel && <S4 s={s} refresh={refresh} />}
-        <S5 s={s} refresh={refresh} />
-        <S6 s={s} onOpenSettings={() => setShowSettings(true)} refresh={refresh} />
-        <S7 s={s} />
+        {sectionIds.map(id => sectionEls[id])}
       </div>
       {/* Floating personal journalist chat bubble */}
       {!chatOpen && (
