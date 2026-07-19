@@ -4614,7 +4614,7 @@ function Onboarding({ onComplete, onOpenImport }) {
                   Or build it yourself:<br />
                   <strong>1.</strong> Open <strong>Shortcuts</strong> on your iPhone<br />
                   <strong>2.</strong> Create a new <strong>Personal Automation</strong><br />
-                  <strong>3.</strong> Trigger: <strong>Daily at 6:00 AM</strong><br />
+                  <strong>3.</strong> Trigger: <strong>Daily</strong> — set up <strong>three</strong> automations (duplicate this one twice), one each in the morning, afternoon, and night, so your data is fresh for each of Press's Morning Briefing, Mid-Day Update, and Tonight's Report<br />
                   <strong>4.</strong> Add action: <strong>Get Contents of URL</strong><br />
                   <strong>5.</strong> URL (tap to copy):
                   <div className="ob-copy-url" onClick={copyUrl}>
@@ -5026,7 +5026,7 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
                 Or build it yourself:<br />
                 <strong>1.</strong> Open <strong>Shortcuts</strong> on your iPhone<br />
                 <strong>2.</strong> Create a new <strong>Personal Automation</strong><br />
-                <strong>3.</strong> Trigger: <strong>Daily at 6:00 AM</strong><br />
+                <strong>3.</strong> Trigger: <strong>Daily</strong> — set up <strong>three</strong> automations (duplicate this one twice), one each in the morning, afternoon, and night, so your data is fresh for each of Press's Morning Briefing, Mid-Day Update, and Tonight's Report<br />
                 <strong>4.</strong> Add action: <strong>Get Contents of URL</strong><br />
                 <strong>5.</strong> URL (tap to copy):
                 <div className="ob-copy-url" onClick={() => navigator.clipboard?.writeText(SHORTCUT_URL).then(() => { setUrlCopied(true); setTimeout(() => setUrlCopied(false), 2000); })}>
