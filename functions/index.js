@@ -3,13 +3,13 @@ const admin = require("firebase-admin");
 const express = require("express");
 const webpush = require("web-push");
 const { EXERCISE_DB, EXERCISE_MAP } = require('./exerciseDb');
-const { isCompoundExercise } = require('./muscleTaxonomy');
+const { isCompoundExercise, findExercise } = require('./muscleTaxonomy');
 const { generateWeeklyGuidance, pickBackboneExercises, computeMusclePriority, scoreBucket, MUSCLE_GROUPS } = require('./weeklyPlanner');
 const { computeMuscleLevels, classifyLift, estimate1RM } = require('./strengthStandards');
 const { loadAllLifts, appendLifts, removeLiftsAndAppend } = require('./liftChunks');
 const { DEFAULTS, loadForUserDoc, saveDocExcludingLifts } = require('./userDoc');
 const { computeProgression } = require('./progression');
-const { generateSessionExercises, progressionFor } = require('./sessionPlanner');
+const { generateSessionExercises, progressionFor, isLowRepPattern, LOW_REP_THRESHOLD } = require('./sessionPlanner');
 const { computeSleepScore } = require('./sleepScore');
 const { callGeminiResilient } = require('./gemini');
 
@@ -288,6 +288,22 @@ function hevyKey() {
   return process.env.HEVY_API_KEY || functions.config().hevy?.key;
 }
 
+// Source-agnostic: called from every import path (Hevy webhook/backfill, CSV
+// import, parsed-session import) so an exercise name that doesn't resolve to
+// a real EXERCISE_DB entry (via findExercise, which now also checks
+// exerciseNameAliases.js) gets saved as a local custom exercise instead of
+// just silently existing as an orphan string in db.lifts forever — the same
+// customExercises mechanism the live session logger already uses when a
+// freestyle-typed name isn't recognized.
+function registerUnknownExercisesAsCustom(names) {
+  db.customExercises = db.customExercises || [];
+  for (const raw of names) {
+    const name = (raw || '').trim().toLowerCase();
+    if (!name || findExercise(name)) continue;
+    if (!db.customExercises.find(ce => ce.name === name)) db.customExercises.push({ name });
+  }
+}
+
 async function ingestWorkout(w) {
   // Hevy sends UTC timestamps with no local-time field, unlike Strava (see
   // ingestActivity below). Slicing the UTC string directly took the UTC
@@ -329,6 +345,7 @@ async function ingestWorkout(w) {
     }
   }
   if (newEntries.length) {
+    registerUnknownExercisesAsCustom(newEntries.map(e => e.exercise));
     await appendLifts(liftsDocRef, newEntries);
     db.lifts.push(...newEntries);
   }
@@ -416,7 +433,11 @@ app.post("/import", async (req, res) => {
   for (const [date, kg] of Object.entries(weights)) {
     if (kg && !db.weight[date]) { db.weight[date] = kg; addedWeights++; }
   }
-  if (newLiftEntries.length) { await appendLifts(liftsDocRef, newLiftEntries); db.lifts.push(...newLiftEntries); }
+  if (newLiftEntries.length) {
+    registerUnknownExercisesAsCustom(newLiftEntries.map(e => e.exercise));
+    await appendLifts(liftsDocRef, newLiftEntries);
+    db.lifts.push(...newLiftEntries);
+  }
   if (addedLifts || addedWeights || addedWorkouts) await save();
   res.json({ ok: true, addedLifts, addedWeights, addedWorkouts });
 });
@@ -888,6 +909,10 @@ app.post("/plan/session-exercises", async (req, res) => {
   const offlineMuscles = avoidMuscles.filter(m => activeInjuries.some(i => (i.muscles || []).includes(m)));
   const travelMode = db.profile?.travelMode || false;
   const trainingMonths = trainingMonthsIfKnown(db.profile);
+  // Self-reported at onboarding — a real anchor for a brand-new account with
+  // no lift history yet; see weeklyPlanner.js's FAVORITE_EXERCISE_BONUS for
+  // why it's weighted lower than genuinely logged history.
+  const favoriteExercises = db.profile?.trainingBackground?.favoriteExercises || [];
 
   if (type === 'lift' && !targetMuscles?.length && !reqBucket) {
     const muscleLastTrainedDays = computeMuscleLastTrainedDays(lifts);
@@ -912,10 +937,10 @@ app.post("/plan/session-exercises", async (req, res) => {
     const split = computeCompoundIsolationSplit(lifts);
     const isolationLeaning = split.isolation > split.compound;
     const exercises = bucketPicks.flatMap(({ muscle }) => {
-      const backbone = pickBackboneExercises([muscle], { travelMode, lifts, count: isolationLeaning ? 1 : 2 }).map(e => e.name);
+      const backbone = pickBackboneExercises([muscle], { travelMode, lifts, favoriteExercises, count: isolationLeaning ? 1 : 2 }).map(e => e.name);
       return generateSessionExercises({
         type, targetMuscles: [muscle], backboneExerciseNames: backbone, lifts, travelMode,
-        avoidMuscles, offlineMuscles, cnsFatigue, metabolicFatigue, trainingMonths,
+        avoidMuscles, offlineMuscles, cnsFatigue, metabolicFatigue, trainingMonths, favoriteExercises,
         accessoryCountOverride: isolationLeaning ? 1 : 0, isolationOnly: isolationLeaning,
       });
     });
@@ -934,12 +959,12 @@ app.post("/plan/session-exercises", async (req, res) => {
   }
 
   if (type === 'lift' && targetMuscles?.length && !backboneExercises?.length) {
-    backboneExercises = pickBackboneExercises(targetMuscles, { travelMode, lifts }).map(e => e.name);
+    backboneExercises = pickBackboneExercises(targetMuscles, { travelMode, lifts, favoriteExercises }).map(e => e.name);
   }
 
   const exercises = generateSessionExercises({
     type, targetMuscles, backboneExerciseNames: backboneExercises, lifts, travelMode,
-    avoidMuscles, offlineMuscles, cnsFatigue, metabolicFatigue, trainingMonths,
+    avoidMuscles, offlineMuscles, cnsFatigue, metabolicFatigue, trainingMonths, favoriteExercises,
   });
   res.json({ exercises, targetMuscles: targetMuscles || [], backboneExercises: backboneExercises || [], bucket });
 });
@@ -1000,7 +1025,10 @@ app.post("/import/hevy", async (req, res) => {
   // so this class of failure shouldn't recur, but a real failure should
   // still be visible to the client, not just logged.
   try {
-    if (newLiftEntries.length) await appendLifts(liftsDocRef, newLiftEntries);
+    if (newLiftEntries.length) {
+      registerUnknownExercisesAsCustom(newLiftEntries.map(e => e.exercise));
+      await appendLifts(liftsDocRef, newLiftEntries);
+    }
     db.lifts.push(...newLiftEntries);
     await save();
   } catch (e) {
@@ -1145,6 +1173,34 @@ app.get('/exercises/:id', async (req, res) => {
   res.json({ exercise: ex });
 });
 
+// Manual merge for two exercise entries that are really the same movement
+// but got saved as separate names — fuzzy auto-matching across import
+// sources (Hevy, CSV, custom typed-in names) can't always resolve this on
+// its own (see exerciseNameAliases.js for the cases it does catch). `from`
+// is folded into `to`: every logged set under `from` is re-attributed to
+// `to` (case-insensitive match, exact string on write), and `from` is
+// dropped from customExercises if it was one. `to` doesn't need to already
+// be a custom exercise — merging into a real EXERCISE_DB canonical name is
+// the common case (e.g. a mistyped freestyle log getting folded into the
+// real entry).
+app.post('/exercises/merge', async (req, res) => {
+  const from = (req.body.from || '').trim();
+  const to = (req.body.to || '').trim();
+  if (!from || !to) return res.status(400).json({ error: 'from and to required' });
+  if (from.toLowerCase() === to.toLowerCase()) return res.status(400).json({ error: 'from and to must be different' });
+  const fromLower = from.toLowerCase();
+  const matching = (db.lifts || []).filter(l => (l.exercise || '').toLowerCase() === fromLower);
+  if (!matching.length && !(db.customExercises || []).some(ce => ce.name === fromLower)) {
+    return res.status(404).json({ error: `no logged history or custom exercise found for "${from}"` });
+  }
+  const renamed = matching.map(l => ({ ...l, exercise: to }));
+  await removeLiftsAndAppend(liftsDocRef, l => (l.exercise || '').toLowerCase() === fromLower, renamed);
+  db.lifts = (db.lifts || []).filter(l => (l.exercise || '').toLowerCase() !== fromLower).concat(renamed);
+  db.customExercises = (db.customExercises || []).filter(ce => ce.name !== fromLower);
+  await save();
+  res.json({ ok: true, mergedSets: matching.length });
+});
+
 // ---------- Session complete ----------
 app.post('/session/complete', async (req, res) => {
   try {
@@ -1173,7 +1229,7 @@ app.post('/session/complete', async (req, res) => {
 
     const newLiftEntries = sets
       .filter(s => s.exercise && s.kg && s.reps)
-      .map(s => ({ exercise: s.exercise, kg: +s.kg, reps: +s.reps, rpe: s.rpe || null, date: workout.date, ...(s.machine ? { machine: s.machine } : {}) }));
+      .map(s => ({ exercise: s.exercise, kg: +s.kg, reps: +s.reps, rpe: s.rpe || null, date: workout.date, ...(s.machine ? { machine: s.machine } : {}), ...(s.pulleyType ? { pulleyType: s.pulleyType } : {}) }));
     const isReplacedToday = l => l.date === workout.date && sets.some(s => s.exercise === l.exercise);
     await removeLiftsAndAppend(liftsDocRef, isReplacedToday, newLiftEntries);
     db.lifts = db.lifts.filter(l => !isReplacedToday(l));
@@ -1192,6 +1248,14 @@ app.post('/session/complete', async (req, res) => {
     if (process.env.GEMINI_API_KEY && sets.length > 0) {
       const topSets = sets.slice(0, 8).map(s => `${s.exercise}: ${s.kg}kg × ${s.reps}${s.rpe ? ' @ RPE ' + s.rpe : ''}`).join('\n');
       const profile = db.profile || {};
+      // Evaluated on the complete, final session (not just topSets) — if an
+      // early low-rep stretch got worked back up to a normal majority by the
+      // end, this correctly reads false and Atlas says nothing about it. Only
+      // flagged if the pattern held all the way through, i.e. it wasn't
+      // addressed intra-session (see the matching WorkoutLogger banner).
+      const lowRepNote = isLowRepPattern(sets)
+        ? `\n\nNote: most hard sets this session were at or under ${LOW_REP_THRESHOLD} reps, and stayed that way through the end of the session. The training ethos biases toward 8-9 reps — low reps rarely deliver enough stimulus per set to default to. If this reads as a deliberate low-rep/strength-testing day, don't labor the point, but if it looks habitual, say so plainly.`
+        : '';
       const prompt = `You are Atlas, a training analyst for Press — a personal health app. You write post-session analysis. Precise, science-grounded, a touch cold. Gender-ambiguous (never use he/she/him/her). One short paragraph, 2-3 sentences max.
 
 Session: ${workout.name || 'Workout'} on ${workout.date}
@@ -1201,9 +1265,13 @@ ${topSets}
 Goal: ${profile.goal || 'build muscle'}
 Training age: ${profile.trainingAge || 'unknown'}
 
-Write a brief post-session note highlighting what the numbers say — mechanical fatigue accumulation, any standout load, what to prioritise next. No bullet points. No greetings.`;
+Write a brief post-session note highlighting what the numbers say — mechanical fatigue accumulation, any standout load, what to prioritise next. No bullet points. No greetings.${lowRepNote}`;
 
-      const result = await callGeminiResilient({ messages: [{ role: 'user', content: prompt }], maxTokens: 180, temperature: 0.7 });
+      // 180 was too tight for "2-3 sentences" covering fatigue accumulation,
+      // standout load, and next-priority guidance — Gemini would sometimes
+      // still be mid-sentence at the cap, cutting the summary off outright
+      // rather than the prompt's own length instruction doing the limiting.
+      const result = await callGeminiResilient({ messages: [{ role: 'user', content: prompt }], maxTokens: 300, temperature: 0.7 });
       atlasSummary = result.ok ? result.content.trim() : null;
     }
 

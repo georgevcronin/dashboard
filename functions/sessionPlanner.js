@@ -12,7 +12,11 @@ const { isCompoundExercise, loggedExerciseNames } = require('./muscleTaxonomy');
 // heavy preference for whatever the athlete has actually done before,
 // dominating the small (0-8 point) muscle-coverage score below rather than
 // just nudging it.
-const LOGGED_EXERCISE_BONUS = 20;
+const LOGGED_EXERCISE_BONUS = 40;
+// Same reasoning as weeklyPlanner.js's FAVORITE_EXERCISE_BONUS — a
+// self-reported favorite is a real anchor for a brand-new account, smaller
+// than a demonstrated logged-history bonus.
+const FAVORITE_EXERCISE_BONUS = 15;
 // Disincentives, not hard exclusions — obscure/isometric exercises can still
 // win if they're genuinely the only thing covering a required muscle, but
 // lose to almost anything else. ISOMETRIC_PENALTY is the larger of the two:
@@ -40,6 +44,17 @@ function substituteForCNS(entry, avoidMuscles) {
   return candidates[0]?.e || entry;
 }
 
+// A "staple" — logged often enough that it's clearly a standing fixture of
+// the athlete's own routine, not a one-off — is protected from the variety
+// rotation below. 10 distinct session dates is a deliberately high bar
+// (~2-3 months of weekly use, or less for a higher-frequency muscle) so this
+// only protects genuine long-term staples, not anything merely logged a
+// handful of times recently.
+const STAPLE_SESSION_THRESHOLD = 10;
+function isStapleExercise(lifts, name) {
+  return exerciseSessionCount(lifts, name) >= STAPLE_SESSION_THRESHOLD;
+}
+
 // Exercise rotation (experiment mode, axis 1): finds whichever exercise was
 // logged most recently that primarily hits this muscle bucket, so the
 // accessory picker below can avoid repeating it. Backbone exercises are
@@ -47,6 +62,10 @@ function substituteForCNS(entry, avoidMuscles) {
 // ethos is to stick with a backbone lift as long as double progression keeps
 // working, only rotating it out once progress stalls, so rotation only
 // applies to the accessory slot, which exists precisely to add variety.
+// Staples (isStapleExercise) are skipped here too — a genuinely regular
+// fixture of the athlete's own routine shouldn't get rotated away from just
+// because it was also what they did last time; it's supposed to keep
+// showing up.
 function lastAccessoryPick(lifts, targetMuscles, excludeNames) {
   const excludeLower = new Set([...excludeNames].map(n => n.toLowerCase()));
   const dates = [...new Set((lifts || []).map(l => l.date))].sort().reverse();
@@ -54,6 +73,7 @@ function lastAccessoryPick(lifts, targetMuscles, excludeNames) {
     const dayExercises = [...new Set(lifts.filter(l => l.date === date).map(l => l.exercise).filter(Boolean))];
     const match = dayExercises.find(name => {
       if (excludeLower.has(name.toLowerCase())) return false;
+      if (isStapleExercise(lifts, name)) return false;
       const entry = EXERCISE_DB.find(e => e.name.toLowerCase() === name.toLowerCase());
       return entry && entry.primary.some(m => targetMuscles.includes(m));
     });
@@ -77,7 +97,7 @@ function lastAccessoryPick(lifts, targetMuscles, excludeNames) {
 // rotation list from lastAccessoryPick — excluded unless doing so would
 // leave zero candidates (a muscle with exactly one viable exercise shouldn't
 // get artificially starved just to satisfy rotation).
-function pickAccessories(targetMuscles, alreadySelected, excludeNames, avoidMuscles, { travelMode, avoidEquipment = [], avoidNames = [], count, isolationOnly = false, lifts }) {
+function pickAccessories(targetMuscles, alreadySelected, excludeNames, avoidMuscles, { travelMode, avoidEquipment = [], avoidNames = [], count, isolationOnly = false, lifts, favoriteExercises = [] }) {
   const coveredMuscles = new Set(alreadySelected.flatMap(e => e.primary));
   const remainingMuscles = targetMuscles.filter(m => !coveredMuscles.has(m));
   const basePool = EXERCISE_DB.filter(e =>
@@ -97,11 +117,13 @@ function pickAccessories(targetMuscles, alreadySelected, excludeNames, avoidMusc
   const rotatedPool = avoidNames.length ? scopedPool.filter(e => !avoidNames.includes(e.name.toLowerCase())) : scopedPool;
   const pool = rotatedPool.length ? rotatedPool : scopedPool;
   const logged = loggedExerciseNames(lifts);
+  const favorites = new Set(favoriteExercises.map(n => (n || '').toLowerCase()));
   const scored = pool
     .map(e => ({
       e,
       score: e.primary.filter(m => remainingMuscles.includes(m)).length * 2 + e.primary.filter(m => targetMuscles.includes(m)).length
         + (logged.has(e.name.toLowerCase()) ? LOGGED_EXERCISE_BONUS : 0)
+        + (favorites.has(e.name.toLowerCase()) ? FAVORITE_EXERCISE_BONUS : 0)
         - (e.lesserKnown ? OBSCURE_PENALTY : 0)
         - (e.isometric ? ISOMETRIC_PENALTY : 0),
     }))
@@ -170,6 +192,21 @@ function suggestedRirSequence(setCount) {
   return Array.from({ length: setCount }, (_, i) => setCount - 1 - i);
 }
 
+// TRAINING_ETHOS (index.js): "Reps run 1-9, biased toward the higher end (up
+// to 8-9), since 1-2 reps rarely deliver enough stimulus per set to be worth
+// defaulting to." LOW_REP_THRESHOLD widens that check to <=3. Flags a real
+// session-wide pattern, not any single low-rep set — a deliberate heavy
+// single/double/triple (e.g. a top-set test) shouldn't trip this, so it
+// requires both a real sample size and a genuine majority.
+const LOW_REP_THRESHOLD = 3;
+const MIN_HARD_SETS_FOR_PATTERN = 3;
+function isLowRepPattern(hardSets) {
+  const withReps = (hardSets || []).filter(s => (+s.reps || 0) > 0);
+  if (withReps.length < MIN_HARD_SETS_FOR_PATTERN) return false;
+  const lowCount = withReps.filter(s => +s.reps <= LOW_REP_THRESHOLD).length;
+  return lowCount / withReps.length > 0.5;
+}
+
 // Fatigue budget for very new lifters, expressed as a working-set count
 // rather than a numeric RIR the app doesn't track: under 3 months, the
 // budget is one failure-equivalent set, spendable as a single true-failure
@@ -221,7 +258,7 @@ function setsFor(prog, workingSetCount, { failureSolo = false, higherRirPair = f
 // new-lifter fatigue budget. trainingMonths is null for an athlete who
 // hasn't self-reported training experience, in which case the new-lifter
 // budget is skipped entirely rather than assumed.
-function generateSessionExercises({ type, targetMuscles, backboneExerciseNames, lifts, travelMode, avoidMuscles = [], offlineMuscles = [], cnsFatigue = 0, metabolicFatigue = 0, trainingMonths = null, skipAccessories = false, accessoryCountOverride = null, isolationOnly = false }) {
+function generateSessionExercises({ type, targetMuscles, backboneExerciseNames, lifts, travelMode, avoidMuscles = [], offlineMuscles = [], cnsFatigue = 0, metabolicFatigue = 0, trainingMonths = null, skipAccessories = false, accessoryCountOverride = null, isolationOnly = false, favoriteExercises = [] }) {
   if (type !== 'lift' || !targetMuscles?.length) return [];
 
   const excludeMuscles = [...new Set([...avoidMuscles, ...offlineMuscles])];
@@ -253,7 +290,7 @@ function generateSessionExercises({ type, targetMuscles, backboneExerciseNames, 
   const avoidEquipment = cnsFatigue > 70 ? HIGH_CNS_EQUIPMENT : [];
   const lastPick = accessoryCount > 0 ? lastAccessoryPick(lifts, targetMuscles, excludeNames) : null;
   const accessories = accessoryCount > 0 ? pickAccessories(targetMuscles, backboneEntries, excludeNames, excludeMuscles, {
-    travelMode, avoidEquipment, avoidNames: lastPick ? [lastPick] : [], count: accessoryCount, isolationOnly, lifts,
+    travelMode, avoidEquipment, avoidNames: lastPick ? [lastPick] : [], count: accessoryCount, isolationOnly, lifts, favoriteExercises,
   }) : [];
 
   return [...backboneEntries, ...accessories].map(e => {
@@ -270,4 +307,7 @@ function generateSessionExercises({ type, targetMuscles, backboneExerciseNames, 
   });
 }
 
-module.exports = { generateSessionExercises, progressionFor, suggestedWorkingSetCount, suggestedRirSequence };
+module.exports = {
+  generateSessionExercises, progressionFor, suggestedWorkingSetCount, suggestedRirSequence,
+  isLowRepPattern, LOW_REP_THRESHOLD, isStapleExercise, STAPLE_SESSION_THRESHOLD,
+};

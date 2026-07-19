@@ -7,6 +7,13 @@
       0 0 0 0.2667 0
       0 0 0 1.0000 0"/>
   </filter>
+  <filter id="fm-red" color-interpolation-filters="sRGB">
+    <feColorMatrix type="matrix" values="
+      0 0 0 0.4784 0
+      0 0 0 0.0784 0
+      0 0 0 0.0784 0
+      0 0 0 1.0000 0"/>
+  </filter>
   <filter id="fm-ember" color-interpolation-filters="sRGB">
     <feColorMatrix type="matrix" values="
       0 0 0 0.4784 0

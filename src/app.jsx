@@ -9,7 +9,8 @@ import sessionPlannerPkg from '../functions/sessionPlanner.js';
 import strengthStandardsPkg from '../functions/strengthStandards.js';
 import machineBrandsPkg from '../functions/machineBrands.js';
 import adaptationPkg from '../functions/adaptation.js';
-import { EXERCISE_DB } from '../functions/exerciseDb.js';
+import plateCalculatorPkg from '../functions/plateCalculator.js';
+import { EXERCISE_DB, EXERCISE_MUSCLE_GROUPS, EXERCISE_PATTERNS } from '../functions/exerciseDb.js';
 import { PRESS_CSS } from './pressCss.js';
 import { AreaChart, BarChart, Sparkline, AdaptationChart } from './charts.jsx';
 
@@ -23,13 +24,14 @@ import { AreaChart, BarChart, Sparkline, AdaptationChart } from './charts.jsx';
 // needs the full exercise name list rather than a derived lookup.
 const { ALL_MUSCLES, musclesForExercise, isCompoundExercise, findExercise } = muscleTaxonomyPkg;
 const { computeStructuralFatigue, computeACWR, computePerformanceTrend, computeMetabolicFatigue, computeCNSFatigue, cnsLoad } = fatiguePkg;
-const { progressionFor, suggestedWorkingSetCount, suggestedRirSequence } = sessionPlannerPkg;
+const { progressionFor, suggestedWorkingSetCount, suggestedRirSequence, isLowRepPattern, LOW_REP_THRESHOLD } = sessionPlannerPkg;
 const { e1rm: calcE1RM } = strengthStandardsPkg;
 const { defaultMachineBrands } = machineBrandsPkg;
 const {
   sessionStimulusScore, adaptationCurve, computeStimulusContributions, computeAdaptationLevel,
   computeAdaptationSeries, estimateAtrophyRate, DEFAULT_ATROPHY_RATE, SECONDARY_MUSCLE_WEIGHT, DEFAULT_RIR,
 } = adaptationPkg;
+const { platesForWeight, STANDARD_PLATES_KG } = plateCalculatorPkg;
 
 const FIREBASE_CONFIG = {
   apiKey: "AIzaSyDlVzSc9yow5GHbQipRWuYAZ5QTQ-jmXiY",
@@ -627,13 +629,40 @@ function S2({ s, refresh }) {
 // keeps the suggestion list and the actual data in permanent sync.
 const BASE_EXERCISES = EXERCISE_DB.map(e => e.name.toLowerCase());
 
+// Colloquial terms that don't appear anywhere in EXERCISE_DB's own
+// primary/secondary muscle names, so the plain muscle-tag match above can't
+// find them on its own — "bicep" -> "biceps" is already covered by simple
+// substring matching, but "legs", "back", "delts" etc. name a muscle *group*,
+// not a single tracked muscle, and never literally appear in any exercise's
+// tag data. Expanded into EXERCISE_SEARCH_TAGS below so e.g. "back" finds
+// every row/pulldown/lat-pulldown variant, not just exercises literally
+// tagged "lats".
+const MUSCLE_SYNONYMS = {
+  legs: ['quads', 'hamstrings', 'glutes', 'calves', 'adductors', 'abductors', 'hip-flexors', 'tibialis'],
+  back: ['lats', 'rhomboids', 'traps', 'mid-traps', 'lower-traps', 'rear-delt', 'erectors'],
+  shoulders: ['front-delt', 'mid-delt', 'rear-delt', 'rotator-cuff'],
+  delts: ['front-delt', 'mid-delt', 'rear-delt'],
+  arms: ['biceps', 'triceps', 'forearms', 'brachialis', 'brachioradialis'],
+  abs: ['abs', 'obliques', 'transverse-abs', 'core'],
+  core: ['abs', 'obliques', 'transverse-abs', 'erectors'],
+  hammies: ['hamstrings'],
+  pecs: ['chest'],
+  traps: ['traps', 'mid-traps', 'lower-traps'],
+};
+
 // Lets exercise search match on muscles/equipment/category ("lats" finds
 // every row/pulldown variant) without those tags cluttering the visible
 // suggestion list — keyed by the same lowercase name used in allExercises.
-const EXERCISE_SEARCH_TAGS = new Map(EXERCISE_DB.map(e => [
-  e.name.toLowerCase(),
-  [...(e.primary || []), ...(e.secondary || []), e.equipment, e.category].join(' ').toLowerCase(),
-]));
+const EXERCISE_SEARCH_TAGS = new Map(EXERCISE_DB.map(e => {
+  const muscles = [...(e.primary || []), ...(e.secondary || [])];
+  const synonyms = Object.entries(MUSCLE_SYNONYMS)
+    .filter(([, group]) => group.some(m => muscles.includes(m)))
+    .map(([synonym]) => synonym);
+  return [
+    e.name.toLowerCase(),
+    [...muscles, ...synonyms, e.equipment, e.category].join(' ').toLowerCase(),
+  ];
+}));
 
 const e1rm = (kg, reps) => (kg > 0 && reps > 0) ? Math.round(calcE1RM(kg, reps)) : null;
 
@@ -666,6 +695,35 @@ const glycogenPct = elapsedS => Math.round(100 * (1 - Math.pow(0.5, elapsedS / G
 // instead of the list. v0.1 is the first tracked release, not literally the
 // app's first version — everything before this had no changelog at all.
 const CHANGELOG = [
+  {
+    version: '0.17',
+    date: '2026-07-18',
+    features: [
+      'Fixed sections sometimes staying invisible after the loading screen dismissed — a scroll-reveal effect stopped re-attaching once the loading screen delayed when the page actually mounted',
+      'Weight suggestions and progress trends now account for switching gyms/machine brands — logging the same exercise on a different brand no longer reads as a strength change once you\'ve logged it on both close enough in time to compare',
+      'Adaptation tab now defaults to a colored body diagram by current stimulus level (red = atrophying, green = actively adapting), not just tap-to-select',
+      'Exercise selection now correctly recognizes a lot more of your real logged history — imported exercise names that didn\'t exactly match the database (e.g. "Bench Press (Barbell)") were silently being treated as novel; ~140 known real aliases are now wired into exercise selection, not just the ranking system',
+      'Exercises you log regularly (10+ sessions) are now protected as "staples" — no longer rotated away from for variety',
+      'Any imported workout history referencing an exercise not in the database now auto-saves it as a custom exercise, from any import source',
+      'New "Merge Exercises" tool in Settings, for folding two entries that are really the same exercise into one',
+      'New onboarding step: split, usual sets/reps, favorite exercises, and experience level — gives session planning a real starting point before you\'ve logged anything',
+      'Beginners (self-tagged at onboarding) get Easy/Medium/Failure effort logging instead of numeric RPE',
+      'New Wiki page (Settings → Learn): plain-language training concepts and a searchable exercise reference',
+      'Exercise search now understands muscle-group terms like "back," "legs," and "delts," not just individual muscle names',
+      'Renamed Niggles to Injuries',
+      'New plate calculator in the workout logger',
+      'Machine/cable entry is now a brand dropdown instead of free text, with a single/double-pulley option for cables',
+      'Exercises are now tagged by muscle group, movement pattern, and movement family (e.g. Bench Press → Barbell/Dumbbell × Flat/Incline/Decline) — new "Browse by Muscle" picker in the workout logger lets you drill down to an exercise instead of only searching by name',
+    ],
+  },
+  {
+    version: '0.16',
+    date: '2026-07-18',
+    features: [
+      'Fixed the Atlas post-session summary and Personal Journalist chat sometimes getting cut off mid-sentence — Gemini\'s "thinking" pass was silently eating into the same token budget as the visible reply; now detected and retried with more room instead of quietly returning the cut-off text',
+      'New rep-range callout: flags it live while logging once most hard sets in a session are running 3 reps or under (the training ethos biases toward 8-9), and Atlas will mention it after the session too if it never got worked back up',
+    ],
+  },
   {
     version: '0.15',
     date: '2026-07-18',
@@ -927,7 +985,182 @@ function ExHistoryChart({ name, lifts }) {
   );
 }
 
-function WorkoutLogger({ planDay, lifts, customExercises, onClose, refresh }) {
+// Tree-nav exercise picker: muscle group -> pattern -> movement -> variant.
+// Additive alongside the free-text search above, not a replacement — same
+// addExercise() call either way, this is just a browsable way to arrive at
+// a name for someone who doesn't know exactly what they're looking for.
+// Skips the variant step when a movement only has one (e.g. Face Pull),
+// since making someone pick between one option isn't navigation.
+function ExerciseBrowser({ onAdd }) {
+  const [open, setOpen] = useState(false);
+  const [group, setGroup] = useState(null);
+  const [pattern, setPattern] = useState(null);
+  const [movementId, setMovementId] = useState(null);
+
+  const reset = () => { setGroup(null); setPattern(null); setMovementId(null); };
+
+  const groups = useMemo(() => EXERCISE_MUSCLE_GROUPS.filter(g => EXERCISE_DB.some(e => e.muscleGroup === g)), []);
+
+  const patterns = useMemo(() => {
+    if (!group) return [];
+    const present = new Set(EXERCISE_DB.filter(e => e.muscleGroup === group).map(e => e.pattern));
+    return EXERCISE_PATTERNS.filter(p => present.has(p));
+  }, [group]);
+
+  const movements = useMemo(() => {
+    if (!group || !pattern) return [];
+    const byId = new Map();
+    for (const e of EXERCISE_DB) {
+      if (e.muscleGroup !== group || e.pattern !== pattern) continue;
+      if (!byId.has(e.movementId)) byId.set(e.movementId, { movementId: e.movementId, movementName: e.movementName, count: 0 });
+      byId.get(e.movementId).count++;
+    }
+    return [...byId.values()].sort((a, b) => a.movementName.localeCompare(b.movementName));
+  }, [group, pattern]);
+
+  const variants = useMemo(() => {
+    if (!movementId) return [];
+    return EXERCISE_DB.filter(e => e.movementId === movementId).sort((a, b) => a.name.localeCompare(b.name));
+  }, [movementId]);
+
+  const pick = ex => {
+    onAdd(ex.name.toLowerCase());
+    reset();
+  };
+
+  const selectMovement = m => {
+    if (m.count === 1) {
+      pick(EXERCISE_DB.find(e => e.movementId === m.movementId));
+    } else {
+      setMovementId(m.movementId);
+    }
+  };
+
+  const tileStyle = { padding: '9px 12px', fontFamily: "'JetBrains Mono',monospace", fontSize: 11, textTransform: 'capitalize', cursor: 'pointer', border: '1px solid var(--rule)', background: 'var(--paper)', color: 'var(--ink)', textAlign: 'left' };
+
+  let step = 'group', items = [], onPick = null;
+  if (!group) { step = 'group'; items = groups.map(g => ({ key: g, label: g })); onPick = g => setGroup(g); }
+  else if (!pattern) { step = 'pattern'; items = patterns.map(p => ({ key: p, label: p })); onPick = p => setPattern(p); }
+  else if (!movementId) { step = 'movement'; items = movements.map(m => ({ key: m.movementId, label: m.count > 1 ? `${m.movementName} (${m.count})` : m.movementName, m })); onPick = it => selectMovement(it.m); }
+  else { step = 'variant'; items = variants.map(v => ({ key: v.id, label: v.name, v })); onPick = it => pick(it.v); }
+
+  return (
+    <div style={{ marginTop: 16, borderTop: '1px solid var(--rule)', paddingTop: 10 }}>
+      <button onClick={() => { setOpen(v => !v); reset(); }} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, fontFamily: "'JetBrains Mono',monospace", fontSize: 9, letterSpacing: '.12em', textTransform: 'uppercase', color: 'var(--dim)' }}>
+        {open ? '− ' : '+ '}Browse by Muscle
+      </button>
+      {open && (
+        <div style={{ marginTop: 10 }}>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', marginBottom: 8, fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)', textTransform: 'capitalize' }}>
+            {group && <button onClick={() => reset()} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--dim)', textTransform: 'capitalize', padding: 0 }}>{group}</button>}
+            {pattern && <><span>›</span><button onClick={() => { setPattern(null); setMovementId(null); }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--dim)', textTransform: 'capitalize', padding: 0 }}>{pattern}</button></>}
+            {movementId && <><span>›</span><span>{variants[0]?.movementName}</span></>}
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 260, overflowY: 'auto' }}>
+            {items.map(it => (
+              <button key={it.key} style={tileStyle} onClick={() => onPick(it)}
+                onMouseEnter={e => e.currentTarget.style.background = 'var(--paper2)'}
+                onMouseLeave={e => e.currentTarget.style.background = 'var(--paper)'}>
+                {it.label}
+              </button>
+            ))}
+          </div>
+          {step !== 'group' && (
+            <button className="ol-btn ol-btn-ghost" style={{ fontSize: 8, marginTop: 8 }}
+              onClick={() => {
+                if (step === 'variant') setMovementId(null);
+                else if (step === 'movement') setPattern(null);
+                else if (step === 'pattern') setGroup(null);
+              }}>
+              ← Back
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function PlateCalculator() {
+  const [open, setOpen] = useState(false);
+  const [barWeight, setBarWeight] = useState('20');
+  const [targetWeight, setTargetWeight] = useState('');
+  const [disabledPlates, setDisabledPlates] = useState(() => new Set());
+
+  const result = useMemo(() => {
+    const target = parseFloat(targetWeight), bar = parseFloat(barWeight);
+    if (!target || !bar) return null;
+    if (target <= bar) return { tooLight: true };
+    const available = STANDARD_PLATES_KG.filter(p => !disabledPlates.has(p));
+    return platesForWeight(target, bar, available);
+  }, [targetWeight, barWeight, disabledPlates]);
+
+  return (
+    <div style={{ marginTop: 16, borderTop: '1px solid var(--rule)', paddingTop: 10 }}>
+      <button onClick={() => setOpen(v => !v)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, fontFamily: "'JetBrains Mono',monospace", fontSize: 9, letterSpacing: '.12em', textTransform: 'uppercase', color: 'var(--dim)' }}>
+        {open ? '− ' : '+ '}Plate Calculator
+      </button>
+      {open && (
+        <div style={{ marginTop: 10 }}>
+          <div style={{ display: 'flex', gap: 12, marginBottom: 10 }}>
+            <div style={{ flex: 1 }}>
+              <div className="prof-lbl" style={{ marginBottom: 4 }}>Bar (kg)</div>
+              <input className="prof-input" style={{ width: '100%' }} inputMode="decimal" value={barWeight} onChange={e => setBarWeight(e.target.value)} />
+            </div>
+            <div style={{ flex: 1 }}>
+              <div className="prof-lbl" style={{ marginBottom: 4 }}>Target (kg)</div>
+              <input className="prof-input" style={{ width: '100%' }} inputMode="decimal" placeholder="e.g. 100" value={targetWeight} onChange={e => setTargetWeight(e.target.value)} />
+            </div>
+          </div>
+
+          <div className="prof-lbl" style={{ marginBottom: 4 }}>Available plates</div>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12 }}>
+            {STANDARD_PLATES_KG.map(p => (
+              <button key={p} className={`prof-btn${disabledPlates.has(p) ? '' : ' solid'}`}
+                onClick={() => setDisabledPlates(prev => {
+                  const next = new Set(prev);
+                  next.has(p) ? next.delete(p) : next.add(p);
+                  return next;
+                })}>
+                {p}
+              </button>
+            ))}
+          </div>
+
+          {result?.tooLight && (
+            <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, color: 'var(--dim)', fontStyle: 'italic' }}>Target is at or under the bar weight.</div>
+          )}
+          {result && !result.tooLight && (
+            <div>
+              <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)', marginBottom: 6 }}>{result.perSide}kg per side:</div>
+              {result.plates.length === 0 ? (
+                <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, color: 'var(--dim)', fontStyle: 'italic' }}>No available plate combination reaches this weight.</div>
+              ) : (
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                  {result.plates.map(({ plate, count }) => (
+                    <div key={plate} style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 13, color: 'var(--ink)', border: '1px solid var(--rule)', padding: '5px 10px' }}>
+                      {plate}kg <span style={{ color: 'var(--dim)' }}>×{count}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {result.leftover > 0 && (
+                <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--ember)', marginTop: 6 }}>
+                  {result.leftover}kg per side can't be made with the available plates.
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+const RPE_PLAIN_LANGUAGE = { easy: 6, medium: 8, failure: 10 };
+
+function WorkoutLogger({ planDay, lifts, customExercises, experienceLevel, onClose, refresh }) {
+  const isBeginner = experienceLevel === 'New to training';
   // Read once, on mount — a session already restored into `exercises` below
   // shouldn't be re-read on every render (the App-level restore that opened
   // this component in the first place already matched on the same key).
@@ -935,6 +1168,7 @@ function WorkoutLogger({ planDay, lifts, customExercises, onClose, refresh }) {
   const [exercises, setExercises] = useState(() => restored?.exercises || []);
   const [loading, setLoading] = useState(() => !restored && !!planDay);
   const [expandedEx, setExpandedEx] = useState(null);
+  const [otherMachineRows, setOtherMachineRows] = useState(() => new Set());
   const [coachNotes, setCoachNotes] = useState({});
   const [coachLoading, setCoachLoading] = useState({});
   const [newEx, setNewEx] = useState('');
@@ -1163,6 +1397,7 @@ function WorkoutLogger({ planDay, lifts, customExercises, onClose, refresh }) {
     const allSets = valid.flatMap(ex => ex.sets.map(s => ({
       exercise: ex.name, kg: parseFloat(s.kg) || 0, reps: parseInt(s.reps) || 0, rpe: parseInt(s.rpe) || null,
       ...(ex.machine ? { machine: ex.machine } : {}),
+      ...(ex.pulleyType ? { pulleyType: ex.pulleyType } : {}),
     })));
     try {
       const r = await api('session/complete', {
@@ -1198,6 +1433,12 @@ function WorkoutLogger({ planDay, lifts, customExercises, onClose, refresh }) {
   // reach; recent history stacks on top, so this can (correctly) exceed 100.
   const stimulus = liveAdaptationPreview(exercises, lifts);
   const stimulusMuscles = Object.entries(stimulus).sort(([,a],[,b]) => b - a);
+  // Session-wide pattern, not a per-set nag — a single deliberate heavy
+  // single/double/triple (testing a top set) shouldn't trip this, only a
+  // real majority of the session landing at/below LOW_REP_THRESHOLD. See
+  // sessionPlanner.js's isLowRepPattern for the training-ethos reasoning.
+  const hardSetsSoFar = exercises.flatMap(ex => ex.sets.filter(s => s.type !== 'W' && s.done));
+  const lowRepPattern = isLowRepPattern(hardSetsSoFar);
   const th = { fontSize: 8, letterSpacing: '.14em', textTransform: 'uppercase', color: 'var(--dim)', fontWeight: 400, padding: '3px 0', borderBottom: '1px solid var(--rule)', textAlign: 'right' };
 
   return (
@@ -1259,6 +1500,19 @@ function WorkoutLogger({ planDay, lifts, customExercises, onClose, refresh }) {
               <div className="kicker" style={{ marginBottom: 4 }}>{session.type} · {session.duration}</div>
               <div style={{ fontFamily: "'Playfair Display',serif", fontStyle: 'italic', fontSize: 15, marginBottom: 4 }}>{session.title}</div>
               <div style={{ fontSize: 11, color: 'var(--dim)', lineHeight: 1.5 }}>{session.detail}</div>
+            </div>
+          )}
+
+          {/* Low-rep pattern callout — training ethos biases toward 8-9 reps;
+              1-2 reps rarely deliver enough stimulus per set to default to.
+              Only shown once it's a real session-wide majority, not a single
+              deliberate heavy set. */}
+          {lowRepPattern && (
+            <div style={{ marginBottom: 18, padding: '10px 12px', borderLeft: '2px solid var(--ember)', background: 'var(--paper2)' }}>
+              <div className="kicker" style={{ marginBottom: 4 }}>Rep Range</div>
+              <div style={{ fontSize: 11, color: 'var(--dim)', lineHeight: 1.5 }}>
+                Most hard sets so far are at or under {LOW_REP_THRESHOLD} reps. Ethos biases toward 8-9 reps — low singles/doubles/triples rarely deliver enough stimulus per set to default to.
+              </div>
             </div>
           )}
 
@@ -1383,17 +1637,57 @@ function WorkoutLogger({ planDay, lifts, customExercises, onClose, refresh }) {
                     BW
                   </button>
                   {vol > 0 && <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)' }}>{Math.round(vol).toLocaleString()} kg total</span>}
-                  <input list={`machine-tags-${i}`} value={ex.machine || ''} placeholder="Machine/technique (optional)"
-                    onChange={e => setExercises(p => p.map((el, j) => j !== i ? el : { ...el, machine: e.target.value }))}
-                    style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, letterSpacing: '.03em', padding: '3px 6px', border: '1px solid var(--rule)', background: 'none', color: 'var(--dim)', width: 150 }} />
-                  <datalist id={`machine-tags-${i}`}>
-                    {[...new Set([
-                      ...(lifts || []).filter(l => l.exercise === ex.name && l.machine).map(l => l.machine),
-                      ...defaultMachineBrands(findExercise(ex.name)?.equipment),
-                    ])].map(m => (
-                      <option key={m} value={m} />
-                    ))}
-                  </datalist>
+                  {(() => {
+                    const equipment = findExercise(ex.name)?.equipment;
+                    const brands = defaultMachineBrands(equipment);
+                    const tagStyle = { fontFamily: "'JetBrains Mono',monospace", fontSize: 8, letterSpacing: '.03em', padding: '3px 6px', border: '1px solid var(--rule)', background: 'none', color: 'var(--dim)' };
+                    if (!brands.length) {
+                      // Barbell/dumbbell/bodyweight have no brand-specific
+                      // leverage/curve — free text stays for whatever
+                      // personal technique note is still worth tagging.
+                      return (
+                        <>
+                          <input list={`machine-tags-${i}`} value={ex.machine || ''} placeholder="Machine/technique (optional)"
+                            onChange={e => setExercises(p => p.map((el, j) => j !== i ? el : { ...el, machine: e.target.value }))}
+                            style={{ ...tagStyle, width: 150 }} />
+                          <datalist id={`machine-tags-${i}`}>
+                            {[...new Set((lifts || []).filter(l => l.exercise === ex.name && l.machine).map(l => l.machine))].map(m => <option key={m} value={m} />)}
+                          </datalist>
+                        </>
+                      );
+                    }
+                    const showOther = otherMachineRows.has(i) || (ex.machine && !brands.includes(ex.machine));
+                    return (
+                      <>
+                        <select value={showOther ? '__other__' : (ex.machine || '')}
+                          onChange={e => {
+                            const v = e.target.value;
+                            if (v === '__other__') { setOtherMachineRows(p => new Set(p).add(i)); return; }
+                            setOtherMachineRows(p => { const n = new Set(p); n.delete(i); return n; });
+                            setExercises(p => p.map((el, j) => j !== i ? el : { ...el, machine: v }));
+                          }}
+                          style={tagStyle}>
+                          <option value="">Brand (optional)</option>
+                          {brands.map(b => <option key={b} value={b}>{b}</option>)}
+                          <option value="__other__">Other…</option>
+                        </select>
+                        {showOther && (
+                          <input value={ex.machine || ''} placeholder="Gym/brand name" autoFocus
+                            onChange={e => setExercises(p => p.map((el, j) => j !== i ? el : { ...el, machine: e.target.value }))}
+                            style={{ ...tagStyle, width: 120 }} />
+                        )}
+                        {equipment === 'cable' && (
+                          <select value={ex.pulleyType || ''}
+                            onChange={e => setExercises(p => p.map((el, j) => j !== i ? el : { ...el, pulleyType: e.target.value }))}
+                            style={tagStyle}>
+                            <option value="">Pulley (optional)</option>
+                            <option value="single">Single Pulley</option>
+                            <option value="double">Double Pulley</option>
+                          </select>
+                        )}
+                      </>
+                    );
+                  })()}
                 </div>
 
                 {/* Sets table */}
@@ -1404,7 +1698,7 @@ function WorkoutLogger({ planDay, lifts, customExercises, onClose, refresh }) {
                       <th style={{ ...th, width: 56 }}>Prev</th>
                       {!ex.bw && <th style={{ ...th, width: 48 }}>kg</th>}
                       <th style={{ ...th, width: 38 }}>Reps</th>
-                      <th style={{ ...th, width: 28 }}>RPE</th>
+                      <th style={{ ...th, width: isBeginner ? 58 : 28 }}>{isBeginner ? 'Effort' : 'RPE'}</th>
                       <th style={{ ...th, width: 26 }}>✓</th>
                       <th style={{ ...th, width: 16 }} />
                     </tr>
@@ -1443,9 +1737,19 @@ function WorkoutLogger({ planDay, lifts, customExercises, onClose, refresh }) {
                           </td>
                           <td style={{ padding: '5px 0', textAlign: 'right' }}>
                             {isWorking
-                              ? <input className="set-input" value={set.rpe} onChange={e => updateSet(i, j, 'rpe', e.target.value)}
-                                  inputMode="numeric" placeholder="—" disabled={set.done}
-                                  style={{ color: 'var(--dim)', width: 24 }} />
+                              ? isBeginner
+                                ? <select value={Object.keys(RPE_PLAIN_LANGUAGE).find(k => String(RPE_PLAIN_LANGUAGE[k]) === String(set.rpe)) || ''}
+                                    onChange={e => updateSet(i, j, 'rpe', e.target.value ? String(RPE_PLAIN_LANGUAGE[e.target.value]) : '')}
+                                    disabled={set.done}
+                                    style={{ color: 'var(--dim)', fontFamily: "'JetBrains Mono',monospace", fontSize: 9, background: 'transparent', border: 'none', width: 56 }}>
+                                    <option value="">—</option>
+                                    <option value="easy">Easy</option>
+                                    <option value="medium">Medium</option>
+                                    <option value="failure">Failure</option>
+                                  </select>
+                                : <input className="set-input" value={set.rpe} onChange={e => updateSet(i, j, 'rpe', e.target.value)}
+                                    inputMode="numeric" placeholder="—" disabled={set.done}
+                                    style={{ color: 'var(--dim)', width: 24 }} />
                               : <span style={{ color: 'var(--rule)', fontSize: 10 }}>—</span>
                             }
                           </td>
@@ -1513,6 +1817,9 @@ function WorkoutLogger({ planDay, lifts, customExercises, onClose, refresh }) {
               </div>
             )}
           </div>
+
+          <ExerciseBrowser onAdd={addExercise} />
+          <PlateCalculator />
         </div>
       )}
 
@@ -2867,10 +3174,10 @@ function S5({ s, refresh }) {
   const [selectedMuscle, setSelectedMuscle] = useState(null);
   const [sliderVal, setSliderVal] = useState(5);
   const [soreLogging, setSoreLogging] = useState(false);
-  const [niggleArea, setNiggleArea] = useState('');
-  const [niggleSev, setNiggleSev] = useState('mild');
-  const [niggleNote, setNiggleNote] = useState('');
-  const [niggleLogging, setNiggleLogging] = useState(false);
+  const [injuryArea, setInjuryArea] = useState('');
+  const [injurySev, setInjurySev] = useState('mild');
+  const [injuryNote, setInjuryNote] = useState('');
+  const [injuryLogging, setInjuryLogging] = useState(false);
   const [adaptMuscle, setAdaptMuscle] = useState(null);
   const [atrophyRate, setAtrophyRate] = useState(DEFAULT_ATROPHY_RATE);
   const [atrophyCalibrated, setAtrophyCalibrated] = useState(false);
@@ -2889,6 +3196,26 @@ function S5({ s, refresh }) {
   const sorenessSet = new Set(recentSoreness.map(e => e.muscle));
 
   const adaptationSeries = useMemo(() => computeAdaptationSeries(s?.lifts), [s?.lifts]);
+  const stimulusContributions = useMemo(() => computeStimulusContributions(s?.lifts), [s?.lifts]);
+  // Default diagram view: colors every muscle by its current stimulus level
+  // (not a slope/derivative — stimulus is already treated as the derivative
+  // of ranking, so differentiating again isn't wanted), diverging red (near
+  // zero -- effectively atrophying) to green (well above the single-session
+  // peak -- actively adapting). "No data" is deliberately distinct from
+  // "zero current stimulus": a muscle with an all-time ranked score
+  // (s.muscleLevels) but nothing within the ~20-day contribution window has
+  // genuinely decayed to near-zero and should read as red, not gray — gray
+  // is reserved for a muscle that's never been trained at all.
+  const adaptationFilterForMuscle = m => {
+    const contribs = stimulusContributions[m];
+    const everTrained = (contribs?.length > 0) || s?.muscleLevels?.[m];
+    if (!everTrained) return 'url(#fm-dim)';
+    const level = contribs ? computeAdaptationLevel(contribs, Date.now()) : 0;
+    if (level < 0.15) return 'url(#fm-red)';
+    if (level < 0.5) return 'url(#fm-ember)';
+    if (level < 0.9) return 'url(#fm-gold)';
+    return 'url(#fm-neutral)';
+  };
   const adaptMuscles = Object.keys(adaptationSeries).sort();
   const activeAdaptMuscle = adaptMuscle || adaptMuscles[0] || null;
   const activeAdaptSeries = activeAdaptMuscle ? (adaptationSeries[activeAdaptMuscle] || []) : [];
@@ -3077,13 +3404,13 @@ function S5({ s, refresh }) {
     if (!adaptSvgsReady) return;
     const containers = [adaptAntRef.current, adaptLatRef.current, adaptPostRef.current].filter(Boolean);
     SORENESS_DIAGRAM_MUSCLES.forEach(m => {
-      const f = activeAdaptMuscle === m ? 'url(#fm-ember)' : 'none';
+      const f = adaptationFilterForMuscle(m);
       containers.forEach(c => c.querySelectorAll(`[data-muscle="${m}"]`).forEach(el => {
         el.setAttribute('filter', f);
         el.style.cursor = 'pointer';
       }));
     });
-  }, [adaptSvgsReady, activeAdaptMuscle]);
+  }, [adaptSvgsReady, stimulusContributions, s?.muscleLevels]);
 
   const hl1 = topMuscles[0] ? `${topMuscles[0][0].toUpperCase() + topMuscles[0].slice(1)} Loaded —` : 'Fresh —';
   const hl2 = topMuscles[1] ? `Train ${topMuscles[1][0].toUpperCase() + topMuscles[1].slice(1)} Today` : 'All Systems Go';
@@ -3116,8 +3443,8 @@ function S5({ s, refresh }) {
         <button className={`tab-btn${tab === 'types' ? ' active' : ''}`} onClick={() => setTab('types')}>Types</button>
         <button className={`tab-btn${tab === 'adaptation' ? ' active' : ''}`} onClick={() => setTab('adaptation')}>Adaptation</button>
         <button className={`tab-btn${tab === 'soreness' ? ' active' : ''}`} onClick={() => setTab('soreness')}>Soreness</button>
-        <button className={`tab-btn${tab === 'niggles' ? ' active' : ''}`} onClick={() => setTab('niggles')}>
-          Niggles{(s?.injuries?.length > 0) ? ` (${s.injuries.length})` : ''}
+        <button className={`tab-btn${tab === 'injuries' ? ' active' : ''}`} onClick={() => setTab('injuries')}>
+          Injuries{(s?.injuries?.length > 0) ? ` (${s.injuries.length})` : ''}
         </button>
       </div>
 
@@ -3259,16 +3586,26 @@ function S5({ s, refresh }) {
       {tab === 'adaptation' && (
         <div className="fade" style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0, overflowY: 'auto' }}>
           <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)', letterSpacing: '.08em', marginBottom: 10 }}>
-            Tap a muscle to see its continuous adaptation curve — how much productive stimulus is currently banked from recent training, and (past "now") where it's headed with no further training.
+            Colored by current stimulus level — red means it's effectively atrophying, green means it's actively adapting. Tap a muscle for its full continuous curve below.
           </div>
 
-          {/* Body triptych — click a region to select it, same tap-to-toggle
-              behavior as the Soreness/Ranking pickers. */}
+          {/* Body triptych — colored by adaptationFilterForMuscle by default;
+              click a region to select it for the chart below, same
+              tap-to-toggle behavior as the Soreness/Ranking pickers. */}
           <div style={{ flexShrink: 0, display: 'flex', justifyContent: 'center', alignItems: 'flex-start', borderTop: '2px solid var(--ink)', borderBottom: '2px solid var(--ink)', margin: '6px 0' }}>
             {[['Anterior', adaptAntRef], ['Lateral', adaptLatRef], ['Posterior', adaptPostRef]].map(([label, ref]) => (
               <div key={label} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', flexShrink: 0 }}>
                 <div style={{ fontSize: 7, letterSpacing: '.20em', textTransform: 'uppercase', color: 'var(--dim)', padding: '5px 0', whiteSpace: 'nowrap' }}>{label}</div>
                 <div className="body-view" ref={ref} />
+              </div>
+            ))}
+          </div>
+
+          <div style={{ display: 'flex', gap: 12, flexShrink: 0, margin: '2px 0 10px', flexWrap: 'wrap', fontFamily: "'JetBrains Mono',monospace", fontSize: 9 }}>
+            {[['Atrophying', 'var(--red)'], ['Low', 'var(--ember)'], ['Moderate', 'var(--gold)'], ['Adapting', 'var(--forest)'], ['No data', 'var(--dim)']].map(([lbl, css]) => (
+              <div key={lbl} style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                <div style={{ width: 7, height: 7, borderRadius: '50%', background: css }} />
+                <span style={{ color: 'var(--dim)', letterSpacing: '.08em' }}>{lbl}</span>
               </div>
             ))}
           </div>
@@ -3385,31 +3722,31 @@ function S5({ s, refresh }) {
         </div>
       )}
 
-      {tab === 'niggles' && (
+      {tab === 'injuries' && (
         <div className="fade" style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0, overflowY: 'auto' }}>
           <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)', letterSpacing: '.08em', marginBottom: 6 }}>
-            Active injuries and niggles — logged to avoid overloading affected areas
+            Active injuries — logged to avoid overloading affected areas
           </div>
 
-          {/* Active niggles list */}
+          {/* Active injuries list */}
           {(s?.injuries || []).length === 0 && (
             <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, color: 'var(--dim)', fontStyle: 'italic', padding: '12px 0' }}>
-              No active niggles. Log any pain or restriction below.
+              No active injuries. Log any pain or restriction below.
             </div>
           )}
-          <div className="niggle-list">
+          <div className="injury-list">
             {(s?.injuries || []).map(inj => (
-              <div key={inj.id} className="niggle-card">
+              <div key={inj.id} className="injury-card">
                 <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8 }}>
                   <div>
-                    <div className="niggle-area">{inj.area}</div>
-                    <div className="niggle-meta">
+                    <div className="injury-area">{inj.area}</div>
+                    <div className="injury-meta">
                       {inj.severity} · {new Date(inj.ts).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
                       {inj.clearance != null && ` · ${inj.clearance >= 100 ? 'fully healed' : `day ${inj.elapsedDays}/${inj.healingDays} — ${inj.clearance}% cleared`}`}
                     </div>
-                    {inj.note && <div className="niggle-note">{inj.note}</div>}
+                    {inj.note && <div className="injury-note">{inj.note}</div>}
                   </div>
-                  <button className="niggle-resolve" onClick={async () => {
+                  <button className="injury-resolve" onClick={async () => {
                     await api(`injuries/${inj.id}/resolve`, { method: 'POST' });
                     refresh({ ...s, injuries: (s?.injuries || []).filter(i => i.id !== inj.id) });
                   }}>Resolved</button>
@@ -3418,42 +3755,42 @@ function S5({ s, refresh }) {
             ))}
           </div>
 
-          {/* Log new niggle form */}
-          <div className="niggle-form">
-            <div className="kicker" style={{ margin: 0 }}>Log a Niggle</div>
+          {/* Log new injury form */}
+          <div className="injury-form">
+            <div className="kicker" style={{ margin: 0 }}>Log an Injury</div>
             <input
-              className="niggle-input"
+              className="injury-input"
               placeholder="Area or movement affected (e.g. left knee, shoulder flexion)…"
-              value={niggleArea}
-              onChange={e => setNiggleArea(e.target.value)}
+              value={injuryArea}
+              onChange={e => setInjuryArea(e.target.value)}
             />
             <div>
               <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, letterSpacing: '.14em', textTransform: 'uppercase', color: 'var(--dim)', marginBottom: 6 }}>Severity</div>
-              <div className="niggle-sev">
+              <div className="injury-sev">
                 {['mild','moderate','severe'].map(sev => (
-                  <button key={sev} className={`niggle-sev-btn${niggleSev === sev ? ' active' : ''}`} onClick={() => setNiggleSev(sev)}>
+                  <button key={sev} className={`injury-sev-btn${injurySev === sev ? ' active' : ''}`} onClick={() => setInjurySev(sev)}>
                     {sev}
                   </button>
                 ))}
               </div>
             </div>
             <input
-              className="niggle-input"
+              className="injury-input"
               placeholder="Notes (optional)…"
-              value={niggleNote}
-              onChange={e => setNiggleNote(e.target.value)}
+              value={injuryNote}
+              onChange={e => setInjuryNote(e.target.value)}
             />
-            <button className="prof-btn solid" disabled={!niggleArea.trim() || niggleLogging}
+            <button className="prof-btn solid" disabled={!injuryArea.trim() || injuryLogging}
               onClick={async () => {
-                setNiggleLogging(true);
-                const area = niggleArea.trim(), severity = niggleSev, note = niggleNote.trim();
+                setInjuryLogging(true);
+                const area = injuryArea.trim(), severity = injurySev, note = injuryNote.trim();
                 const data = await api('injury', { method: 'POST', body: JSON.stringify({ area, severity, note }) });
-                setNiggleArea(''); setNiggleNote(''); setNiggleSev('mild');
-                setNiggleLogging(false);
+                setInjuryArea(''); setInjuryNote(''); setInjurySev('mild');
+                setInjuryLogging(false);
                 refresh({ ...s, injuries: [...(s?.injuries || []), { id: data.id, ts: data.id, area, severity, note, muscles: [], resolved: false }] });
               }}
               style={{ alignSelf: 'flex-start', padding: '6px 18px' }}>
-              {niggleLogging ? 'Logging…' : 'Log Niggle'}
+              {injuryLogging ? 'Logging…' : 'Log Injury'}
             </button>
           </div>
         </div>
@@ -3886,10 +4223,21 @@ function S7({ s }) {
 }
 
 // ── ONBOARDING ────────────────────────────────────────────────────────────────
+const TRAINING_SPLITS = ['Full Body', 'Upper / Lower', 'Push / Pull / Legs', 'Bro Split', 'Other'];
+
 function Onboarding({ onComplete, onOpenImport }) {
-  const TOTAL = 6;
+  const TOTAL = 7;
   const [step, setStep] = useState(0);
   const [echelon, setEchelon] = useState('full');
+
+  // Step 4 (training background)
+  const [split, setSplit] = useState('');
+  const [usualSets, setUsualSets] = useState('');
+  const [usualRepsLow, setUsualRepsLow] = useState('');
+  const [usualRepsHigh, setUsualRepsHigh] = useState('');
+  const [favoriteInput, setFavoriteInput] = useState('');
+  const [favorites, setFavorites] = useState([]);
+  const [experienceLevel, setExperienceLevel] = useState('');
 
   // Step 1
   const [name, setName] = useState('');
@@ -3940,12 +4288,24 @@ function Onboarding({ onComplete, onOpenImport }) {
     if (macroGoalMap[goal]) await api('macro-auto', { method: 'POST', body: JSON.stringify({ goal: macroGoalMap[goal] }) }).catch(() => {});
   };
 
+  const saveStep4 = async () => {
+    const trainingBackground = {
+      split: split || undefined,
+      usualSets: usualSets ? parseInt(usualSets) : undefined,
+      usualRepsLow: usualRepsLow ? parseInt(usualRepsLow) : undefined,
+      usualRepsHigh: usualRepsHigh ? parseInt(usualRepsHigh) : undefined,
+      favoriteExercises: favorites,
+    };
+    await api('profile', { method: 'POST', body: JSON.stringify({ trainingBackground, experienceLevel: experienceLevel || undefined }) }).catch(() => {});
+  };
+
   const advance = async () => {
     setSaving(true);
     try {
       if (step === 1) await saveStep1();
       if (step === 2) await saveStep2();
       if (step === 3) await api('profile', { method: 'POST', body: JSON.stringify({ trackingLevel: echelon }) }).catch(() => {});
+      if (step === 4) await saveStep4();
     } catch {}
     setSaving(false);
     setStep(s => s + 1);
@@ -4118,8 +4478,80 @@ function Onboarding({ onComplete, onOpenImport }) {
           </>
         )}
 
-        {/* ── STEP 4: CONNECT SERVICES ── */}
+        {/* ── STEP 4: TRAINING BACKGROUND ── */}
         {step === 4 && (
+          <>
+            <div className="ob-h">Your training so far</div>
+            <div className="ob-deck">
+              Nothing logged yet, so this gives the workout generator a real starting anchor instead of guessing — it'll shift toward your actual logged history the moment you start training.
+            </div>
+
+            <div className="ob-label">Experience</div>
+            <div style={{ display: 'flex', gap: 6, marginBottom: 20 }}>
+              {['New to training', 'Experienced'].map(lvl => (
+                <button key={lvl} className={`echelon-card${experienceLevel === lvl ? ' selected' : ''}`} style={{ flex: 1, padding: '10px 12px' }}
+                  onClick={() => setExperienceLevel(lvl)}>
+                  <div style={{ flex: 1 }}><div className="echelon-card-title" style={{ fontSize: 13 }}>{lvl}</div></div>
+                </button>
+              ))}
+            </div>
+
+            <div className="ob-label">Typical split</div>
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 20 }}>
+              {TRAINING_SPLITS.map(sp => (
+                <button key={sp} className={`prof-btn${split === sp ? ' solid' : ''}`} onClick={() => setSplit(sp)}>{sp}</button>
+              ))}
+            </div>
+
+            <div className="ob-label">Usual working sets per exercise</div>
+            <input style={inputStyle} type="number" inputMode="numeric" placeholder="e.g. 3" value={usualSets} onChange={e => setUsualSets(e.target.value)} />
+
+            <div className="ob-label" style={{ marginTop: 16 }}>Usual rep range</div>
+            <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 20 }}>
+              <input style={{ ...inputStyle, width: 'auto', flex: 1 }} type="number" inputMode="numeric" placeholder="Low, e.g. 6" value={usualRepsLow} onChange={e => setUsualRepsLow(e.target.value)} />
+              <span style={{ color: 'var(--dim)' }}>–</span>
+              <input style={{ ...inputStyle, width: 'auto', flex: 1 }} type="number" inputMode="numeric" placeholder="High, e.g. 10" value={usualRepsHigh} onChange={e => setUsualRepsHigh(e.target.value)} />
+            </div>
+
+            <div className="ob-label">Favorite / go-to exercises</div>
+            <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+              <input style={{ ...inputStyle, width: 'auto', flex: 1 }} list="ob-exercise-options" placeholder="e.g. Barbell Bench Press" value={favoriteInput}
+                onChange={e => setFavoriteInput(e.target.value)}
+                onKeyDown={e => {
+                  if (e.key !== 'Enter' || !favoriteInput.trim()) return;
+                  e.preventDefault();
+                  setFavorites(p => p.includes(favoriteInput.trim()) ? p : [...p, favoriteInput.trim()]);
+                  setFavoriteInput('');
+                }} />
+              <button className="prof-btn" onClick={() => {
+                if (!favoriteInput.trim()) return;
+                setFavorites(p => p.includes(favoriteInput.trim()) ? p : [...p, favoriteInput.trim()]);
+                setFavoriteInput('');
+              }}>Add</button>
+            </div>
+            <datalist id="ob-exercise-options">
+              {BASE_EXERCISES.map(n => <option key={n} value={n} />)}
+            </datalist>
+            {favorites.length > 0 && (
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 20 }}>
+                {favorites.map(f => (
+                  <span key={f} className="prof-btn solid" style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'default' }}>
+                    {f}
+                    <span style={{ cursor: 'pointer' }} onClick={() => setFavorites(p => p.filter(x => x !== f))}>×</span>
+                  </span>
+                ))}
+              </div>
+            )}
+
+            <div className="ob-nav">
+              <button className="ob-back" onClick={() => setStep(3)}>← Back</button>
+              <button className="ob-next" onClick={advance} disabled={saving}>{saving ? 'Saving…' : 'Continue'}</button>
+            </div>
+          </>
+        )}
+
+        {/* ── STEP 5: CONNECT SERVICES ── */}
+        {step === 5 && (
           <>
             <div className="ob-h">Connect Services</div>
             <div className="ob-deck">Optional — you can always connect these later from the Profile page.</div>
@@ -4202,14 +4634,14 @@ function Onboarding({ onComplete, onOpenImport }) {
             </div>
 
             <div className="ob-nav">
-              <button className="ob-back" onClick={() => setStep(3)}>← Back</button>
-              <button className="ob-next" onClick={() => setStep(5)}>Continue</button>
+              <button className="ob-back" onClick={() => setStep(4)}>← Back</button>
+              <button className="ob-next" onClick={() => setStep(6)}>Continue</button>
             </div>
           </>
         )}
 
-        {/* ── STEP 5: ALL SET ── */}
-        {step === 5 && (
+        {/* ── STEP 6: ALL SET ── */}
+        {step === 6 && (
           <>
             <div className="ob-logo" style={{ fontSize: 'clamp(36px,9vw,60px)' }}>You're set up.</div>
             <div className="ob-sub" style={{ marginBottom: 6 }}>Press is ready.</div>
@@ -4220,6 +4652,7 @@ function Onboarding({ onComplete, onOpenImport }) {
                 [!!name, name ? `${name}${goal ? ` · ${goal}` : ''}` : 'Profile skipped'],
                 [!!goal, `${sleepTarget}h sleep · ${waterTarget} glasses water · ${trainingDays} training days`],
                 [true, ECHELONS.find(e => e.key === echelon)?.title || 'Full System'],
+                [!!(split || favorites.length), split ? `${split}${favorites.length ? ` · ${favorites.length} favorite${favorites.length === 1 ? '' : 's'}` : ''}` : 'Training background skipped'],
                 [stravaStarted, 'Strava'],
                 [healthGuideOpen, 'Apple Health setup viewed'],
                 [hevyKeySaved, 'Hevy API key saved'],
@@ -4240,7 +4673,7 @@ function Onboarding({ onComplete, onOpenImport }) {
 }
 
 // ── SETTINGS OVERLAY ─────────────────────────────────────────────────────────
-function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, setBriefing }) {
+function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenWiki, setBriefing }) {
   const [nameVal, setNameVal] = useState(s?.profile?.name || '');
   const [trainingExpVal, setTrainingExpVal] = useState(s?.profile?.trainingExperienceYears ?? '');
   const [sleepTarget, setSleepTarget] = useState(s?.profile?.sleepTarget || 8);
@@ -4255,6 +4688,10 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, setBrie
   const [hevyKeySaved, setHevyKeySaved] = useState(false);
   const [savingTargets, setSavingTargets] = useState(false);
   const [regenLoading, setRegenLoading] = useState(false);
+  const [mergeFrom, setMergeFrom] = useState('');
+  const [mergeTo, setMergeTo] = useState('');
+  const [mergeStatus, setMergeStatus] = useState('');
+  const [merging, setMerging] = useState(false);
   const [notifPermission, setNotifPermission] = useState(() =>
     typeof Notification !== 'undefined' ? Notification.permission : 'unsupported'
   );
@@ -4671,6 +5108,46 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, setBrie
           </div>
         </div>
 
+        {/* ── MERGE EXERCISES ── */}
+        <div className="settings-sec">
+          <div className="settings-sh">Merge Exercises</div>
+          <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)', lineHeight: 1.6, marginBottom: 12 }}>
+            For two entries that are really the same exercise but got logged under different names (a typo, or an import source that didn't match) — folds all history from the first into the second.
+          </div>
+          <datalist id="merge-exercise-options">
+            {[...new Set([...(s?.lifts || []).map(l => l.exercise), ...BASE_EXERCISES])].sort().map(n => <option key={n} value={n} />)}
+          </datalist>
+          <div className="prof-field">
+            <span className="prof-lbl">Merge from</span>
+            <input className="prof-input" list="merge-exercise-options" value={mergeFrom} onChange={e => setMergeFrom(e.target.value)} placeholder="e.g. bench press (barbell)" style={{ flex: 1, minWidth: 0 }} />
+          </div>
+          <div className="prof-field">
+            <span className="prof-lbl">Into</span>
+            <input className="prof-input" list="merge-exercise-options" value={mergeTo} onChange={e => setMergeTo(e.target.value)} placeholder="e.g. Barbell Bench Press" style={{ flex: 1, minWidth: 0 }} />
+          </div>
+          <button className="prof-btn solid" style={{ marginTop: 8 }} disabled={!mergeFrom.trim() || !mergeTo.trim() || merging}
+            onClick={async () => {
+              setMerging(true); setMergeStatus('');
+              const res = await api('exercises/merge', { method: 'POST', body: JSON.stringify({ from: mergeFrom.trim(), to: mergeTo.trim() }) });
+              setMerging(false);
+              if (res.error) { setMergeStatus(res.error); return; }
+              setMergeStatus(`Merged ${res.mergedSets} set${res.mergedSets === 1 ? '' : 's'} into "${mergeTo.trim()}".`);
+              setMergeFrom(''); setMergeTo('');
+              api('summary').then(refresh);
+            }}>
+            {merging ? 'Merging…' : 'Merge'}
+          </button>
+          {mergeStatus && <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)', marginTop: 8 }}>{mergeStatus}</div>}
+        </div>
+
+        {/* ── WIKI ── */}
+        <div className="settings-sec">
+          <div className="settings-sh">Learn</div>
+          <button className="settings-open-btn" onClick={onOpenWiki}>
+            <span>Exercise & Training Wiki</span><span>→</span>
+          </button>
+        </div>
+
         {/* ── ACCOUNT ── */}
         <div className="settings-sec">
           <div className="settings-sh">Account</div>
@@ -4698,6 +5175,106 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, setBrie
 }
 
 // ── MENTOR CHAT ───────────────────────────────────────────────────────────────
+// Plain-language explanations matching this app's own training philosophy
+// (TRAINING_ETHOS, functions/index.js) — not generic fitness content, since
+// several mainstream conventions (deload weeks, RPE-only without a rep
+// range) don't apply the way Press actually works.
+const WIKI_CONCEPTS = [
+  {
+    term: 'RIR (Reps in Reserve)',
+    plain: 'How many more reps you could have done before failing. RIR 2 means you stopped with 2 good reps left in the tank.',
+    detail: 'This app plans sets around a target RIR, decreasing set to set — the first working set leaves more in reserve, the last set lands at RIR 0-1 (true or near-true failure). This is the primary lever the app uses, not RPE.',
+  },
+  {
+    term: 'RPE (Rate of Perceived Exertion)',
+    plain: 'The same idea as RIR, flipped: a 0-10 scale of how hard a set felt, where 10 = true failure. RPE 10 = RIR 0, RPE 8 = RIR 2, and so on.',
+    detail: 'The app converts between the two internally (RIR ≈ 10 − RPE). If you\'re new to training, Effort logging shows Easy / Medium / Failure instead of a number — those map to RPE 6 / 8 / 10.',
+  },
+  {
+    term: 'Mechanical Tension',
+    plain: 'The force a muscle produces against resistance through a real range of motion — the main thing that actually drives strength and muscle growth.',
+    detail: 'This is why the app heavily favors exercises with a normal, progressively-loadable range of motion, and disincentivizes isometric holds (planks, static presses) — a static hold doesn\'t give the app\'s progressive-overload system (adding weight or reps over time) anything to work with.',
+  },
+  {
+    term: 'Double Progression',
+    plain: 'Climb reps to the top of your target rep range first, then add weight and drop back to the bottom of the range.',
+    detail: 'e.g. target range 6-9 reps: once you hit 9 reps at a given weight, the app suggests adding weight next session and dropping back to ~6 reps, then climbing again.',
+  },
+  {
+    term: 'Structural Fatigue',
+    plain: 'Mechanical tissue damage from training — decays over 48-72 hours per muscle. This is what makes a muscle feel "not ready" the day after a hard session.',
+    detail: 'Distinct from metabolic fatigue (glycogen depletion, ~12h half-life) and CNS fatigue (nervous system load from heavy compounds, ~36h half-life) — the app tracks all three separately since they recover at different rates.',
+  },
+  {
+    term: 'Stimulus / Adaptation',
+    plain: 'How much productive training effect is currently "banked" for a muscle from recent sessions — separate from fatigue. A muscle can be fatigued and well-stimulated at the same time, or fresh and under-stimulated.',
+    detail: 'Each session contributes a rise-and-decay curve that peaks about 48 hours later; several sessions in a week stack together. Left untouched for long enough, this decays toward atrophy — the Adaptation tab shows this per muscle.',
+  },
+  {
+    term: 'Frequency over Volume',
+    plain: 'This app\'s core training philosophy: fewer working sets per session, spread more often across the week, rather than a few huge sessions.',
+    detail: 'Full-body sessions 2-4x/week are the default shape, not a body-part split. If your logged history leans toward low reps-per-session but high frequency, the app is designed to recognize that as correctly-dosed, not under-dosed.',
+  },
+  {
+    term: 'Why no "deload weeks"',
+    plain: 'Press doesn\'t suggest scheduled deload weeks.',
+    detail: 'Every generated session is already calibrated against your live fatigue numbers, so volume and exercise selection back off automatically as fatigue accumulates — a blunt whole-week deload on top of that would be redundant.',
+  },
+];
+
+function WikiOverlay({ onClose }) {
+  const [tab, setTab] = useState('concepts');
+  const [search, setSearch] = useState('');
+  const q = search.trim().toLowerCase();
+  const exercises = q
+    ? EXERCISE_DB.filter(e => (EXERCISE_SEARCH_TAGS.get(e.name.toLowerCase()) || '').includes(q) || e.name.toLowerCase().includes(q))
+    : EXERCISE_DB;
+
+  return (
+    <div className="settings-overlay">
+      <div className="settings-hdr">
+        <div className="settings-hdr-title">Wiki</div>
+        <button className="settings-close" onClick={onClose}>Close ×</button>
+      </div>
+      <div className="settings-body">
+        <div className="fade tab-bar" style={{ flexShrink: 0, marginBottom: 12 }}>
+          <button className={`tab-btn${tab === 'concepts' ? ' active' : ''}`} onClick={() => setTab('concepts')}>Concepts</button>
+          <button className={`tab-btn${tab === 'exercises' ? ' active' : ''}`} onClick={() => setTab('exercises')}>Exercises</button>
+        </div>
+
+        {tab === 'concepts' && WIKI_CONCEPTS.map(c => (
+          <div key={c.term} className="settings-sec" style={{ paddingTop: 12 }}>
+            <div style={{ fontFamily: "'Playfair Display',serif", fontWeight: 700, fontSize: 16, marginBottom: 4 }}>{c.term}</div>
+            <div style={{ fontFamily: "'Times New Roman',serif", fontSize: 14, lineHeight: 1.6, marginBottom: 6 }}>{c.plain}</div>
+            <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, color: 'var(--dim)', lineHeight: 1.6 }}>{c.detail}</div>
+          </div>
+        ))}
+
+        {tab === 'exercises' && (
+          <>
+            <input className="pr-search" placeholder="Search exercises or muscles…" value={search} onChange={e => setSearch(e.target.value)} style={{ marginBottom: 10 }} />
+            <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)', marginBottom: 10 }}>{exercises.length} exercise{exercises.length === 1 ? '' : 's'}</div>
+            {exercises.slice(0, 60).map(e => (
+              <div key={e.id} style={{ borderBottom: '1px solid var(--rule)', padding: '10px 0' }}>
+                <div style={{ fontFamily: "'Playfair Display',serif", fontWeight: 700, fontSize: 15 }}>{e.name}</div>
+                <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)', textTransform: 'capitalize', marginBottom: 4 }}>
+                  {e.equipment} · {[...e.primary].join(', ')}{e.secondary?.length ? ` (+ ${e.secondary.join(', ')})` : ''}
+                </div>
+                {e.form?.length > 0 && (
+                  <ul style={{ margin: '4px 0 0 18px', fontFamily: "'Times New Roman',serif", fontSize: 12, lineHeight: 1.6, color: 'var(--ink)' }}>
+                    {e.form.map((f, i) => <li key={i}>{f}</li>)}
+                  </ul>
+                )}
+              </div>
+            ))}
+            {exercises.length > 60 && <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)', fontStyle: 'italic', padding: '10px 0' }}>Showing first 60 — narrow your search to see more.</div>}
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function MentorChat({ onClose }) {
   const [msgs, setMsgs] = useState([
     { role: 'assistant', content: 'I\'m your Personal Journalist. Ask me anything about your training, recovery, or nutrition.' }
@@ -5036,6 +5613,7 @@ function App() {
   const [newscastLoading, setNewscastLoading] = useState(false);
   const [newscastError, setNewscastError] = useState('');
   const [showSettings, setShowSettings] = useState(false);
+  const [showWiki, setShowWiki] = useState(false);
   const [summaryError, setSummaryError] = useState('');
 
   const loadSummary = () => api('summary', { throwOnError: true })
@@ -5134,8 +5712,22 @@ function App() {
   }, []);
 
   // Scrollspy: reveal each section's .fade content once it enters the viewport, and mark its
-  // nav dot active while visible. Keyed to [user] (not [s]) so a failed data fetch can never
-  // leave the observer unattached — the section DOM exists as soon as the user is signed in.
+  // nav dot active while visible.
+  //
+  // Was keyed to [user] alone on the assumption that "the section DOM exists
+  // as soon as the user is signed in" — true before the loading-screen gate
+  // below (s === null && !summaryError -> <LoadingScreen/>) existed, since
+  // the page used to render immediately with s still null. Now #press-scroll
+  // doesn't mount until s is populated, but user was already set well before
+  // that (during the LoadingScreen phase) and never changes again, so this
+  // effect's first (and only) run found no #press-scroll yet, bailed via the
+  // early return below, and never got a second chance to attach — no section
+  // ever got .visible, so every .fade block stayed opacity:0 forever past
+  // the spinner, indistinguishable from "dismissed too early." !!s flips
+  // false->true exactly once on the initial load (then stays true across
+  // ordinary refresh() calls, so this doesn't re-attach on every data
+  // refresh) — enough to give the effect a second, now-successful run right
+  // when the real page actually mounts.
   //
   // threshold was 0.35 (35% of the section's own height visible at once) — fine for
   // roughly viewport-sized sections, but S7 (All-Time Bests) grows with logged PR
@@ -5164,7 +5756,7 @@ function App() {
     sections.forEach(sec => obs.observe(sec));
 
     return () => obs.disconnect();
-  }, [user]);
+  }, [user, !!s]);
 
   if (user === undefined) return <LoadingScreen />;
 
@@ -5215,7 +5807,8 @@ function App() {
         <button className="chat-bubble" onClick={() => setChatOpen(true)} aria-label="Open personal journalist chat">PJ</button>
       )}
       {chatOpen && <MentorChat onClose={() => setChatOpen(false)} />}
-      {showSettings && <SettingsOverlay s={s} onClose={() => setShowSettings(false)} refresh={refresh} onSignOut={() => signOut(auth)} onOpenImport={() => { setShowSettings(false); setShowImport(true); }} setBriefing={setBriefing} />}
+      {showSettings && <SettingsOverlay s={s} onClose={() => setShowSettings(false)} refresh={refresh} onSignOut={() => signOut(auth)} onOpenImport={() => { setShowSettings(false); setShowImport(true); }} onOpenWiki={() => { setShowSettings(false); setShowWiki(true); }} setBriefing={setBriefing} />}
+      {showWiki && <WikiOverlay onClose={() => setShowWiki(false)} />}
       {showBriefing && briefing && <BriefingOverlay briefing={briefing} onClose={() => setShowBriefing(false)} />}
       {showAfternoonNewscast && afternoonNewscast && <NewscastOverlay newscast={afternoonNewscast} onClose={() => setShowAfternoonNewscast(false)} />}
       {showNightNewscast && nightNewscast && <NewscastOverlay newscast={nightNewscast} onClose={() => setShowNightNewscast(false)} />}
@@ -5225,6 +5818,7 @@ function App() {
           planDay={loggerPlanDay}
           lifts={s?.lifts || []}
           customExercises={s?.customExercises || []}
+          experienceLevel={s?.profile?.experienceLevel}
           onClose={() => setLoggerPlanDay(undefined)}
           refresh={setS}
         />

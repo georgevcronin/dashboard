@@ -1,5 +1,6 @@
 const { isLowerBodyExercise, findExercise } = require('./muscleTaxonomy');
 const { e1rm: calcE1RM } = require('./strengthStandards');
+const { computeBrandCalibration, calibratedE1RM } = require('./brandCalibration');
 
 // Deterministic double-progression calculator: given an exercise's session
 // history, decide whether to add weight, add a rep, deload, or hold — no LLM
@@ -33,12 +34,19 @@ function weightIncrementKg(equipment, isLowerBody) {
 function computeProgression(lifts, name) {
   const ex = lifts.filter(l => l.exercise === name);
   if (!ex.length) return null;
+  // Rescales e1RM onto whichever brand this exercise is most often logged on
+  // (brandCalibration.js), so a session-to-session trend comparison below
+  // doesn't read a gym/brand switch as a strength change — a no-op when the
+  // exercise has never been logged on 2+ brands close enough in time to
+  // calibrate (no data means no guessing, e1rm stays as computed).
+  const calibration = computeBrandCalibration(ex);
   const byDate = {};
   for (const l of ex) { if (!byDate[l.date]) byDate[l.date] = []; byDate[l.date].push(l); }
   const sessions = Object.entries(byDate).sort(([a],[b]) => a.localeCompare(b)).slice(-6).map(([date, sets]) => {
     const topKg = Math.max(...sets.map(s => s.kg || 0));
     const topSet = sets.find(s => s.kg === topKg) || sets[0];
-    const e1rm = topSet.kg > 0 && topSet.reps > 0 ? Math.round(calcE1RM(topSet.kg, topSet.reps)) : 0;
+    const rawE1rm = topSet.kg > 0 && topSet.reps > 0 ? calcE1RM(topSet.kg, topSet.reps) : 0;
+    const e1rm = rawE1rm ? Math.round(calibratedE1RM(rawE1rm, name, topSet.machine, calibration)) : 0;
     return { date, kg: topSet.kg, reps: topSet.reps, e1rm, setCount: sets.length };
   });
   const last = sessions.at(-1);

@@ -1,6 +1,6 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { musclesForExercise, isCompoundExercise, isLowerBodyExercise, findExercise } = require('../functions/muscleTaxonomy');
+const { musclesForExercise, isCompoundExercise, isLowerBodyExercise, findExercise, loggedExerciseNames } = require('../functions/muscleTaxonomy');
 
 test('musclesForExercise resolves canonical DB exercises regardless of case', () => {
   assert.deepEqual(new Set(musclesForExercise('Push-Up')), new Set(['chest', 'triceps', 'front-delt', 'serratus', 'core']));
@@ -59,4 +59,16 @@ test('isLowerBodyExercise is true for squat/deadlift/hip-thrust family, false fo
 test('findExercise is case-insensitive and returns null for unknown names', () => {
   assert.equal(findExercise('barbell bench press').id, findExercise('Barbell Bench Press').id);
   assert.equal(findExercise('not a real exercise'), null);
+});
+
+test('findExercise resolves real import-source aliases (exerciseNameAliases.js) to their canonical DB entry', () => {
+  const resolved = findExercise('bench press (barbell)');
+  assert.ok(resolved, 'a known Hevy-style alias should resolve');
+  assert.equal(resolved.name, 'Barbell Bench Press');
+});
+
+test('loggedExerciseNames includes both the raw logged name and its resolved canonical alias', () => {
+  const names = loggedExerciseNames([{ exercise: 'bench press (barbell)', date: '2026-01-01', kg: 80, reps: 5 }]);
+  assert.ok(names.has('bench press (barbell)'), 'raw logged name should still be present');
+  assert.ok(names.has('barbell bench press'), 'canonical alias target should also be present, so the logged-history bonus fires against the DB entry name');
 });

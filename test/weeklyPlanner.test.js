@@ -57,6 +57,15 @@ test('pickBackboneExercises heavily prefers a previously-logged exercise over an
   assert.equal(picks[0].name, 'Dumbbell Incline Bench Press', 'a logged exercise should outrank an equal-coverage exercise that has never been logged');
 });
 
+test('pickBackboneExercises prefers a self-reported favorite over an equal-coverage untried one, but real logged history still wins over a favorite', () => {
+  const favoritePicks = pickBackboneExercises(['chest', 'front-delt'], { favoriteExercises: ['Dumbbell Incline Bench Press'], count: 1 });
+  assert.equal(favoritePicks[0].name, 'Dumbbell Incline Bench Press', 'a self-reported favorite should outrank an equal-coverage exercise with neither history nor favorite status');
+
+  const lifts = [{ date: '2026-07-01', exercise: 'Barbell Bench Press', kg: 80, reps: 5 }];
+  const contestedPicks = pickBackboneExercises(['chest', 'front-delt'], { lifts, favoriteExercises: ['Dumbbell Incline Bench Press'], count: 1 });
+  assert.equal(contestedPicks[0].name, 'Barbell Bench Press', 'demonstrated logged history should still outrank a merely self-reported favorite');
+});
+
 test('planLiftSessionsTarget caps sessions hard when systemic fatigue is very high', () => {
   assert.ok(planLiftSessionsTarget(90, 0, 4, 'strength') <= 2);
 });

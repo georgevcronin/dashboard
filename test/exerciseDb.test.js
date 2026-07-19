@@ -1,6 +1,6 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { EXERCISE_DB, EXERCISE_MAP } = require('../functions/exerciseDb');
+const { EXERCISE_DB, EXERCISE_MAP, EXERCISE_MUSCLE_GROUPS, EXERCISE_PATTERNS } = require('../functions/exerciseDb');
 const { MUSCLE_GROUPS, PRIMARY_MUSCLES } = require('../functions/muscleTaxonomy');
 
 test('every exercise has a unique id', () => {
@@ -52,4 +52,46 @@ test('equipment field is one of the known categories', () => {
   const KNOWN = new Set(['barbell', 'dumbbell', 'machine', 'cable', 'bodyweight', 'kettlebell', 'smith']);
   const bad = EXERCISE_DB.filter(e => !KNOWN.has(e.equipment));
   assert.deepEqual(bad.map(e => ({ id: e.id, equipment: e.equipment })), []);
+});
+
+test('every exercise has the taxonomy fields (muscleGroup/pattern/movementId/movementName)', () => {
+  const REQUIRED = ['muscleGroup', 'pattern', 'movementId', 'movementName'];
+  for (const e of EXERCISE_DB) {
+    for (const field of REQUIRED) {
+      assert.ok(e[field], `${e.id} is missing or has an empty "${field}"`);
+    }
+  }
+});
+
+test('muscleGroup is always one of EXERCISE_MUSCLE_GROUPS', () => {
+  const known = new Set(EXERCISE_MUSCLE_GROUPS);
+  const bad = EXERCISE_DB.filter(e => !known.has(e.muscleGroup));
+  assert.deepEqual(bad.map(e => ({ id: e.id, muscleGroup: e.muscleGroup })), []);
+});
+
+test('pattern is always one of EXERCISE_PATTERNS', () => {
+  const known = new Set(EXERCISE_PATTERNS);
+  const bad = EXERCISE_DB.filter(e => !known.has(e.pattern));
+  assert.deepEqual(bad.map(e => ({ id: e.id, pattern: e.pattern })), []);
+});
+
+test('every exercise sharing a movementId shares the same movementName (family names are internally consistent)', () => {
+  const names = {};
+  for (const e of EXERCISE_DB) {
+    if (names[e.movementId] && names[e.movementId] !== e.movementName) {
+      assert.fail(`movementId "${e.movementId}" has inconsistent movementName: "${names[e.movementId]}" vs "${e.movementName}" (${e.id})`);
+    }
+    names[e.movementId] = e.movementName;
+  }
+});
+
+test('EXERCISE_MUSCLE_GROUPS is a distinct list, not the same object as muscleTaxonomy.js\'s MUSCLE_GROUPS', () => {
+  // Deliberate naming distinction (different concept, different shape) --
+  // this app has been burned before by two same-named-but-different things
+  // silently colliding. EXERCISE_MUSCLE_GROUPS is a flat array of 12
+  // fine-grained groups; muscleTaxonomy.js's MUSCLE_GROUPS is an object of 4
+  // coarse fatigue buckets (push/pull/legs/core).
+  assert.ok(Array.isArray(EXERCISE_MUSCLE_GROUPS));
+  assert.ok(!Array.isArray(MUSCLE_GROUPS));
+  assert.notEqual(EXERCISE_MUSCLE_GROUPS.length, Object.keys(MUSCLE_GROUPS).length);
 });

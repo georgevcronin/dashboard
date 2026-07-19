@@ -1,6 +1,7 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { generateSessionExercises, progressionFor, suggestedWorkingSetCount, suggestedRirSequence } = require('../functions/sessionPlanner');
+const { generateSessionExercises, progressionFor, suggestedWorkingSetCount, suggestedRirSequence, isLowRepPattern, LOW_REP_THRESHOLD, isStapleExercise, STAPLE_SESSION_THRESHOLD } = require('../functions/sessionPlanner');
+const daysAgo = (n) => new Date(Date.now() - n * 86400000).toISOString().slice(0, 10);
 const { isCompoundExercise } = require('../functions/muscleTaxonomy');
 
 test('suggestedWorkingSetCount cycles 2/3/4 by how many times this exercise has been logged', () => {
@@ -41,7 +42,7 @@ test('generateSessionExercises resolves backbone names case-insensitively and in
 test('lastAccessoryPick case-sensitivity fix: a lowercased log of a backbone exercise does not defeat accessory rotation', () => {
   const lifts = [
     { date: '2026-07-01', exercise: 'Dumbbell Bench Press (Flat)', sets: [] },
-    { date: '2026-07-01', exercise: 'incline dumbbell press', sets: [] },
+    { date: '2026-07-01', exercise: 'dumbbell incline bench press', sets: [] },
     { date: '2026-06-24', exercise: 'dumbbell bench press (flat)', sets: [] }, // lowercased backbone log
     { date: '2026-06-24', exercise: 'Cable Crossover', sets: [] },
   ];
@@ -50,7 +51,24 @@ test('lastAccessoryPick case-sensitivity fix: a lowercased log of a backbone exe
     backboneExerciseNames: ['Dumbbell Bench Press (Flat)'], lifts,
   });
   const names = out.map(e => e.name);
-  assert.ok(!names.includes('Incline Dumbbell Press'), 'should rotate away from the most recent real accessory pick');
+  assert.ok(!names.includes('Dumbbell Incline Bench Press'), 'should rotate away from the most recent real accessory pick');
+});
+
+test('isStapleExercise requires at least STAPLE_SESSION_THRESHOLD distinct logged dates', () => {
+  const justBelow = Array.from({ length: STAPLE_SESSION_THRESHOLD - 1 }, (_, i) => ({ date: daysAgo(i), exercise: 'Dumbbell Incline Bench Press' }));
+  const atThreshold = Array.from({ length: STAPLE_SESSION_THRESHOLD }, (_, i) => ({ date: daysAgo(i), exercise: 'Dumbbell Incline Bench Press' }));
+  assert.equal(isStapleExercise(justBelow, 'Dumbbell Incline Bench Press'), false);
+  assert.equal(isStapleExercise(atThreshold, 'Dumbbell Incline Bench Press'), true);
+});
+
+test('a staple exercise is not rotated away from as an accessory, unlike a non-staple', () => {
+  const stapleLifts = Array.from({ length: STAPLE_SESSION_THRESHOLD }, (_, i) => ({ date: daysAgo(i), exercise: 'Dumbbell Incline Bench Press', sets: [] }));
+  const out = generateSessionExercises({
+    type: 'lift', targetMuscles: ['chest', 'triceps', 'front-delt'],
+    backboneExerciseNames: ['Barbell Bench Press'], lifts: stapleLifts,
+  });
+  const names = out.map(e => e.name);
+  assert.ok(names.includes('Dumbbell Incline Bench Press'), 'a staple should stay eligible as an accessory instead of being rotated away from');
 });
 
 test('CNS-fatigue substitution swaps a barbell/dumbbell backbone for a machine/cable alternative', () => {
@@ -175,4 +193,23 @@ test('accessory selection heavily prefers a previously-logged exercise over an u
     backboneExerciseNames: [], lifts, accessoryCountOverride: 1,
   });
   assert.equal(out[0].name, 'Russian Twist', 'a logged exercise should outrank untried alternatives targeting the same muscle');
+});
+
+test('isLowRepPattern is false with too few hard sets to call it a pattern yet', () => {
+  assert.equal(isLowRepPattern([{ reps: 2 }, { reps: 3 }]), false);
+});
+
+test('isLowRepPattern is false for a single deliberate low-rep set among otherwise normal sets', () => {
+  const sets = [{ reps: 2 }, { reps: 8 }, { reps: 9 }, { reps: 8 }];
+  assert.equal(isLowRepPattern(sets), false);
+});
+
+test(`isLowRepPattern is true once a majority of hard sets are at or under ${LOW_REP_THRESHOLD} reps`, () => {
+  const sets = [{ reps: 2 }, { reps: 3 }, { reps: 3 }, { reps: 8 }];
+  assert.equal(isLowRepPattern(sets), true);
+});
+
+test('isLowRepPattern ignores sets with no reps logged yet', () => {
+  const sets = [{ reps: 2 }, { reps: 3 }, { reps: '' }, { reps: 0 }];
+  assert.equal(isLowRepPattern(sets), false, 'only 2 real sets logged (2, 3) — below the minimum sample size');
 });

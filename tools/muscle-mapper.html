@@ -1,0 +1,230 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Exercise → Muscle Mapper</title>
+<style>
+  body { font-family: -apple-system, sans-serif; max-width: 900px; margin: 20px auto; padding: 0 16px; background: #111; color: #eee; }
+  h1 { font-size: 18px; }
+  p.hint { color: #999; font-size: 13px; }
+  input[type=text] { background: #222; border: 1px solid #444; color: #eee; padding: 6px 8px; border-radius: 4px; width: 260px; }
+  .row { border-bottom: 1px solid #333; padding: 10px 0; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .row .name { width: 200px; font-weight: 600; flex-shrink: 0; }
+  .chips { display: flex; gap: 6px; flex-wrap: wrap; flex: 1; }
+  .chip { border: 1px solid #555; border-radius: 12px; padding: 3px 10px; font-size: 12px; cursor: pointer; user-select: none; background: #1a1a1a; color: #aaa; }
+  .chip.primary { background: #3a6; color: #fff; border-color: #3a6; }
+  .chip.secondary { background: #a80; color: #fff; border-color: #a80; }
+  .del { color: #a55; cursor: pointer; font-size: 12px; }
+  #controls { position: sticky; top: 0; background: #111; padding: 12px 0; border-bottom: 1px solid #444; margin-bottom: 8px; z-index: 5; }
+  button { background: #357; color: #fff; border: none; padding: 8px 14px; border-radius: 4px; cursor: pointer; margin-right: 8px; }
+  button:hover { background: #468; }
+  textarea { width: 100%; height: 240px; background: #000; color: #7f7; font-family: monospace; font-size: 12px; margin-top: 10px; }
+  #status { color: #6c6; font-size: 12px; margin-left: 8px; }
+</style>
+</head>
+<body>
+<h1>Exercise → Muscle Mapper</h1>
+<p class="hint">Click a chip to cycle: off → primary (green) → secondary (amber) → off. Chips already lit are the app's current best guess. Edits autosave in this browser. When done, click Export and send the output back.</p>
+
+<div id="controls">
+  <input type="text" id="filter" placeholder="Filter exercises…">
+  <input type="text" id="newEx" placeholder="Add exercise name…">
+  <button id="addBtn">Add</button>
+  <button id="exportBtn">Export mapping</button>
+  <button id="resetBtn">Reset to app defaults</button>
+  <span id="status"></span>
+</div>
+
+<div id="list"></div>
+
+<textarea id="out" style="display:none"></textarea>
+
+<script>
+// The app's tracked muscle list, plus 'upper-chest', 'lateral-delt' and 'hip-flexors' added as new distinct muscles.
+const ALL_MUSCLES = ['glutes','quads','hamstrings','adductors','calves','erectors','chest','upper-chest','abs','obliques','hip-flexors','biceps','triceps','forearms','traps','front-delt','lateral-delt','rear-delt','lats','rhomboids','neck'];
+
+// The richer exercise DB uses some finer-grained muscle names the app doesn't track separately.
+// Collapse those onto the nearest muscle the app actually recognizes.
+const MUSCLE_COLLAPSE = {
+  abductors: 'glutes', brachialis: 'biceps', brachioradialis: 'forearms',
+  core: 'abs', 'lower-traps': 'traps', 'mid-delt': 'lateral-delt',
+  'mid-traps': 'traps', 'rotator-cuff': 'rear-delt', serratus: 'chest',
+  shoulders: 'front-delt', 'teres-major': 'lats', tibialis: 'calves', 'transverse-abs': 'abs',
+};
+function collapseList(muscles, name) {
+  let out = [...new Set(muscles.map(m => MUSCLE_COLLAPSE[m] || m).filter(m => ALL_MUSCLES.includes(m)))];
+  // Incline pressing/flye variants (or names that say "upper chest") bias toward upper-chest.
+  if (name && /incline|upper chest/.test(name) && out.includes('chest')) {
+    out = out.filter(m => m !== 'chest').concat('upper-chest');
+  }
+  return out;
+}
+// Collapses a {primary, secondary} pair, keeping a muscle only in primary if it lands in both.
+function collapse(pair, name) {
+  const primary = collapseList(pair.primary || [], name);
+  const secondary = collapseList(pair.secondary || [], name).filter(m => !primary.includes(m));
+  return { primary, secondary };
+}
+
+// Every exercise name that has ever actually appeared in your Hevy log export
+// (workouts(1).csv) — this is the only set of rows the tool shows.
+const LOGGED_EXERCISES = ["ab wheel", "archery pulls", "arnold press (dumbbell)", "b stance rdl (machine)", "back extension (machine)", "back extension (weighted hyperextension)", "backward neck curls", "bayesian cable curls", "bench concentration curl", "bench press (barbell)", "bench press (dumbbell)", "bent over row (barbell)", "bicep curl (barbell)", "bicep curl (cable)", "bicep curl (dumbbell)", "bulgarian split squat (dumbbell)", "butterfly (pec deck)", "cable crunch", "cable fly crossovers", "cable tricep press (hartlepool)", "calf extension (machine)", "calf press (machine)", "calf raise (horizontal leg press)", "carter extentions", "chest fly (dumbbell)", "chest fly (machine)", "chest press (machine)", "chest press (plates)", "chest supported incline row (dumbbell)", "chin up", "chin up (assisted)", "concentration curl", "cross body hammer curl", "cross rear delt flyes (cable)", "crunch (machine)", "crunch (machine) (verde)", "crunch (weighted)", "cycling", "dead hang", "deadlift (barbell)", "decline crunch (weighted)", "decline curl", "dumbbell row", "elliptical trainer", "ez bar biceps curl", "face pull", "forward neck curls", "glute 45s", "glute 90s", "glute ham raise (copy)", "glute kickback (machine)", "glute kickback (plates)", "good morning (barbell)", "hack squat (hartlepool)", "hack squat (machine)", "hammer curl (dumbbell)", "hamstring curl (machine plates)", "hangboard  (crimp)", "hangboard (crimp 3)", "hangboard 20mm (1234)", "hangboard 30mm (123)", "hanging leg raise", "hip abduction (machine)", "hip adduction (machine)", "hip thrust (barbell)", "hip thrust (cable)", "hip thrust (machine)", "incline bench press (barbell)", "incline bench press (dumbbell)", "incline bench press (smith machine)", "incline chest press (machine)", "iso-lateral high cable row (machine) (verde)", "iso-lateral high row (machine)", "iso-lateral row (machine)", "jm press", "keenan flap", "kelso shrug", "kneeling pushdown", "lat pulldown (cable)", "lat pulldown (hard machine)", "lat pulldown (hartlepool)", "lat pulldown (machine)", "lat pulldown - close grip (cable)", "lateral raise (cable)", "lateral raise (dumbbell)", "lateral raise (machine)", "lateral raise machine (easy)", "leg extension (machine)", "leg extension (machine) (single leg)", "leg extension (machine) (verde)", "leg press (machine)", "leg press horizontal (machine)", "leg raise parallel bars", "leverage leg press", "low cable fly crossovers", "lying leg curl (machine)", "medius kickbacks", "overhead press (barbell)", "overhead press (smith machine)", "overhead press (smith machine) (verde)", "overhead tricep extentions", "pec deck elbows", "pendlay row (barbell)", "pendulum squat (machine)", "preacher curl (barbell)", "preacher curl (dumbbell)", "preacher curl (machine)", "pull up", "pull up (band)", "pull up (weighted)", "push up", "rdl (machine)", "rear delt reverse fly (cable)", "rear delt reverse fly (dumbbell)", "rear delt reverse fly (machine)", "rear delt row", "reverse barbell pull", "reverse curl (barbell)", "reverse ez bar curl", "reverse grip concentration curl", "romanian deadlift (barbell)", "romanian deadlift (dumbbell)", "rowing machine", "running", "seated cable row - bar grip", "seated cable row - v grip (cable)", "seated calf raise", "seated chest flys (cable)", "seated chest flys (cable) (verde)", "seated dip machine", "seated incline curl (dumbbell)", "seated iso-lateral row", "seated iso-low-row cable machine (nu)", "seated iso-row cable machine", "seated iso-row cable machine (verde)", "seated lateral raise (dumbbell)", "seated leg curl (machine)", "seated leg curl (machine) (one leg)", "seated overhead press (barbell)", "seated palms up wrist curl", "seated pushdowns", "seated row (machine)", "seated shoulder press (machine)", "seated shoulder press (machine) (tf)", "seated upper back iso-row cable machine (nu)", "seated wrist extension (barbell)", "shoulder press (dumbbell)", "shoulder press (hard machine)", "shoulder press (machine plates)", "shoulder press incline (machine plates)", "shrug (barbell)", "single arm lat pulldown", "single arm lat pulldown (puregym)", "single arm triceps pushdown (cable)", "single arm triceps pushdown (cable) (double pulley)", "single arm triceps pushdown (cable) (verde)", "single leg extensions", "single leg hip thrust (smith machine)", "single leg press", "single leg romanian deadlift (barbell)", "skullcrusher (barbell)", "small incline chest press (plates)", "spider curl (barbell)", "split squat", "squat (barbell)", "squat (machine)", "stable face pulls", "standing cable glute kickbacks", "standing calf raise (barbell)", "standing military press (barbell)", "straight arm lat pulldown (cable)", "stupid tricep exercise", "supine press", "t bar row", "the maddest lateral raise ever", "tnf adductions", "tnf squat", "treadmill", "triceps dip", "triceps dip (weighted)", "triceps extension (barbell)", "triceps extension (cable)", "triceps kickback (cable)", "triceps pressdown", "triceps pushdown", "triceps pushdown (one arm)", "triceps rope pushdown", "underhand smith machine press", "upper chest flys", "upper chest flys (verde)", "upright row (barbell)", "vertical leg press", "walking"];
+
+// Best-effort fuzzy match of a logged name against the structured exercise DB, by word overlap.
+function matchDB(name) {
+  const core = name.replace(/\(.*?\)/g, '').trim();
+  const exact = EXERCISE_DB.find(e => e.name === name || e.name === core);
+  if (exact) return exact;
+  const nameWords = new Set(core.split(/\s+/).filter(Boolean));
+  let best = null, bestScore = 0;
+  EXERCISE_DB.forEach(e => {
+    const dbWords = e.name.replace(/[/-]/g, ' ').split(/\s+/).filter(Boolean);
+    const overlap = dbWords.filter(w => nameWords.has(w)).length;
+    const score = overlap / Math.max(dbWords.length, nameWords.size);
+    if (score > bestScore) { bestScore = score; best = e; }
+  });
+  return bestScore >= 0.5 ? best : null;
+}
+
+// The app's richer built-in exercise database (functions/exerciseDb.js), 220 named exercises
+// with structured primary/secondary muscles — used to prefill accurately where a name matches.
+const EXERCISE_DB = [{"name":"barbell bench press","primary":["chest","triceps","front-delt"],"secondary":["serratus"]},{"name":"incline barbell bench press","primary":["chest","front-delt","triceps"],"secondary":["serratus"]},{"name":"decline barbell bench press","primary":["chest","triceps"],"secondary":["front-delt","serratus"]},{"name":"close-grip bench press","primary":["triceps","chest"],"secondary":["front-delt"]},{"name":"dumbbell bench press (flat)","primary":["chest","triceps","front-delt"],"secondary":["serratus"]},{"name":"dumbbell incline bench press","primary":["chest","front-delt","triceps"],"secondary":["serratus"]},{"name":"dumbbell decline bench press","primary":["chest","triceps"],"secondary":["front-delt"]},{"name":"cable fly (high to low)","primary":["chest"],"secondary":["front-delt","serratus"]},{"name":"cable fly (low to high)","primary":["chest"],"secondary":["front-delt","serratus"]},{"name":"cable crossover","primary":["chest"],"secondary":["front-delt","serratus"]},{"name":"pec deck / machine fly","primary":["chest"],"secondary":["front-delt"]},{"name":"chest dips","primary":["chest","triceps"],"secondary":["front-delt"]},{"name":"push-up","primary":["chest","triceps","front-delt"],"secondary":["serratus","core"]},{"name":"weighted push-up","primary":["chest","triceps","front-delt"],"secondary":["serratus","core"]},{"name":"machine chest press","primary":["chest","triceps","front-delt"],"secondary":["serratus"]},{"name":"landmine press","primary":["chest","front-delt","triceps"],"secondary":["serratus"]},{"name":"svend press","primary":["chest"],"secondary":["front-delt"]},{"name":"pull-up (wide grip)","primary":["lats"],"secondary":["biceps","rear-delt","rhomboids"]},{"name":"pull-up (neutral grip)","primary":["lats","biceps"],"secondary":["rear-delt","rhomboids","brachialis"]},{"name":"chin-up","primary":["lats","biceps"],"secondary":["rhomboids","rear-delt"]},{"name":"weighted pull-up","primary":["lats","biceps"],"secondary":["rear-delt","rhomboids"]},{"name":"lat pulldown (wide grip)","primary":["lats"],"secondary":["biceps","rear-delt","rhomboids"]},{"name":"lat pulldown (neutral grip)","primary":["lats","biceps"],"secondary":["rear-delt","rhomboids"]},{"name":"lat pulldown (reverse / underhand)","primary":["lats","biceps"],"secondary":["rhomboids"]},{"name":"cable straight-arm pulldown","primary":["lats"],"secondary":["teres-major","abs"]},{"name":"single-arm lat pulldown","primary":["lats"],"secondary":["biceps","rear-delt"]},{"name":"cable pullover","primary":["lats","chest"],"secondary":["teres-major","abs"]},{"name":"barbell row (overhand / pendlay)","primary":["lats","rhomboids","mid-traps"],"secondary":["rear-delt","biceps","erectors"]},{"name":"barbell row (underhand / yates)","primary":["lats","biceps"],"secondary":["rhomboids","rear-delt"]},{"name":"meadows row","primary":["lats"],"secondary":["rear-delt","biceps","rhomboids"]},{"name":"dumbbell row (three-point)","primary":["lats"],"secondary":["rear-delt","biceps","rhomboids"]},{"name":"chest-supported dumbbell row","primary":["rhomboids","mid-traps","rear-delt"],"secondary":["lats","biceps"]},{"name":"seated cable row","primary":["lats","rhomboids","mid-traps"],"secondary":["rear-delt","biceps"]},{"name":"single-arm cable row","primary":["lats","rhomboids"],"secondary":["rear-delt","biceps"]},{"name":"high cable row","primary":["rear-delt","rhomboids","mid-traps"],"secondary":["lats","biceps"]},{"name":"t-bar row","primary":["lats","rhomboids","mid-traps"],"secondary":["rear-delt","biceps","erectors"]},{"name":"machine row (seated)","primary":["lats","rhomboids","mid-traps"],"secondary":["rear-delt","biceps"]},{"name":"face pull","primary":["rear-delt","rotator-cuff"],"secondary":["rhomboids","mid-traps"]},{"name":"rear delt fly (dumbbell)","primary":["rear-delt"],"secondary":["rhomboids","mid-traps"]},{"name":"rear delt fly (cable)","primary":["rear-delt"],"secondary":["rhomboids","mid-traps"]},{"name":"reverse pec deck","primary":["rear-delt"],"secondary":["rhomboids","mid-traps"]},{"name":"conventional deadlift","primary":["hamstrings","glutes","erectors"],"secondary":["quads","lats","forearms"]},{"name":"sumo deadlift","primary":["glutes","hamstrings","quads"],"secondary":["adductors","erectors","lats"]},{"name":"romanian deadlift","primary":["hamstrings","glutes"],"secondary":["erectors","adductors"]},{"name":"single-leg rdl","primary":["hamstrings","glutes"],"secondary":["erectors","calves","core"]},{"name":"stiff-leg deadlift","primary":["hamstrings","erectors"],"secondary":["glutes"]},{"name":"good morning","primary":["hamstrings","erectors","glutes"],"secondary":["abs"]},{"name":"rack pull","primary":["erectors","glutes","hamstrings"],"secondary":["lats","forearms","mid-traps"]},{"name":"back extension / hyperextension","primary":["erectors","glutes"],"secondary":["hamstrings"]},{"name":"reverse hyperextension","primary":["glutes","hamstrings"],"secondary":["erectors"]},{"name":"barbell hip thrust","primary":["glutes"],"secondary":["hamstrings","quads"]},{"name":"cable pull-through","primary":["glutes","hamstrings"],"secondary":["erectors"]},{"name":"barbell overhead press","primary":["front-delt","mid-delt"],"secondary":["triceps","serratus","rotator-cuff"]},{"name":"dumbbell overhead press","primary":["front-delt","mid-delt"],"secondary":["triceps","rotator-cuff"]},{"name":"machine shoulder press","primary":["front-delt","mid-delt"],"secondary":["triceps"]},{"name":"arnold press","primary":["front-delt","mid-delt"],"secondary":["triceps","rotator-cuff"]},{"name":"lateral raise (dumbbell)","primary":["mid-delt"],"secondary":["front-delt","rear-delt","rotator-cuff"]},{"name":"lateral raise (cable)","primary":["mid-delt"],"secondary":["front-delt","rear-delt"]},{"name":"lateral raise (machine)","primary":["mid-delt"],"secondary":["rear-delt"]},{"name":"upright row","primary":["mid-delt"],"secondary":["front-delt","biceps","rhomboids"]},{"name":"bradford press","primary":["front-delt","mid-delt"],"secondary":["triceps","rotator-cuff"]},{"name":"cuban rotation","primary":["rotator-cuff","rear-delt"],"secondary":["mid-delt"]},{"name":"cable y-raise","primary":["mid-traps","rear-delt","rotator-cuff"],"secondary":["rhomboids"]},{"name":"barbell curl","primary":["biceps"],"secondary":["brachialis","brachioradialis"]},{"name":"ez-bar curl","primary":["biceps","brachialis"],"secondary":["brachioradialis"]},{"name":"dumbbell curl (standing)","primary":["biceps"],"secondary":["brachialis","brachioradialis"]},{"name":"incline dumbbell curl","primary":["biceps"],"secondary":["brachialis"]},{"name":"hammer curl","primary":["brachialis","brachioradialis"],"secondary":["biceps"]},{"name":"preacher curl (barbell)","primary":["biceps"],"secondary":["brachialis"]},{"name":"spider curl","primary":["biceps"],"secondary":["brachialis"]},{"name":"decline curl (carter curl)","primary":["biceps"],"secondary":["brachialis"]},{"name":"low cable curl","primary":["biceps"],"secondary":["brachialis"]},{"name":"drag curl","primary":["biceps"],"secondary":["brachialis"]},{"name":"concentration curl","primary":["biceps"],"secondary":[]},{"name":"cross-body hammer curl","primary":["brachialis","brachioradialis"],"secondary":["biceps"]},{"name":"zottman curl","primary":["biceps","brachioradialis"],"secondary":["brachialis","forearms"]},{"name":"reverse curl","primary":["brachioradialis","forearms"],"secondary":["brachialis","biceps"]},{"name":"cable tricep pushdown (rope)","primary":["triceps"],"secondary":[]},{"name":"cable tricep pushdown (bar)","primary":["triceps"],"secondary":[]},{"name":"skullcrusher (barbell)","primary":["triceps"],"secondary":[]},{"name":"skullcrusher (ez-bar)","primary":["triceps"],"secondary":[]},{"name":"jm press","primary":["triceps"],"secondary":["chest","front-delt"]},{"name":"overhead tricep extension (cable)","primary":["triceps"],"secondary":[]},{"name":"overhead tricep extension (dumbbell)","primary":["triceps"],"secondary":[]},{"name":"tricep dips (parallel bars)","primary":["triceps","chest"],"secondary":["front-delt"]},{"name":"carter extension","primary":["triceps"],"secondary":[]},{"name":"tate press","primary":["triceps"],"secondary":[]},{"name":"diamond push-up","primary":["triceps"],"secondary":["chest","front-delt"]},{"name":"back squat","primary":["quads","glutes"],"secondary":["hamstrings","adductors","erectors"]},{"name":"front squat","primary":["quads"],"secondary":["glutes","erectors","core"]},{"name":"hack squat (machine)","primary":["quads","glutes"],"secondary":["hamstrings"]},{"name":"leg press","primary":["quads","glutes"],"secondary":["hamstrings","adductors"]},{"name":"bulgarian split squat","primary":["quads","glutes"],"secondary":["hamstrings","adductors","core"]},{"name":"walking lunge","primary":["quads","glutes"],"secondary":["hamstrings","adductors","core"]},{"name":"reverse lunge","primary":["quads","glutes"],"secondary":["hamstrings","adductors"]},{"name":"leg extension","primary":["quads"],"secondary":[]},{"name":"sissy squat","primary":["quads"],"secondary":["hip-flexors"]},{"name":"atg split squat (knees over toes)","primary":["quads"],"secondary":["glutes","hip-flexors"]},{"name":"step-up","primary":["quads","glutes"],"secondary":["hamstrings"]},{"name":"lying leg curl","primary":["hamstrings"],"secondary":["calves"]},{"name":"seated leg curl","primary":["hamstrings"],"secondary":[]},{"name":"nordic hamstring curl","primary":["hamstrings"],"secondary":["glutes","erectors"]},{"name":"glute-ham raise (ghr)","primary":["hamstrings","glutes"],"secondary":["erectors","calves"]},{"name":"swiss ball leg curl","primary":["hamstrings","glutes"],"secondary":["calves","core"]},{"name":"glute bridge","primary":["glutes"],"secondary":["hamstrings"]},{"name":"single-leg hip thrust","primary":["glutes"],"secondary":["hamstrings","core"]},{"name":"cable glute kickback","primary":["glutes"],"secondary":["hamstrings"]},{"name":"frog pump","primary":["glutes"],"secondary":[]},{"name":"lateral band walk","primary":["abductors","glutes"],"secondary":["quads"]},{"name":"clamshell","primary":["abductors","glutes"],"secondary":["rotator-cuff"]},{"name":"standing calf raise (machine)","primary":["calves"],"secondary":[]},{"name":"seated calf raise","primary":["calves"],"secondary":[]},{"name":"single-leg calf raise","primary":["calves"],"secondary":[]},{"name":"tibialis raise (wall sit)","primary":["tibialis"],"secondary":[]},{"name":"tibialis raise (atg sled push)","primary":["tibialis"],"secondary":["calves","quads"]},{"name":"donkey calf raise","primary":["calves"],"secondary":[]},{"name":"copenhagen adduction","primary":["adductors"],"secondary":["core","glutes"]},{"name":"adductor machine","primary":["adductors"],"secondary":[]},{"name":"cable hip adduction","primary":["adductors"],"secondary":[]},{"name":"abductor machine","primary":["abductors","glutes"],"secondary":[]},{"name":"ab wheel rollout","primary":["abs","transverse-abs"],"secondary":["lats","erectors","shoulders"]},{"name":"cable crunch","primary":["abs"],"secondary":["obliques"]},{"name":"hanging leg raise","primary":["abs","hip-flexors"],"secondary":["obliques"]},{"name":"pallof press","primary":["transverse-abs","obliques"],"secondary":["abs","glutes"]},{"name":"dead bug","primary":["transverse-abs","abs"],"secondary":["hip-flexors"]},{"name":"dragon flag","primary":["abs","transverse-abs"],"secondary":["erectors","hip-flexors","lats"]},{"name":"plank (front)","primary":["transverse-abs","abs"],"secondary":["glutes","shoulders","erectors"]},{"name":"side plank","primary":["obliques","transverse-abs"],"secondary":["glutes","abductors"]},{"name":"landmine rotation","primary":["obliques"],"secondary":["shoulders","transverse-abs"]},{"name":"suitcase carry","primary":["obliques","transverse-abs"],"secondary":["glutes","forearms","traps"]},{"name":"roman chair sit-up","primary":["abs","hip-flexors"],"secondary":["obliques"]},{"name":"hollow body hold","primary":["abs","transverse-abs"],"secondary":["hip-flexors"]},{"name":"incline cable fly","primary":["chest"],"secondary":["front-delt"]},{"name":"weighted dips (chest)","primary":["chest","triceps"],"secondary":["front-delt"]},{"name":"ring push-up","primary":["chest","triceps"],"secondary":["serratus","core"]},{"name":"single-arm cable press","primary":["chest","front-delt"],"secondary":["triceps","core"]},{"name":"single-arm landmine row","primary":["lats","rhomboids"],"secondary":["biceps","rear-delt"]},{"name":"standing single-arm cable row","primary":["lats","rhomboids"],"secondary":["biceps","core"]},{"name":"bent-over dumbbell row (bilateral)","primary":["lats","rhomboids","mid-traps"],"secondary":["biceps","erectors"]},{"name":"barbell shrug","primary":["traps"],"secondary":["rhomboids","forearms"]},{"name":"dumbbell shrug","primary":["traps"],"secondary":["rhomboids"]},{"name":"cable shrug","primary":["traps"],"secondary":[]},{"name":"seated dumbbell overhead press","primary":["front-delt","mid-delt"],"secondary":["triceps","rotator-cuff"]},{"name":"pike push-up","primary":["front-delt","mid-delt"],"secondary":["triceps"]},{"name":"handstand push-up (wall)","primary":["front-delt","mid-delt"],"secondary":["triceps","core"]},{"name":"single-arm cable lateral raise","primary":["mid-delt"],"secondary":["rotator-cuff"]},{"name":"incline y-raise (dumbbell)","primary":["lower-traps","rear-delt","mid-traps"],"secondary":["rotator-cuff"]},{"name":"external rotation (cable)","primary":["rotator-cuff"],"secondary":["rear-delt"]},{"name":"internal rotation (cable)","primary":["rotator-cuff"],"secondary":["front-delt"]},{"name":"landmine lateral raise","primary":["mid-delt"],"secondary":["front-delt","rotator-cuff"]},{"name":"behind-neck press (smith machine)","primary":["mid-delt","front-delt"],"secondary":["triceps","rotator-cuff"]},{"name":"high cable curl","primary":["biceps"],"secondary":["front-delt"]},{"name":"machine curl","primary":["biceps"],"secondary":["brachialis"]},{"name":"single-arm cable pushdown","primary":["triceps"],"secondary":[]},{"name":"bench dips","primary":["triceps"],"secondary":["front-delt"]},{"name":"reverse grip pushdown","primary":["triceps"],"secondary":["brachioradialis"]},{"name":"wrist curl (barbell)","primary":["forearms"],"secondary":[]},{"name":"reverse wrist curl","primary":["forearms"],"secondary":[]},{"name":"farmer's carry","primary":["forearms","traps"],"secondary":["core","glutes","calves"]},{"name":"goblet squat","primary":["quads","glutes"],"secondary":["adductors","core"]},{"name":"box squat","primary":["quads","glutes","hamstrings"],"secondary":["erectors","adductors"]},{"name":"pause squat","primary":["quads","glutes"],"secondary":["hamstrings","erectors"]},{"name":"safety bar squat","primary":["quads","glutes"],"secondary":["erectors","hamstrings"]},{"name":"curtsy lunge","primary":["glutes","quads","adductors"],"secondary":["hamstrings"]},{"name":"cable hip abduction","primary":["abductors","glutes"],"secondary":[]},{"name":"standing leg curl (machine)","primary":["hamstrings"],"secondary":["calves"]},{"name":"sumo squat (dumbbell)","primary":["adductors","glutes","quads"],"secondary":["hamstrings"]},{"name":"jump squat","primary":["quads","glutes"],"secondary":["calves","hamstrings"]},{"name":"hip adduction machine (seated)","primary":["adductors"],"secondary":[]},{"name":"weighted crunch","primary":["abs"],"secondary":[]},{"name":"russian twist","primary":["obliques"],"secondary":["abs","hip-flexors"]},{"name":"bicycle crunch","primary":["obliques","abs"],"secondary":["hip-flexors"]},{"name":"plank shoulder tap","primary":["transverse-abs","core"],"secondary":["shoulders","glutes"]},{"name":"lying leg raise","primary":["abs","hip-flexors"],"secondary":["transverse-abs"]},{"name":"v-up","primary":["abs","hip-flexors"],"secondary":["obliques"]},{"name":"cable woodchop","primary":["obliques"],"secondary":["transverse-abs","shoulders","lats"]},{"name":"ab rollout (barbell)","primary":["abs","transverse-abs"],"secondary":["lats","shoulders"]},{"name":"power clean","primary":["glutes","hamstrings","quads"],"secondary":["traps","erectors","calves"]},{"name":"hang clean","primary":["glutes","hamstrings"],"secondary":["traps","erectors","quads"]},{"name":"kettlebell swing","primary":["glutes","hamstrings"],"secondary":["erectors","core","shoulders"]},{"name":"trap bar deadlift","primary":["quads","glutes","hamstrings"],"secondary":["erectors","lats","forearms"]},{"name":"close-grip lat pulldown","primary":["lats","biceps"],"secondary":["rhomboids"]},{"name":"rack row (barbell inverted)","primary":["lats","rhomboids","biceps"],"secondary":["rear-delt","core"]},{"name":"inverted row (trx/rings)","primary":["lats","rhomboids"],"secondary":["biceps","rear-delt"]},{"name":"snatch-grip deadlift","primary":["hamstrings","glutes","erectors"],"secondary":["traps","lats"]},{"name":"deficit deadlift","primary":["hamstrings","glutes","erectors"],"secondary":["quads","lats"]},{"name":"pin squat","primary":["quads","glutes"],"secondary":["hamstrings","erectors"]},{"name":"zercher squat","primary":["quads","glutes","core"],"secondary":["biceps","erectors"]},{"name":"landmine squat","primary":["quads","glutes"],"secondary":["core"]},{"name":"single-leg press","primary":["quads","glutes"],"secondary":["hamstrings"]},{"name":"calf raise on leg press","primary":["calves"],"secondary":[]},{"name":"hip thrust (smith machine)","primary":["glutes"],"secondary":["hamstrings","quads"]},{"name":"ghd sit-up","primary":["abs","hip-flexors"],"secondary":["glutes","hamstrings"]},{"name":"incline bench leg raise","primary":["abs","hip-flexors"],"secondary":[]},{"name":"stir the pot (ball plank)","primary":["transverse-abs","obliques"],"secondary":["abs","shoulders"]},{"name":"goblet carry","primary":["transverse-abs","core"],"secondary":["front-delt","traps"]},{"name":"half-kneeling pallof press","primary":["obliques","transverse-abs"],"secondary":["glutes","hip-flexors"]},{"name":"standing ab rollout","primary":["abs","transverse-abs"],"secondary":["lats","erectors"]},{"name":"dumbbell row (pronated)","primary":["lats","rhomboids"],"secondary":["rear-delt","brachioradialis"]},{"name":"wide-grip cable row","primary":["rhomboids","mid-traps","rear-delt"],"secondary":["lats","biceps"]},{"name":"chest-supported barbell row","primary":["lats","rhomboids","mid-traps"],"secondary":["biceps"]},{"name":"smith machine overhead press","primary":["front-delt","mid-delt"],"secondary":["triceps"]},{"name":"dumbbell pullover","primary":["lats","chest"],"secondary":["teres-major","abs"]},{"name":"band pull-apart","primary":["rear-delt","rhomboids","mid-traps"],"secondary":["rotator-cuff"]},{"name":"incline bench curl (scott curl)","primary":["biceps"],"secondary":["brachialis"]},{"name":"overhead cable curl (double bicep)","primary":["biceps"],"secondary":["front-delt"]},{"name":"behind-neck lat pulldown","primary":["lats"],"secondary":["rhomboids","biceps"]},{"name":"single-arm dumbbell press","primary":["chest","triceps"],"secondary":["core","serratus"]},{"name":"hex press (floor)","primary":["chest","triceps"],"secondary":["front-delt"]},{"name":"push press","primary":["front-delt","mid-delt","triceps"],"secondary":["quads","glutes","core"]},{"name":"z-press","primary":["front-delt","mid-delt"],"secondary":["triceps","core","hip-flexors"]},{"name":"jefferson curl","primary":["erectors","hamstrings"],"secondary":["glutes","abs"]},{"name":"kneeling cable crunch","primary":["abs"],"secondary":["obliques"]},{"name":"dumbbell deadlift","primary":["hamstrings","glutes","erectors"],"secondary":["quads","forearms"]},{"name":"machine chest fly (seated)","primary":["chest"],"secondary":["front-delt"]},{"name":"nordic hamstring curl eccentrics","primary":["hamstrings"],"secondary":["glutes","erectors"]},{"name":"hip hinge (dowel/barbell drill)","primary":["glutes","hamstrings"],"secondary":["erectors"]},{"name":"half-kneeling dumbbell press","primary":["front-delt","mid-delt"],"secondary":["triceps","core","glutes"]},{"name":"overhead cable face pull","primary":["rear-delt","rotator-cuff","mid-traps"],"secondary":["rhomboids"]},{"name":"adductor squeeze squat","primary":["adductors","quads","glutes"],"secondary":["hamstrings"]}];
+
+// Old substring keyword-guess logic, used only to prefill BASE_EXERCISES names not covered above.
+const MUSCLE_MAP = {
+  'hack squat': ['quads','glutes'], 'squat': ['quads','glutes','hamstrings'],
+  'leg press': ['quads','glutes'], 'leg curl': ['hamstrings'], 'leg extension': ['quads'],
+  'lunge': ['quads','glutes','hamstrings'], 'hip thrust': ['glutes'], 'glute': ['glutes'],
+  'deadlift': ['hamstrings','glutes','erectors','lats'], 'rdl': ['hamstrings','glutes','erectors'],
+  'calf': ['calves'], 'pull up': ['lats','biceps'], 'chin up': ['lats','biceps'],
+  'lat pulldown': ['lats','biceps'], 'row': ['lats','rhomboids','biceps'],
+  'bench press': ['chest','triceps','front-delt'], 'chest press': ['chest','triceps','front-delt'],
+  'fly': ['chest','front-delt'], 'dip': ['chest','triceps'],
+  'overhead press': ['front-delt','triceps'], 'shoulder press': ['front-delt','triceps'],
+  'lateral raise': ['rear-delt'], 'face pull': ['rear-delt','rhomboids'],
+  'tricep': ['triceps'], 'triceps': ['triceps'],
+  'bicep': ['biceps'], 'curl': ['biceps'],
+  'ab': ['abs'], 'crunch': ['abs'], 'plank': ['abs'], 'sit up': ['abs'],
+  'oblique': ['obliques'], 'shrug': ['traps'], 'trap': ['traps'],
+  'forearm': ['forearms'], 'wrist': ['forearms'],
+};
+
+// Old keyword guesser has no primary/secondary notion — everything it finds counts as primary.
+function guess(name) {
+  for (const [key, muscles] of Object.entries(MUSCLE_MAP)) {
+    if (name.includes(key)) return { primary: [...muscles], secondary: [] };
+  }
+  return { primary: [], secondary: [] };
+}
+
+function defaultData() {
+  const data = {};
+  LOGGED_EXERCISES.forEach(name => {
+    const hit = matchDB(name);
+    data[name] = hit ? collapse({ primary: hit.primary, secondary: hit.secondary }, name) : collapse(guess(name), name);
+  });
+  return data;
+}
+
+// Normalizes older flat-array entries (from before the primary/secondary split) into the new shape.
+function normalize(entry) {
+  if (Array.isArray(entry)) return { primary: entry, secondary: [] };
+  return { primary: entry.primary || [], secondary: entry.secondary || [] };
+}
+
+const STORAGE_KEY = 'exerciseMuscleMapper_v7';
+let data = JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null');
+if (!data) {
+  // Migrate any edits made under earlier tool versions (only for names we still show), then fill in the rest from the DB.
+  const old = JSON.parse(localStorage.getItem('exerciseMuscleMapper_v6') || localStorage.getItem('exerciseMuscleMapper_v5') || localStorage.getItem('exerciseMuscleMapper_v4') || localStorage.getItem('exerciseMuscleMapper_v3') || localStorage.getItem('exerciseMuscleMapper_v2') || localStorage.getItem('exerciseMuscleMapper_v1') || 'null') || {};
+  data = defaultData();
+  Object.keys(old).filter(name => LOGGED_EXERCISES.includes(name)).forEach(name => { data[name] = collapse(normalize(old[name]), name); });
+}
+
+function save() { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); }
+
+function render() {
+  const filter = document.getElementById('filter').value.toLowerCase();
+  const list = document.getElementById('list');
+  list.innerHTML = '';
+  Object.keys(data).sort().forEach(name => {
+    if (filter && !name.includes(filter)) return;
+    const row = document.createElement('div');
+    row.className = 'row';
+
+    const label = document.createElement('div');
+    label.className = 'name';
+    label.textContent = name;
+    row.appendChild(label);
+
+    const chips = document.createElement('div');
+    chips.className = 'chips';
+    ALL_MUSCLES.forEach(m => {
+      const chip = document.createElement('span');
+      const state = data[name].primary.includes(m) ? 'primary' : data[name].secondary.includes(m) ? 'secondary' : null;
+      chip.className = 'chip' + (state ? ' ' + state : '');
+      chip.textContent = m;
+      chip.onclick = () => {
+        // Cycle: off → primary → secondary → off.
+        data[name].primary = data[name].primary.filter(x => x !== m);
+        data[name].secondary = data[name].secondary.filter(x => x !== m);
+        if (state === null) data[name].primary.push(m);
+        else if (state === 'primary') data[name].secondary.push(m);
+        save();
+        render();
+      };
+      chips.appendChild(chip);
+    });
+    row.appendChild(chips);
+
+    const del = document.createElement('span');
+    del.className = 'del';
+    del.textContent = 'remove';
+    del.onclick = () => { delete data[name]; save(); render(); };
+    row.appendChild(del);
+
+    list.appendChild(row);
+  });
+}
+
+document.getElementById('filter').oninput = render;
+
+document.getElementById('addBtn').onclick = () => {
+  const input = document.getElementById('newEx');
+  const name = input.value.trim().toLowerCase();
+  if (!name) return;
+  if (!(name in data)) { const hit = matchDB(name); data[name] = hit ? collapse({ primary: hit.primary, secondary: hit.secondary }, name) : collapse(guess(name), name); }
+  input.value = '';
+  save();
+  render();
+};
+
+document.getElementById('resetBtn').onclick = () => {
+  if (!confirm('Reset all edits back to the app\'s current keyword-guess defaults?')) return;
+  data = defaultData();
+  save();
+  render();
+};
+
+document.getElementById('exportBtn').onclick = () => {
+  const lines = Object.keys(data).sort().map(name => {
+    const primary = data[name].primary.map(m => `'${m}'`).join(',');
+    const secondary = data[name].secondary.map(m => `'${m}'`).join(',');
+    return `  '${name}': { primary: [${primary}], secondary: [${secondary}] },`;
+  });
+  const text = `const EXERCISE_MUSCLES = {\n${lines.join('\n')}\n};`;
+  const out = document.getElementById('out');
+  out.style.display = 'block';
+  out.value = text;
+  out.select();
+  navigator.clipboard?.writeText(text).then(() => {
+    document.getElementById('status').textContent = 'Copied to clipboard ✓';
+  }).catch(() => {
+    document.getElementById('status').textContent = 'Copy failed — select text manually below.';
+  });
+};
+
+render();
+</script>
+</body>
+</html>

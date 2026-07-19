@@ -19,11 +19,24 @@
 // (custom exercises, Hevy-imported names that don't match canonical naming).
 
 const { EXERCISE_DB } = require('./exerciseDb');
+const { EXERCISE_NAME_ALIASES } = require('./exerciseNameAliases');
 
 const BY_NAME = new Map(EXERCISE_DB.map(e => [e.name.toLowerCase(), e]));
 
+// EXERCISE_NAME_ALIASES was previously wired into strengthStandards.js only
+// (ranking/tier classification) — this exercise-selection path (findExercise,
+// and everything built on it: fatigue attribution, logged-history scoring in
+// weeklyPlanner.js/sessionPlanner.js) never benefited from it, so a real
+// account's genuinely logged exercises kept reading as "never logged before"
+// whenever the import source's name didn't exact-match exerciseDb.js's
+// canonical naming — exactly the gap exerciseNameAliases.js's own comment
+// documents (93% of one real account's distinct names failed exact-match
+// before that table existed). Checking it here means every consumer of
+// findExercise gets the same name resolution the ranking system already had.
 function findExercise(name) {
-  return BY_NAME.get((name || '').toLowerCase()) || null;
+  const key = (name || '').toLowerCase();
+  const canonical = EXERCISE_NAME_ALIASES[key];
+  return BY_NAME.get(canonical ? canonical.toLowerCase() : key) || null;
 }
 
 // Every muscle exerciseDb.js ever names as a primary or secondary target,
@@ -147,7 +160,21 @@ function isCompoundExercise(name) {
 // case-insensitive since logged history (Hevy imports especially) is
 // inconsistently cased against exerciseDb.js's canonical Title Case names.
 function loggedExerciseNames(lifts) {
-  return new Set((lifts || []).map(l => (l.exercise || '').toLowerCase()).filter(Boolean));
+  const names = new Set();
+  for (const l of (lifts || [])) {
+    const key = (l.exercise || '').toLowerCase();
+    if (!key) continue;
+    names.add(key);
+    // Resolve through findExercise's alias table too, not just the raw
+    // logged string — the logged-history bonus in weeklyPlanner.js/
+    // sessionPlanner.js compares against EXERCISE_DB's canonical names, so
+    // an aliased import name (e.g. "bench press (barbell)") needs to also
+    // register as "barbell bench press" or the bonus silently never fires
+    // for it despite findExercise correctly resolving it everywhere else.
+    const entry = findExercise(key);
+    if (entry) names.add(entry.name.toLowerCase());
+  }
+  return names;
 }
 
 module.exports = {

@@ -54,9 +54,19 @@ async function callGemini({ messages, maxTokens = 800, jsonMode = false, image =
     clearTimeout(timeout);
   }
   if (!r.ok) return { ok: false, status: r.status, error: data.error || { message: `Gemini returned ${r.status}` } };
-  const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+  const candidate = data.candidates?.[0];
+  const text = candidate?.content?.parts?.[0]?.text;
   if (!text) return { ok: false, status: r.status, error: { message: "Gemini returned no content" } };
-  return { ok: true, status: r.status, content: text };
+  // maxOutputTokens caps the ENTIRE generation for thinking-capable models
+  // (2.5+/3.x) — the internal "thinking" pass counts against the same budget
+  // as the visible reply, even at the minimum thinkingLevel/thinkingBudget
+  // set above (there's no way to fully disable thinking on gemini-3.x). If
+  // thinking eats most of the budget, the visible text comes back cut off
+  // mid-sentence with finishReason MAX_TOKENS, indistinguishable from a
+  // complete reply unless this is checked explicitly — silently returning it
+  // as ok:true was the actual bug behind "the summary/chat reply gets cut
+  // off," not the maxTokens value itself being too small in isolation.
+  return { ok: true, status: r.status, content: text, truncated: candidate?.finishReason === 'MAX_TOKENS' };
 }
 
 // Parses Gemini's rate-limit retry hint (RetryInfo.retryDelay, e.g. "13s") when present.
@@ -71,19 +81,28 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 // Retries on 429 (quota) and 503 (overloaded) with backoff, then falls back to
 // GEMINI_FALLBACK_MODEL once if the primary model stays overloaded through the
 // retries — a capacity issue is usually specific to one model, not Gemini as a
-// whole. Used by every Gemini-backed generator so a transient overload doesn't
-// just fail outright.
+// whole. Also retries (immediately, no backoff needed — this isn't a quota
+// issue) when callGemini reports the reply was cut off by MAX_TOKENS, tripling
+// the token budget each time up to a hard ceiling, since that's genuinely a
+// "the ceiling was too low for this particular reply" problem the caller's
+// original maxTokens can't have anticipated (thinking-token overhead varies
+// per response, not just per prompt). Used by every Gemini-backed generator.
 async function callGeminiResilient(opts) {
   let result;
+  let tokens = opts.maxTokens || 800;
   for (let attempt = 0; attempt < 3; attempt++) {
-    result = await callGemini(opts);
-    if (result.ok) return result;
+    result = await callGemini({ ...opts, maxTokens: tokens });
+    if (result.ok && !result.truncated) return result;
+    if (result.ok && result.truncated) {
+      tokens = Math.min(tokens * 3, 4000);
+      continue;
+    }
     if (result.status !== 429 && result.status !== 503) break;
     const waitSec = geminiRetryDelaySec(result.error) || (2 * (attempt + 1));
     await sleep(Math.min(waitSec, 10) * 1000 + 250);
   }
   if (result.status === 503) {
-    const fallback = await callGemini({ ...opts, model: GEMINI_FALLBACK_MODEL });
+    const fallback = await callGemini({ ...opts, model: GEMINI_FALLBACK_MODEL, maxTokens: tokens });
     if (fallback.ok) return fallback;
     result = fallback;
   }

@@ -84,3 +84,21 @@ test('stalled trend deloads after 3 consecutive non-improving sessions', () => {
   assert.equal(prog.trend, 'stalled');
   assert.ok(prog.suggestKg < 75);
 });
+
+test('brand calibration prevents a gym/machine switch from reading as a real regression', () => {
+  const lifts = [
+    // Several sessions on Life Fitness (the reference brand, most-logged) establishing a steady e1RM
+    { date: '2026-05-01', exercise: 'Lat Pulldown (Wide Grip)', kg: 60, reps: 8, machine: 'Life Fitness' },
+    { date: '2026-05-08', exercise: 'Lat Pulldown (Wide Grip)', kg: 60, reps: 8, machine: 'Life Fitness' },
+    { date: '2026-05-15', exercise: 'Lat Pulldown (Wide Grip)', kg: 60, reps: 8, machine: 'Life Fitness' },
+    // A Technogym session close in time reading heavier for the same true output (calibration pair)
+    { date: '2026-05-16', exercise: 'Lat Pulldown (Wide Grip)', kg: 70, reps: 8, machine: 'Technogym' },
+    // Most recent session: switched gyms to Technogym, logged the SAME true effort as before (70kg = the calibrated equivalent of 60kg Life Fitness)
+    { date: '2026-05-22', exercise: 'Lat Pulldown (Wide Grip)', kg: 70, reps: 8, machine: 'Technogym' },
+  ];
+  const prog = computeProgression(lifts, 'Lat Pulldown (Wide Grip)');
+  // Without calibration, comparing raw e1RM (kg=70 vs kg=60) would read as
+  // real progress; with calibration, the last two Technogym sessions are
+  // recognized as the same true output as the Life Fitness baseline.
+  assert.notEqual(prog.trend, 'progressing', 'a like-for-like brand switch should not read as genuine progress');
+});

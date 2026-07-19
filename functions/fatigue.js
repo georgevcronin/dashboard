@@ -170,7 +170,7 @@ const INJURY_HEALING_DAYS = { mild: 10, moderate: 21, severe: 35 };
 function injuryFatiguePenalty(injury, now = Date.now()) {
   const totalDays = INJURY_HEALING_DAYS[injury.severity] || INJURY_HEALING_DAYS.moderate;
   const elapsedDays = (now - injury.ts) / 864e5;
-  return Math.max(0, 100 * (1 - elapsedDays / totalDays));
+  return Math.max(0, Math.round(100 * (1 - elapsedDays / totalDays)));
 }
 // Merges active injuries into a structural-fatigue map as an artificial fatigue
 // penalty — reuses the same 65% "avoid loading" ceiling everything else already

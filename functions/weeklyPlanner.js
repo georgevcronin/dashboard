@@ -19,8 +19,17 @@ const { PRIMARY_MUSCLES, MUSCLE_GROUPS, loggedExerciseNames } = require('./muscl
 // Dominates the small (0-4 point) muscle-coverage score below by design — "a
 // heavy preference for exercises you've done before" means history should
 // decide the pick over marginal coverage differences almost every time, not
-// just nudge it.
-const LOGGED_EXERCISE_BONUS = 20;
+// just nudge it. Raised from 20 after real-world testing (a 4-year Hevy
+// import) still surfaced too many unfamiliar exercises — the bigger fix
+// there was findExercise/loggedExerciseNames now resolving import-source
+// aliases (exerciseNameAliases.js) so genuinely-logged names actually match
+// their DB entry at all, but this is widened too for extra margin.
+const LOGGED_EXERCISE_BONUS = 40;
+// Smaller than LOGGED_EXERCISE_BONUS — a self-reported favorite from
+// onboarding is a real anchor for a brand-new account with no lift history
+// yet to weight against, but it's a stated preference, not demonstrated
+// behavior, so real logged history (once it exists) should still win.
+const FAVORITE_EXERCISE_BONUS = 15;
 
 const FATIGUE_CEILING = 65; // ethos: don't load a muscle already this fatigued
 
@@ -51,8 +60,9 @@ function muscleWeight(m) { return MAJOR_MUSCLES.has(m) ? 1 : ASSISTOR_WEIGHT; }
 // does. Picks the exercises whose primary muscles best cover the target set,
 // heavily boosted (LOGGED_EXERCISE_BONUS) toward whatever the athlete has
 // actually logged before over something novel.
-function pickBackboneExercises(targetMuscles, { travelMode, lifts, count = 2 } = {}) {
+function pickBackboneExercises(targetMuscles, { travelMode, lifts, favoriteExercises = [], count = 2 } = {}) {
   const logged = loggedExerciseNames(lifts);
+  const favorites = new Set(favoriteExercises.map(n => (n || '').toLowerCase()));
   const pool = EXERCISE_DB.filter(e =>
     !e.lesserKnown && !e.isometric &&
     (travelMode ? e.equipment === 'bodyweight' : true) &&
@@ -62,7 +72,8 @@ function pickBackboneExercises(targetMuscles, { travelMode, lifts, count = 2 } =
     .map(e => ({
       e,
       score: e.primary.filter(m => targetMuscles.includes(m)).length
-        + (logged.has(e.name.toLowerCase()) ? LOGGED_EXERCISE_BONUS : 0),
+        + (logged.has(e.name.toLowerCase()) ? LOGGED_EXERCISE_BONUS : 0)
+        + (favorites.has(e.name.toLowerCase()) ? FAVORITE_EXERCISE_BONUS : 0),
     }))
     .sort((a, b) => b.score - a.score);
   const out = [];
