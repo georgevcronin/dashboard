@@ -4607,6 +4607,11 @@ function Onboarding({ onComplete, onOpenImport }) {
               </div>
               {healthGuideOpen && (
                 <div className="ob-guide">
+                  <a href="https://www.icloud.com/shortcuts/d461a338f79346be919118197aff92ae" target="_blank" rel="noopener noreferrer"
+                    style={{ display: 'block', marginBottom: 10, fontWeight: 700, color: 'var(--gold)' }}>
+                    Install the pre-built Shortcut →
+                  </a>
+                  Or build it yourself:<br />
                   <strong>1.</strong> Open <strong>Shortcuts</strong> on your iPhone<br />
                   <strong>2.</strong> Create a new <strong>Personal Automation</strong><br />
                   <strong>3.</strong> Trigger: <strong>Daily at 6:00 AM</strong><br />
@@ -5014,6 +5019,11 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
             </div>
             {healthGuideOpen && (
               <div className="ob-guide">
+                <a href="https://www.icloud.com/shortcuts/d461a338f79346be919118197aff92ae" target="_blank" rel="noopener noreferrer"
+                  style={{ display: 'block', marginBottom: 10, fontWeight: 700, color: 'var(--gold)' }}>
+                  Install the pre-built Shortcut →
+                </a>
+                Or build it yourself:<br />
                 <strong>1.</strong> Open <strong>Shortcuts</strong> on your iPhone<br />
                 <strong>2.</strong> Create a new <strong>Personal Automation</strong><br />
                 <strong>3.</strong> Trigger: <strong>Daily at 6:00 AM</strong><br />
