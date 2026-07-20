@@ -298,7 +298,7 @@ function S1({ s, briefing, onShowBriefing, onShowAfternoon, onShowNight, onShowW
           </div>
           <div style={{ position: 'relative', zIndex: 1 }}>
             <div className="sc-label" style={{ marginBottom: 6 }}>Recovery · Today</div>
-            <div style={{ fontFamily: "'Syne',sans-serif", fontWeight: 800, fontSize: 'clamp(64px,17vw,106px)', lineHeight: '.82', letterSpacing: '-.05em', color: 'var(--gold)' }}>
+            <div style={{ fontFamily: "'Syne',sans-serif", fontWeight: 800, fontSize: 'clamp(52px,13vw,84px)', lineHeight: '.82', letterSpacing: '-.05em', color: 'var(--gold)', whiteSpace: 'nowrap' }}>
               {recovery != null ? Math.round(recovery) : '—'}<span style={{ fontSize: '.32em', color: 'var(--rule)', letterSpacing: 0, fontWeight: 700 }}> /100</span>
             </div>
             <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--forest)', marginTop: 10, letterSpacing: '.04em' }}>
