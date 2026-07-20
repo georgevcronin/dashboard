@@ -713,6 +713,13 @@ const glycogenPct = (elapsedS, totalS) => {
 // app's first version — everything before this had no changelog at all.
 const CHANGELOG = [
   {
+    version: '0.21',
+    date: '2026-07-20',
+    features: [
+      'Removed Press/Row/Fly as pattern categories in "Browse by Muscle" — nearly every exercise was one of these, making the middle step pointless busywork. Those exercises now show up directly at the muscle-group level instead.',
+    ],
+  },
+  {
     version: '0.20',
     date: '2026-07-20',
     features: [
@@ -1053,6 +1060,12 @@ function ExHistoryChart({ name, lifts }) {
 // a name for someone who doesn't know exactly what they're looking for.
 // Skips the variant step when a movement only has one (e.g. Face Pull),
 // since making someone pick between one option isn't navigation.
+// Too generic to be a useful intermediate click — nearly every push/pull
+// exercise IS a press/row/fly, so this bucket contained most of the tree.
+// Exercises using these patterns skip the pattern step entirely and show
+// up directly at the muscle-group level instead (see hiddenMovements).
+const HIDDEN_PATTERNS = new Set(['press', 'row', 'fly']);
+
 function ExerciseBrowser({ onAdd }) {
   const [open, setOpen] = useState(false);
   const [group, setGroup] = useState(null);
@@ -1066,7 +1079,21 @@ function ExerciseBrowser({ onAdd }) {
   const patterns = useMemo(() => {
     if (!group) return [];
     const present = new Set(EXERCISE_DB.filter(e => e.muscleGroup === group).map(e => e.pattern));
-    return EXERCISE_PATTERNS.filter(p => present.has(p));
+    return EXERCISE_PATTERNS.filter(p => present.has(p) && !HIDDEN_PATTERNS.has(p));
+  }, [group]);
+
+  // Movements for hidden-pattern exercises (press/row/fly) within this
+  // group — shown directly alongside the remaining pattern tiles, one
+  // step earlier than a normal pattern-gated movement.
+  const hiddenMovements = useMemo(() => {
+    if (!group) return [];
+    const byId = new Map();
+    for (const e of EXERCISE_DB) {
+      if (e.muscleGroup !== group || !HIDDEN_PATTERNS.has(e.pattern)) continue;
+      if (!byId.has(e.movementId)) byId.set(e.movementId, { movementId: e.movementId, movementName: e.movementName, count: 0 });
+      byId.get(e.movementId).count++;
+    }
+    return [...byId.values()].sort((a, b) => a.movementName.localeCompare(b.movementName));
   }, [group]);
 
   const movements = useMemo(() => {
@@ -1102,7 +1129,14 @@ function ExerciseBrowser({ onAdd }) {
 
   let step = 'group', items = [], onPick = null;
   if (!group) { step = 'group'; items = groups.map(g => ({ key: g, label: g })); onPick = it => setGroup(it.key); }
-  else if (!pattern) { step = 'pattern'; items = patterns.map(p => ({ key: p, label: p })); onPick = it => setPattern(it.key); }
+  else if (!pattern) {
+    step = 'pattern';
+    items = [
+      ...patterns.map(p => ({ key: `pattern-${p}`, label: p, kind: 'pattern', pattern: p })),
+      ...hiddenMovements.map(m => ({ key: `move-${m.movementId}`, label: m.count > 1 ? `${m.movementName} (${m.count})` : m.movementName, kind: 'movement', m })),
+    ];
+    onPick = it => it.kind === 'pattern' ? setPattern(it.pattern) : selectMovement(it.m);
+  }
   else if (!movementId) { step = 'movement'; items = movements.map(m => ({ key: m.movementId, label: m.count > 1 ? `${m.movementName} (${m.count})` : m.movementName, m })); onPick = it => selectMovement(it.m); }
   else { step = 'variant'; items = variants.map(v => ({ key: v.id, label: v.name, v })); onPick = it => pick(it.v); }
 
