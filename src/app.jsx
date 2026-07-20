@@ -4627,7 +4627,7 @@ function Onboarding({ onComplete, onOpenImport }) {
               </div>
               {healthGuideOpen && (
                 <div className="ob-guide">
-                  <a href="https://www.icloud.com/shortcuts/d461a338f79346be919118197aff92ae" target="_blank" rel="noopener noreferrer"
+                  <a href="https://www.icloud.com/shortcuts/e1a3c6dea8854f10a8b431a185c7c17d" target="_blank" rel="noopener noreferrer"
                     style={{ display: 'block', marginBottom: 8, fontWeight: 700, color: 'var(--gold)' }}>
                     Install the pre-built Shortcut →
                   </a>
@@ -5067,7 +5067,7 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
             </div>
             {healthGuideOpen && (
               <div className="ob-guide">
-                <a href="https://www.icloud.com/shortcuts/d461a338f79346be919118197aff92ae" target="_blank" rel="noopener noreferrer"
+                <a href="https://www.icloud.com/shortcuts/e1a3c6dea8854f10a8b431a185c7c17d" target="_blank" rel="noopener noreferrer"
                   style={{ display: 'block', marginBottom: 8, fontWeight: 700, color: 'var(--gold)' }}>
                   Install the pre-built Shortcut →
                 </a>
