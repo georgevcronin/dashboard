@@ -64,8 +64,12 @@ test('musclePeaksFromLifts prefers a recent (90-day) peak over a bigger old one,
   const peaks = musclePeaksFromLifts(lifts);
   assert.equal(peaks.quads, 800, 'should use the recent 800 peak, not the 2-year-old 4320 total');
 
+  // Quads' half-life is 24h (evidence-grounded — see RECOVERY_H's comment in
+  // muscleTaxonomy.js), so a session at exactly the recent peak load, done
+  // ~1 day ago, should read near the midpoint of one half-life, not "still
+  // mostly fresh" the way a 72h half-life would have implied.
   const fatigue = computeStructuralFatigue(lifts, peaks, [], {});
-  assert.ok(fatigue.quads > 50, `a full-body session done yesterday should read well above 50% fatigue, got ${fatigue.quads}%`);
+  assert.ok(fatigue.quads > 25 && fatigue.quads < 65, `a full-body session done yesterday should read near one half-life's decay, got ${fatigue.quads}%`);
 });
 
 test('musclePeaksFromLifts falls back to the all-time peak for a muscle with nothing in the last 90 days', () => {

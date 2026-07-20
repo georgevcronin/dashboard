@@ -45,16 +45,28 @@ function findExercise(name) {
 // edit anywhere else.
 const ALL_MUSCLES = [...new Set(EXERCISE_DB.flatMap(e => [...(e.primary || []), ...(e.secondary || [])]))].sort();
 
-// Illustrative recovery half-lives in hours, not clinical guidance (matches the
-// spirit of the pre-existing values this extends) — smaller/stabilizer muscles
-// recover faster, larger prime movers slower.
+// Illustrative recovery half-lives in hours, not clinical guidance. Set to the
+// low end of the range found in real research, where research actually exists
+// for that specific muscle — quads (24-48h peak-torque recovery, single- vs.
+// multi-joint knee extension studies), hamstrings/glutes/chest/lats (48-72h,
+// "large muscle group" studies and DOMS/torque literature), small elbow
+// flexors/forearms (24-48h, small-muscle studies). Caveat: nearly all of this
+// research uses deliberately maximal, unaccustomed eccentric-damage protocols
+// — a worst case for someone unfamiliar with that stimulus, not a trained
+// lifter's typical recovery from familiar training (repeated-bout effect) —
+// so the low end is a more honest target than the high end, not just an
+// arbitrary pick. The remaining entries below (delts individually, traps
+// subdivisions, adductors/abductors/hip-flexors, serratus, teres-major,
+// tibialis, core subdivisions) have no muscle-specific research at all —
+// real studies compare broad groups, not these — so they're left at their
+// pre-existing estimates rather than given a false "verified" number.
 const RECOVERY_H = {
-  quads: 72, glutes: 72, hamstrings: 72, calves: 48, adductors: 72, abductors: 60,
-  chest: 72, triceps: 48, biceps: 48, brachialis: 48, brachioradialis: 36,
-  lats: 72, rhomboids: 48, traps: 48, 'lower-traps': 48, 'mid-traps': 48,
+  quads: 24, glutes: 48, hamstrings: 48, calves: 24, adductors: 72, abductors: 60,
+  chest: 48, triceps: 24, biceps: 24, brachialis: 24, brachioradialis: 24,
+  lats: 48, rhomboids: 48, traps: 48, 'lower-traps': 48, 'mid-traps': 48,
   erectors: 72, abs: 36, obliques: 36, core: 36, 'transverse-abs': 36,
   'front-delt': 48, 'rear-delt': 48, 'mid-delt': 48, shoulders: 48, 'rotator-cuff': 48,
-  serratus: 36, 'teres-major': 48, forearms: 36, 'hip-flexors': 48, tibialis: 36,
+  serratus: 36, 'teres-major': 48, forearms: 24, 'hip-flexors': 48, tibialis: 36,
 };
 
 // Which of ALL_MUSCLES actually appear as a `primary` target somewhere — those
