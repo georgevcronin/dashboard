@@ -6,6 +6,7 @@ const webpush = require("web-push");
 const { EXERCISE_DB, EXERCISE_MAP } = require('./exerciseDb');
 const { isCompoundExercise, findExercise } = require('./muscleTaxonomy');
 const { generateWeeklyGuidance, pickBackboneExercises, computeMusclePriority, scoreBucket, MUSCLE_GROUPS } = require('./weeklyPlanner');
+const { SPLIT_GROUPS, rankMusclesByFreshness, typicalSessionMuscleCount, mostOverdueGroup, detectPreferredSplit, neglectedMuscles } = require('./splitPlanner');
 const { computeMuscleLevels, classifyLift, estimate1RM } = require('./strengthStandards');
 const { loadAllLifts, appendLifts, removeLiftsAndAppend } = require('./liftChunks');
 const { DEFAULTS, loadForUserDoc, saveDocExcludingLifts } = require('./userDoc');
@@ -990,17 +991,33 @@ app.post("/plan/session-exercises", async (req, res) => {
   if (type === 'lift' && !targetMuscles?.length && !reqBucket) {
     const muscleLastTrainedDays = computeMuscleLastTrainedDays(lifts);
     const priority = computeMusclePriority(currentFatigue, offlineMuscles, muscleLastTrainedDays);
-    const bucketPicks = Object.entries(MUSCLE_GROUPS)
-      .map(([name, muscles]) => {
-        const avail = muscles.filter(m => priority[m] >= 0);
-        if (!avail.length) return null;
-        const topMuscle = [...avail].sort((a, b) => priority[b] - priority[a])[0];
-        return { name, muscle: topMuscle };
-      })
-      .filter(Boolean);
 
-    targetMuscles = bucketPicks.map(p => p.muscle);
-    // 2 exercises per bucket, matching the pre-full-body single-bucket
+    // Explicit choice always wins; auto-detect only fills in a default for
+    // an account that's never set one — never silently overrides a real
+    // choice, even if later history stops matching what detectPreferredSplit
+    // would currently guess.
+    const preferredSplit = db.profile?.preferredSplit || detectPreferredSplit(lifts) || 'Full Body';
+
+    let musclePicks;
+    if (preferredSplit === 'Full Body' || !SPLIT_GROUPS[preferredSplit]) {
+      // No fixed categories — every available muscle ranked by freshness
+      // directly, top N picked, where N is THIS athlete's own real median
+      // session size (typicalSessionMuscleCount), not a fixed constant. Can
+      // lean push-heavy or pull-heavy on a given day if that's genuinely
+      // what's freshest; balance happens across the week, not forced into
+      // every single session.
+      musclePicks = rankMusclesByFreshness(priority).slice(0, typicalSessionMuscleCount(lifts));
+    } else {
+      // Named split: which part is next is itself autoregulated — whichever
+      // group has gone longest since it was trained at all, not a fixed
+      // calendar assignment — then every available (fresh enough) muscle in
+      // that group gets a slot, same as a real split "day" would cover.
+      const group = mostOverdueGroup(SPLIT_GROUPS[preferredSplit], muscleLastTrainedDays);
+      musclePicks = group.muscles.filter(m => priority[m] >= 0);
+    }
+
+    targetMuscles = musclePicks;
+    // 2 exercises per muscle, matching the pre-full-body single-bucket
     // session's total count — but the 2nd slot's type (another compound vs.
     // an isolation accessory) follows whichever the athlete has actually
     // favored over the last 90 days (computeCompoundIsolationSplit), not a
@@ -1012,9 +1029,9 @@ app.post("/plan/session-exercises", async (req, res) => {
     // something already picked (e.g. won't pair Overhead Press with Machine
     // Shoulder Press), so a 2nd same-muscle slot is always genuinely
     // different work, not a redundant duplicate.
-    const split = computeCompoundIsolationSplit(lifts);
-    const isolationLeaning = split.isolation > split.compound;
-    const exercises = bucketPicks.flatMap(({ muscle }) => {
+    const compoundIsolationSplit = computeCompoundIsolationSplit(lifts);
+    const isolationLeaning = compoundIsolationSplit.isolation > compoundIsolationSplit.compound;
+    const exercises = musclePicks.flatMap(muscle => {
       const backbone = pickBackboneExercises([muscle], { travelMode, lifts, favoriteExercises, count: isolationLeaning ? 1 : 2 }).map(e => e.name);
       return generateSessionExercises({
         type, targetMuscles: [muscle], backboneExerciseNames: backbone, lifts, travelMode,
@@ -1022,7 +1039,10 @@ app.post("/plan/session-exercises", async (req, res) => {
         accessoryCountOverride: isolationLeaning ? 1 : 0, isolationOnly: isolationLeaning,
       });
     });
-    return res.json({ exercises, targetMuscles, backboneExercises: exercises.map(e => e.name), bucket: 'full body' });
+    return res.json({
+      exercises, targetMuscles, backboneExercises: exercises.map(e => e.name), bucket: 'full body', preferredSplit,
+      neglectedMuscles: neglectedMuscles(preferredSplit, muscleLastTrainedDays),
+    });
   }
 
   let bucket = reqBucket || null;

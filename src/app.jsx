@@ -2348,6 +2348,7 @@ function S3({ s, onStartWorkout, onImport, onHistory, refresh }) {
   const [preloadedExercises, setPreloadedExercises] = useState(null);
   const [pickedBucket, setPickedBucket] = useState(null);
   const [preloading, setPreloading] = useState(false);
+  const [splitNeglected, setSplitNeglected] = useState([]);
   useEffect(() => {
     setPreloading(true);
     setPreloadedExercises(null);
@@ -2360,6 +2361,7 @@ function S3({ s, onStartWorkout, onImport, onHistory, refresh }) {
     }).then(r => r.json()).then(data => {
       setPreloadedExercises(data.exercises || []);
       setPickedBucket(data.bucket ? { name: data.bucket, muscles: data.targetMuscles, backboneExercises: data.backboneExercises } : null);
+      setSplitNeglected(data.neglectedMuscles || []);
       setPreloading(false);
     }).catch(() => setPreloading(false));
   }, [selectedBucket?.name]);
@@ -2478,6 +2480,11 @@ function S3({ s, onStartWorkout, onImport, onHistory, refresh }) {
           )}
           {!preloading && preloadedExercises?.length === 0 && (
             <div style={{ fontSize: 11, color: 'var(--dim)', fontStyle: 'italic', marginBottom: 8 }}>No fresh muscle group available right now — Freestyle, or rest and try again later.</div>
+          )}
+          {!preloading && splitNeglected.length > 0 && (
+            <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--red)', marginBottom: 8, lineHeight: 1.5 }}>
+              Your split hasn't reached {[...new Set(splitNeglected.map(n => muscleDisplayLabel(n.muscle)))].join(', ')} in {Math.max(...splitNeglected.map(n => n.daysSinceTrained ?? 999))}+ days — worth working in soon, or switching to Full Body in Settings.
+            </div>
           )}
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
             <button className="action-btn primary" disabled={!preloadedExercises?.length}
@@ -5014,6 +5021,24 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
                   {p}
                 </button>
               ))}
+            </div>
+          </div>
+          <div className="prof-field">
+            <span className="prof-lbl">Preferred Split <span style={{ fontSize: 8, color: 'var(--dim)', textTransform: 'none' }}>(shapes full-body auto-generated sessions)</span></span>
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+              {['Full Body', 'Upper / Lower', 'Push / Pull / Legs', 'Bro Split'].map(sp => (
+                <button key={sp} className="prof-btn"
+                  onClick={() => {
+                    refresh({ ...s, profile: { ...s.profile, preferredSplit: sp } });
+                    api('profile', { method: 'POST', body: JSON.stringify({ preferredSplit: sp }) }).then(profile => refresh({ ...s, profile }));
+                  }}
+                  style={{ fontSize: 10, ...((s?.profile?.preferredSplit || 'Full Body') === sp ? { background: 'var(--ink)', color: 'var(--paper)', borderColor: 'var(--ink)' } : {}) }}>
+                  {sp}
+                </button>
+              ))}
+            </div>
+            <div style={{ fontSize: 8, color: 'var(--dim)', marginTop: 4, lineHeight: 1.4 }}>
+              Full Body ranks every muscle by freshness directly, no fixed categories — sessions can lean push- or pull-heavy on a given day if that's genuinely what's freshest. If you've never set this, the app looks at your real logged history and starts you on whatever you're already doing.
             </div>
           </div>
           <div className="prof-field">
