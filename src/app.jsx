@@ -2455,13 +2455,22 @@ function S3({ s, onStartWorkout, onImport, onHistory, refresh }) {
           )}
           {preloadedExercises?.length > 0 && (
             <div style={{ marginBottom: 10 }}>
-              {preloadedExercises.map((ex, i) => (
-                <div key={i} style={{ display: 'flex', alignItems: 'baseline', gap: 8, padding: '3px 0', borderBottom: '1px solid var(--rule)' }}>
-                  <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, color: 'var(--ink)', textTransform: 'capitalize', flex: 1 }}>{ex.name}</span>
-                  <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)' }}>{ex.sets?.length ?? 3} sets · {ex.sets?.[0]?.reps ?? 8} reps</span>
-                  {ex.sets?.[0]?.kg ? <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--gold)' }}>{ex.sets[0].kg}kg</span> : null}
-                </div>
-              ))}
+              {preloadedExercises.map((ex, i) => {
+                // Exclude warmup sets ('W') from the summary — prog.suggestKg > 0
+                // (real prior history) prepends 2 warmups ahead of the working
+                // sets, and counting/describing those in the headline made the
+                // preview show e.g. "6 sets · 10 reps" (2 warmups + 4 working,
+                // reps from the first warmup) for an exercise genuinely
+                // prescribing 4 working sets at a different rep target.
+                const workingSets = ex.sets?.filter(s => s.type !== 'W') ?? [];
+                return (
+                  <div key={i} style={{ display: 'flex', alignItems: 'baseline', gap: 8, padding: '3px 0', borderBottom: '1px solid var(--rule)' }}>
+                    <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, color: 'var(--ink)', textTransform: 'capitalize', flex: 1 }}>{ex.name}</span>
+                    <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)' }}>{workingSets.length || ex.sets?.length || 3} sets · {workingSets[0]?.reps ?? ex.sets?.[0]?.reps ?? 8} reps</span>
+                    {workingSets[0]?.kg ? <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--gold)' }}>{workingSets[0].kg}kg</span> : null}
+                  </div>
+                );
+              })}
             </div>
           )}
           {preloading && (

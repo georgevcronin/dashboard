@@ -108,9 +108,15 @@ function pickAccessories(targetMuscles, alreadySelected, excludeNames, avoidMusc
   // allowed.
   const isRedundant = e => !isStapleExercise(lifts, e.name) &&
     alreadySelected.some(a => a.pattern === e.pattern && e.primary.some(m => a.primary.includes(m)));
+  // Core hold/rollout exercises (Dead Bug, Ab Wheel Rollout, ...) have no
+  // real external-load progression path — excluded the same way
+  // weeklyPlanner.js's pickBackboneExercises already excludes them (see its
+  // comment for why this isn't a blanket "bodyweight core" exclusion —
+  // Russian Twist etc. are routinely weighted despite the bodyweight tag).
   const basePool = EXERCISE_DB.filter(e =>
     !excludeNames.has(e.name) &&
     (travelMode ? e.equipment === 'bodyweight' : true) &&
+    !(e.muscleGroup === 'core' && ['hold', 'rollout'].includes(e.pattern) && !travelMode) &&
     !avoidEquipment.includes(e.equipment) &&
     !e.primary.some(m => avoidMuscles.includes(m)) &&
     e.primary.some(m => targetMuscles.includes(m)) &&

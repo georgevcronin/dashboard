@@ -63,8 +63,17 @@ function muscleWeight(m) { return MAJOR_MUSCLES.has(m) ? 1 : ASSISTOR_WEIGHT; }
 function pickBackboneExercises(targetMuscles, { travelMode, lifts, favoriteExercises = [], count = 2 } = {}) {
   const logged = loggedExerciseNames(lifts);
   const favorites = new Set(favoriteExercises.map(n => (n || '').toLowerCase()));
+  // Core hold/rollout exercises (Dead Bug, Ab Wheel Rollout, ...) have no
+  // real external-load progression path (a hold's difficulty comes from
+  // duration/position, a rollout's from lever/ROM, not added weight) —
+  // excluded the same way isometric holds already are, except in
+  // travelMode, where bodyweight is the only option available. Not a
+  // blanket "bodyweight core" exclusion: exercises like Russian Twist are
+  // tagged bodyweight but are routinely weighted in practice (own curveNote
+  // documents this) and should stay eligible.
   const pool = EXERCISE_DB.filter(e =>
     !e.lesserKnown && !e.isometric &&
+    !(e.muscleGroup === 'core' && ['hold', 'rollout'].includes(e.pattern) && !travelMode) &&
     (travelMode ? e.equipment === 'bodyweight' : true) &&
     e.primary.some(m => targetMuscles.includes(m))
   );

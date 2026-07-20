@@ -48,6 +48,25 @@ test('pickBackboneExercises excludes isometric holds even when not lesserKnown',
   assert.ok(!picks.some(p => p.isometric), 'no isometric exercise should ever be picked as a backbone lift');
 });
 
+test('pickBackboneExercises excludes core hold/rollout exercises with no real load progression, but not travelMode', () => {
+  const picks = pickBackboneExercises(['abs', 'transverse-abs'], { count: 10 });
+  assert.ok(!picks.some(p => p.name === 'Dead Bug'), 'Dead Bug has no external-load progression path and should never be picked outside travelMode');
+  assert.ok(!picks.some(p => p.name === 'Ab Wheel Rollout'), 'Ab Wheel Rollout progresses via lever/ROM, not weight, and should never be picked outside travelMode');
+
+  const travelPicks = pickBackboneExercises(['abs', 'transverse-abs'], { count: 10, travelMode: true });
+  assert.ok(travelPicks.some(p => p.name === 'Dead Bug'), 'travelMode has no equipment access, so bodyweight-only core work is the best available option');
+});
+
+test('pickBackboneExercises does NOT exclude bodyweight-tagged core exercises that are routinely weighted in practice', () => {
+  // favoriteExercises forces it to the top of the ranking among the other
+  // same-pattern (rotation) oblique candidates the same-function guard
+  // would otherwise dedupe against — this test is specifically checking
+  // Russian Twist survives the hold/rollout filter, not that it wins a
+  // ranking contest unassisted.
+  const picks = pickBackboneExercises(['obliques'], { count: 1, favoriteExercises: ['Russian Twist'] });
+  assert.equal(picks[0]?.name, 'Russian Twist', 'Russian Twist is tagged bodyweight but its own curveNote documents adding a plate/medicine ball — a rotation pattern, not hold/rollout, so it should stay eligible');
+});
+
 test('pickBackboneExercises heavily prefers a previously-logged exercise over an equal-coverage untried one', () => {
   const unbiased = pickBackboneExercises(['chest', 'front-delt'], { count: 1 });
   assert.notEqual(unbiased[0].name, 'Dumbbell Incline Bench Press', 'sanity check: without history this should not already be the top pick');

@@ -68,6 +68,12 @@ function computeProgression(lifts, name) {
   } else {
     trend = 'recovering'; note = `recovering — hold ${last.kg}kg×${last.reps}`;
   }
+  // Rounded to 1 decimal (the finest increment in use, weightIncrementKg's
+  // 0.1kg for non-plate/stack equipment) — kg + 0.1 isn't exact in
+  // floating point, and this compounds session over session since
+  // suggestKg becomes next session's last.kg, producing e.g.
+  // 9.600000000000001kg after enough progression cycles.
+  suggestKg = Math.round(suggestKg * 10) / 10;
   const warmup1kg = Math.round(suggestKg * 0.6 / inc) * inc;
   const warmup2kg = Math.round(suggestKg * 0.85 / inc) * inc;
   const recentStr = sessions.slice(-3).map(s => `${s.date}: ${s.kg}kg×${s.reps} (e1RM ${s.e1rm})`).join(', ');

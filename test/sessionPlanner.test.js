@@ -197,6 +197,16 @@ test('accessory selection avoids isometric holds when a non-isometric alternativ
     `isometric holds should lose out to dynamic alternatives: got ${names}`);
 });
 
+test('accessory selection excludes core hold/rollout exercises with no real load progression', () => {
+  const out = generateSessionExercises({
+    type: 'lift', targetMuscles: ['abs', 'transverse-abs'],
+    backboneExerciseNames: [], lifts: [], accessoryCountOverride: 10,
+  });
+  const names = out.map(e => e.name);
+  assert.ok(!names.includes('Dead Bug') && !names.includes('Ab Wheel Rollout'),
+    `hold/rollout core exercises have no external-load progression path and shouldn't be picked as accessories: got ${names}`);
+});
+
 test('accessory selection heavily prefers a previously-logged exercise over an untried higher-coverage one', () => {
   // Two logged dates, not one: lastAccessoryPick's own rotation logic
   // excludes whichever oblique exercise was hit *most* recently (here,
