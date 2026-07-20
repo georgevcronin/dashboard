@@ -1,7 +1,7 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const {
-  UPPER_LOWER_GROUPS, PPL_GROUPS, BRO_SPLIT_GROUPS,
+  UPPER_LOWER_GROUPS, PPL_GROUPS, ARNOLD_GROUPS, PPL_ARNOLD_GROUPS,
   rankMusclesByFreshness, typicalSessionMuscleCount, mostOverdueGroup,
   sessionPurity, detectPreferredSplit, neglectedMuscles, NEGLECT_THRESHOLD_DAYS,
 } = require('../functions/splitPlanner');
@@ -46,6 +46,17 @@ test('mostOverdueGroup picks whichever group has gone longest since any of its m
 test('mostOverdueGroup treats a never-trained muscle as infinitely overdue', () => {
   const result = mostOverdueGroup({ a: ['chest'], b: ['lats'] }, { chest: 5 });
   assert.equal(result.name, 'b', 'lats has no entry at all (never trained) — should outrank a group trained 5 days ago');
+});
+
+test('ARNOLD_GROUPS pairs chest with back and shoulders with arms, folding core into legs', () => {
+  assert.ok(ARNOLD_GROUPS.chestBack.includes('chest') && ARNOLD_GROUPS.chestBack.includes('lats'));
+  assert.ok(ARNOLD_GROUPS.shouldersArms.includes('front-delt') && ARNOLD_GROUPS.shouldersArms.includes('biceps'));
+  assert.ok(ARNOLD_GROUPS.legs.includes('quads') && ARNOLD_GROUPS.legs.includes('abs'));
+});
+
+test('PPL_ARNOLD_GROUPS unions PPL and Arnold buckets, with a single deduped legs group', () => {
+  assert.deepEqual(Object.keys(PPL_ARNOLD_GROUPS), ['push', 'pull', 'legs', 'chestBack', 'shouldersArms']);
+  assert.deepEqual(PPL_ARNOLD_GROUPS.chestBack, ARNOLD_GROUPS.chestBack);
 });
 
 test('sessionPurity is 1.0 when every touched muscle falls into one group', () => {

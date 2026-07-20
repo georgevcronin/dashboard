@@ -691,16 +691,20 @@ const repsForPR = (kg, targetE1RM) => {
   }
   return null;
 };
-const SET_TYPES = ['W','N','D','F'];
-const SET_LABELS = { W: 'Warm-up', N: 'Normal', D: 'Drop Set', F: 'Failure' };
+const SET_TYPES = ['W','N','D'];
+const SET_LABELS = { W: 'Warm-up', N: 'Normal', D: 'Drop Set' };
 const REST_DEFAULT = 90;
 // Rest timer displays live muscle glycogen replenishment instead of a plain
-// countdown — exponential recovery toward 100%, half-life 45s (50% back at
-// 45s, 75% at 90s, ~94% by the time the RPE9+ 180s rest window ends). Still
-// bounded by the same effort-scaled total (90/120/180s) as before; only the
-// displayed metric changed from "time remaining" to "% recovered."
+// countdown — exponential recovery shaped by a 45s half-life, but rescaled
+// against this rest window's own total so it always reads 100% right as the
+// timer ends, rather than an absolute physiological % that would cap at 75%
+// (90s rest) or 94% (180s rest) and vanish mid-value when the banner closes.
 const GLYCOGEN_HALF_LIFE_S = 45;
-const glycogenPct = elapsedS => Math.round(100 * (1 - Math.pow(0.5, elapsedS / GLYCOGEN_HALF_LIFE_S)));
+const glycogenPct = (elapsedS, totalS) => {
+  const raw = 1 - Math.pow(0.5, elapsedS / GLYCOGEN_HALF_LIFE_S);
+  const rawAtTotal = 1 - Math.pow(0.5, totalS / GLYCOGEN_HALF_LIFE_S);
+  return Math.round(Math.min(100, 100 * raw / rawAtTotal));
+};
 
 // Shown at the top of Settings. Newest first — add a new entry (bump the
 // version, today's date, a feature-list bullet per notable change) whenever
@@ -708,6 +712,22 @@ const glycogenPct = elapsedS => Math.round(100 * (1 - Math.pow(0.5, elapsedS / G
 // instead of the list. v0.1 is the first tracked release, not literally the
 // app's first version — everything before this had no changelog at all.
 const CHANGELOG = [
+  {
+    version: '0.20',
+    date: '2026-07-20',
+    features: [
+      'Full-body auto-generated sessions no longer pick from a fixed Push/Pull/Legs/Core bucket — every muscle is now ranked by freshness directly, sized off your own real session history, so a session can lean push- or pull-heavy on a given day if that\'s genuinely what\'s freshest',
+      'New "Preferred Split" setting: Full Body, Upper/Lower, Push/Pull/Legs, Arnold Split, or PPL Arnold — picks up on what you\'re already doing from your real history if you\'ve never set it explicitly, but your own choice always wins once set',
+      'Named splits now warn when the rotation hasn\'t reached a whole muscle group (e.g. no Pull day) in 3+ weeks, instead of only tracking freshness within the split itself',
+      'Fixed a floating-point rounding bug that could show a suggested weight like 9.600000000000001kg',
+      'Fixed the session preview miscounting sets/reps/weight by including warm-up sets in the total',
+      'Dead Bug and Ab Wheel Rollout no longer show up as core "backbone" exercises outside travel mode — no real external-load progression path, so they weren\'t a fair substitute for a loadable core exercise',
+      'Fixed the rest-timer glycogen readout vanishing mid-value (it topped out around 75-94% rather than reaching 100%) and no longer resetting if you background the app mid-rest',
+      'Fixed the live Session Stimulus badge carrying over numbers from your last workout before you\'d logged a single set in the new one',
+      'Morning briefing now only generates/notifies once a day — was re-firing on every Apple Health sync — and the auto-popup no longer reappears repeatedly if the app gets reloaded in the background after you\'ve already seen it',
+      'Set-type button: tap now toggles Warm-up/Working directly, hold for Drop Set — removed Failure as a separate set type',
+    ],
+  },
   {
     version: '0.19',
     date: '2026-07-20',
@@ -969,7 +989,12 @@ const liveAdaptationPreview = (exercises, lifts) => {
     }
   }
 
-  const muscles = new Set([...Object.keys(historicalContributions), ...Object.keys(liveScore)]);
+  // Only muscles actually touched by a done set THIS session are shown --
+  // historicalContributions still feeds each shown muscle's value (that's
+  // the whole "projected peak" point), but a muscle with pure history and
+  // nothing logged yet today shouldn't appear in what's meant to read as
+  // live in-session feedback.
+  const muscles = new Set(Object.keys(liveScore));
   const out = {};
   for (const m of muscles) {
     const historicalLevel = computeAdaptationLevel(historicalContributions[m], peakMs);
@@ -1212,7 +1237,15 @@ function WorkoutLogger({ planDay, lifts, customExercises, experienceLevel, onClo
   const [suggestions, setSuggestions] = useState([]);
   const [start] = useState(() => restored?.startedAt || Date.now());
   const [elapsed, setElapsed] = useState(() => Math.floor((Date.now() - (restored?.startedAt || Date.now())) / 1000));
-  const [rest, setRest] = useState(null);
+  // Stored as an absolute end timestamp (survives a backgrounded-tab reload
+  // the same way `start`/elapsed does — see the elapsed-timer comment below)
+  // rather than a counter decremented in place, and restored from the
+  // persisted session below so a mid-rest reload doesn't just drop the
+  // banner outright.
+  const [rest, setRest] = useState(() => {
+    const r = restored?.rest;
+    return r && r.endAt > Date.now() ? r : null;
+  });
   const [saving, setSaving] = useState(false);
   const [summary, setSummary] = useState(null);
   const [newCustomExercises, setNewCustomExercises] = useState(() => restored?.newCustomExercises || []);
@@ -1295,14 +1328,18 @@ function WorkoutLogger({ planDay, lifts, customExercises, experienceLevel, onClo
   // point instead of leaving a finished session's snapshot behind.
   useEffect(() => {
     if (summary || loading) return;
-    saveActiveSession({ planDay, exercises, newCustomExercises, startedAt: start });
-  }, [planDay, exercises, newCustomExercises, start, summary, loading]);
+    saveActiveSession({ planDay, exercises, newCustomExercises, startedAt: start, rest });
+  }, [planDay, exercises, newCustomExercises, start, summary, loading, rest]);
 
+  // No separate countdown effect — `elapsed`'s own 1s tick above already
+  // re-renders this component every second, which is enough to keep the
+  // derived `restRemaining` (computed from the absolute `rest.endAt` below)
+  // current. This just auto-clears the banner once time's actually up.
   useEffect(() => {
-    if (!rest || rest.remaining <= 0) { if (rest) setRest(null); return; }
-    const t = setTimeout(() => setRest(r => r ? { ...r, remaining: r.remaining - 1 } : null), 1000);
-    return () => clearTimeout(t);
-  }, [rest]);
+    if (rest && rest.endAt <= Date.now()) setRest(null);
+  }, [elapsed, rest]);
+
+  const restRemaining = rest ? Math.max(0, Math.ceil((rest.endAt - Date.now()) / 1000)) : 0;
 
   const fmt = s => `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
 
@@ -1352,9 +1389,32 @@ function WorkoutLogger({ planDay, lifts, customExercises, experienceLevel, onClo
     i !== ei ? ex : { ...ex, sets: ex.sets.map((s, j) => j !== si ? s : { ...s, [field]: val }) }
   ));
 
-  const cycleType = (ei, si) => setExercises(p => p.map((ex, i) =>
-    i !== ei ? ex : { ...ex, sets: ex.sets.map((s, j) => j !== si ? s : { ...s, type: SET_TYPES[(SET_TYPES.indexOf(s.type) + 1) % SET_TYPES.length] }) }
+  // Tap toggles Warm-up/Working; long-press toggles Drop Set — two separate
+  // gestures instead of one cycle through all three, since Drop Set is rare
+  // enough that burying it behind an extra tap on every set was more
+  // friction than it was worth.
+  const toggleType = (ei, si) => setExercises(p => p.map((ex, i) =>
+    i !== ei ? ex : { ...ex, sets: ex.sets.map((s, j) => j !== si ? s : { ...s, type: s.type === 'N' ? 'W' : 'N' }) }
   ));
+  const toggleDropSet = (ei, si) => setExercises(p => p.map((ex, i) =>
+    i !== ei ? ex : { ...ex, sets: ex.sets.map((s, j) => j !== si ? s : { ...s, type: s.type === 'D' ? 'N' : 'D' }) }
+  ));
+  const typePressTimer = useRef(null);
+  const typeLongPressed = useRef(false);
+  const handleTypePressStart = (ei, si) => {
+    typeLongPressed.current = false;
+    typePressTimer.current = setTimeout(() => {
+      typeLongPressed.current = true;
+      toggleDropSet(ei, si);
+    }, 500);
+  };
+  const handleTypePressEnd = () => {
+    if (typePressTimer.current) { clearTimeout(typePressTimer.current); typePressTimer.current = null; }
+  };
+  const handleTypeClick = (ei, si) => {
+    if (typeLongPressed.current) { typeLongPressed.current = false; return; }
+    toggleType(ei, si);
+  };
 
   const completeSet = (ei, si) => {
     const ex = exercises[ei];
@@ -1408,7 +1468,7 @@ function WorkoutLogger({ planDay, lifts, customExercises, experienceLevel, onClo
       ...e, sets: e.sets.map((s, j) => j !== si ? s : { ...s, done: true, feedback, feedbackType })
     }));
     const restDuration = rpe !== null && rpe >= 9 ? 180 : rpe !== null && rpe >= 7 ? 90 : REST_DEFAULT;
-    setRest({ remaining: restDuration, total: restDuration });
+    setRest({ endAt: Date.now() + restDuration * 1000, total: restDuration });
   };
 
   const removeSet = (ei, si) => setExercises(p => p.map((ex, i) =>
@@ -1752,8 +1812,11 @@ function WorkoutLogger({ planDay, lifts, customExercises, experienceLevel, onClo
                         <React.Fragment key={j}>
                         <tr style={{ opacity: set.done ? 0.45 : 1 }}>
                           <td style={{ padding: '5px 0', textAlign: 'left' }}>
-                            <button onClick={() => cycleType(i, j)} title={SET_LABELS[set.type]}
-                              style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, background: set.type === 'W' ? 'var(--navy)' : set.type === 'F' ? 'var(--ember)' : set.type === 'D' ? 'var(--gold)' : 'var(--paper2)', color: set.type !== 'N' ? 'var(--paper)' : 'var(--dim)', border: 'none', padding: '2px 4px', cursor: 'pointer', minWidth: 20, textAlign: 'center' }}>
+                            <button onClick={() => handleTypeClick(i, j)}
+                              onMouseDown={() => handleTypePressStart(i, j)} onMouseUp={handleTypePressEnd} onMouseLeave={handleTypePressEnd}
+                              onTouchStart={() => handleTypePressStart(i, j)} onTouchEnd={handleTypePressEnd}
+                              title={`${SET_LABELS[set.type]} — tap: warm-up/working, hold: drop set`}
+                              style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, background: set.type === 'W' ? 'var(--navy)' : set.type === 'D' ? 'var(--gold)' : 'var(--paper2)', color: set.type !== 'N' ? 'var(--paper)' : 'var(--dim)', border: 'none', padding: '2px 4px', cursor: 'pointer', minWidth: 20, textAlign: 'center', touchAction: 'manipulation' }}>
                               {set.type === 'N' ? j + 1 : set.type}
                             </button>
                           </td>
@@ -1866,9 +1929,9 @@ function WorkoutLogger({ planDay, lifts, customExercises, experienceLevel, onClo
       {rest && (
         <div style={{ position: 'fixed', bottom: 0, left: 0, right: 0, background: 'var(--ink)', color: 'var(--paper)', zIndex: 1100, padding: '12px 20px', display: 'flex', alignItems: 'center', gap: 14 }}>
           <div style={{ flex: 1, height: 3, background: 'rgba(255,255,255,.2)', borderRadius: 2, overflow: 'hidden' }}>
-            <div style={{ height: '100%', width: '100%', background: 'var(--paper)', borderRadius: 2, transform: `scaleX(${glycogenPct(rest.total - rest.remaining) / 100})`, transformOrigin: 'left', transition: 'transform 1s linear' }} />
+            <div style={{ height: '100%', width: '100%', background: 'var(--paper)', borderRadius: 2, transform: `scaleX(${glycogenPct(rest.total - restRemaining, rest.total) / 100})`, transformOrigin: 'left', transition: 'transform 1s linear' }} />
           </div>
-          <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 16, fontWeight: 600, whiteSpace: 'nowrap' }}>Glycogen {glycogenPct(rest.total - rest.remaining)}%</div>
+          <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 16, fontWeight: 600, whiteSpace: 'nowrap' }}>Glycogen {glycogenPct(rest.total - restRemaining, rest.total)}%</div>
           <button onClick={() => setRest(null)} style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, letterSpacing: '.1em', textTransform: 'uppercase', background: 'none', border: '1px solid rgba(255,255,255,.3)', color: 'var(--paper)', padding: '4px 10px', cursor: 'pointer' }}>Skip</button>
         </div>
       )}
@@ -4313,7 +4376,7 @@ function S7({ s }) {
 }
 
 // ── ONBOARDING ────────────────────────────────────────────────────────────────
-const TRAINING_SPLITS = ['Full Body', 'Upper / Lower', 'Push / Pull / Legs', 'Bro Split', 'Other'];
+const TRAINING_SPLITS = ['Full Body', 'Upper / Lower', 'Push / Pull / Legs', 'Arnold Split', 'PPL Arnold', 'Other'];
 
 function Onboarding({ onComplete, onOpenImport }) {
   const TOTAL = 7;
@@ -5026,7 +5089,7 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
           <div className="prof-field">
             <span className="prof-lbl">Preferred Split <span style={{ fontSize: 8, color: 'var(--dim)', textTransform: 'none' }}>(shapes full-body auto-generated sessions)</span></span>
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-              {['Full Body', 'Upper / Lower', 'Push / Pull / Legs', 'Bro Split'].map(sp => (
+              {['Full Body', 'Upper / Lower', 'Push / Pull / Legs', 'Arnold Split', 'PPL Arnold'].map(sp => (
                 <button key={sp} className="prof-btn"
                   onClick={() => {
                     refresh({ ...s, profile: { ...s.profile, preferredSplit: sp } });
@@ -5932,10 +5995,14 @@ function App() {
 
   useEffect(() => {
     if (!briefing?.date) return;
+    // localStorage, not sessionStorage — mobile PWAs routinely discard a
+    // backgrounded tab's session state and reload on reopen (same issue
+    // ACTIVE_SESSION_KEY works around above), so a per-tab-session "seen"
+    // flag kept popping the briefing back up multiple times a day.
     const key = `briefing_seen_${briefing.date}`;
-    if (!sessionStorage.getItem(key)) {
+    if (!localStorage.getItem(key)) {
       setShowBriefing(true);
-      sessionStorage.setItem(key, '1');
+      try { localStorage.setItem(key, '1'); } catch {}
     }
   }, [briefing]);
 

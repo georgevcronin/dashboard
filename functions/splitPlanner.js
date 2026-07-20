@@ -9,7 +9,8 @@
 //   into every single session (see PRODUCT.md/TRAINING_ETHOS's "frequency
 //   over volume, no rigid periodized templates").
 //
-// - Named splits ('Upper / Lower', 'Push / Pull / Legs', 'Bro Split'): an
+// - Named splits ('Upper / Lower', 'Push / Pull / Legs', 'Arnold Split',
+//   'PPL Arnold'): an
 //   explicit, opt-in exception to that same "no rigid templates" stance --
 //   fine for someone who genuinely wants that structure, as long as it's a
 //   choice and not the forced default. Which part of the split comes next
@@ -32,19 +33,31 @@ const PPL_GROUPS = {
   legs: [...MUSCLE_GROUPS.legs, ...MUSCLE_GROUPS.core],
 };
 
-const BRO_SPLIT_GROUPS = {
-  chest: ['chest'],
-  back: ['lats', 'rhomboids', 'traps', 'lower-traps', 'mid-traps', 'rear-delt', 'rotator-cuff'],
-  shoulders: ['front-delt', 'mid-delt'],
-  arms: ['biceps', 'triceps', 'brachialis', 'brachioradialis', 'forearms'],
-  legs: [...MUSCLE_GROUPS.legs],
-  core: [...MUSCLE_GROUPS.core],
+// Classic 6-day Arnold split: chest+back paired, shoulders+arms paired,
+// legs on their own -- core folded into legs, same convention as PPL_GROUPS.
+const ARNOLD_GROUPS = {
+  chestBack: ['chest', 'lats', 'rhomboids', 'traps', 'lower-traps', 'mid-traps', 'rear-delt', 'rotator-cuff'],
+  shouldersArms: ['front-delt', 'mid-delt', 'biceps', 'triceps', 'brachialis', 'brachioradialis', 'forearms'],
+  legs: [...MUSCLE_GROUPS.legs, ...MUSCLE_GROUPS.core],
+};
+
+// PPL through once, then the Arnold split through once, rotating on
+// recency same as every other named split here (no fixed day count) --
+// a straight union of both groupings' buckets, deduped where they're
+// literally identical (both fold core into the same 'legs' set).
+const PPL_ARNOLD_GROUPS = {
+  push: MUSCLE_GROUPS.push,
+  pull: MUSCLE_GROUPS.pull,
+  legs: [...MUSCLE_GROUPS.legs, ...MUSCLE_GROUPS.core],
+  chestBack: ARNOLD_GROUPS.chestBack,
+  shouldersArms: ARNOLD_GROUPS.shouldersArms,
 };
 
 const SPLIT_GROUPS = {
   'Upper / Lower': UPPER_LOWER_GROUPS,
   'Push / Pull / Legs': PPL_GROUPS,
-  'Bro Split': BRO_SPLIT_GROUPS,
+  'Arnold Split': ARNOLD_GROUPS,
+  'PPL Arnold': PPL_ARNOLD_GROUPS,
 };
 
 // Ranks every available muscle (priority >= 0 -- not offline/over-ceiling)
@@ -136,13 +149,22 @@ function detectPreferredSplit(lifts) {
   // one that merges those same groups together (push ∪ pull = upper) --
   // real ambiguity, not a bug, so ties prefer the more specific/informative
   // classification (more groups) rather than whichever key happens to
-  // iterate first.
-  let best = { name: 'Full Body', avgPurity: 0, groupCount: 0 };
+  // iterate first. But a hybrid union like PPL Arnold duplicates muscles
+  // across its buckets (chestBack/shouldersArms re-cover the same muscles
+  // push/pull already do), which inflates its groupCount without adding
+  // real partition granularity -- so ties are broken first by whichever
+  // grouping is closer to a true non-overlapping partition (fewer total
+  // muscle-slot entries across its groups), THEN by groupCount.
+  let best = { name: 'Full Body', avgPurity: 0, totalEntries: Infinity, groupCount: 0 };
   for (const [splitName, groups] of Object.entries(SPLIT_GROUPS)) {
     const avgPurity = recent.reduce((sum, s) => sum + sessionPurity(groups, s), 0) / recent.length;
     const groupCount = Object.keys(groups).length;
-    if (avgPurity > best.avgPurity || (avgPurity === best.avgPurity && groupCount > best.groupCount)) {
-      best = { name: splitName, avgPurity, groupCount };
+    const totalEntries = Object.values(groups).reduce((sum, m) => sum + m.length, 0);
+    const better = avgPurity > best.avgPurity
+      || (avgPurity === best.avgPurity && totalEntries < best.totalEntries)
+      || (avgPurity === best.avgPurity && totalEntries === best.totalEntries && groupCount > best.groupCount);
+    if (better) {
+      best = { name: splitName, avgPurity, totalEntries, groupCount };
     }
   }
   return best.avgPurity >= SPLIT_DETECTION_THRESHOLD ? best.name : 'Full Body';
@@ -154,7 +176,7 @@ function detectPreferredSplit(lifts) {
 const NEGLECT_THRESHOLD_DAYS = 21;
 
 // A named split's real cost, made visible: every group in a split (e.g.
-// Upper/Lower's 'lower', or Bro Split's 'arms') is exhaustive by
+// Upper/Lower's 'lower', or Arnold Split's 'legs') is exhaustive by
 // construction — every muscle belongs to some group, so nothing is ever
 // structurally excluded from all of them. The actual risk is a whole GROUP
 // going stale because the rotation hasn't reached it in a long time (e.g.
@@ -178,7 +200,7 @@ function neglectedMuscles(preferredSplit, muscleLastTrainedDays) {
 }
 
 module.exports = {
-  UPPER_LOWER_GROUPS, PPL_GROUPS, BRO_SPLIT_GROUPS, SPLIT_GROUPS,
+  UPPER_LOWER_GROUPS, PPL_GROUPS, ARNOLD_GROUPS, PPL_ARNOLD_GROUPS, SPLIT_GROUPS,
   rankMusclesByFreshness, typicalSessionMuscleCount, mostOverdueGroup,
   sessionPurity, detectPreferredSplit, SPLIT_DETECTION_THRESHOLD,
   neglectedMuscles, NEGLECT_THRESHOLD_DAYS,

@@ -307,20 +307,24 @@ app.post("/shortcut", async (req, res) => {
   // work still in flight at that point completes. A detached .then() here
   // used to mean the briefing + push notification would intermittently and
   // silently never happen. The 300s function timeout gives plenty of room.
+  // /shortcut can fire several times a day (manual runs on top of the
+  // automation) — only generate/push once per day, not on every sync.
   try {
-    const briefing = await generateMorningBriefing(db);
-    if (briefing) {
-      db.todayBriefing = briefing;
-      await save();
-      const subs = db.pushSubscriptions || [];
-      if (subs.length && VAPID_PUBLIC && VAPID_PRIVATE) {
-        await Promise.allSettled(subs.map(sub =>
-          webpush.sendNotification(sub, JSON.stringify({
-            title: briefing.notification || briefing.headline,
-            body: briefing.subheading || '',
-            url: '/',
-          }))
-        ));
+    if (db.todayBriefing?.date !== day()) {
+      const briefing = await generateMorningBriefing(db);
+      if (briefing) {
+        db.todayBriefing = briefing;
+        await save();
+        const subs = db.pushSubscriptions || [];
+        if (subs.length && VAPID_PUBLIC && VAPID_PRIVATE) {
+          await Promise.allSettled(subs.map(sub =>
+            webpush.sendNotification(sub, JSON.stringify({
+              title: briefing.notification || briefing.headline,
+              body: briefing.subheading || '',
+              url: '/',
+            }))
+          ));
+        }
       }
     }
   } catch (e) {
