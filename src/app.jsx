@@ -4631,7 +4631,13 @@ function Onboarding({ onComplete, onOpenImport }) {
                     Install the pre-built Shortcut →
                   </a>
                   This is your personal sync link — after installing, open the Shortcut and make sure its URL matches the one below (replace it if it doesn't), so your data lands in your own account.<br /><br />
-                  Or build it yourself:<br />
+                  <strong>Sharing this with someone else?</strong> Add these steps to the top of the Shortcut so it asks for their URL once and remembers it automatically, instead of everyone needing to manually edit it:<br />
+                  <strong>a.</strong> Add <strong>Get File</strong> (iCloud Drive → Shortcuts folder → <code>press-sync-url.txt</code>), with "Error if Not Found" turned off — this file won't exist the first time<br />
+                  <strong>b.</strong> Add an <strong>If</strong> checking whether that result has any value<br />
+                  <strong>c.</strong> If yes → set variable <code>syncUrl</code> to the file's contents<br />
+                  <strong>d.</strong> Otherwise → <strong>Ask for Input</strong> ("Paste your Press sync URL"), set <code>syncUrl</code> to the answer, then <strong>Save File</strong> it back to the same <code>press-sync-url.txt</code> path so every future run finds it already there<br />
+                  <strong>e.</strong> Use <code>syncUrl</code> (not typed text) as the URL in Get Contents of URL<br /><br />
+                  Or build it yourself from scratch:<br />
                   <strong>1.</strong> Open <strong>Shortcuts</strong> on your iPhone<br />
                   <strong>2.</strong> Create a new <strong>Personal Automation</strong><br />
                   <strong>3.</strong> Trigger: <strong>Daily</strong> — set up <strong>three</strong> automations (duplicate this one twice), one each in the morning, afternoon, and night, so your data is fresh for each of Press's Morning Briefing, Mid-Day Update, and Tonight's Report<br />
@@ -5056,7 +5062,13 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
                   Install the pre-built Shortcut →
                 </a>
                 This is your personal sync link — after installing, open the Shortcut and make sure its URL matches the one below (replace it if it doesn't), so your data lands in your own account.<br /><br />
-                Or build it yourself:<br />
+                <strong>Sharing this with someone else?</strong> Add these steps to the top of the Shortcut so it asks for their URL once and remembers it automatically, instead of everyone needing to manually edit it:<br />
+                <strong>a.</strong> Add <strong>Get File</strong> (iCloud Drive → Shortcuts folder → <code>press-sync-url.txt</code>), with "Error if Not Found" turned off — this file won't exist the first time<br />
+                <strong>b.</strong> Add an <strong>If</strong> checking whether that result has any value<br />
+                <strong>c.</strong> If yes → set variable <code>syncUrl</code> to the file's contents<br />
+                <strong>d.</strong> Otherwise → <strong>Ask for Input</strong> ("Paste your Press sync URL"), set <code>syncUrl</code> to the answer, then <strong>Save File</strong> it back to the same <code>press-sync-url.txt</code> path so every future run finds it already there<br />
+                <strong>e.</strong> Use <code>syncUrl</code> (not typed text) as the URL in Get Contents of URL<br /><br />
+                Or build it yourself from scratch:<br />
                 <strong>1.</strong> Open <strong>Shortcuts</strong> on your iPhone<br />
                 <strong>2.</strong> Create a new <strong>Personal Automation</strong><br />
                 <strong>3.</strong> Trigger: <strong>Daily</strong> — set up <strong>three</strong> automations (duplicate this one twice), one each in the morning, afternoon, and night, so your data is fresh for each of Press's Morning Briefing, Mid-Day Update, and Tonight's Report<br />
