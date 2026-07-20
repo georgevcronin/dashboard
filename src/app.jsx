@@ -1852,8 +1852,8 @@ function WorkoutLogger({ planDay, lifts, customExercises, experienceLevel, onClo
           same effort-scaled total as before. */}
       {rest && (
         <div style={{ position: 'fixed', bottom: 0, left: 0, right: 0, background: 'var(--ink)', color: 'var(--paper)', zIndex: 1100, padding: '12px 20px', display: 'flex', alignItems: 'center', gap: 14 }}>
-          <div style={{ flex: 1, height: 3, background: 'rgba(255,255,255,.2)', borderRadius: 2 }}>
-            <div style={{ height: '100%', background: 'var(--paper)', borderRadius: 2, width: `${glycogenPct(rest.total - rest.remaining)}%`, transition: 'width 1s linear' }} />
+          <div style={{ flex: 1, height: 3, background: 'rgba(255,255,255,.2)', borderRadius: 2, overflow: 'hidden' }}>
+            <div style={{ height: '100%', width: '100%', background: 'var(--paper)', borderRadius: 2, transform: `scaleX(${glycogenPct(rest.total - rest.remaining) / 100})`, transformOrigin: 'left', transition: 'transform 1s linear' }} />
           </div>
           <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 16, fontWeight: 600, whiteSpace: 'nowrap' }}>Glycogen {glycogenPct(rest.total - rest.remaining)}%</div>
           <button onClick={() => setRest(null)} style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, letterSpacing: '.1em', textTransform: 'uppercase', background: 'none', border: '1px solid rgba(255,255,255,.3)', color: 'var(--paper)', padding: '4px 10px', cursor: 'pointer' }}>Skip</button>
