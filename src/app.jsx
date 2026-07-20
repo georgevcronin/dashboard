@@ -1063,8 +1063,8 @@ function ExerciseBrowser({ onAdd }) {
   const tileStyle = { padding: '9px 12px', fontFamily: "'JetBrains Mono',monospace", fontSize: 11, textTransform: 'capitalize', cursor: 'pointer', border: '1px solid var(--rule)', background: 'var(--paper)', color: 'var(--ink)', textAlign: 'left' };
 
   let step = 'group', items = [], onPick = null;
-  if (!group) { step = 'group'; items = groups.map(g => ({ key: g, label: g })); onPick = g => setGroup(g); }
-  else if (!pattern) { step = 'pattern'; items = patterns.map(p => ({ key: p, label: p })); onPick = p => setPattern(p); }
+  if (!group) { step = 'group'; items = groups.map(g => ({ key: g, label: g })); onPick = it => setGroup(it.key); }
+  else if (!pattern) { step = 'pattern'; items = patterns.map(p => ({ key: p, label: p })); onPick = it => setPattern(it.key); }
   else if (!movementId) { step = 'movement'; items = movements.map(m => ({ key: m.movementId, label: m.count > 1 ? `${m.movementName} (${m.count})` : m.movementName, m })); onPick = it => selectMovement(it.m); }
   else { step = 'variant'; items = variants.map(v => ({ key: v.id, label: v.name, v })); onPick = it => pick(it.v); }
 
