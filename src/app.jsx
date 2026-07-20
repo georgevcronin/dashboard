@@ -4297,6 +4297,7 @@ function Onboarding({ onComplete, onOpenImport }) {
   // guide is actually opened) rather than on mount, so this doesn't cost
   // every onboarding user a round trip they may never need.
   const [syncUrl, setSyncUrl] = useState(SHORTCUT_URL);
+  const [guideAdvanced, setGuideAdvanced] = useState(false);
   const openHealthGuide = () => {
     setHealthGuideOpen(v => {
       const next = !v;
@@ -4627,29 +4628,37 @@ function Onboarding({ onComplete, onOpenImport }) {
               {healthGuideOpen && (
                 <div className="ob-guide">
                   <a href="https://www.icloud.com/shortcuts/d461a338f79346be919118197aff92ae" target="_blank" rel="noopener noreferrer"
-                    style={{ display: 'block', marginBottom: 10, fontWeight: 700, color: 'var(--gold)' }}>
+                    style={{ display: 'block', marginBottom: 8, fontWeight: 700, color: 'var(--gold)' }}>
                     Install the pre-built Shortcut →
                   </a>
-                  This is your personal sync link — after installing, open the Shortcut and make sure its URL matches the one below (replace it if it doesn't), so your data lands in your own account.<br /><br />
-                  <strong>Sharing this with someone else?</strong> Add these steps to the top of the Shortcut so it asks for their URL once and remembers it automatically, instead of everyone needing to manually edit it:<br />
-                  <strong>a.</strong> Add <strong>Get File</strong> (iCloud Drive → Shortcuts folder → <code>press-sync-url.txt</code>), with "Error if Not Found" turned off — this file won't exist the first time<br />
-                  <strong>b.</strong> Add an <strong>If</strong> checking whether that result has any value<br />
-                  <strong>c.</strong> If yes → set variable <code>syncUrl</code> to the file's contents<br />
-                  <strong>d.</strong> Otherwise → <strong>Ask for Input</strong> ("Paste your Press sync URL"), set <code>syncUrl</code> to the answer, then <strong>Save File</strong> it back to the same <code>press-sync-url.txt</code> path so every future run finds it already there<br />
-                  <strong>e.</strong> Use <code>syncUrl</code> (not typed text) as the URL in Get Contents of URL<br /><br />
-                  Or build it yourself from scratch:<br />
-                  <strong>1.</strong> Open <strong>Shortcuts</strong> on your iPhone<br />
-                  <strong>2.</strong> Create a new <strong>Personal Automation</strong><br />
-                  <strong>3.</strong> Trigger: <strong>Daily</strong> — set up <strong>three</strong> automations (duplicate this one twice), one each in the morning, afternoon, and night, so your data is fresh for each of Press's Morning Briefing, Mid-Day Update, and Tonight's Report<br />
-                  <strong>4.</strong> Add action: <strong>Get Contents of URL</strong><br />
-                  <strong>5.</strong> URL (tap to copy — this is your own personal link, unique to your account):
+                  Your personal sync link — after installing, open the Shortcut and make sure its URL matches this (replace it if it doesn't), so your data lands in your own account:
                   <div className="ob-copy-url" onClick={copyUrl}>
                     <span>{syncUrl}</span>
                     <button onClick={e => { e.stopPropagation(); copyUrl(); }}>{urlCopied ? 'Copied!' : 'Copy'}</button>
                   </div>
-                  <strong>6.</strong> Method: <strong>POST</strong> · Body: <strong>JSON</strong><br />
-                  <strong>7.</strong> Add a Dictionary with: <code>hr_values</code>/<code>hr_dates</code>, <code>rhr_values</code>/<code>rhr_dates</code>, <code>hrv_values</code>/<code>hrv_dates</code>, <code>bloodoxygen_values</code>/<code>bloodoxygen_dates</code>, <code>steps_values</code>/<code>steps_dates</code>, <code>wrist_values</code>/<code>wrist_dates</code>, and <code>sleep_start</code>/<code>sleep_end</code>/<code>sleep_types</code><br />
-                  <strong>8.</strong> Each pair comes from its own "Find Health Samples" block — Value+Start Date for the first six, Start Date+End Date+Type for Sleep
+                  <button onClick={() => setGuideAdvanced(v => !v)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, marginTop: 10, fontSize: 9, letterSpacing: '.08em', textTransform: 'uppercase', color: 'var(--dim)' }}>
+                    {guideAdvanced ? '− Hide' : '+ Show'} manual build / sharing with others / unsupported sensors
+                  </button>
+                  {guideAdvanced && (
+                    <div style={{ marginTop: 10 }}>
+                      <strong>No Blood Oxygen or Wrist Temperature on your Watch?</strong> Apple Watch SE has neither sensor, and Wrist Temperature needs Series 8+/Ultra — "Find Health Samples" errors on a type your device doesn't support (it doesn't just return empty), so just delete those two blocks from your own copy of the Shortcut. Everything else (HR, HRV, RHR, Steps, Sleep) works on every Watch and the iPhone alone.<br /><br />
+                      <strong>Sharing this with someone else?</strong> Add these steps to the top of the Shortcut so it asks for their URL once and remembers it automatically, instead of everyone needing to manually edit it:<br />
+                      <strong>a.</strong> Add <strong>Get File</strong> (iCloud Drive → Shortcuts folder → <code>press-sync-url.txt</code>), with "Error if Not Found" turned off — this file won't exist the first time<br />
+                      <strong>b.</strong> Add an <strong>If</strong> checking whether that result has any value<br />
+                      <strong>c.</strong> If yes → set variable <code>syncUrl</code> to the file's contents<br />
+                      <strong>d.</strong> Otherwise → <strong>Ask for Input</strong> ("Paste your Press sync URL"), set <code>syncUrl</code> to the answer, then <strong>Save File</strong> it back to the same <code>press-sync-url.txt</code> path so every future run finds it already there<br />
+                      <strong>e.</strong> Use <code>syncUrl</code> (not typed text) as the URL in Get Contents of URL<br /><br />
+                      Or build it yourself from scratch:<br />
+                      <strong>1.</strong> Open <strong>Shortcuts</strong> on your iPhone<br />
+                      <strong>2.</strong> Create a new <strong>Personal Automation</strong><br />
+                      <strong>3.</strong> Trigger: <strong>Daily</strong> — set up <strong>three</strong> automations (duplicate this one twice), one each in the morning, afternoon, and night, so your data is fresh for each of Press's Morning Briefing, Mid-Day Update, and Tonight's Report<br />
+                      <strong>4.</strong> Add action: <strong>Get Contents of URL</strong><br />
+                      <strong>5.</strong> URL — the same personal link shown above<br />
+                      <strong>6.</strong> Method: <strong>POST</strong> · Body: <strong>JSON</strong><br />
+                      <strong>7.</strong> Add a Dictionary with: <code>hr_values</code>/<code>hr_dates</code>, <code>rhr_values</code>/<code>rhr_dates</code>, <code>hrv_values</code>/<code>hrv_dates</code>, <code>bloodoxygen_values</code>/<code>bloodoxygen_dates</code>, <code>steps_values</code>/<code>steps_dates</code>, <code>wrist_values</code>/<code>wrist_dates</code>, and <code>sleep_start</code>/<code>sleep_end</code>/<code>sleep_types</code><br />
+                      <strong>8.</strong> Each pair comes from its own "Find Health Samples" block — Value+Start Date for the first six, Start Date+End Date+Type for Sleep
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -4809,6 +4818,7 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
 
   const SHORTCUT_URL = `${API_BASE}/shortcut`;
   const [syncUrl, setSyncUrl] = useState(SHORTCUT_URL);
+  const [guideAdvanced, setGuideAdvanced] = useState(false);
   const openHealthGuide = () => {
     setHealthGuideOpen(v => {
       const next = !v;
@@ -5058,29 +5068,37 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
             {healthGuideOpen && (
               <div className="ob-guide">
                 <a href="https://www.icloud.com/shortcuts/d461a338f79346be919118197aff92ae" target="_blank" rel="noopener noreferrer"
-                  style={{ display: 'block', marginBottom: 10, fontWeight: 700, color: 'var(--gold)' }}>
+                  style={{ display: 'block', marginBottom: 8, fontWeight: 700, color: 'var(--gold)' }}>
                   Install the pre-built Shortcut →
                 </a>
-                This is your personal sync link — after installing, open the Shortcut and make sure its URL matches the one below (replace it if it doesn't), so your data lands in your own account.<br /><br />
-                <strong>Sharing this with someone else?</strong> Add these steps to the top of the Shortcut so it asks for their URL once and remembers it automatically, instead of everyone needing to manually edit it:<br />
-                <strong>a.</strong> Add <strong>Get File</strong> (iCloud Drive → Shortcuts folder → <code>press-sync-url.txt</code>), with "Error if Not Found" turned off — this file won't exist the first time<br />
-                <strong>b.</strong> Add an <strong>If</strong> checking whether that result has any value<br />
-                <strong>c.</strong> If yes → set variable <code>syncUrl</code> to the file's contents<br />
-                <strong>d.</strong> Otherwise → <strong>Ask for Input</strong> ("Paste your Press sync URL"), set <code>syncUrl</code> to the answer, then <strong>Save File</strong> it back to the same <code>press-sync-url.txt</code> path so every future run finds it already there<br />
-                <strong>e.</strong> Use <code>syncUrl</code> (not typed text) as the URL in Get Contents of URL<br /><br />
-                Or build it yourself from scratch:<br />
-                <strong>1.</strong> Open <strong>Shortcuts</strong> on your iPhone<br />
-                <strong>2.</strong> Create a new <strong>Personal Automation</strong><br />
-                <strong>3.</strong> Trigger: <strong>Daily</strong> — set up <strong>three</strong> automations (duplicate this one twice), one each in the morning, afternoon, and night, so your data is fresh for each of Press's Morning Briefing, Mid-Day Update, and Tonight's Report<br />
-                <strong>4.</strong> Add action: <strong>Get Contents of URL</strong><br />
-                <strong>5.</strong> URL (tap to copy — this is your own personal link, unique to your account):
+                Your personal sync link — after installing, open the Shortcut and make sure its URL matches this (replace it if it doesn't), so your data lands in your own account:
                 <div className="ob-copy-url" onClick={() => navigator.clipboard?.writeText(syncUrl).then(() => { setUrlCopied(true); setTimeout(() => setUrlCopied(false), 2000); })}>
                   <span>{syncUrl}</span>
                   <button>{urlCopied ? 'Copied!' : 'Copy'}</button>
                 </div>
-                <strong>6.</strong> Method: <strong>POST</strong> · Body: <strong>JSON</strong><br />
-                <strong>7.</strong> Add a Dictionary with: <code>hr_values</code>/<code>hr_dates</code>, <code>rhr_values</code>/<code>rhr_dates</code>, <code>hrv_values</code>/<code>hrv_dates</code>, <code>bloodoxygen_values</code>/<code>bloodoxygen_dates</code>, <code>steps_values</code>/<code>steps_dates</code>, <code>wrist_values</code>/<code>wrist_dates</code>, and <code>sleep_start</code>/<code>sleep_end</code>/<code>sleep_types</code><br />
-                <strong>8.</strong> Each pair comes from its own "Find Health Samples" block — Value+Start Date for the first six, Start Date+End Date+Type for Sleep
+                <button onClick={() => setGuideAdvanced(v => !v)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, marginTop: 10, fontSize: 9, letterSpacing: '.08em', textTransform: 'uppercase', color: 'var(--dim)' }}>
+                  {guideAdvanced ? '− Hide' : '+ Show'} manual build / sharing with others / unsupported sensors
+                </button>
+                {guideAdvanced && (
+                  <div style={{ marginTop: 10 }}>
+                    <strong>No Blood Oxygen or Wrist Temperature on your Watch?</strong> Apple Watch SE has neither sensor, and Wrist Temperature needs Series 8+/Ultra — "Find Health Samples" errors on a type your device doesn't support (it doesn't just return empty), so just delete those two blocks from your own copy of the Shortcut. Everything else (HR, HRV, RHR, Steps, Sleep) works on every Watch and the iPhone alone.<br /><br />
+                    <strong>Sharing this with someone else?</strong> Add these steps to the top of the Shortcut so it asks for their URL once and remembers it automatically, instead of everyone needing to manually edit it:<br />
+                    <strong>a.</strong> Add <strong>Get File</strong> (iCloud Drive → Shortcuts folder → <code>press-sync-url.txt</code>), with "Error if Not Found" turned off — this file won't exist the first time<br />
+                    <strong>b.</strong> Add an <strong>If</strong> checking whether that result has any value<br />
+                    <strong>c.</strong> If yes → set variable <code>syncUrl</code> to the file's contents<br />
+                    <strong>d.</strong> Otherwise → <strong>Ask for Input</strong> ("Paste your Press sync URL"), set <code>syncUrl</code> to the answer, then <strong>Save File</strong> it back to the same <code>press-sync-url.txt</code> path so every future run finds it already there<br />
+                    <strong>e.</strong> Use <code>syncUrl</code> (not typed text) as the URL in Get Contents of URL<br /><br />
+                    Or build it yourself from scratch:<br />
+                    <strong>1.</strong> Open <strong>Shortcuts</strong> on your iPhone<br />
+                    <strong>2.</strong> Create a new <strong>Personal Automation</strong><br />
+                    <strong>3.</strong> Trigger: <strong>Daily</strong> — set up <strong>three</strong> automations (duplicate this one twice), one each in the morning, afternoon, and night, so your data is fresh for each of Press's Morning Briefing, Mid-Day Update, and Tonight's Report<br />
+                    <strong>4.</strong> Add action: <strong>Get Contents of URL</strong><br />
+                    <strong>5.</strong> URL — the same personal link shown above<br />
+                    <strong>6.</strong> Method: <strong>POST</strong> · Body: <strong>JSON</strong><br />
+                    <strong>7.</strong> Add a Dictionary with: <code>hr_values</code>/<code>hr_dates</code>, <code>rhr_values</code>/<code>rhr_dates</code>, <code>hrv_values</code>/<code>hrv_dates</code>, <code>bloodoxygen_values</code>/<code>bloodoxygen_dates</code>, <code>steps_values</code>/<code>steps_dates</code>, <code>wrist_values</code>/<code>wrist_dates</code>, and <code>sleep_start</code>/<code>sleep_end</code>/<code>sleep_types</code><br />
+                    <strong>8.</strong> Each pair comes from its own "Find Health Samples" block — Value+Start Date for the first six, Start Date+End Date+Type for Sleep
+                  </div>
+                )}
               </div>
             )}
           </div>
