@@ -241,18 +241,25 @@ app.post("/shortcut", async (req, res) => {
   // Health Sample lists arrive as newline-joined text (see
   // shortcutParsing.js), one value per line — reduced here rather than in
   // the fragile Shortcuts GUI, which has no error reporting of its own.
+  // Rounded here, not left as raw float division output — every other
+  // numeric metric in this codebase is stored pre-rounded (see fatigue.js),
+  // and the frontend displays these fields directly with no rounding of
+  // its own.
   const hrv = average(d.hrv_values);
-  if (hrv != null) db.metrics[k].heart_rate_variability = hrv;
+  if (hrv != null) db.metrics[k].heart_rate_variability = Math.round(hrv);
   const rhr = average(d.rhr_values);
-  if (rhr != null) db.metrics[k].resting_heart_rate = rhr;
+  if (rhr != null) db.metrics[k].resting_heart_rate = Math.round(rhr);
+  // step_count is stored in thousands (the frontend does `steps * 1000` to
+  // display the real count — matches the existing /health Health Auto
+  // Export convention), not a raw absolute step total.
   const stepCount = sum(d.steps_values);
-  if (stepCount != null) db.metrics[k].step_count = stepCount;
+  if (stepCount != null) db.metrics[k].step_count = stepCount / 1000;
   const wrist = average(d.wrist_values);
-  if (wrist != null) db.metrics[k].wrist_temperature = wrist;
+  if (wrist != null) db.metrics[k].wrist_temperature = Math.round(wrist * 10) / 10;
   const hr = average(d.hr_values);
-  if (hr != null) db.metrics[k].heart_rate = hr;
+  if (hr != null) db.metrics[k].heart_rate = Math.round(hr);
   const bloodOxygen = average(d.bloodoxygen_values);
-  if (bloodOxygen != null) db.metrics[k].blood_oxygen = bloodOxygen;
+  if (bloodOxygen != null) db.metrics[k].blood_oxygen = Math.round(bloodOxygen);
   if (d.weight) { db.metrics[k].body_mass = d.weight; db.weight[k] = d.weight; }
   if (d.vo2max) db.metrics[k].vo2max = d.vo2max;
   if (d.hrr_bpm) db.metrics[k].hrr_bpm = d.hrr_bpm;
