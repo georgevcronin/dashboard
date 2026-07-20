@@ -1,6 +1,6 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { callGeminiResilient, geminiRetryDelaySec } = require('../functions/gemini');
+const { callGeminiResilient, geminiRetryDelaySec, parseGeminiJSON } = require('../functions/gemini');
 
 process.env.GEMINI_API_KEY = 'test-key';
 
@@ -91,4 +91,30 @@ test('geminiRetryDelaySec parses RetryInfo.retryDelay', () => {
 test('geminiRetryDelaySec returns null when no RetryInfo is present', () => {
   assert.equal(geminiRetryDelaySec({}), null);
   assert.equal(geminiRetryDelaySec(undefined), null);
+});
+
+test('parseGeminiJSON parses clean JSON as-is', () => {
+  assert.deepEqual(parseGeminiJSON('{"headline":"Recovery Day","score":72}'), { headline: 'Recovery Day', score: 72 });
+});
+
+test('parseGeminiJSON strips a markdown code fence', () => {
+  assert.deepEqual(parseGeminiJSON('```json\n{"a":1}\n```'), { a: 1 });
+  assert.deepEqual(parseGeminiJSON('```\n{"a":1}\n```'), { a: 1 });
+});
+
+test('parseGeminiJSON recovers from trailing content after a complete JSON value — the actual reported production bug', () => {
+  assert.deepEqual(parseGeminiJSON('{"a":1,"b":2} \n\nLet me know if you\'d like anything else!'), { a: 1, b: 2 });
+});
+
+test('parseGeminiJSON correctly finds the closing brace even with braces/quotes inside string values', () => {
+  const obj = { headline: 'A "quoted" phrase with a } fake brace', nested: { x: 1 } };
+  assert.deepEqual(parseGeminiJSON(JSON.stringify(obj) + ' trailing junk'), obj);
+});
+
+test('parseGeminiJSON handles a top-level array the same way', () => {
+  assert.deepEqual(parseGeminiJSON('[1,2,3] trailing'), [1, 2, 3]);
+});
+
+test('parseGeminiJSON still throws on genuinely malformed JSON, not just noisy-but-valid JSON', () => {
+  assert.throws(() => parseGeminiJSON('{"a": 1, "b":}'));
 });

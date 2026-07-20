@@ -12,7 +12,7 @@ const { DEFAULTS, loadForUserDoc, saveDocExcludingLifts } = require('./userDoc')
 const { computeProgression } = require('./progression');
 const { generateSessionExercises, progressionFor, isLowRepPattern, LOW_REP_THRESHOLD } = require('./sessionPlanner');
 const { computeSleepScore } = require('./sleepScore');
-const { callGeminiResilient } = require('./gemini');
+const { callGeminiResilient, parseGeminiJSON } = require('./gemini');
 const { unwrapShortcutBody, average, sum, computeSleepMetrics } = require('./shortcutParsing');
 
 admin.initializeApp();
@@ -874,7 +874,7 @@ app.post("/nutrition/analyze", async (req, res) => {
     jsonMode: true,
   });
   if (!result.ok) return res.status(500).json({ error: result.error?.message || `Gemini returned ${result.status}` });
-  try { res.json(JSON.parse(result.content)); } catch { res.status(500).json({ error: 'Gemini returned invalid JSON' }); }
+  try { res.json(parseGeminiJSON(result.content)); } catch { res.status(500).json({ error: 'Gemini returned invalid JSON' }); }
 });
 
 app.post("/macro-targets", async (req, res) => {
@@ -1477,7 +1477,7 @@ Return ONLY valid JSON in this exact structure:
     throw new Error(result.error?.message || `Gemini returned ${result.status}`);
   }
   let briefing;
-  try { briefing = JSON.parse(result.content); } catch (e) { throw new Error('Gemini returned invalid JSON: ' + e.message); }
+  try { briefing = parseGeminiJSON(result.content); } catch (e) { throw new Error('Gemini returned invalid JSON: ' + e.message); }
   briefing.generatedAt = new Date().toISOString();
   briefing.date = today;
   return briefing;
@@ -1523,7 +1523,7 @@ Return ONLY valid JSON:
     throw new Error(result.error?.message || `Gemini returned ${result.status}`);
   }
   let newscast;
-  try { newscast = JSON.parse(result.content); } catch (e) { throw new Error('Gemini returned invalid JSON: ' + e.message); }
+  try { newscast = parseGeminiJSON(result.content); } catch (e) { throw new Error('Gemini returned invalid JSON: ' + e.message); }
   newscast.period = period;
   newscast.generatedAt = new Date().toISOString();
   newscast.date = today;
@@ -1603,7 +1603,7 @@ Return ONLY valid JSON:
     throw new Error(result.error?.message || `Gemini returned ${result.status}`);
   }
   let review;
-  try { review = JSON.parse(result.content); } catch (e) { throw new Error('Gemini returned invalid JSON: ' + e.message); }
+  try { review = parseGeminiJSON(result.content); } catch (e) { throw new Error('Gemini returned invalid JSON: ' + e.message); }
   review.period = 'week';
   review.generatedAt = new Date().toISOString();
   review.weekStart = cutoffThis;

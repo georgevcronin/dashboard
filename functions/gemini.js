@@ -109,4 +109,42 @@ async function callGeminiResilient(opts) {
   return result;
 }
 
-module.exports = { callGemini, callGeminiResilient, geminiRetryDelaySec, GEMINI_MODEL, GEMINI_FALLBACK_MODEL };
+// Extracts and parses a JSON value from a Gemini response. Even with
+// responseMimeType: "application/json" requested (jsonMode: true above),
+// Gemini occasionally wraps the value in a markdown code fence or appends
+// trailing content after an otherwise-complete, valid JSON value ("Gemini
+// returned invalid JSON: Unexpected non-whitespace character after JSON at
+// position ...", seen in production) -- this strips a fence if present and
+// parses only the first balanced {...}/[...] value, ignoring anything
+// appended after it, rather than failing outright on output that's
+// genuinely valid JSON plus noise. A response that's actually malformed
+// (truncated, broken syntax inside the value) still throws, same as a
+// plain JSON.parse would -- this only recovers from *extra* content, not
+// invalid content.
+function parseGeminiJSON(text) {
+  let s = (text || '').trim();
+  const fenced = s.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
+  if (fenced) s = fenced[1].trim();
+
+  const start = s.search(/[{[]/);
+  if (start === -1) return JSON.parse(s); // no JSON-like content at all -- surface the real error
+  const open = s[start];
+  const close = open === '{' ? '}' : ']';
+  let depth = 0, inStr = false, esc = false, end = -1;
+  for (let i = start; i < s.length; i++) {
+    const ch = s[i];
+    if (inStr) {
+      if (esc) esc = false;
+      else if (ch === '\\') esc = true;
+      else if (ch === '"') inStr = false;
+      continue;
+    }
+    if (ch === '"') { inStr = true; continue; }
+    if (ch === open) depth++;
+    else if (ch === close) { depth--; if (depth === 0) { end = i; break; } }
+  }
+  if (end === -1) return JSON.parse(s); // unbalanced -- genuinely malformed, surface the real error
+  return JSON.parse(s.slice(start, end + 1));
+}
+
+module.exports = { callGemini, callGeminiResilient, geminiRetryDelaySec, parseGeminiJSON, GEMINI_MODEL, GEMINI_FALLBACK_MODEL };
