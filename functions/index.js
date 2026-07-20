@@ -859,17 +859,29 @@ app.post("/nutrition", async (req, res) => {
 });
 app.post("/nutrition/analyze", async (req, res) => {
   if (!process.env.GEMINI_API_KEY) return res.status(400).json({ error: 'GEMINI_API_KEY not set' });
-  const { imageBase64, mode } = req.body;
-  if (!imageBase64) return res.status(400).json({ error: 'imageBase64 required' });
-  const mimeMatch = imageBase64.match(/^data:(image\/\w+);base64,/);
-  const mimeType = mimeMatch ? mimeMatch[1] : 'image/jpeg';
-  const rawBase64 = imageBase64.replace(/^data:image\/\w+;base64,/, '');
-  const labelPrompt = 'Read this nutrition label precisely. Return ONLY valid JSON: {"description":"product name","calories":0,"protein":0,"carbs":0,"fat":0}. Use per-serving values. All numbers as integers.';
-  const mealPrompt = 'Analyse this meal photo. Estimate nutritional content for the whole plate. Return ONLY valid JSON: {"description":"brief meal description","calories":0,"protein":0,"carbs":0,"fat":0}. All numbers as integers.';
-  const promptText = mode === 'label' ? labelPrompt : mealPrompt;
+  const { imageBase64, mode, description } = req.body;
+  if (!imageBase64 && !description?.trim()) return res.status(400).json({ error: 'imageBase64 or description required' });
+
+  let promptText, image;
+  if (imageBase64) {
+    const mimeMatch = imageBase64.match(/^data:(image\/\w+);base64,/);
+    const mimeType = mimeMatch ? mimeMatch[1] : 'image/jpeg';
+    const rawBase64 = imageBase64.replace(/^data:image\/\w+;base64,/, '');
+    const labelPrompt = 'Read this nutrition label precisely. Return ONLY valid JSON: {"description":"product name","calories":0,"protein":0,"carbs":0,"fat":0}. Use per-serving values. All numbers as integers.';
+    const mealPrompt = 'Analyse this meal photo. Estimate nutritional content for the whole plate. Return ONLY valid JSON: {"description":"brief meal description","calories":0,"protein":0,"carbs":0,"fat":0}. All numbers as integers.';
+    promptText = mode === 'label' ? labelPrompt : mealPrompt;
+    image = { mimeType, data: rawBase64 };
+  } else {
+    // No photo — estimate from a plain-text description instead (e.g. "two
+    // eggs and a slice of wholemeal toast with butter"). Same response
+    // shape either way, so the frontend doesn't need a separate code path
+    // past this endpoint.
+    promptText = `Estimate the nutritional content of this food/meal from the description alone: "${description.trim()}". Return ONLY valid JSON: {"description":"brief meal description","calories":0,"protein":0,"carbs":0,"fat":0}. All numbers as integers.`;
+  }
+
   const result = await callGeminiResilient({
     messages: [{ role: 'user', content: promptText }],
-    image: { mimeType, data: rawBase64 },
+    ...(image ? { image } : {}),
     maxTokens: 300,
     jsonMode: true,
   });

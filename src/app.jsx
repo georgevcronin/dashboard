@@ -709,6 +709,19 @@ const glycogenPct = elapsedS => Math.round(100 * (1 - Math.pow(0.5, elapsedS / G
 // app's first version — everything before this had no changelog at all.
 const CHANGELOG = [
   {
+    version: '0.19',
+    date: '2026-07-20',
+    features: [
+      'Apple Health sync (Shortcuts) now actually works — fixed a body-shape mismatch that silently dropped every field, made syncing robust to how Shortcuts really serializes Health data, fixed unrounded HRV/RHR/HR/SpO2/wrist-temp display and a steps unit bug that showed 1,702,000 instead of 1,702',
+      'Each account now gets its own personal Apple Health sync link, so a second person\'s data no longer lands in the wrong account',
+      'Muscle recovery times recalibrated to real research (quads dropped from 72h to 24h, several others from 72h to 48h) — fatigue readings should now clear faster and more accurately for large muscle groups',
+      'Fixed the "Browse by Muscle" exercise picker going blank after picking a muscle group',
+      'Fixed the home-screen Recovery number getting clipped in its box on some screen sizes',
+      'Fixed occasional "Gemini returned invalid JSON" errors on briefings/newscasts/reviews',
+      'Nutrition logging can now be done by just describing what you ate, no photo required',
+    ],
+  },
+  {
     version: '0.18',
     date: '2026-07-19',
     features: [
@@ -2770,6 +2783,28 @@ function S4({ s, refresh }) {
     e.target.value = '';
   };
 
+  const [foodDesc, setFoodDesc] = useState('');
+  const handleDescribe = async () => {
+    if (!foodDesc.trim()) return;
+    setAnalysing(true); setDescription(''); setAnalysed(false); setPhotoErr('');
+    setPhotoPreview(prev => { if (prev) URL.revokeObjectURL(prev); return null; });
+    try {
+      const data = await api('nutrition/analyze', {
+        method: 'POST',
+        body: JSON.stringify({ description: foodDesc }),
+      });
+      if (data.error) throw new Error(data.error);
+      const base = { calories: data.calories || 0, protein: data.protein || 0, carbs: data.carbs || 0, fat: data.fat || 0 };
+      baseNutrition.current = base;
+      if (data.description) setDescription(data.description);
+      setPortion(1);
+      applyPortion(1, base);
+      if (!label && data.description) setLabel(data.description.slice(0, 40));
+      setAnalysed(true);
+    } catch (e) { setPhotoErr(e.message || 'Estimate failed — try again.'); }
+    setAnalysing(false);
+  };
+
   // Posts a meal and returns {entry, nutritionToday} without touching app state — callers
   // decide when to refresh, so a loop of several posts can accumulate and refresh once
   // instead of each call clobbering the previous one with a stale s.nutritionLog closure.
@@ -2970,6 +3005,21 @@ function S4({ s, refresh }) {
                     and the editable version lets it actually be corrected. */}
                 {photoErr && <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--red)', marginTop: 4, lineHeight: 1.4 }}>{photoErr}</div>}
               </div>
+            </div>
+
+            {/* No photo? Describe it instead — same AI estimate, from text */}
+            <div style={{ display: 'flex', gap: 6, marginBottom: 10, alignItems: 'center' }}>
+              <input
+                style={{ flex: 1, fontFamily: "'JetBrains Mono',monospace", fontSize: 11, padding: '6px 8px', border: '1px solid var(--rule)', background: 'var(--paper)', color: 'var(--ink)' }}
+                placeholder="or describe what you ate…"
+                value={foodDesc}
+                onChange={e => setFoodDesc(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && handleDescribe()}
+                disabled={analysing}
+              />
+              <button className="nutri-photo-btn" style={{ minWidth: 68, flexShrink: 0 }} onClick={handleDescribe} disabled={analysing || !foodDesc.trim()}>
+                {analysing ? '…' : 'Estimate'}
+              </button>
             </div>
 
             {/* Gram calculator (shown after barcode lookup) */}
