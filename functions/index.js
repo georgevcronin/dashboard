@@ -662,6 +662,7 @@ app.get("/summary", async (req, res) => {
   const sleepScore = computeSleepScore(today);
   const sleepScoreTrend = last14.map(d => computeSleepScore(d)?.score).filter(v => v != null);
   const weights = lastN(db.weight, 30);
+  const summaryMusclePeaks = musclePeaksFromLifts(db.lifts);
   const monthWk = db.workouts.filter(w => w.date >= day(new Date(Date.now() - 30 * 864e5)));
   const sleepDebtH = last14.slice(-2).reduce((s, d) => s + (d.sleep_hours ? Math.max(0, sleep.target - d.sleep_hours) : 0), 0);
   const target = db.profile.waterTarget || 7;
@@ -704,7 +705,7 @@ app.get("/summary", async (req, res) => {
     baselines: { hrv: baseHRV && Math.round(baseHRV), rhr: baseRHR && Math.round(baseRHR), wristTemp: baseWristTemp && Math.round(baseWristTemp * 10) / 10, hr: baseHR && Math.round(baseHR) },
     composition: compVerdict(weights, db.lifts),
     waterStats: { streak, avg: waterDays.length ? Math.round(avg(waterDays) * 10) / 10 : 0, hitRate: waterDays.length ? Math.round((waterDays.filter(v => v >= target).length / waterDays.length) * 100) : 0, best: waterDays.length ? Math.max(...waterDays) : 0 },
-    musclePeaks: musclePeaksFromLifts(db.lifts),
+    musclePeaks: summaryMusclePeaks,
     injuries: (db.injuries || []).filter(i => !i.resolved).map(i => ({
       ...i,
       healingDays: INJURY_HEALING_DAYS[i.severity] || INJURY_HEALING_DAYS.moderate,
@@ -736,7 +737,7 @@ app.get("/summary", async (req, res) => {
     experiments: (db.experiments || []),
     travelMode: db.profile?.travelMode || false,
     dataMaturity: computeDataMaturity(db.lifts),
-    muscleLevels: computeMuscleLevels(db.lifts, db.weight, weights.at(-1)?.value ?? Object.values(db.weight).at(-1), db.profile?.sex, fatigueTimeline(db.lifts, musclePeaksFromLifts(db.lifts))),
+    muscleLevels: computeMuscleLevels(db.lifts, db.weight, weights.at(-1)?.value ?? Object.values(db.weight).at(-1), db.profile?.sex, fatigueTimeline(db.lifts, summaryMusclePeaks)),
   });
 });
 

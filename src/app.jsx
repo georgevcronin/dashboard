@@ -713,6 +713,14 @@ const glycogenPct = (elapsedS, totalS) => {
 // app's first version — everything before this had no changelog at all.
 const CHANGELOG = [
   {
+    version: '0.22',
+    date: '2026-07-21',
+    features: [
+      'App now loads instantly from cache on reopen instead of re-downloading everything from scratch every time — the service worker was doing nothing but push notifications before',
+      'Fixed the dashboard home screen doing one redundant computation on every load (internal — no visible change, just faster)',
+    ],
+  },
+  {
     version: '0.21',
     date: '2026-07-20',
     features: [
