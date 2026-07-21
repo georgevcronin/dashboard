@@ -167,6 +167,29 @@ function isCompoundExercise(name) {
   return COMPOUND_FALLBACK.test(normalizeForMatch(name));
 }
 
+// Bodyweight exercises are excluded from normal auto-generated selection —
+// not from the exercise database or manual search/add, just from what the
+// planner reaches for by default — except:
+//  - travelMode, where bodyweight is the only equipment actually available;
+//  - a "Weighted X" entry (Weighted Push-Up, Weighted Pull-Up, Weighted Dips,
+//    Weighted Crunch, ...): still tagged equipment 'bodyweight' in the DB,
+//    but IS the real loaded-progression path for that movement, not the
+//    limitation — its plain (unweighted) sibling is what gets excluded;
+//  - BODYWEIGHT_LOAD_EXCEPTIONS: exercises whose own curveNote documents
+//    they're routinely weighted in practice despite the equipment tag
+//    (Russian Twist — a plate/med ball held during the twist).
+// Supersedes an earlier, narrower version of this same idea that only
+// excluded core hold/rollout exercises (Dead Bug, Ab Wheel Rollout) for
+// having no real external-load progression path — those are still excluded
+// here as a strict subset (they're bodyweight-tagged too), this is just
+// no longer limited to core or to that specific pattern reasoning.
+const BODYWEIGHT_LOAD_EXCEPTIONS = new Set(['Russian Twist']);
+function isBodyweightOnlyExercise(exercise) {
+  return exercise.equipment === 'bodyweight'
+    && !exercise.name.startsWith('Weighted ')
+    && !BODYWEIGHT_LOAD_EXCEPTIONS.has(exercise.name);
+}
+
 // Used by weeklyPlanner.js/sessionPlanner.js's exercise scoring to heavily
 // prefer whatever the athlete has actually done before over something novel —
 // case-insensitive since logged history (Hevy imports especially) is
@@ -192,4 +215,5 @@ function loggedExerciseNames(lifts) {
 module.exports = {
   ALL_MUSCLES, PRIMARY_MUSCLES, RECOVERY_H, MUSCLE_GROUPS,
   findExercise, musclesForExercise, isLowerBodyExercise, isCompoundExercise, loggedExerciseNames,
+  isBodyweightOnlyExercise,
 };

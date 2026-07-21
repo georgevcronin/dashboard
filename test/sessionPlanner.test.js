@@ -54,6 +54,22 @@ test('lastAccessoryPick case-sensitivity fix: a lowercased log of a backbone exe
   assert.ok(!names.includes('Dumbbell Incline Bench Press'), 'should rotate away from the most recent real accessory pick');
 });
 
+test('sessionExcludeNames keeps an exercise already used for another muscle this session from being picked again as an accessory', () => {
+  const baseline = generateSessionExercises({
+    type: 'lift', targetMuscles: ['chest', 'triceps', 'front-delt'],
+    backboneExerciseNames: ['Barbell Bench Press'], lifts: [],
+  });
+  const firstAccessory = baseline[1]?.name;
+  assert.ok(firstAccessory, 'sanity check: this target set has at least one accessory pick available');
+
+  const out = generateSessionExercises({
+    type: 'lift', targetMuscles: ['chest', 'triceps', 'front-delt'],
+    backboneExerciseNames: ['Barbell Bench Press'], lifts: [],
+    sessionExcludeNames: new Set([firstAccessory]),
+  });
+  assert.ok(!out.some(e => e.name === firstAccessory), 'an exercise already used elsewhere in the session should not be picked again as an accessory');
+});
+
 test('isStapleExercise requires at least STAPLE_SESSION_THRESHOLD distinct logged dates', () => {
   const justBelow = Array.from({ length: STAPLE_SESSION_THRESHOLD - 1 }, (_, i) => ({ date: daysAgo(i), exercise: 'Dumbbell Incline Bench Press' }));
   const atThreshold = Array.from({ length: STAPLE_SESSION_THRESHOLD }, (_, i) => ({ date: daysAgo(i), exercise: 'Dumbbell Incline Bench Press' }));

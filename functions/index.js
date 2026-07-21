@@ -1036,13 +1036,25 @@ app.post("/plan/session-exercises", async (req, res) => {
     // different work, not a redundant duplicate.
     const compoundIsolationSplit = computeCompoundIsolationSplit(lifts);
     const isolationLeaning = compoundIsolationSplit.isolation > compoundIsolationSplit.compound;
+    // usedNames threads across every muscle's picks so the same exercise
+    // can't independently win two different muscles' slots (e.g. Farmer's
+    // Carry scoring well for both forearms and traps) and show up twice in
+    // one session. If nothing's left for a muscle once already-used names
+    // are excluded, that muscle's slot is simply dropped for this session —
+    // same "unavailable bucket is skipped, not forced" rule as fatigued/
+    // injured muscles, rather than falling back to a duplicate.
+    const usedNames = new Set();
     const exercises = musclePicks.flatMap(muscle => {
-      const backbone = pickBackboneExercises([muscle], { travelMode, lifts, favoriteExercises, count: isolationLeaning ? 1 : 2 }).map(e => e.name);
-      return generateSessionExercises({
+      const backbone = pickBackboneExercises([muscle], { travelMode, lifts, favoriteExercises, count: isolationLeaning ? 1 : 2, excludeNames: usedNames }).map(e => e.name);
+      if (!backbone.length) return [];
+      const picks = generateSessionExercises({
         type, targetMuscles: [muscle], backboneExerciseNames: backbone, lifts, travelMode,
         avoidMuscles, offlineMuscles, cnsFatigue, metabolicFatigue, trainingMonths, favoriteExercises,
         accessoryCountOverride: isolationLeaning ? 1 : 0, isolationOnly: isolationLeaning,
+        sessionExcludeNames: usedNames,
       });
+      picks.forEach(p => usedNames.add(p.name));
+      return picks;
     });
     return res.json({
       exercises, targetMuscles, backboneExercises: exercises.map(e => e.name), bucket: 'full body', preferredSplit,

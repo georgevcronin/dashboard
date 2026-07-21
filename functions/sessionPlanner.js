@@ -6,7 +6,7 @@
 
 const { EXERCISE_DB } = require('./exerciseDb');
 const { computeProgression } = require('./progression');
-const { isCompoundExercise, loggedExerciseNames } = require('./muscleTaxonomy');
+const { isCompoundExercise, loggedExerciseNames, isBodyweightOnlyExercise } = require('./muscleTaxonomy');
 
 // Same reasoning/magnitude as weeklyPlanner.js's LOGGED_EXERCISE_BONUS — a
 // heavy preference for whatever the athlete has actually done before,
@@ -108,15 +108,13 @@ function pickAccessories(targetMuscles, alreadySelected, excludeNames, avoidMusc
   // allowed.
   const isRedundant = e => !isStapleExercise(lifts, e.name) &&
     alreadySelected.some(a => a.pattern === e.pattern && e.primary.some(m => a.primary.includes(m)));
-  // Core hold/rollout exercises (Dead Bug, Ab Wheel Rollout, ...) have no
-  // real external-load progression path — excluded the same way
-  // weeklyPlanner.js's pickBackboneExercises already excludes them (see its
-  // comment for why this isn't a blanket "bodyweight core" exclusion —
-  // Russian Twist etc. are routinely weighted despite the bodyweight tag).
+  // Bodyweight exercises excluded from normal selection — see
+  // isBodyweightOnlyExercise in muscleTaxonomy.js for the exceptions
+  // (travelMode, "Weighted X" variants, Russian Twist).
   const basePool = EXERCISE_DB.filter(e =>
     !excludeNames.has(e.name) &&
     (travelMode ? e.equipment === 'bodyweight' : true) &&
-    !(e.muscleGroup === 'core' && ['hold', 'rollout'].includes(e.pattern) && !travelMode) &&
+    !(isBodyweightOnlyExercise(e) && !travelMode) &&
     !avoidEquipment.includes(e.equipment) &&
     !e.primary.some(m => avoidMuscles.includes(m)) &&
     e.primary.some(m => targetMuscles.includes(m)) &&
@@ -273,7 +271,7 @@ function setsFor(prog, workingSetCount, { failureSolo = false, higherRirPair = f
 // new-lifter fatigue budget. trainingMonths is null for an athlete who
 // hasn't self-reported training experience, in which case the new-lifter
 // budget is skipped entirely rather than assumed.
-function generateSessionExercises({ type, targetMuscles, backboneExerciseNames, lifts, travelMode, avoidMuscles = [], offlineMuscles = [], cnsFatigue = 0, metabolicFatigue = 0, trainingMonths = null, skipAccessories = false, accessoryCountOverride = null, isolationOnly = false, favoriteExercises = [] }) {
+function generateSessionExercises({ type, targetMuscles, backboneExerciseNames, lifts, travelMode, avoidMuscles = [], offlineMuscles = [], cnsFatigue = 0, metabolicFatigue = 0, trainingMonths = null, skipAccessories = false, accessoryCountOverride = null, isolationOnly = false, favoriteExercises = [], sessionExcludeNames = new Set() }) {
   if (type !== 'lift' || !targetMuscles?.length) return [];
 
   const excludeMuscles = [...new Set([...avoidMuscles, ...offlineMuscles])];
@@ -301,7 +299,12 @@ function generateSessionExercises({ type, targetMuscles, backboneExerciseNames, 
   const accessoryCount = accessoryCountOverride != null ? accessoryCountOverride
     : skipAccessories ? 0 : (metabolicFatigue > 60 ? 1 : 2);
 
-  const excludeNames = new Set([...originalNames, ...backboneEntries.map(e => e.name)]);
+  // sessionExcludeNames: names already used elsewhere in the same session
+  // (functions/index.js's full-body generator calls this once per target
+  // muscle — without threading this through, the same exercise could win
+  // independently for two different muscles it covers, e.g. Farmer's Carry
+  // for both forearms and traps, and show up twice in one session).
+  const excludeNames = new Set([...originalNames, ...backboneEntries.map(e => e.name), ...sessionExcludeNames]);
   const avoidEquipment = cnsFatigue > 70 ? HIGH_CNS_EQUIPMENT : [];
   const lastPick = accessoryCount > 0 ? lastAccessoryPick(lifts, targetMuscles, excludeNames) : null;
   const accessories = accessoryCount > 0 ? pickAccessories(targetMuscles, backboneEntries, excludeNames, excludeMuscles, {

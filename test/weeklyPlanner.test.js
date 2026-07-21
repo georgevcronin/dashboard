@@ -67,6 +67,24 @@ test('pickBackboneExercises does NOT exclude bodyweight-tagged core exercises th
   assert.equal(picks[0]?.name, 'Russian Twist', 'Russian Twist is tagged bodyweight but its own curveNote documents adding a plate/medicine ball — a rotation pattern, not hold/rollout, so it should stay eligible');
 });
 
+test('pickBackboneExercises excludes bodyweight exercises generally, not just core hold/rollout', () => {
+  const picks = pickBackboneExercises(['chest', 'triceps', 'front-delt'], { count: 20 });
+  assert.ok(!picks.some(p => p.name === 'Push-Up'), 'plain bodyweight Push-Up has no real load progression path outside travelMode');
+});
+
+test('pickBackboneExercises does NOT exclude "Weighted X" bodyweight-tagged exercises — they ARE the load-progression path', () => {
+  const picks = pickBackboneExercises(['chest', 'triceps', 'front-delt'], { count: 20, favoriteExercises: ['Weighted Push-Up'] });
+  assert.ok(picks.some(p => p.name === 'Weighted Push-Up'), 'Weighted Push-Up is tagged equipment bodyweight but progresses via real added load, unlike plain Push-Up');
+});
+
+test('pickBackboneExercises excludeNames keeps an exercise from being picked twice across separate calls', () => {
+  const first = pickBackboneExercises(['forearms'], { count: 1 });
+  assert.ok(first.length, 'sanity check: forearms has at least one real pick available');
+  const excludeNames = new Set(first.map(e => e.name));
+  const second = pickBackboneExercises(['forearms'], { count: 1, excludeNames });
+  assert.ok(!second.some(e => excludeNames.has(e.name)), 'an exercise already used elsewhere in the session should not be picked again');
+});
+
 test('pickBackboneExercises heavily prefers a previously-logged exercise over an equal-coverage untried one', () => {
   const unbiased = pickBackboneExercises(['chest', 'front-delt'], { count: 1 });
   assert.notEqual(unbiased[0].name, 'Dumbbell Incline Bench Press', 'sanity check: without history this should not already be the top pick');
