@@ -92,24 +92,53 @@ function unionDurationMs(ranges) {
   return total;
 }
 
+// A real night has samples packed close together; the gap to the next
+// distinct sleep session is always much larger than any in-night gap
+// (awake stretches, sensor dropouts). The Shortcut's "Find Health Samples"
+// query has no reliable "since last sync" scoping, so a single sync can
+// legitimately bundle more than one calendar night's samples together --
+// observed in production sending two full nights (~16h) in one payload
+// instead of one (~8h). Splits all entries (regardless of asleep/awake/
+// in-bed type -- a session boundary applies to the whole night) into
+// contiguous sessions wherever the gap since the latest end-so-far exceeds
+// this threshold, keeping only the most recent session.
+const SESSION_GAP_MS = 4 * 3_600_000;
+function latestSession(entries) {
+  if (!entries.length) return [];
+  const sorted = [...entries].sort((a, b) => a.s - b.s);
+  let session = [sorted[0]], maxEnd = sorted[0].e;
+  for (let i = 1; i < sorted.length; i++) {
+    const entry = sorted[i];
+    if (entry.s - maxEnd > SESSION_GAP_MS) session = [];
+    session.push(entry);
+    maxEnd = Math.max(maxEnd, entry.e);
+  }
+  return session;
+}
+
 // Zips sleep_start/sleep_end/sleep_types (parallel newline-joined lists)
 // into total asleep hours, WASO minutes, and sleep efficiency (asleep ÷ in
-// bed). Mismatched-length lists degrade gracefully (an index past the end
-// of a shorter list reads as undefined -> excluded, not a crash). Returns
-// null fields where there's genuinely no matching data, rather than 0 --
-// e.g. no Watch means no sleep data at all, not zero hours of sleep.
+// bed) for the most recent sleep session only. Mismatched-length lists
+// degrade gracefully (an index past the end of a shorter list reads as
+// undefined -> excluded, not a crash). Returns null fields where there's
+// genuinely no matching data, rather than 0 -- e.g. no Watch means no sleep
+// data at all, not zero hours of sleep.
 function computeSleepMetrics(startsStr, endsStr, typesStr) {
   const starts = (startsStr || '').split('\n');
   const ends = (endsStr || '').split('\n');
   const types = (typesStr || '').split('\n');
 
-  const asleepRanges = [], awakeRanges = [], inBedRanges = [];
-
+  const entries = [];
   for (let i = 0; i < starts.length; i++) {
     const s = parseShortcutDate(starts[i]);
     const e = parseShortcutDate(ends[i]);
     if (s == null || e == null || e <= s) continue;
-    const type = types[i];
+    entries.push({ s, e, type: types[i] });
+  }
+
+  const session = latestSession(entries);
+  const asleepRanges = [], awakeRanges = [], inBedRanges = [];
+  for (const { s, e, type } of session) {
     if (isAsleepType(type)) asleepRanges.push([s, e]);
     else if (isAwakeType(type)) awakeRanges.push([s, e]);
     else if (isInBedType(type)) inBedRanges.push([s, e]);
