@@ -1136,7 +1136,13 @@ function ExerciseBrowser({ onAdd }) {
   const tileStyle = { padding: '9px 12px', fontFamily: "'JetBrains Mono',monospace", fontSize: 11, textTransform: 'capitalize', cursor: 'pointer', border: '1px solid var(--rule)', background: 'var(--paper)', color: 'var(--ink)', textAlign: 'left' };
 
   let step = 'group', items = [], onPick = null;
+  // movementId must be checked before pattern: the hidden-pattern shortcut
+  // below (press/row/fly) sets movementId directly from the pattern step,
+  // without ever setting pattern -- checking !pattern first would keep
+  // falling back into the pattern step forever for that path, never
+  // reaching the variant list even once movementId is set.
   if (!group) { step = 'group'; items = groups.map(g => ({ key: g, label: g })); onPick = it => setGroup(it.key); }
+  else if (movementId) { step = 'variant'; items = variants.map(v => ({ key: v.id, label: v.name, v })); onPick = it => pick(it.v); }
   else if (!pattern) {
     step = 'pattern';
     items = [
@@ -1145,8 +1151,7 @@ function ExerciseBrowser({ onAdd }) {
     ];
     onPick = it => it.kind === 'pattern' ? setPattern(it.pattern) : selectMovement(it.m);
   }
-  else if (!movementId) { step = 'movement'; items = movements.map(m => ({ key: m.movementId, label: m.count > 1 ? `${m.movementName} (${m.count})` : m.movementName, m })); onPick = it => selectMovement(it.m); }
-  else { step = 'variant'; items = variants.map(v => ({ key: v.id, label: v.name, v })); onPick = it => pick(it.v); }
+  else { step = 'movement'; items = movements.map(m => ({ key: m.movementId, label: m.count > 1 ? `${m.movementName} (${m.count})` : m.movementName, m })); onPick = it => selectMovement(it.m); }
 
   return (
     <div style={{ marginTop: 16, borderTop: '1px solid var(--rule)', paddingTop: 10 }}>
