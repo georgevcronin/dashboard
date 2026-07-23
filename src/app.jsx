@@ -1294,12 +1294,11 @@ function WorkoutLogger({ planDay, lifts, customExercises, experienceLevel, onClo
   // Stored as an absolute end timestamp (survives a backgrounded-tab reload
   // the same way `start`/elapsed does — see the elapsed-timer comment below)
   // rather than a counter decremented in place, and restored from the
-  // persisted session below so a mid-rest reload doesn't just drop the
-  // banner outright.
-  const [rest, setRest] = useState(() => {
-    const r = restored?.rest;
-    return r && r.endAt > Date.now() ? r : null;
-  });
+  // persisted session below regardless of whether endAt has already passed
+  // — the banner is meant to stay up (glycogenPct caps at 100%) until the
+  // athlete dismisses it via Skip or starts the next set, not auto-clear
+  // itself just because the rest window elapsed while the app was closed.
+  const [rest, setRest] = useState(() => restored?.rest || null);
   const [saving, setSaving] = useState(false);
   const [summary, setSummary] = useState(null);
   const [newCustomExercises, setNewCustomExercises] = useState(() => restored?.newCustomExercises || []);
@@ -1385,14 +1384,13 @@ function WorkoutLogger({ planDay, lifts, customExercises, experienceLevel, onClo
     saveActiveSession({ planDay, exercises, newCustomExercises, startedAt: start, rest });
   }, [planDay, exercises, newCustomExercises, start, summary, loading, rest]);
 
-  // No separate countdown effect — `elapsed`'s own 1s tick above already
-  // re-renders this component every second, which is enough to keep the
-  // derived `restRemaining` (computed from the absolute `rest.endAt` below)
-  // current. This just auto-clears the banner once time's actually up.
-  useEffect(() => {
-    if (rest && rest.endAt <= Date.now()) setRest(null);
-  }, [elapsed, rest]);
-
+  // No countdown/auto-clear effect on purpose — the banner is meant to
+  // persist (glycogen capped at 100%) once rest is over, not disappear on
+  // its own; `elapsed`'s own 1s tick above already re-renders this
+  // component every second, which is enough to keep the derived
+  // `restRemaining` (computed from the absolute `rest.endAt` below) current.
+  // Dismissing it is an explicit choice — Skip, or starting the next set
+  // (which overwrites `rest` with a fresh window).
   const restRemaining = rest ? Math.max(0, Math.ceil((rest.endAt - Date.now()) / 1000)) : 0;
 
   const fmt = s => `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
