@@ -1302,6 +1302,13 @@ function WorkoutLogger({ planDay, lifts, customExercises, experienceLevel, onClo
   const [saving, setSaving] = useState(false);
   const [summary, setSummary] = useState(null);
   const [newCustomExercises, setNewCustomExercises] = useState(() => restored?.newCustomExercises || []);
+  // Guards against losing work by accident — null when no confirmation is
+  // pending, 'discard' or 'finish' while one is. Discard only prompts if
+  // there's actually something to lose (an untouched session discards
+  // silently); Finish only prompts when a set has kg/reps typed in but was
+  // never checked off, since that's exactly the kind of set easy to
+  // overlook walking away from the gym.
+  const [confirmAction, setConfirmAction] = useState(null);
   const inputRef = useRef();
 
   const allExercises = useMemo(() => {
@@ -1523,6 +1530,16 @@ function WorkoutLogger({ planDay, lifts, customExercises, experienceLevel, onClo
     setRest({ endAt: Date.now() + restDuration * 1000, total: restDuration });
   };
 
+  // Re-opens a completed set for editing (mis-entered weight/reps, wrong
+  // RPE) — clears feedback too since it was computed from whatever values
+  // are about to change, not the corrected ones; completeSet recomputes it
+  // fresh when the set is checked off again. Leaves any rest timer already
+  // running alone rather than second-guessing whether the athlete still
+  // wants it.
+  const uncheckSet = (ei, si) => setExercises(p => p.map((ex, i) =>
+    i !== ei ? ex : { ...ex, sets: ex.sets.map((s, j) => j !== si ? s : { ...s, done: false, feedback: null, feedbackType: 'neutral' }) }
+  ));
+
   const removeSet = (ei, si) => setExercises(p => p.map((ex, i) =>
     i !== ei ? ex : { ...ex, sets: ex.sets.filter((_, j) => j !== si) }
   ).filter(ex => ex.sets.length > 0));
@@ -1608,8 +1625,14 @@ function WorkoutLogger({ planDay, lifts, customExercises, experienceLevel, onClo
           <button className="ol-btn ol-btn-solid" onClick={onClose}>Back to Press</button>
         ) : (
           <div style={{ display: 'flex', gap: 8 }}>
-            <button className="ol-btn ol-btn-ghost" onClick={() => { clearActiveSession(); onClose(); }}>Discard</button>
-            <button className="ol-btn ol-btn-solid" onClick={finish} disabled={saving}>{saving ? 'Saving…' : 'Finish'}</button>
+            <button className="ol-btn ol-btn-ghost" onClick={() => {
+              const hasData = exercises.some(e => e.sets.some(s => s.done || s.kg !== '' || s.reps !== ''));
+              if (hasData) setConfirmAction('discard'); else { clearActiveSession(); onClose(); }
+            }}>Discard</button>
+            <button className="ol-btn ol-btn-solid" onClick={() => {
+              const hasUnchecked = exercises.some(e => e.sets.some(s => !s.done && (s.kg !== '' || s.reps !== '')));
+              if (hasUnchecked) setConfirmAction('finish'); else finish();
+            }} disabled={saving}>{saving ? 'Saving…' : 'Finish'}</button>
           </div>
         )}
       </div>
@@ -1907,7 +1930,7 @@ function WorkoutLogger({ planDay, lifts, customExercises, experienceLevel, onClo
                           </td>
                           <td style={{ padding: '5px 0', textAlign: 'right' }}>
                             {set.done
-                              ? <span style={{ color: 'var(--forest)', fontSize: 13 }}>✓</span>
+                              ? <button onClick={() => uncheckSet(i, j)} title="Tap to re-edit" style={{ background: 'none', border: 'none', color: 'var(--forest)', cursor: 'pointer', fontSize: 13, width: 22, height: 22, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✓</button>
                               : <button onClick={() => completeSet(i, j)} style={{ background: 'none', border: '1px solid var(--rule)', color: 'var(--dim)', cursor: 'pointer', fontSize: 11, width: 22, height: 22, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✓</button>
                             }
                           </td>
@@ -1976,8 +1999,8 @@ function WorkoutLogger({ planDay, lifts, customExercises, experienceLevel, onClo
       )}
 
       {/* Rest timer — shows live glycogen replenishment (% recovered, half-life
-          45s) rather than a plain time countdown; still auto-clears at the
-          same effort-scaled total as before. */}
+          45s) rather than a plain time countdown; stays capped at 100% once
+          rest is over rather than auto-clearing, until Skip or the next set. */}
       {rest && (
         <div style={{ position: 'fixed', bottom: 0, left: 0, right: 0, background: 'var(--ink)', color: 'var(--paper)', zIndex: 1100, padding: '12px 20px', display: 'flex', alignItems: 'center', gap: 14 }}>
           <div style={{ flex: 1, height: 3, background: 'rgba(255,255,255,.2)', borderRadius: 2, overflow: 'hidden' }}>
@@ -1985,6 +2008,31 @@ function WorkoutLogger({ planDay, lifts, customExercises, experienceLevel, onClo
           </div>
           <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 16, fontWeight: 600, whiteSpace: 'nowrap' }}>Glycogen {glycogenPct(rest.total - restRemaining, rest.total)}%</div>
           <button onClick={() => setRest(null)} style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, letterSpacing: '.1em', textTransform: 'uppercase', background: 'none', border: '1px solid rgba(255,255,255,.3)', color: 'var(--paper)', padding: '4px 10px', cursor: 'pointer' }}>Skip</button>
+        </div>
+      )}
+
+      {/* Discard/Finish safety prompts — only shown when there's actually
+          something at stake (see the hasData/hasUnchecked checks above). */}
+      {confirmAction && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 1300, background: 'rgba(0,0,0,.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+          <div style={{ background: 'var(--paper)', border: '3px solid var(--ink)', padding: 24, maxWidth: 340, width: '100%' }}>
+            <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 17, fontWeight: 700, marginBottom: 10, color: 'var(--ink)' }}>
+              {confirmAction === 'discard' ? 'Discard this workout?' : 'Finish with unchecked sets?'}
+            </div>
+            <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 11, color: 'var(--dim)', lineHeight: 1.6, marginBottom: 20 }}>
+              {confirmAction === 'discard'
+                ? 'Every set you\'ve entered will be lost — this can\'t be undone.'
+                : 'Some sets have a weight or rep count entered but were never checked off. Finishing now will save them as-is without a coaching cue, and they won\'t get another chance to be reviewed.'}
+            </div>
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+              <button className="ol-btn ol-btn-ghost" onClick={() => setConfirmAction(null)}>Cancel</button>
+              <button className="ol-btn ol-btn-solid" onClick={() => {
+                const action = confirmAction;
+                setConfirmAction(null);
+                if (action === 'discard') { clearActiveSession(); onClose(); } else finish();
+              }}>{confirmAction === 'discard' ? 'Discard' : 'Finish Anyway'}</button>
+            </div>
+          </div>
         </div>
       )}
     </div>
