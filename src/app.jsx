@@ -679,15 +679,22 @@ const EXERCISE_SEARCH_TAGS = new Map(EXERCISE_DB.map(e => {
 
 const e1rm = (kg, reps) => (kg > 0 && reps > 0) ? Math.round(calcE1RM(kg, reps)) : null;
 
-// Minimum whole reps at `kg` needed to match/exceed `targetE1RM` — e1rm rises
-// monotonically with reps at a fixed weight (see strengthStandards.js), so
-// walking reps up from 1 against the raw curve is simpler and just as exact
-// as inverting it algebraically. Capped at 20: past that a "reps needed for
-// a PR" hint stops being an answerable (or useful) question.
+// Minimum whole reps at `kg` needed to actually register as a new PR --
+// must mirror completeSet's own isNewPR check exactly (rounded e1rm, strict
+// >), not just approach targetE1RM, or this hint can promise a rep count
+// that then ties rather than beats the old PR once rounded (raw calcE1RM
+// landing just above targetE1RM can still round down to the same integer,
+// or land exactly on it with >=) -- reported live: hitting the suggested
+// reps at the suggested weight still came back "Short of target" instead
+// of a PR. e1rm rises monotonically with reps at a fixed weight (see
+// strengthStandards.js), so walking reps up from 1 is simpler and just as
+// exact as inverting the curve algebraically. Capped at 20: past that a
+// "reps needed for a PR" hint stops being an answerable (or useful)
+// question.
 const repsForPR = (kg, targetE1RM) => {
   if (!kg || !targetE1RM) return null;
   for (let r = 1; r <= 20; r++) {
-    if (calcE1RM(kg, r) >= targetE1RM) return r;
+    if (e1rm(kg, r) > targetE1RM) return r;
   }
   return null;
 };
