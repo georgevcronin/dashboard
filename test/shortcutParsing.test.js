@@ -2,7 +2,8 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const {
   unwrapShortcutBody, parseShortcutDate, parseNumberList, average, sum,
-  isAsleepType, isAwakeType, isInBedType, unionDurationMs, computeSleepMetrics,
+  isAsleepType, isAwakeType, isInBedType, isDeepType, isRemType, isLightType,
+  unionDurationMs, computeSleepMetrics,
 } = require('../functions/shortcutParsing');
 
 test('unwrapShortcutBody returns a body unchanged when it already has real fields', () => {
@@ -140,4 +141,39 @@ test('computeSleepMetrics treats close-together entries (a normal night with bri
   // 23:00-02:00 (3h) + 02:05-07:00 (4h55m) = 7h55m asleep, minus the 5min awake gap.
   assert.ok(Math.abs(asleepHours - 7.9167) < 0.01, `expected ~7h55m across the whole night, got ${asleepHours}`);
   assert.equal(wasoMin, 5);
+});
+
+test('isDeepType/isRemType/isLightType match broadly, and "Core" counts as light (Apple\'s name for the same stage)', () => {
+  assert.ok(isDeepType('AsleepDeep'));
+  assert.ok(!isDeepType('AsleepREM'));
+  assert.ok(isRemType('AsleepREM'));
+  assert.ok(isRemType('REM'));
+  assert.ok(!isRemType('AsleepDeep'));
+  assert.ok(isLightType('AsleepCore'));
+  assert.ok(isLightType('Core'));
+  assert.ok(isLightType('Light'));
+  assert.ok(!isLightType('AsleepDeep'));
+});
+
+test('computeSleepMetrics breaks out deep/REM/light stage minutes from real Watch-reported stage values', () => {
+  // Real observed shape once the Shortcut's Type/Value bug was fixed:
+  // Core/REM/Deep/Awake instead of one flat "Sleep" value for everything.
+  const starts = '22 Jul 2026 at 23:00\n23 Jul 2026 at 01:00\n23 Jul 2026 at 01:30\n23 Jul 2026 at 03:00\n23 Jul 2026 at 03:10';
+  const ends = '23 Jul 2026 at 01:00\n23 Jul 2026 at 01:30\n23 Jul 2026 at 03:00\n23 Jul 2026 at 03:10\n23 Jul 2026 at 07:00';
+  const types = 'Core\nDeep\nCore\nREM\nCore';
+  const { asleepHours, deepMin, remMin, lightMin } = computeSleepMetrics(starts, ends, types);
+  assert.ok(Math.abs(asleepHours - 8) < 0.01, `expected 8h total asleep, got ${asleepHours}`);
+  assert.equal(deepMin, 30);
+  assert.equal(remMin, 10);
+  assert.equal(lightMin, 2 * 60 + 90 + 230); // 23:00-01:00 (120) + 01:30-03:00 (90) + 03:10-07:00 (230)
+});
+
+test('computeSleepMetrics returns null stage minutes when the source only reports a flat generic value, not 0', () => {
+  const { deepMin, remMin, lightMin, asleepHours } = computeSleepMetrics(
+    '22 Jul 2026 at 23:00', '23 Jul 2026 at 07:00', 'Sleep'
+  );
+  assert.equal(deepMin, null);
+  assert.equal(remMin, null);
+  assert.equal(lightMin, null);
+  assert.ok(Math.abs(asleepHours - 8) < 0.01, 'total asleep hours should still be real even with no stage breakdown');
 });

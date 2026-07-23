@@ -71,6 +71,18 @@ function isAsleepType(type) {
   const t = (type || '').toLowerCase();
   return t.length > 0 && !isInBedType(t) && !isAwakeType(t);
 }
+// Finer-grained stage matching, layered on top of isAsleepType above (every
+// deep/REM/core sample is also a genuine asleep sample) -- used only to
+// break the sleepScore.js architecture dimensions (13-25% deep, 20-25% REM,
+// 50-60% light) out of the same data isAsleepType already totals. "Core" is
+// Apple's own name for what sleepScore.js and the rest of this app call
+// "light" sleep -- not a separate third thing.
+function isDeepType(type) { return (type || '').toLowerCase().includes('deep'); }
+function isRemType(type) { return (type || '').toLowerCase().includes('rem'); }
+function isLightType(type) {
+  const t = (type || '').toLowerCase();
+  return t.includes('core') || t.includes('light');
+}
 
 // Sums the total time actually covered by a list of [start, end] ranges,
 // merging overlaps first rather than adding raw durations. HealthKit often
@@ -117,12 +129,15 @@ function latestSession(entries) {
 }
 
 // Zips sleep_start/sleep_end/sleep_types (parallel newline-joined lists)
-// into total asleep hours, WASO minutes, and sleep efficiency (asleep ÷ in
-// bed) for the most recent sleep session only. Mismatched-length lists
-// degrade gracefully (an index past the end of a shorter list reads as
-// undefined -> excluded, not a crash). Returns null fields where there's
-// genuinely no matching data, rather than 0 -- e.g. no Watch means no sleep
-// data at all, not zero hours of sleep.
+// into total asleep hours, WASO minutes, sleep efficiency (asleep ÷ in bed),
+// and deep/REM/light stage minutes -- all for the most recent sleep session
+// only. Mismatched-length lists degrade gracefully (an index past the end of
+// a shorter list reads as undefined -> excluded, not a crash). Returns null
+// fields where there's genuinely no matching data, rather than 0 -- e.g. no
+// Watch means no sleep data at all, not zero hours of sleep, and a source
+// that only ever reports a single generic "Sleep" value (no stage
+// granularity) still gets a real asleepHours total with null stage minutes,
+// rather than the whole night silently going unscored.
 function computeSleepMetrics(startsStr, endsStr, typesStr) {
   const starts = (startsStr || '').split('\n');
   const ends = (endsStr || '').split('\n');
@@ -138,8 +153,14 @@ function computeSleepMetrics(startsStr, endsStr, typesStr) {
 
   const session = latestSession(entries);
   const asleepRanges = [], awakeRanges = [], inBedRanges = [];
+  const deepRanges = [], remRanges = [], lightRanges = [];
   for (const { s, e, type } of session) {
-    if (isAsleepType(type)) asleepRanges.push([s, e]);
+    if (isAsleepType(type)) {
+      asleepRanges.push([s, e]);
+      if (isDeepType(type)) deepRanges.push([s, e]);
+      else if (isRemType(type)) remRanges.push([s, e]);
+      else if (isLightType(type)) lightRanges.push([s, e]);
+    }
     else if (isAwakeType(type)) awakeRanges.push([s, e]);
     else if (isInBedType(type)) inBedRanges.push([s, e]);
   }
@@ -151,11 +172,15 @@ function computeSleepMetrics(startsStr, endsStr, typesStr) {
   const asleepHours = asleepRanges.length ? asleepMs / 3_600_000 : null;
   const wasoMin = awakeRanges.length ? Math.round(awakeMs / 60_000) : null;
   const sleepEff = (asleepRanges.length && inBedRanges.length && inBedMs > 0) ? Math.round((asleepMs / inBedMs) * 100) : null;
+  const deepMin = deepRanges.length ? Math.round(unionDurationMs(deepRanges) / 60_000) : null;
+  const remMin = remRanges.length ? Math.round(unionDurationMs(remRanges) / 60_000) : null;
+  const lightMin = lightRanges.length ? Math.round(unionDurationMs(lightRanges) / 60_000) : null;
 
-  return { asleepHours, wasoMin, sleepEff };
+  return { asleepHours, wasoMin, sleepEff, deepMin, remMin, lightMin };
 }
 
 module.exports = {
   unwrapShortcutBody, parseShortcutDate, parseNumberList, average, sum,
-  isAsleepType, isAwakeType, isInBedType, unionDurationMs, computeSleepMetrics,
+  isAsleepType, isAwakeType, isInBedType, isDeepType, isRemType, isLightType,
+  unionDurationMs, computeSleepMetrics,
 };

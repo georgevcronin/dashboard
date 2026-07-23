@@ -264,13 +264,21 @@ app.post("/shortcut", async (req, res) => {
   if (d.weight) { db.metrics[k].body_mass = d.weight; db.weight[k] = d.weight; }
   if (d.vo2max) db.metrics[k].vo2max = d.vo2max;
   if (d.hrr_bpm) db.metrics[k].hrr_bpm = d.hrr_bpm;
-  // Sleep: total asleep hours, WASO, and efficiency all derived from the
-  // same start/end/type triple — see shortcutParsing.js's computeSleepMetrics
-  // for why (In Bed vs. Awake vs. genuine sleep-stage segments).
-  const { asleepHours, wasoMin, sleepEff } = computeSleepMetrics(d.sleep_start, d.sleep_end, d.sleep_types);
+  // Sleep: total asleep hours, WASO, efficiency, and deep/REM/light stage
+  // minutes all derived from the same start/end/type triple — see
+  // shortcutParsing.js's computeSleepMetrics for why (In Bed vs. Awake vs.
+  // genuine sleep-stage segments). Stage minutes are only non-null when the
+  // sync's sleep_types actually reports stage-level values (a source that
+  // only sends a single generic "Sleep"/"Asleep" value still gets a real
+  // sleep_hours total, just no stage breakdown for sleepScore.js's
+  // deep/rem/light dimensions).
+  const { asleepHours, wasoMin, sleepEff, deepMin, remMin, lightMin } = computeSleepMetrics(d.sleep_start, d.sleep_end, d.sleep_types);
   if (asleepHours != null) db.metrics[k].sleep_hours = asleepHours;
   if (wasoMin != null) db.metrics[k].waso_min = wasoMin;
   if (sleepEff != null) db.metrics[k].sleep_eff = sleepEff;
+  if (deepMin != null) db.metrics[k].deep_sleep_min = deepMin;
+  if (remMin != null) db.metrics[k].rem_sleep_min = remMin;
+  if (lightMin != null) db.metrics[k].light_sleep_min = lightMin;
   // Legacy direct-field inputs — still accepted for the /health (Health Auto
   // Export) path or any future manual sync, which send scalars directly
   // rather than the Shortcuts-specific newline-text lists above.
