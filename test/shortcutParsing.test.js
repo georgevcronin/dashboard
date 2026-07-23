@@ -2,7 +2,7 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const {
   unwrapShortcutBody, parseShortcutDate, parseNumberList, average, sum,
-  isAsleepType, isAwakeType, isInBedType, computeSleepMetrics,
+  isAsleepType, isAwakeType, isInBedType, unionDurationMs, computeSleepMetrics,
 } = require('../functions/shortcutParsing');
 
 test('unwrapShortcutBody returns a body unchanged when it already has real fields', () => {
@@ -93,4 +93,28 @@ test('computeSleepMetrics returns nulls when there is no sleep data at all', () 
 test('computeSleepMetrics ignores entries with a bad or inverted time range', () => {
   const { asleepHours } = computeSleepMetrics('19 Jul 2026 at 23:00', '19 Jul 2026 at 22:00', 'Asleep');
   assert.equal(asleepHours, null, 'end before start should be dropped, not produce negative hours');
+});
+
+test('unionDurationMs merges overlapping ranges instead of summing raw durations', () => {
+  const hour = 3_600_000;
+  // Two ranges covering the same 8h span -- naive summing gives 16h, the
+  // real elapsed time is 8h.
+  assert.equal(unionDurationMs([[0, 8 * hour], [0, 8 * hour]]), 8 * hour);
+  // Partial overlap: [0,8h) and [4h,10h) union to [0,10h).
+  assert.equal(unionDurationMs([[0, 8 * hour], [4 * hour, 10 * hour]]), 10 * hour);
+  // Disjoint ranges just add up.
+  assert.equal(unionDurationMs([[0, 2 * hour], [4 * hour, 6 * hour]]), 4 * hour);
+  assert.equal(unionDurationMs([]), 0);
+});
+
+test('computeSleepMetrics merges a stage breakdown and a coarse rolled-up sample covering the same night instead of doubling it', () => {
+  // Real observed HealthKit shape: granular Core/Deep/REM stage samples for
+  // 23:00-07:00, plus a coarse AsleepUnspecified sample covering the same
+  // 23:00-07:00 span from a rolled-up source -- a naive sum would report 16h
+  // for one real 8h night.
+  const starts = '19 Jul 2026 at 23:00\n20 Jul 2026 at 01:00\n20 Jul 2026 at 03:00\n19 Jul 2026 at 23:00';
+  const ends = '20 Jul 2026 at 01:00\n20 Jul 2026 at 03:00\n20 Jul 2026 at 07:00\n20 Jul 2026 at 07:00';
+  const types = 'AsleepCore\nAsleepDeep\nAsleepREM\nAsleepUnspecified';
+  const { asleepHours } = computeSleepMetrics(starts, ends, types);
+  assert.ok(Math.abs(asleepHours - 8) < 0.01, `expected ~8h, got ${asleepHours}`);
 });

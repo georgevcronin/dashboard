@@ -72,6 +72,26 @@ function isAsleepType(type) {
   return t.length > 0 && !isInBedType(t) && !isAwakeType(t);
 }
 
+// Sums the total time actually covered by a list of [start, end] ranges,
+// merging overlaps first rather than adding raw durations. HealthKit often
+// reports a single night as multiple overlapping samples for the same
+// category -- e.g. a Watch can emit granular AsleepCore/AsleepDeep/AsleepREM
+// stage samples *and* a coarse rolled-up AsleepUnspecified sample covering
+// that same span -- and naively summing durations double-counts the overlap
+// (a real ~8h night has been observed coming through as ~16h this way).
+function unionDurationMs(ranges) {
+  if (!ranges.length) return 0;
+  const sorted = [...ranges].sort((a, b) => a[0] - b[0]);
+  let total = 0, curStart = sorted[0][0], curEnd = sorted[0][1];
+  for (let i = 1; i < sorted.length; i++) {
+    const [s, e] = sorted[i];
+    if (s <= curEnd) { curEnd = Math.max(curEnd, e); }
+    else { total += curEnd - curStart; curStart = s; curEnd = e; }
+  }
+  total += curEnd - curStart;
+  return total;
+}
+
 // Zips sleep_start/sleep_end/sleep_types (parallel newline-joined lists)
 // into total asleep hours, WASO minutes, and sleep efficiency (asleep ÷ in
 // bed). Mismatched-length lists degrade gracefully (an index past the end
@@ -83,28 +103,30 @@ function computeSleepMetrics(startsStr, endsStr, typesStr) {
   const ends = (endsStr || '').split('\n');
   const types = (typesStr || '').split('\n');
 
-  let asleepMs = 0, awakeMs = 0, inBedMs = 0;
-  let anyAsleep = false, anyAwake = false, anyInBed = false;
+  const asleepRanges = [], awakeRanges = [], inBedRanges = [];
 
   for (let i = 0; i < starts.length; i++) {
     const s = parseShortcutDate(starts[i]);
     const e = parseShortcutDate(ends[i]);
     if (s == null || e == null || e <= s) continue;
-    const durMs = e - s;
     const type = types[i];
-    if (isAsleepType(type)) { asleepMs += durMs; anyAsleep = true; }
-    else if (isAwakeType(type)) { awakeMs += durMs; anyAwake = true; }
-    else if (isInBedType(type)) { inBedMs += durMs; anyInBed = true; }
+    if (isAsleepType(type)) asleepRanges.push([s, e]);
+    else if (isAwakeType(type)) awakeRanges.push([s, e]);
+    else if (isInBedType(type)) inBedRanges.push([s, e]);
   }
 
-  const asleepHours = anyAsleep ? asleepMs / 3_600_000 : null;
-  const wasoMin = anyAwake ? Math.round(awakeMs / 60_000) : null;
-  const sleepEff = (anyAsleep && anyInBed && inBedMs > 0) ? Math.round((asleepMs / inBedMs) * 100) : null;
+  const asleepMs = unionDurationMs(asleepRanges);
+  const awakeMs = unionDurationMs(awakeRanges);
+  const inBedMs = unionDurationMs(inBedRanges);
+
+  const asleepHours = asleepRanges.length ? asleepMs / 3_600_000 : null;
+  const wasoMin = awakeRanges.length ? Math.round(awakeMs / 60_000) : null;
+  const sleepEff = (asleepRanges.length && inBedRanges.length && inBedMs > 0) ? Math.round((asleepMs / inBedMs) * 100) : null;
 
   return { asleepHours, wasoMin, sleepEff };
 }
 
 module.exports = {
   unwrapShortcutBody, parseShortcutDate, parseNumberList, average, sum,
-  isAsleepType, isAwakeType, isInBedType, computeSleepMetrics,
+  isAsleepType, isAwakeType, isInBedType, unionDurationMs, computeSleepMetrics,
 };
