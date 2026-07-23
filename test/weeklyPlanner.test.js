@@ -132,6 +132,7 @@ test('generateWeeklyGuidance zeroes out lift sessions when every muscle bucket i
   const allMuscles = Object.values(MUSCLE_GROUPS).flat();
   const guidance = generateWeeklyGuidance({
     currentFatigue: {}, weekMetabolic: 0, weekCNS: 0, offlineMuscles: allMuscles, dataMature: true,
+    preferredSplit: 'Push / Pull / Legs',
   });
   assert.equal(guidance.liftSessionsTarget, 0);
   assert.equal(guidance.muscleFocus.length, 0);
@@ -144,6 +145,7 @@ test('generateWeeklyGuidance gives a recovery-only rationale only when BOTH lift
   const allMuscles = Object.values(MUSCLE_GROUPS).flat();
   const guidance = generateWeeklyGuidance({
     currentFatigue: {}, weekMetabolic: 0, weekCNS: 95, offlineMuscles: allMuscles, dataMature: true,
+    preferredSplit: 'Push / Pull / Legs',
   });
   assert.equal(guidance.liftSessionsTarget, 0);
   assert.equal(guidance.cardioSessionsTarget, 0);
@@ -152,14 +154,42 @@ test('generateWeeklyGuidance gives a recovery-only rationale only when BOTH lift
 
 test('generateWeeklyGuidance ranks muscleFocus freshest-first', () => {
   const fatigue = { chest: 80, 'front-delt': 80, 'mid-delt': 80, triceps: 80 }; // push fried, everything else fresh
-  const guidance = generateWeeklyGuidance({ currentFatigue: fatigue, weekMetabolic: 0, weekCNS: 0, offlineMuscles: [], dataMature: true });
+  const guidance = generateWeeklyGuidance({
+    currentFatigue: fatigue, weekMetabolic: 0, weekCNS: 0, offlineMuscles: [], dataMature: true,
+    preferredSplit: 'Push / Pull / Legs',
+  });
   const names = guidance.muscleFocus.map(b => b.name);
   assert.notEqual(names[0], 'push', 'push is fatigued, should not rank first');
 });
 
 test('generateWeeklyGuidance clamps displayed freshness to 100 even though the staleness boost can push internal priority above it', () => {
-  const guidance = generateWeeklyGuidance({ currentFatigue: {}, weekMetabolic: 0, weekCNS: 0, offlineMuscles: [], dataMature: true });
+  const guidance = generateWeeklyGuidance({
+    currentFatigue: {}, weekMetabolic: 0, weekCNS: 0, offlineMuscles: [], dataMature: true,
+    preferredSplit: 'Push / Pull / Legs',
+  });
   for (const b of guidance.muscleFocus) assert.ok(b.freshness <= 100, `${b.name} freshness ${b.freshness} exceeds 100`);
+});
+
+test('generateWeeklyGuidance defaults to per-muscle focus (no fixed push/pull/legs/core buckets) when no preferredSplit is given', () => {
+  const guidance = generateWeeklyGuidance({ currentFatigue: {}, weekMetabolic: 0, weekCNS: 0, offlineMuscles: [], dataMature: true });
+  const names = guidance.muscleFocus.map(b => b.name);
+  // 'push'/'pull'/'legs' are the fixed bucket names, not real individual
+  // muscles -- 'core' isn't checked here since it's *also* a genuine
+  // PRIMARY_MUSCLES entry in its own right (a generic core-only exercise
+  // tag), so it legitimately appears as a real single-muscle bucket too.
+  assert.ok(!names.includes('push') && !names.includes('pull') && !names.includes('legs'),
+    'Full Body (the default) should never bucket into the fixed named groups');
+  assert.ok(names.includes('quads'), 'should surface individual muscles instead');
+  for (const b of guidance.muscleFocus) assert.equal(b.muscles.length, 1, `${b.name} should be a single-muscle bucket in Full Body mode`);
+});
+
+test('generateWeeklyGuidance with a named preferredSplit groups muscleFocus the same way session generation groups that split', () => {
+  const guidance = generateWeeklyGuidance({
+    currentFatigue: {}, weekMetabolic: 0, weekCNS: 0, offlineMuscles: [], dataMature: true,
+    preferredSplit: 'Upper / Lower',
+  });
+  const names = guidance.muscleFocus.map(b => b.name).sort();
+  assert.deepEqual(names, ['lower', 'upper']);
 });
 
 test('stalenessBoost stays at 0 within a normal week, then ramps up, capping in the atrophy-risk zone beyond 3 weeks', () => {
@@ -202,7 +232,7 @@ test('generateWeeklyGuidance threads muscleLastTrainedDays through so the displa
   const staleness = { quads: 40, glutes: 40 };
   const guidance = generateWeeklyGuidance({
     currentFatigue: {}, weekMetabolic: 0, weekCNS: 0, offlineMuscles: [], dataMature: true,
-    muscleLastTrainedDays: staleness,
+    muscleLastTrainedDays: staleness, preferredSplit: 'Push / Pull / Legs',
   });
   const legs = guidance.muscleFocus.find(b => b.name === 'legs');
   const push = guidance.muscleFocus.find(b => b.name === 'push');
