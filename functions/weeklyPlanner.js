@@ -15,6 +15,7 @@
 
 const { EXERCISE_DB } = require('./exerciseDb');
 const { PRIMARY_MUSCLES, MUSCLE_GROUPS, loggedExerciseNames, isBodyweightOnlyExercise } = require('./muscleTaxonomy');
+const { SPLIT_GROUPS } = require('./splitPlanner');
 
 // Dominates the small (0-4 point) muscle-coverage score below by design — "a
 // heavy preference for exercises you've done before" means history should
@@ -191,6 +192,22 @@ function guidanceRationale(liftSessionsTarget, cardioSessionsTarget, weekCNS, we
   return `${fatigueNote} ${priorityNote} Train them whenever suits, in whatever order, on top of whatever you've already done.`;
 }
 
+// Which groups muscleFocus is bucketed into mirrors exactly what
+// /plan/session-exercises' full-body auto-pick would actually give you next
+// (functions/splitPlanner.js's SPLIT_GROUPS) — 'Full Body' (the default) has
+// no fixed categories at all, so each muscle is its own single-muscle
+// "bucket"; a named split (Push/Pull/Legs, Upper/Lower, ...) groups muscles
+// the same way that split's session generation does. Displaying different
+// groupings here than session generation actually uses is exactly the "home
+// screen visually reads as a PPL+Core split even though it was never meant
+// to be one" problem the splitPlanner.js rewrite fixed for session
+// generation but not, until now, for this display.
+function focusGroups(preferredSplit) {
+  const named = SPLIT_GROUPS[preferredSplit];
+  if (named) return named;
+  return Object.fromEntries(PRIMARY_MUSCLES.map(m => [m, [m]]));
+}
+
 // Returns advisory guidance only — no days, no locked exercises. muscleFocus
 // is ranked freshest-first; restingMuscleGroups lists groups with nothing
 // available to load right now (fully fatigued or fully offline). Both are
@@ -203,10 +220,11 @@ function guidanceRationale(liftSessionsTarget, cardioSessionsTarget, weekCNS, we
 // atrophy-risk prioritization that /plan/session-exercises's full-body
 // auto-pick actually uses, rather than the display showing plain fatigue-
 // freshness while session generation weighs staleness too.
-function generateWeeklyGuidance({ currentFatigue, weekMetabolic, weekCNS, offlineMuscles, dataMature, trainingPriority = 'strength', muscleLastTrainedDays = null }) {
+function generateWeeklyGuidance({ currentFatigue, weekMetabolic, weekCNS, offlineMuscles, dataMature, trainingPriority = 'strength', muscleLastTrainedDays = null, preferredSplit = 'Full Body' }) {
   const priority = computeMusclePriority(currentFatigue || {}, offlineMuscles || [], muscleLastTrainedDays);
+  const groups = focusGroups(preferredSplit);
 
-  const buckets = Object.entries(MUSCLE_GROUPS)
+  const buckets = Object.entries(groups)
     .map(([name, muscles]) => {
       const scored = scoreBucket(muscles, priority);
       return scored ? { name, ...scored } : null;
@@ -217,7 +235,7 @@ function generateWeeklyGuidance({ currentFatigue, weekMetabolic, weekCNS, offlin
   const liftSessionsTarget = planLiftSessionsTarget(weekCNS, weekMetabolic, buckets.length, trainingPriority);
   const cardioSessionsTarget = planCardioSessionsTarget(weekCNS, trainingPriority);
   const activeNames = new Set(buckets.map(b => b.name));
-  const restingMuscleGroups = Object.keys(MUSCLE_GROUPS).filter(n => !activeNames.has(n));
+  const restingMuscleGroups = Object.keys(groups).filter(n => !activeNames.has(n));
 
   return {
     trainingPriority,

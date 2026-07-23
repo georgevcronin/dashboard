@@ -1169,6 +1169,11 @@ function computeWeeklyGuidance() {
     dataMature: maturityWeek.hasEnoughData,
     trainingPriority: db.profile?.trainingPriority || 'strength',
     muscleLastTrainedDays: computeMuscleLastTrainedDays(db.lifts),
+    // Same "explicit choice always wins, auto-detect only fills in a
+    // default" rule as /plan/session-exercises' own preferredSplit
+    // resolution — the guidance display and the session it's previewing
+    // must agree on which split is actually in effect.
+    preferredSplit: db.profile?.preferredSplit || detectPreferredSplit(db.lifts) || 'Full Body',
   });
 }
 
