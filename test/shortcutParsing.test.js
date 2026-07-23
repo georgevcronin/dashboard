@@ -2,7 +2,7 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const {
   unwrapShortcutBody, parseShortcutDate, parseNumberList, average, sum,
-  isAsleepType, isAwakeType, isInBedType, computeSleepMetrics,
+  isAsleepType, isAwakeType, isInBedType, unionDurationMs, computeSleepMetrics,
 } = require('../functions/shortcutParsing');
 
 test('unwrapShortcutBody returns a body unchanged when it already has real fields', () => {
@@ -93,4 +93,51 @@ test('computeSleepMetrics returns nulls when there is no sleep data at all', () 
 test('computeSleepMetrics ignores entries with a bad or inverted time range', () => {
   const { asleepHours } = computeSleepMetrics('19 Jul 2026 at 23:00', '19 Jul 2026 at 22:00', 'Asleep');
   assert.equal(asleepHours, null, 'end before start should be dropped, not produce negative hours');
+});
+
+test('unionDurationMs merges overlapping ranges instead of summing raw durations', () => {
+  const hour = 3_600_000;
+  // Two ranges covering the same 8h span -- naive summing gives 16h, the
+  // real elapsed time is 8h.
+  assert.equal(unionDurationMs([[0, 8 * hour], [0, 8 * hour]]), 8 * hour);
+  // Partial overlap: [0,8h) and [4h,10h) union to [0,10h).
+  assert.equal(unionDurationMs([[0, 8 * hour], [4 * hour, 10 * hour]]), 10 * hour);
+  // Disjoint ranges just add up.
+  assert.equal(unionDurationMs([[0, 2 * hour], [4 * hour, 6 * hour]]), 4 * hour);
+  assert.equal(unionDurationMs([]), 0);
+});
+
+test('computeSleepMetrics merges a stage breakdown and a coarse rolled-up sample covering the same night instead of doubling it', () => {
+  // Real observed HealthKit shape: granular Core/Deep/REM stage samples for
+  // 23:00-07:00, plus a coarse AsleepUnspecified sample covering the same
+  // 23:00-07:00 span from a rolled-up source -- a naive sum would report 16h
+  // for one real 8h night.
+  const starts = '19 Jul 2026 at 23:00\n20 Jul 2026 at 01:00\n20 Jul 2026 at 03:00\n19 Jul 2026 at 23:00';
+  const ends = '20 Jul 2026 at 01:00\n20 Jul 2026 at 03:00\n20 Jul 2026 at 07:00\n20 Jul 2026 at 07:00';
+  const types = 'AsleepCore\nAsleepDeep\nAsleepREM\nAsleepUnspecified';
+  const { asleepHours } = computeSleepMetrics(starts, ends, types);
+  assert.ok(Math.abs(asleepHours - 8) < 0.01, `expected ~8h, got ${asleepHours}`);
+});
+
+test('computeSleepMetrics keeps only the most recent night when a payload bundles two nights, instead of summing both', () => {
+  // Real observed production shape: the Shortcut's Health Samples query
+  // isn't scoped to "since last sync", so one payload contained an ~8h
+  // session ending the morning before AND an ~8h session ending this
+  // morning, separated by a ~15h waking gap -- summing both reported 16.2h
+  // for a single day instead of the real ~8h last night.
+  const starts = '21 Jul 2026 at 23:00\n22 Jul 2026 at 23:10';
+  const ends = '22 Jul 2026 at 07:00\n23 Jul 2026 at 07:00';
+  const types = 'Sleep\nSleep';
+  const { asleepHours } = computeSleepMetrics(starts, ends, types);
+  assert.ok(Math.abs(asleepHours - 7.833) < 0.01, `expected ~7.83h (last night only), got ${asleepHours}`);
+});
+
+test('computeSleepMetrics treats close-together entries (a normal night with brief wake-ups) as one session, not separate nights', () => {
+  const starts = '19 Jul 2026 at 23:00\n20 Jul 2026 at 02:00\n20 Jul 2026 at 02:05';
+  const ends = '20 Jul 2026 at 02:00\n20 Jul 2026 at 02:05\n20 Jul 2026 at 07:00';
+  const types = 'Asleep\nAwake\nAsleep';
+  const { asleepHours, wasoMin } = computeSleepMetrics(starts, ends, types);
+  // 23:00-02:00 (3h) + 02:05-07:00 (4h55m) = 7h55m asleep, minus the 5min awake gap.
+  assert.ok(Math.abs(asleepHours - 7.9167) < 0.01, `expected ~7h55m across the whole night, got ${asleepHours}`);
+  assert.equal(wasoMin, 5);
 });
