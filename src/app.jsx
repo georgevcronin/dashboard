@@ -720,6 +720,13 @@ const glycogenPct = (elapsedS, totalS) => {
 // app's first version — everything before this had no changelog at all.
 const CHANGELOG = [
   {
+    version: '0.24',
+    date: '2026-07-24',
+    features: [
+      'Added a Compound / Isolation preference slider in Settings — overrides the auto-detected accessory-exercise leaning in full-body auto-generated sessions instead of it always being inferred from your last 90 days.',
+    ],
+  },
+  {
     version: '0.23',
     date: '2026-07-24',
     features: [
@@ -5041,6 +5048,14 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
   const [recoveryTabOrder, setRecoveryTabOrder] = useState(s?.profile?.recoveryTabOrder?.length ? s.profile.recoveryTabOrder : DEFAULT_RECOVERY_TAB_ORDER);
   const [hiddenRecoveryTabs, setHiddenRecoveryTabs] = useState(s?.profile?.hiddenRecoveryTabs || []);
 
+  // null (the default/"Auto" position) leaves the full-body auto-generator
+  // detecting compound-vs-isolation leaning from the athlete's own last 90
+  // days (see functions/fatigue.js's computeCompoundIsolationSplit) — this
+  // slider only overrides that when explicitly moved off-center, same
+  // "explicit choice always wins" rule as Preferred Split below.
+  const compoundIsolationPref = s?.profile?.compoundIsolationPreference || null;
+  const compoundIsolationVal = compoundIsolationPref === 'isolation' ? 0 : compoundIsolationPref === 'compound' ? 2 : 1;
+
   const savePanels = async (order, hidden) => {
     setPanelOrder(order); setHiddenPanels(hidden);
     const profile = await api('profile', { method: 'POST', body: JSON.stringify({ panelOrder: order, hiddenPanels: hidden }) });
@@ -5209,6 +5224,24 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
             </div>
             <div style={{ fontSize: 8, color: 'var(--dim)', marginTop: 4, lineHeight: 1.4 }}>
               Full Body ranks every muscle by freshness directly, no fixed categories — sessions can lean push- or pull-heavy on a given day if that's genuinely what's freshest. If you've never set this, the app looks at your real logged history and starts you on whatever you're already doing.
+            </div>
+          </div>
+          <div className="prof-field">
+            <span className="prof-lbl">Compound / Isolation <span style={{ fontSize: 8, color: 'var(--dim)', textTransform: 'none' }}>(shapes accessory picks in auto-generated sessions)</span></span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, color: 'var(--dim)' }}>Isolation</span>
+              <input type="range" min="0" max="2" step="1" value={compoundIsolationVal}
+                onChange={e => {
+                  const v = +e.target.value;
+                  const pref = v === 0 ? 'isolation' : v === 2 ? 'compound' : null;
+                  refresh({ ...s, profile: { ...s.profile, compoundIsolationPreference: pref } });
+                  api('profile', { method: 'POST', body: JSON.stringify({ compoundIsolationPreference: pref }) }).then(profile => refresh({ ...s, profile }));
+                }}
+                style={{ flex: 1, accentColor: 'var(--ink)' }} />
+              <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, color: 'var(--dim)' }}>Compound</span>
+            </div>
+            <div style={{ fontSize: 8, color: 'var(--dim)', marginTop: 4, lineHeight: 1.4 }}>
+              {compoundIsolationPref ? `Locked to ${compoundIsolationPref} accessories.` : 'Auto — follows whichever you\'ve actually leaned toward over your last 90 days.'} Only affects the accessory slot on freshest-picked muscles; backbone lifts stay compound-first regardless.
             </div>
           </div>
           <div className="prof-field">

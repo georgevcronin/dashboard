@@ -1040,8 +1040,14 @@ app.post("/plan/session-exercises", async (req, res) => {
     // accessory each via generateSessionExercises' own remaining-muscle
     // logic (pickAccessories in sessionPlanner.js), so total exercise count
     // tracks how much is actually left uncovered, not a fixed multiplier.
+    // Explicit choice always wins — same rule as preferredSplit above.
+    // Auto-detect (the athlete's own last-90-days compound/isolation split)
+    // only fills in a default for an account that's never set a preference.
     const compoundIsolationSplit = computeCompoundIsolationSplit(lifts);
-    const isolationLeaning = compoundIsolationSplit.isolation > compoundIsolationSplit.compound;
+    const autoIsolationLeaning = compoundIsolationSplit.isolation > compoundIsolationSplit.compound;
+    const isolationLeaning = db.profile?.compoundIsolationPreference
+      ? db.profile.compoundIsolationPreference === 'isolation'
+      : autoIsolationLeaning;
     const backboneCount = Math.max(2, Math.ceil(musclePicks.length / 2));
     const backbone = pickBackboneExercises(musclePicks, { travelMode, lifts, favoriteExercises, count: backboneCount });
     const coveredMuscles = new Set(backbone.flatMap(e => e.primary));
