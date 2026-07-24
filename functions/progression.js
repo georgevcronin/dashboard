@@ -32,7 +32,14 @@ function weightIncrementKg(equipment, isLowerBody) {
 }
 
 function computeProgression(lifts, name) {
-  const ex = lifts.filter(l => l.exercise === name);
+  // Warmup sets (type: 'W', tagged on ingest — see functions/index.js's
+  // hevySetType/ingestWorkout) never carried real progression signal; they
+  // were previously just incidentally excluded because Math.max always
+  // picked the heavier working set anyway. Now that some entries actually
+  // carry the tag, exclude them explicitly rather than relying on that
+  // coincidence — untagged (older) history is unaffected since undefined
+  // !== 'W'.
+  const ex = lifts.filter(l => l.exercise === name && l.type !== 'W');
   if (!ex.length) return null;
   // Rescales e1RM onto whichever brand this exercise is most often logged on
   // (brandCalibration.js), so a session-to-session trend comparison below

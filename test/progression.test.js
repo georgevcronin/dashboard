@@ -85,6 +85,26 @@ test('stalled trend deloads after 3 consecutive non-improving sessions', () => {
   assert.ok(prog.suggestKg < 75);
 });
 
+test('warmup-tagged sets are excluded from the e1RM/trend calculation, not just outweighed', () => {
+  const lifts = [
+    { date: '2026-06-01', exercise: 'Barbell Bench Press', kg: 60, reps: 8 },
+    { date: '2026-06-08', exercise: 'Barbell Bench Press', kg: 40, reps: 10, type: 'W' },
+    { date: '2026-06-08', exercise: 'Barbell Bench Press', kg: 62.5, reps: 8 },
+  ];
+  const prog = computeProgression(lifts, 'Barbell Bench Press');
+  assert.equal(prog.trend, 'progressing');
+  assert.equal(prog.suggestKg, 65, 'warmup set should not be read as a second working session');
+  assert.equal(prog.setCount, 1, 'warmup set should not be counted as a working set');
+});
+
+test('untagged (older) history is unaffected by the warmup filter', () => {
+  const prog = computeProgression(
+    mkLifts('Barbell Bench Press', [['2026-06-01', 60, 8], ['2026-06-08', 62.5, 8]]),
+    'Barbell Bench Press',
+  );
+  assert.equal(prog.suggestKg, 65);
+});
+
 test('brand calibration prevents a gym/machine switch from reading as a real regression', () => {
   const lifts = [
     // Several sessions on Life Fitness (the reference brand, most-logged) establishing a steady e1RM

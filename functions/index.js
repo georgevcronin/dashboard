@@ -349,6 +349,16 @@ function hevyKey() {
   return process.env.HEVY_API_KEY || functions.config().hevy?.key;
 }
 
+// Maps Hevy's set_type onto the app's own W/N/D vocabulary (SET_TYPES in
+// src/app.jsx). 'failure' has no dedicated slot here, so it's treated as a
+// normal working set like anything else that isn't explicitly a warmup or a
+// dropset — the app tracks effort via RIR/RPE, not a separate failure type.
+function hevySetType(setType) {
+  if (setType === 'warmup') return 'W';
+  if (setType === 'dropset') return 'D';
+  return 'N';
+}
+
 // Source-agnostic: called from every import path (Hevy webhook/backfill, CSV
 // import, parsed-session import) so an exercise name that doesn't resolve to
 // a real EXERCISE_DB entry (via findExercise, which now also checks
@@ -393,13 +403,14 @@ async function ingestWorkout(w) {
     const name = (ex.title || ex.name || "").toLowerCase();
     if (!name) continue;
     for (const set of (ex.sets || [])) {
-      if (set.set_type === "warmup") continue;
       const kg = set.weight_kg ?? (set.weight_lbs ? set.weight_lbs / 2.20462 : 0);
       const reps = set.reps || 0;
       // Deduplicate against all lifts regardless of source
       const isDupe = db.lifts.find(l => l.date === wDate && l.exercise === name && Math.abs((l.kg || 0) - kg) < 0.1 && l.reps === reps);
       if (!isDupe && (kg > 0 || reps > 0)) {
         const entry = { date: wDate, exercise: name, kg: Math.round(kg * 100) / 100, reps, source: "hevy" };
+        const type = hevySetType(set.set_type);
+        if (type !== 'N') entry.type = type;
         if (set.rpe != null) entry.rir = Math.max(0, Math.round((10 - set.rpe) * 10) / 10);
         newEntries.push(entry);
       }
@@ -1062,39 +1073,32 @@ app.post("/plan/session-exercises", async (req, res) => {
     }
 
     targetMuscles = musclePicks;
-    // 2 exercises per muscle, matching the pre-full-body single-bucket
-    // session's total count — but the 2nd slot's type (another compound vs.
-    // an isolation accessory) follows whichever the athlete has actually
-    // favored over the last 90 days (computeCompoundIsolationSplit), not a
-    // fixed ratio: "continue doing what you already do." No history (new
-    // athlete, or a tie) defaults to compound, matching pickBackboneExercises'
-    // "compound-first" ethos above. Never two exercises of the *same
-    // function* though — pickBackboneExercises/pickAccessories both skip a
-    // candidate that shares pattern + an overlapping primary muscle with
-    // something already picked (e.g. won't pair Overhead Press with Machine
-    // Shoulder Press), so a 2nd same-muscle slot is always genuinely
-    // different work, not a redundant duplicate.
+    // Coverage-based, not one-exercise-slot-per-muscle: a single compound
+    // (Barbell Bench Press: chest+triceps+front-delt) gives real stimulus to
+    // several of the lowest-freshness muscles at once, so it should count
+    // toward all of them rather than each muscle separately demanding its
+    // own dedicated pair. backboneCount scales sub-linearly with how many
+    // muscles are in play (compounds cover ~2-3 primaries each); whatever
+    // musclePicks the backbone picks don't happen to cover gets exactly one
+    // accessory each via generateSessionExercises' own remaining-muscle
+    // logic (pickAccessories in sessionPlanner.js), so total exercise count
+    // tracks how much is actually left uncovered, not a fixed multiplier.
+    // Explicit choice always wins — same rule as preferredSplit above.
+    // Auto-detect (the athlete's own last-90-days compound/isolation split)
+    // only fills in a default for an account that's never set a preference.
     const compoundIsolationSplit = computeCompoundIsolationSplit(lifts);
-    const isolationLeaning = compoundIsolationSplit.isolation > compoundIsolationSplit.compound;
-    // usedNames threads across every muscle's picks so the same exercise
-    // can't independently win two different muscles' slots (e.g. Farmer's
-    // Carry scoring well for both forearms and traps) and show up twice in
-    // one session. If nothing's left for a muscle once already-used names
-    // are excluded, that muscle's slot is simply dropped for this session —
-    // same "unavailable bucket is skipped, not forced" rule as fatigued/
-    // injured muscles, rather than falling back to a duplicate.
-    const usedNames = new Set();
-    const exercises = musclePicks.flatMap(muscle => {
-      const backbone = pickBackboneExercises([muscle], { travelMode, lifts, favoriteExercises, count: isolationLeaning ? 1 : 2, excludeNames: usedNames }).map(e => e.name);
-      if (!backbone.length) return [];
-      const picks = generateSessionExercises({
-        type, targetMuscles: [muscle], backboneExerciseNames: backbone, lifts, travelMode,
-        avoidMuscles, offlineMuscles, cnsFatigue, metabolicFatigue, trainingMonths, favoriteExercises,
-        accessoryCountOverride: isolationLeaning ? 1 : 0, isolationOnly: isolationLeaning,
-        sessionExcludeNames: usedNames,
-      });
-      picks.forEach(p => usedNames.add(p.name));
-      return picks;
+    const autoIsolationLeaning = compoundIsolationSplit.isolation > compoundIsolationSplit.compound;
+    const isolationLeaning = db.profile?.compoundIsolationPreference
+      ? db.profile.compoundIsolationPreference === 'isolation'
+      : autoIsolationLeaning;
+    const backboneCount = Math.max(2, Math.ceil(musclePicks.length / 2));
+    const backbone = pickBackboneExercises(musclePicks, { travelMode, lifts, favoriteExercises, count: backboneCount });
+    const coveredMuscles = new Set(backbone.flatMap(e => e.primary));
+    const uncoveredCount = musclePicks.filter(m => !coveredMuscles.has(m)).length;
+    const exercises = generateSessionExercises({
+      type, targetMuscles: musclePicks, backboneExerciseNames: backbone.map(e => e.name), lifts, travelMode,
+      avoidMuscles, offlineMuscles, cnsFatigue, metabolicFatigue, trainingMonths, favoriteExercises,
+      accessoryCountOverride: uncoveredCount, isolationOnly: isolationLeaning,
     });
     return res.json({
       exercises, targetMuscles, backboneExercises: exercises.map(e => e.name), bucket: 'full body', preferredSplit,
@@ -1157,20 +1161,36 @@ app.post("/import/hevy", async (req, res) => {
   if (!Array.isArray(sessions)) return res.status(400).json({ error: 'sessions must be array' });
   db.workouts = db.workouts || [];
   db.lifts = db.lifts || [];
-  let imported = 0, skipped = 0;
+  let imported = 0, merged = 0, skipped = 0;
   const newLiftEntries = [];
+  // Per-set dedup, not whole-session skip: an already-imported session can
+  // still be missing sets a later re-import has (e.g. a CSV re-export after
+  // the warmup-set-drop bug was fixed) — matching the same per-set dedup
+  // ingestWorkout already does for the API path, rather than discarding the
+  // whole session because *a* workout record for that date/name exists.
+  // Checks newLiftEntries too so two sessions in the same batch can't both
+  // add the same "missing" set.
+  const isDupeLift = (date, exercise, kg, reps) =>
+    db.lifts.some(l => l.date === date && l.exercise === exercise && Math.abs((l.kg || 0) - kg) < 0.1 && l.reps === reps) ||
+    newLiftEntries.some(l => l.date === date && l.exercise === exercise && Math.abs((l.kg || 0) - kg) < 0.1 && l.reps === reps);
   for (const session of sessions) {
     const exists = db.workouts.some(w => w.date === session.date && w.name === session.name);
-    if (exists) { skipped++; continue; }
-    db.workouts.unshift({ date: session.date, name: session.name, duration: session.duration || null, source: 'hevy' });
+    if (!exists) db.workouts.unshift({ date: session.date, name: session.name, duration: session.duration || null, source: 'hevy' });
+    let addedForSession = 0;
     for (const ex of (session.exercises || [])) {
       for (const set of (ex.sets || [])) {
-        if ((set.kg || 0) > 0 || (set.reps || 0) > 0) {
-          newLiftEntries.push({ date: session.date, exercise: ex.name, kg: set.kg || 0, reps: set.reps || 0, source: 'hevy' });
-        }
+        const kg = set.kg || 0, reps = set.reps || 0;
+        if (kg <= 0 && reps <= 0) continue;
+        if (isDupeLift(session.date, ex.name, kg, reps)) continue;
+        const entry = { date: session.date, exercise: ex.name, kg, reps, source: 'hevy' };
+        if (set.type && set.type !== 'N') entry.type = set.type;
+        newLiftEntries.push(entry);
+        addedForSession++;
       }
     }
-    imported++;
+    if (!exists) imported++;
+    else if (addedForSession) merged++;
+    else skipped++;
   }
   // Errors here used to be silently swallowed (server-side console.error
   // only), which is exactly how this bug went unnoticed: the write failed
@@ -1190,7 +1210,7 @@ app.post("/import/hevy", async (req, res) => {
     console.error('[import/hevy] save failed:', e.message);
     return res.status(500).json({ ok: false, error: 'Save failed: ' + e.message });
   }
-  res.json({ ok: true, imported, skipped });
+  res.json({ ok: true, imported, merged, skipped });
 });
 
 // ---------- Weekly guidance (advisory — never a locked day-by-day schedule) ----------
@@ -1389,7 +1409,11 @@ app.post('/session/complete', async (req, res) => {
 
     const newLiftEntries = sets
       .filter(s => s.exercise && s.kg && s.reps)
-      .map(s => ({ exercise: s.exercise, kg: +s.kg, reps: +s.reps, rpe: s.rpe || null, date: workout.date, ...(s.machine ? { machine: s.machine } : {}), ...(s.pulleyType ? { pulleyType: s.pulleyType } : {}) }));
+      .map(s => ({
+        exercise: s.exercise, kg: +s.kg, reps: +s.reps, rpe: s.rpe || null, date: workout.date,
+        ...(s.type && s.type !== 'N' ? { type: s.type } : {}),
+        ...(s.machine ? { machine: s.machine } : {}), ...(s.pulleyType ? { pulleyType: s.pulleyType } : {}),
+      }));
     const isReplacedToday = l => l.date === workout.date && sets.some(s => s.exercise === l.exercise);
     await removeLiftsAndAppend(liftsDocRef, isReplacedToday, newLiftEntries);
     db.lifts = db.lifts.filter(l => !isReplacedToday(l));

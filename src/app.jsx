@@ -744,7 +744,7 @@ const glycogenPct = (elapsedS, totalS) => {
 // app's first version — everything before this had no changelog at all.
 const CHANGELOG = [
   {
-    version: '0.23',
+    version: '0.27',
     date: '2026-07-24',
     features: [
       'Fixed the mid-day/evening/weekly report buttons all showing "Generating…" together when only one was clicked',
@@ -756,6 +756,35 @@ const CHANGELOG = [
       'Meal photos and text-described meals now offer Small/Medium/Large portion estimates from Gemini up front, instead of one guess you had to correct yourself with a x0.5/1.5/2 multiplier',
       'Sleep target now shown as "Xh Ym" instead of a decimal hour count, and moved out of the stretched sleep-summary paragraph into its own line',
       'Settings moved to the top-left of the header, out of the Profile section',
+    ],
+  },
+  {
+    version: '0.26',
+    date: '2026-07-24',
+    features: [
+      'Re-importing a Hevy CSV now merges in any sets missing from an already-imported session (e.g. warm-ups a fixed export now includes) instead of skipping the whole session because it was seen before.',
+    ],
+  },
+  {
+    version: '0.25',
+    date: '2026-07-24',
+    features: [
+      "Fixed Hevy warm-up sets being silently dropped during import instead of saved — they're now imported and tagged as warm-ups (not lumped in as working sets), so \"Import Hevy\" and the API backfill both bring in your full set history.",
+      'Adding an exercise now autofills the actual previous structure (warm-up sets included) instead of always flattening history into plain working sets.',
+    ],
+  },
+  {
+    version: '0.24',
+    date: '2026-07-24',
+    features: [
+      'Added a Compound / Isolation preference slider in Settings — overrides the auto-detected accessory-exercise leaning in full-body auto-generated sessions instead of it always being inferred from your last 90 days.',
+    ],
+  },
+  {
+    version: '0.23',
+    date: '2026-07-24',
+    features: [
+      'Fixed "Freshest Right Now" (Full Body) auto-generating bloated sessions (20+ exercises, including near-duplicate isolation work like 5 different curl variants in one session) — it now picks compound lifts that cover multiple fresh muscles at once and only adds an accessory for muscles genuinely left uncovered, instead of forcing two exercises per muscle.',
     ],
   },
   {
@@ -1457,7 +1486,7 @@ function WorkoutLogger({ planDay, lifts, customExercises, experienceLevel, onClo
       setNewCustomExercises(p => p.some(ce => ce.name === key) ? p : [...p, { name: key }]);
     }
     const prev = prevData[key];
-    const sets = prev?.sets?.map(s => ({ type: 'N', kg: String(s.kg || ''), reps: String(s.reps || ''), rpe: '', done: false }))
+    const sets = prev?.sets?.map(s => ({ type: s.type || 'N', kg: String(s.kg || ''), reps: String(s.reps || ''), rpe: '', done: false }))
       || [{ type: 'N', kg: '', reps: '', rpe: '', done: false }];
     setExercises(p => [...p, { name: key, bw: false, targetReps: 8, sets }]);
     setNewEx(''); setSuggestions([]);
@@ -1601,6 +1630,7 @@ function WorkoutLogger({ planDay, lifts, customExercises, experienceLevel, onClo
     const today = todayLocalStr();
     const allSets = valid.flatMap(ex => ex.sets.map(s => ({
       exercise: ex.name, kg: parseFloat(s.kg) || 0, reps: parseInt(s.reps) || 0, rpe: parseInt(s.rpe) || null,
+      ...(s.type && s.type !== 'N' ? { type: s.type } : {}),
       ...(ex.machine ? { machine: ex.machine } : {}),
       ...(ex.pulleyType ? { pulleyType: ex.pulleyType } : {}),
     })));
@@ -1806,7 +1836,7 @@ function WorkoutLogger({ planDay, lifts, customExercises, experienceLevel, onClo
                 {/* Previous performance */}
                 {prev && (
                   <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)', marginBottom: 3 }}>
-                    {localDateFromYMD(prev.date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })} · {prev.sets.map(s => ex.bw ? `BW×${s.reps}` : `${s.kg}×${s.reps}`).join(', ')}
+                    {localDateFromYMD(prev.date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })} · {prev.sets.map(s => `${ex.bw ? `BW×${s.reps}` : `${s.kg}×${s.reps}`}${s.type === 'W' ? 'w' : ''}`).join(', ')}
                   </div>
                 )}
 
@@ -2120,7 +2150,14 @@ function parseHevyCSV(text) {
     if (!map[key].exercises[exName]) map[key].exercises[exName] = [];
     const kg = parseFloat(row['weight_kg'] ?? row['Weight (kg)'] ?? row['Weight']) || 0;
     const reps = parseInt(row['reps'] || row['Reps']) || 0;
-    if (kg > 0 || reps > 0) map[key].exercises[exName].push({ kg, reps });
+    // Hevy's export uses the same set_type vocabulary as its API
+    // (warmup/normal/failure/dropset) — mapped onto the app's W/N/D here so
+    // warmup sets are remembered as warmup sets, not indistinguishable from
+    // working sets (see hevySetType in functions/index.js for the same
+    // mapping on the API import path).
+    const rawType = (row['set_type'] || row['Set Type'] || '').toLowerCase();
+    const type = rawType === 'warmup' ? 'W' : rawType === 'dropset' ? 'D' : 'N';
+    if (kg > 0 || reps > 0) map[key].exercises[exName].push({ kg, reps, type });
   }
   return Object.values(map).map(s => ({
     ...s,
@@ -2135,7 +2172,7 @@ function HevyImport({ onClose, refresh }) {
   const [status, setStatus] = useState('idle');
   const [result, setResult] = useState(null);
   const [error, setError] = useState('');
-  const [progress, setProgress] = useState({ done: 0, total: 0, imported: 0, skipped: 0, current: null });
+  const [progress, setProgress] = useState({ done: 0, total: 0, imported: 0, merged: 0, skipped: 0, current: null });
   const [log, setLog] = useState([]);
   const logRef = useRef();
   const fileRef = useRef();
@@ -2162,18 +2199,19 @@ function HevyImport({ onClose, refresh }) {
     flushSync(() => {
       setStatus('importing');
       setLog([]);
-      setProgress({ done: 0, total, imported: 0, skipped: 0, current: sessions[0] || null });
+      setProgress({ done: 0, total, imported: 0, merged: 0, skipped: 0, current: sessions[0] || null });
     });
 
-    setProgress({ done: 0, total, current: sessions[0], imported: 0, skipped: 0 });
+    setProgress({ done: 0, total, current: sessions[0], imported: 0, merged: 0, skipped: 0 });
 
-    let totalImported = 0, totalSkipped = 0;
+    let totalImported = 0, totalMerged = 0, totalSkipped = 0;
     try {
       const r = await authFetch(`${API_BASE}/import/hevy`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ sessions }),
       }).then(res => res.ok ? res.json() : Promise.reject(new Error(`HTTP ${res.status}`)));
       totalImported = r?.imported || 0;
+      totalMerged = r?.merged || 0;
       totalSkipped = r?.skipped || 0;
       setLog(sessions.map(s => ({ name: s.name, date: s.date, exCount: s.exercises.length })));
     } catch (err) {
@@ -2182,8 +2220,8 @@ function HevyImport({ onClose, refresh }) {
       return;
     }
 
-    setProgress({ done: total, total, imported: totalImported, skipped: totalSkipped, current: null });
-    setResult({ ok: true, imported: totalImported, skipped: totalSkipped });
+    setProgress({ done: total, total, imported: totalImported, merged: totalMerged, skipped: totalSkipped, current: null });
+    setResult({ ok: true, imported: totalImported, merged: totalMerged, skipped: totalSkipped });
     await api('summary').then(refresh);
     setStatus('done');
   };
@@ -2273,7 +2311,8 @@ function HevyImport({ onClose, refresh }) {
                 <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 22, fontWeight: 700, marginBottom: 6 }}>
                   {result.imported} sessions imported.
                 </div>
-                {result.skipped > 0 && <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, color: 'var(--dim)', marginBottom: 16 }}>{result.skipped} already existed — skipped.</div>}
+                {result.merged > 0 && <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, color: 'var(--dim)', marginBottom: 4 }}>{result.merged} already-imported sessions gained new sets (e.g. warm-ups this file has that were missing before).</div>}
+                {result.skipped > 0 && <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, color: 'var(--dim)', marginBottom: 16 }}>{result.skipped} already fully imported — skipped.</div>}
                 <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--forest)', marginBottom: 20, letterSpacing: '.06em' }}>✓ Progressive overload + fatigue models updated</div>
               </>
             ) : (
@@ -5135,6 +5174,14 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
   const [recoveryTabOrder, setRecoveryTabOrder] = useState(s?.profile?.recoveryTabOrder?.length ? s.profile.recoveryTabOrder : DEFAULT_RECOVERY_TAB_ORDER);
   const [hiddenRecoveryTabs, setHiddenRecoveryTabs] = useState(s?.profile?.hiddenRecoveryTabs || []);
 
+  // null (the default/"Auto" position) leaves the full-body auto-generator
+  // detecting compound-vs-isolation leaning from the athlete's own last 90
+  // days (see functions/fatigue.js's computeCompoundIsolationSplit) — this
+  // slider only overrides that when explicitly moved off-center, same
+  // "explicit choice always wins" rule as Preferred Split below.
+  const compoundIsolationPref = s?.profile?.compoundIsolationPreference || null;
+  const compoundIsolationVal = compoundIsolationPref === 'isolation' ? 0 : compoundIsolationPref === 'compound' ? 2 : 1;
+
   const savePanels = async (order, hidden) => {
     setPanelOrder(order); setHiddenPanels(hidden);
     const profile = await api('profile', { method: 'POST', body: JSON.stringify({ panelOrder: order, hiddenPanels: hidden }) });
@@ -5303,6 +5350,24 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
             </div>
             <div style={{ fontSize: 8, color: 'var(--dim)', marginTop: 4, lineHeight: 1.4 }}>
               Full Body ranks every muscle by freshness directly, no fixed categories — sessions can lean push- or pull-heavy on a given day if that's genuinely what's freshest. If you've never set this, the app looks at your real logged history and starts you on whatever you're already doing.
+            </div>
+          </div>
+          <div className="prof-field">
+            <span className="prof-lbl">Compound / Isolation <span style={{ fontSize: 8, color: 'var(--dim)', textTransform: 'none' }}>(shapes accessory picks in auto-generated sessions)</span></span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, color: 'var(--dim)' }}>Isolation</span>
+              <input type="range" min="0" max="2" step="1" value={compoundIsolationVal}
+                onChange={e => {
+                  const v = +e.target.value;
+                  const pref = v === 0 ? 'isolation' : v === 2 ? 'compound' : null;
+                  refresh({ ...s, profile: { ...s.profile, compoundIsolationPreference: pref } });
+                  api('profile', { method: 'POST', body: JSON.stringify({ compoundIsolationPreference: pref }) }).then(profile => refresh({ ...s, profile }));
+                }}
+                style={{ flex: 1, accentColor: 'var(--ink)' }} />
+              <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, color: 'var(--dim)' }}>Compound</span>
+            </div>
+            <div style={{ fontSize: 8, color: 'var(--dim)', marginTop: 4, lineHeight: 1.4 }}>
+              {compoundIsolationPref ? `Locked to ${compoundIsolationPref} accessories.` : 'Auto — follows whichever you\'ve actually leaned toward over your last 90 days.'} Only affects the accessory slot on freshest-picked muscles; backbone lifts stay compound-first regardless.
             </div>
           </div>
           <div className="prof-field">
