@@ -83,6 +83,87 @@ test('callGeminiResilient retries on 429/503 with backoff, unrelated to the trun
   );
 });
 
+test('callGeminiResilient switches to the fallback key immediately on a 429, without waiting through backoff', () => {
+  process.env.GEMINI_API_KEY_FALLBACK = 'fallback-key';
+  const seenKeys = [];
+  return withFetch(
+    async (url) => {
+      const key = new URL(url).searchParams.get('key');
+      seenKeys.push(key);
+      if (key === 'test-key') return { ok: false, status: 429, json: async () => ({ error: {} }) };
+      return geminiResponse({ text: 'Answered on the fallback key.' });
+    },
+    async () => {
+      const result = await callGeminiResilient({ messages: [{ role: 'user', content: 'hi' }], maxTokens: 100 });
+      assert.equal(result.ok, true);
+      assert.equal(result.content, 'Answered on the fallback key.');
+      assert.deepEqual(seenKeys, ['test-key', 'fallback-key'], 'should switch keys on the very next attempt, not retry the exhausted key first');
+    }
+  ).finally(() => { delete process.env.GEMINI_API_KEY_FALLBACK; });
+});
+
+test('callGeminiResilient falls through to normal backoff retry once the fallback key is also rate-limited', () => {
+  process.env.GEMINI_API_KEY_FALLBACK = 'fallback-key';
+  let calls = 0;
+  const rateLimited = { ok: false, status: 429, json: async () => ({ error: { details: [{ '@type': 'type.googleapis.com/google.rpc.RetryInfo', retryDelay: '0.01s' }] } }) };
+  return withFetch(
+    async () => {
+      calls++;
+      return calls <= 2 ? rateLimited : geminiResponse({ text: 'Recovered on retry.' });
+    },
+    async () => {
+      const result = await callGeminiResilient({ messages: [{ role: 'user', content: 'hi' }], maxTokens: 100 });
+      assert.equal(result.ok, true);
+      assert.equal(result.content, 'Recovered on retry.');
+      assert.equal(calls, 3, 'primary key 429s once (switches key), fallback key 429s once (backoff retry), then succeeds');
+    }
+  ).finally(() => { delete process.env.GEMINI_API_KEY_FALLBACK; });
+});
+
+test('callGeminiResilient still tries the fallback key even when the 429 lands on the final loop iteration', () => {
+  // Two MAX_TOKENS truncations burn through the first two of the 3 allowed
+  // attempts before the primary key ever 429s on the third — the exact edge
+  // case where switching keys would previously exit the loop before ever
+  // calling the fallback key.
+  process.env.GEMINI_API_KEY_FALLBACK = 'fallback-key';
+  let calls = 0;
+  const seenKeys = [];
+  return withFetch(
+    async (url) => {
+      calls++;
+      seenKeys.push(new URL(url).searchParams.get('key'));
+      if (calls <= 2) return geminiResponse({ text: 'cut off', finishReason: 'MAX_TOKENS' });
+      if (calls === 3) return { ok: false, status: 429, json: async () => ({ error: {} }) };
+      return geminiResponse({ text: 'Answered on the fallback key.' });
+    },
+    async () => {
+      const result = await callGeminiResilient({ messages: [{ role: 'user', content: 'hi' }], maxTokens: 100 });
+      assert.equal(result.ok, true);
+      assert.equal(result.content, 'Answered on the fallback key.');
+      assert.deepEqual(seenKeys, ['test-key', 'test-key', 'test-key', 'fallback-key'], 'two truncation retries use up two of the three attempts, then the 429 on the third should still switch keys and actually try the fallback, not just flag it and exit');
+    }
+  ).finally(() => { delete process.env.GEMINI_API_KEY_FALLBACK; });
+});
+
+test('callGeminiResilient never attempts a second key when no fallback is configured', () => {
+  delete process.env.GEMINI_API_KEY_FALLBACK;
+  let calls = 0;
+  const rateLimited = { ok: false, status: 429, json: async () => ({ error: { details: [{ '@type': 'type.googleapis.com/google.rpc.RetryInfo', retryDelay: '0.01s' }] } }) };
+  return withFetch(
+    async (url) => {
+      calls++;
+      assert.equal(new URL(url).searchParams.get('key'), 'test-key', 'every attempt should use the only configured key');
+      return rateLimited;
+    },
+    async () => {
+      const result = await callGeminiResilient({ messages: [{ role: 'user', content: 'hi' }], maxTokens: 100 });
+      assert.equal(result.ok, false);
+      assert.equal(result.status, 429);
+      assert.equal(calls, 3);
+    }
+  );
+});
+
 test('geminiRetryDelaySec parses RetryInfo.retryDelay', () => {
   const error = { details: [{ '@type': 'type.googleapis.com/google.rpc.RetryInfo', retryDelay: '13s' }] };
   assert.equal(geminiRetryDelaySec(error), 13);

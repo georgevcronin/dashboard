@@ -9,8 +9,8 @@
 const GEMINI_MODEL = "gemini-3.5-flash";
 const GEMINI_FALLBACK_MODEL = "gemini-3.1-flash-lite";
 
-async function callGemini({ messages, maxTokens = 800, jsonMode = false, image = null, temperature, model = GEMINI_MODEL }) {
-  const key = process.env.GEMINI_API_KEY;
+async function callGemini({ messages, maxTokens = 800, jsonMode = false, image = null, temperature, model = GEMINI_MODEL, apiKey = null }) {
+  const key = apiKey || process.env.GEMINI_API_KEY;
   if (!key) return { ok: false, status: 0, error: { message: "GEMINI_API_KEY not set" } };
 
   const systemText = messages.filter(m => m.role === "system").map(m => m.content).join("\n\n");
@@ -90,11 +90,32 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 async function callGeminiResilient(opts) {
   let result;
   let tokens = opts.maxTokens || 800;
+  // GEMINI_API_KEY_FALLBACK: optional second key (a separate Google AI
+  // Studio project/account has its own independent free-tier quota). A 429
+  // means THIS key's quota is exhausted right now — retrying the same key
+  // with backoff is usually futile within a request's realistic time budget
+  // (quota windows reset on the order of a minute+, longer than sleeping
+  // here is worth), so on the first 429 we switch keys immediately instead
+  // of burning retries and wait time against a key that isn't recovering in
+  // time. If the fallback key is ALSO rate-limited, it falls through to the
+  // normal backoff-retry loop below rather than special-casing further.
+  const fallbackKey = process.env.GEMINI_API_KEY_FALLBACK;
+  let apiKey = null;
   for (let attempt = 0; attempt < 3; attempt++) {
-    result = await callGemini({ ...opts, maxTokens: tokens });
+    result = await callGemini({ ...opts, maxTokens: tokens, apiKey });
     if (result.ok && !result.truncated) return result;
     if (result.ok && result.truncated) {
       tokens = Math.min(tokens * 3, 4000);
+      continue;
+    }
+    if (result.status === 429 && fallbackKey && apiKey !== fallbackKey) {
+      apiKey = fallbackKey;
+      // Switching keys shouldn't cost one of the 3 real attempts — without
+      // this, a 429 that happens to land on the final loop iteration (e.g.
+      // after a couple of MAX_TOKENS retries already used up the earlier
+      // ones) would flip apiKey and immediately fall out of the loop, never
+      // actually trying the fallback key.
+      attempt--;
       continue;
     }
     if (result.status !== 429 && result.status !== 503) break;
@@ -102,7 +123,7 @@ async function callGeminiResilient(opts) {
     await sleep(Math.min(waitSec, 10) * 1000 + 250);
   }
   if (result.status === 503) {
-    const fallback = await callGemini({ ...opts, model: GEMINI_FALLBACK_MODEL, maxTokens: tokens });
+    const fallback = await callGemini({ ...opts, model: GEMINI_FALLBACK_MODEL, maxTokens: tokens, apiKey });
     if (fallback.ok) return fallback;
     result = fallback;
   }
