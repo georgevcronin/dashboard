@@ -31,6 +31,7 @@ jobs:
       - run: npm ci
         working-directory: functions
       - run: echo "GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}" >> functions/.env
+      - run: echo "GEMINI_API_KEY_FALLBACK=${{ secrets.GEMINI_API_KEY_FALLBACK }}" >> functions/.env
       - run: echo "HEVY_API_KEY=${{ secrets.HEVY_API_KEY }}" >> functions/.env
       - run: echo "PRESS_OWNER_UID=uqJcOkpVXGYLjngCWCi0LvmSv8q1" >> functions/.env
 
