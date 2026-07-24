@@ -5,7 +5,7 @@ const express = require("express");
 const webpush = require("web-push");
 const { EXERCISE_DB, EXERCISE_MAP } = require('./exerciseDb');
 const { isCompoundExercise, findExercise } = require('./muscleTaxonomy');
-const { generateWeeklyGuidance, pickBackboneExercises, computeMusclePriority, scoreBucket, MUSCLE_GROUPS } = require('./weeklyPlanner');
+const { generateWeeklyGuidance, pickBackboneExercises, computeMusclePriority, scoreBucket, MUSCLE_GROUPS, FATIGUE_CEILING, SECONDARY_FATIGUE_CEILING } = require('./weeklyPlanner');
 const { SPLIT_GROUPS, rankMusclesByFreshness, typicalSessionMuscleCount, mostOverdueGroup, detectPreferredSplit, neglectedMuscles } = require('./splitPlanner');
 const { computeMuscleLevels, classifyLift, estimate1RM } = require('./strengthStandards');
 const { loadAllLifts, appendLifts, removeLiftsAndAppend } = require('./liftChunks');
@@ -1035,7 +1035,8 @@ app.post("/plan/session-exercises", async (req, res) => {
   const currentFatigue = applyInjuryTaper(structuralFatigue, activeInjuries);
   const metabolicFatigue = computeMetabolicFatigue(lifts, (db.nutrition || {})[day()]?.carbs || 0);
   const cnsFatigue = computeCNSFatigue(lifts, db.cnsSensitivity || 1.0, getRecoveryScore(db));
-  const avoidMuscles = Object.entries(currentFatigue).filter(([,v])=>v>65).map(([m])=>m);
+  const avoidMuscles = Object.entries(currentFatigue).filter(([,v])=>v>FATIGUE_CEILING).map(([m])=>m);
+  const avoidMusclesSecondary = Object.entries(currentFatigue).filter(([,v])=>v>SECONDARY_FATIGUE_CEILING).map(([m])=>m);
   const offlineMuscles = avoidMuscles.filter(m => activeInjuries.some(i => (i.muscles || []).includes(m)));
   const travelMode = db.profile?.travelMode || false;
   const trainingMonths = trainingMonthsIfKnown(db.profile);
@@ -1097,7 +1098,7 @@ app.post("/plan/session-exercises", async (req, res) => {
     const uncoveredCount = musclePicks.filter(m => !coveredMuscles.has(m)).length;
     const exercises = generateSessionExercises({
       type, targetMuscles: musclePicks, backboneExerciseNames: backbone.map(e => e.name), lifts, travelMode,
-      avoidMuscles, offlineMuscles, cnsFatigue, metabolicFatigue, trainingMonths, favoriteExercises,
+      avoidMuscles, avoidMusclesSecondary, offlineMuscles, cnsFatigue, metabolicFatigue, trainingMonths, favoriteExercises,
       accessoryCountOverride: uncoveredCount, isolationOnly: isolationLeaning,
     });
     return res.json({
@@ -1123,7 +1124,7 @@ app.post("/plan/session-exercises", async (req, res) => {
 
   const exercises = generateSessionExercises({
     type, targetMuscles, backboneExerciseNames: backboneExercises, lifts, travelMode,
-    avoidMuscles, offlineMuscles, cnsFatigue, metabolicFatigue, trainingMonths, favoriteExercises,
+    avoidMuscles, avoidMusclesSecondary, offlineMuscles, cnsFatigue, metabolicFatigue, trainingMonths, favoriteExercises,
   });
   res.json({ exercises, targetMuscles: targetMuscles || [], backboneExercises: backboneExercises || [], bucket });
 });

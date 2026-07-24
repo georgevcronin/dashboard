@@ -34,10 +34,12 @@ const ISOMETRIC_PENALTY = 15;
 const HIGH_CNS_EQUIPMENT = ['barbell', 'smith', 'dumbbell'];
 const LOW_CNS_EQUIPMENT = ['machine', 'cable'];
 
-function substituteForCNS(entry, avoidMuscles) {
+function substituteForCNS(entry, avoidMuscles, avoidMusclesSecondary = []) {
   if (!HIGH_CNS_EQUIPMENT.includes(entry.equipment)) return entry;
   const candidates = EXERCISE_DB
-    .filter(e => LOW_CNS_EQUIPMENT.includes(e.equipment) && !e.primary.some(m => avoidMuscles.includes(m)))
+    .filter(e => LOW_CNS_EQUIPMENT.includes(e.equipment)
+      && !e.primary.some(m => avoidMuscles.includes(m))
+      && !(e.secondary || []).some(m => avoidMusclesSecondary.includes(m)))
     .map(e => ({ e, score: e.primary.filter(m => entry.primary.includes(m)).length }))
     .filter(c => c.score > 0)
     .sort((a, b) => b.score - a.score);
@@ -97,7 +99,7 @@ function lastAccessoryPick(lifts, targetMuscles, excludeNames) {
 // rotation list from lastAccessoryPick — excluded unless doing so would
 // leave zero candidates (a muscle with exactly one viable exercise shouldn't
 // get artificially starved just to satisfy rotation).
-function pickAccessories(targetMuscles, alreadySelected, excludeNames, avoidMuscles, { travelMode, avoidEquipment = [], avoidNames = [], count, isolationOnly = false, lifts, favoriteExercises = [] }) {
+function pickAccessories(targetMuscles, alreadySelected, excludeNames, avoidMuscles, { travelMode, avoidEquipment = [], avoidNames = [], count, isolationOnly = false, lifts, favoriteExercises = [], avoidMusclesSecondary = [] }) {
   const coveredMuscles = new Set(alreadySelected.flatMap(e => e.primary));
   const remainingMuscles = targetMuscles.filter(m => !coveredMuscles.has(m));
   // Same-function guard: skip anything sharing both pattern and an
@@ -117,6 +119,7 @@ function pickAccessories(targetMuscles, alreadySelected, excludeNames, avoidMusc
     !(isBodyweightOnlyExercise(e) && !travelMode) &&
     !avoidEquipment.includes(e.equipment) &&
     !e.primary.some(m => avoidMuscles.includes(m)) &&
+    !(e.secondary || []).some(m => avoidMusclesSecondary.includes(m)) &&
     e.primary.some(m => targetMuscles.includes(m)) &&
     !isRedundant(e)
   );
@@ -271,18 +274,24 @@ function setsFor(prog, workingSetCount, { failureSolo = false, higherRirPair = f
 // new-lifter fatigue budget. trainingMonths is null for an athlete who
 // hasn't self-reported training experience, in which case the new-lifter
 // budget is skipped entirely rather than assumed.
-function generateSessionExercises({ type, targetMuscles, backboneExerciseNames, lifts, travelMode, avoidMuscles = [], offlineMuscles = [], cnsFatigue = 0, metabolicFatigue = 0, trainingMonths = null, skipAccessories = false, accessoryCountOverride = null, isolationOnly = false, favoriteExercises = [], sessionExcludeNames = new Set() }) {
+function generateSessionExercises({ type, targetMuscles, backboneExerciseNames, lifts, travelMode, avoidMuscles = [], avoidMusclesSecondary = [], offlineMuscles = [], cnsFatigue = 0, metabolicFatigue = 0, trainingMonths = null, skipAccessories = false, accessoryCountOverride = null, isolationOnly = false, favoriteExercises = [], sessionExcludeNames = new Set() }) {
   if (type !== 'lift' || !targetMuscles?.length) return [];
 
   const excludeMuscles = [...new Set([...avoidMuscles, ...offlineMuscles])];
+  // Looser bar for secondary involvement (SECONDARY_FATIGUE_CEILING in
+  // weeklyPlanner.js, higher than the primary FATIGUE_CEILING) — a muscle
+  // merely assisting tolerates more residual fatigue than one being
+  // directly trained. offlineMuscles (injured) still hard-excludes either way.
+  const excludeMusclesSecondary = [...new Set([...avoidMusclesSecondary, ...offlineMuscles])];
 
   let backboneEntries = (backboneExerciseNames || [])
     .map(n => EXERCISE_DB.find(e => e.name.toLowerCase() === (n || '').toLowerCase()))
     .filter(Boolean)
-    .filter(e => !e.primary.some(m => excludeMuscles.includes(m)));
+    .filter(e => !e.primary.some(m => excludeMuscles.includes(m)))
+    .filter(e => !(e.secondary || []).some(m => excludeMusclesSecondary.includes(m)));
   const originalNames = new Set(backboneEntries.map(e => e.name));
 
-  if (cnsFatigue > 70) backboneEntries = backboneEntries.map(e => substituteForCNS(e, excludeMuscles));
+  if (cnsFatigue > 70) backboneEntries = backboneEntries.map(e => substituteForCNS(e, excludeMuscles, excludeMusclesSecondary));
 
   // Substitution can collapse two different backbone picks onto the same
   // machine/cable alternative — dedupe before it shows up twice in the session.
@@ -309,6 +318,7 @@ function generateSessionExercises({ type, targetMuscles, backboneExerciseNames, 
   const lastPick = accessoryCount > 0 ? lastAccessoryPick(lifts, targetMuscles, excludeNames) : null;
   const accessories = accessoryCount > 0 ? pickAccessories(targetMuscles, backboneEntries, excludeNames, excludeMuscles, {
     travelMode, avoidEquipment, avoidNames: lastPick ? [lastPick] : [], count: accessoryCount, isolationOnly, lifts, favoriteExercises,
+    avoidMusclesSecondary: excludeMusclesSecondary,
   }) : [];
 
   return [...backboneEntries, ...accessories].map(e => {

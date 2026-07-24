@@ -24,7 +24,12 @@ test('scoreBucket returns null when every muscle in the bucket is unavailable', 
 });
 
 test('bucket weighting: a genuinely fatigued major-muscle bucket does not read as falsely fresh off assistor muscles alone', () => {
-  const fatigue = { lats: 80, rhomboids: 75, traps: 70, 'rear-delt': 70, biceps: 65, forearms: 60 };
+  // lats/rhomboids/traps/rear-delt over the ceiling (excluded outright);
+  // biceps/forearms fatigued but still just under it, so they stay in the
+  // average at reduced priority and keep dragging the score down even once
+  // the fully-capped majors drop out — otherwise only the fresh assistors
+  // (rotator-cuff/brachialis/etc.) would be left to represent the bucket.
+  const fatigue = { lats: 80, rhomboids: 75, traps: 70, 'rear-delt': 70, biceps: FATIGUE_CEILING - 1, forearms: FATIGUE_CEILING - 5 };
   const priority = computeMusclePriority(fatigue, []);
   const pull = scoreBucket(MUSCLE_GROUPS.pull, priority);
   const push = scoreBucket(MUSCLE_GROUPS.push, priority);

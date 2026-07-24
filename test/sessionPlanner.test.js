@@ -124,6 +124,26 @@ test('excludes exercises hitting an offline (injured) muscle entirely', () => {
   for (const e of out) assert.ok(!e.name.match(/bench/i), `${e.name} should have been excluded (hits offline chest)`);
 });
 
+test('avoidMusclesSecondary excludes an exercise whose secondary (not primary) muscle is over the looser secondary ceiling', () => {
+  // Weighted Pull-Up: primary [lats, biceps], secondary [rear-delt, rhomboids]
+  const out = generateSessionExercises({
+    type: 'lift', targetMuscles: ['lats', 'biceps'],
+    backboneExerciseNames: ['Weighted Pull-Up'], lifts: [], avoidMusclesSecondary: ['rear-delt'],
+  });
+  assert.ok(!out.some(e => e.name === 'Weighted Pull-Up'), 'a secondary-muscle overlap with the (looser) secondary ceiling should still exclude the exercise');
+});
+
+test('avoidMuscles (primary list) does not exclude on a secondary-only overlap', () => {
+  // Same exercise/muscle as above, but rear-delt is only ever a secondary
+  // muscle here — avoidMuscles checks e.primary exclusively, so it should
+  // have no effect regardless of what's in the list.
+  const out = generateSessionExercises({
+    type: 'lift', targetMuscles: ['lats', 'biceps'],
+    backboneExerciseNames: ['Weighted Pull-Up'], lifts: [], avoidMuscles: ['rear-delt'],
+  });
+  assert.ok(out.some(e => e.name === 'Weighted Pull-Up'), 'avoidMuscles should only ever match primary muscles, not secondary');
+});
+
 test('new-lifter fatigue budget: under 3 months, a single working set alternates true-failure vs. two-set patterns', () => {
   const outSession0 = generateSessionExercises({
     type: 'lift', targetMuscles: ['chest', 'triceps', 'front-delt'],

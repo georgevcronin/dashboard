@@ -32,7 +32,13 @@ const LOGGED_EXERCISE_BONUS = 40;
 // behavior, so real logged history (once it exists) should still win.
 const FAVORITE_EXERCISE_BONUS = 15;
 
-const FATIGUE_CEILING = 65; // ethos: don't load a muscle already this fatigued
+// Primary-muscle fatigue ceiling: don't target or load a muscle already
+// this fatigued as the main mover. SECONDARY_FATIGUE_CEILING is deliberately
+// higher — a muscle merely assisting (e.g. lats as a secondary on a
+// tricep-primary press) tolerates more residual fatigue than one being
+// directly trained, so it gets a looser bar rather than the same one.
+const FATIGUE_CEILING = 50;
+const SECONDARY_FATIGUE_CEILING = 65;
 
 // Major prime-mover muscles (the original tracked set) vs. small assistor/
 // stabilizer muscles added later (rotator cuff, brachialis, mid/lower traps,
@@ -251,5 +257,5 @@ function generateWeeklyGuidance({ currentFatigue, weekMetabolic, weekCNS, offlin
 
 module.exports = {
   generateWeeklyGuidance, pickBackboneExercises, computeMusclePriority, scoreBucket, planLiftSessionsTarget, planCardioSessionsTarget,
-  stalenessBoost, MUSCLE_GROUPS, FATIGUE_CEILING, TRAINING_PRIORITIES,
+  stalenessBoost, MUSCLE_GROUPS, FATIGUE_CEILING, SECONDARY_FATIGUE_CEILING, TRAINING_PRIORITIES,
 };
