@@ -1030,39 +1030,26 @@ app.post("/plan/session-exercises", async (req, res) => {
     }
 
     targetMuscles = musclePicks;
-    // 2 exercises per muscle, matching the pre-full-body single-bucket
-    // session's total count — but the 2nd slot's type (another compound vs.
-    // an isolation accessory) follows whichever the athlete has actually
-    // favored over the last 90 days (computeCompoundIsolationSplit), not a
-    // fixed ratio: "continue doing what you already do." No history (new
-    // athlete, or a tie) defaults to compound, matching pickBackboneExercises'
-    // "compound-first" ethos above. Never two exercises of the *same
-    // function* though — pickBackboneExercises/pickAccessories both skip a
-    // candidate that shares pattern + an overlapping primary muscle with
-    // something already picked (e.g. won't pair Overhead Press with Machine
-    // Shoulder Press), so a 2nd same-muscle slot is always genuinely
-    // different work, not a redundant duplicate.
+    // Coverage-based, not one-exercise-slot-per-muscle: a single compound
+    // (Barbell Bench Press: chest+triceps+front-delt) gives real stimulus to
+    // several of the lowest-freshness muscles at once, so it should count
+    // toward all of them rather than each muscle separately demanding its
+    // own dedicated pair. backboneCount scales sub-linearly with how many
+    // muscles are in play (compounds cover ~2-3 primaries each); whatever
+    // musclePicks the backbone picks don't happen to cover gets exactly one
+    // accessory each via generateSessionExercises' own remaining-muscle
+    // logic (pickAccessories in sessionPlanner.js), so total exercise count
+    // tracks how much is actually left uncovered, not a fixed multiplier.
     const compoundIsolationSplit = computeCompoundIsolationSplit(lifts);
     const isolationLeaning = compoundIsolationSplit.isolation > compoundIsolationSplit.compound;
-    // usedNames threads across every muscle's picks so the same exercise
-    // can't independently win two different muscles' slots (e.g. Farmer's
-    // Carry scoring well for both forearms and traps) and show up twice in
-    // one session. If nothing's left for a muscle once already-used names
-    // are excluded, that muscle's slot is simply dropped for this session —
-    // same "unavailable bucket is skipped, not forced" rule as fatigued/
-    // injured muscles, rather than falling back to a duplicate.
-    const usedNames = new Set();
-    const exercises = musclePicks.flatMap(muscle => {
-      const backbone = pickBackboneExercises([muscle], { travelMode, lifts, favoriteExercises, count: isolationLeaning ? 1 : 2, excludeNames: usedNames }).map(e => e.name);
-      if (!backbone.length) return [];
-      const picks = generateSessionExercises({
-        type, targetMuscles: [muscle], backboneExerciseNames: backbone, lifts, travelMode,
-        avoidMuscles, offlineMuscles, cnsFatigue, metabolicFatigue, trainingMonths, favoriteExercises,
-        accessoryCountOverride: isolationLeaning ? 1 : 0, isolationOnly: isolationLeaning,
-        sessionExcludeNames: usedNames,
-      });
-      picks.forEach(p => usedNames.add(p.name));
-      return picks;
+    const backboneCount = Math.max(2, Math.ceil(musclePicks.length / 2));
+    const backbone = pickBackboneExercises(musclePicks, { travelMode, lifts, favoriteExercises, count: backboneCount });
+    const coveredMuscles = new Set(backbone.flatMap(e => e.primary));
+    const uncoveredCount = musclePicks.filter(m => !coveredMuscles.has(m)).length;
+    const exercises = generateSessionExercises({
+      type, targetMuscles: musclePicks, backboneExerciseNames: backbone.map(e => e.name), lifts, travelMode,
+      avoidMuscles, offlineMuscles, cnsFatigue, metabolicFatigue, trainingMonths, favoriteExercises,
+      accessoryCountOverride: uncoveredCount, isolationOnly: isolationLeaning,
     });
     return res.json({
       exercises, targetMuscles, backboneExercises: exercises.map(e => e.name), bucket: 'full body', preferredSplit,

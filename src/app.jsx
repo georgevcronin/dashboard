@@ -720,6 +720,13 @@ const glycogenPct = (elapsedS, totalS) => {
 // app's first version — everything before this had no changelog at all.
 const CHANGELOG = [
   {
+    version: '0.23',
+    date: '2026-07-24',
+    features: [
+      'Fixed "Freshest Right Now" (Full Body) auto-generating bloated sessions (20+ exercises, including near-duplicate isolation work like 5 different curl variants in one session) — it now picks compound lifts that cover multiple fresh muscles at once and only adds an accessory for muscles genuinely left uncovered, instead of forcing two exercises per muscle.',
+    ],
+  },
+  {
     version: '0.22',
     date: '2026-07-21',
     features: [
