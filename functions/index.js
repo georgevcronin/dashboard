@@ -14,7 +14,7 @@ const { computeProgression } = require('./progression');
 const { generateSessionExercises, progressionFor, isLowRepPattern, LOW_REP_THRESHOLD } = require('./sessionPlanner');
 const { computeSleepScore } = require('./sleepScore');
 const { callGeminiResilient, parseGeminiJSON } = require('./gemini');
-const { unwrapShortcutBody, average, sum, computeSleepMetrics } = require('./shortcutParsing');
+const { unwrapShortcutBody, average, sumForDay, computeSleepMetrics } = require('./shortcutParsing');
 
 admin.initializeApp();
 const firestore = admin.firestore();
@@ -253,7 +253,9 @@ app.post("/shortcut", async (req, res) => {
   // step_count is stored in thousands (the frontend does `steps * 1000` to
   // display the real count — matches the existing /health Health Auto
   // Export convention), not a raw absolute step total.
-  const stepCount = sum(d.steps_values);
+  // Filtered to samples actually dated `k` -- steps_values otherwise
+  // includes stragglers from the previous day (see sumForDay).
+  const stepCount = sumForDay(d.steps_values, d.steps_dates, k, day);
   if (stepCount != null) db.metrics[k].step_count = stepCount / 1000;
   const wrist = average(d.wrist_values);
   if (wrist != null) db.metrics[k].wrist_temperature = Math.round(wrist * 10) / 10;
@@ -859,22 +861,52 @@ app.post("/bodyfat", async (req, res) => {
     bodyFat30: Object.keys(db.metrics).sort().slice(-30).filter(kk => db.metrics[kk].body_fat_percentage != null).map(kk => ({ date: kk, pct: db.metrics[kk].body_fat_percentage })),
   });
 });
+// Accepts an optional caller-supplied "HH:MM" time (logging a meal after the
+// fact, e.g. dinner logged an hour late) — falls back to now for anything
+// missing or malformed rather than rejecting the whole log attempt.
+const HHMM_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
+function resolveEntryTime(requested) {
+  return HHMM_RE.test(requested || '') ? requested : new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+}
 app.post("/nutrition", async (req, res) => {
   const k = day(); db.nutrition = db.nutrition || {};
   db.nutrition[k] = db.nutrition[k] || { protein: 0, carbs: 0, fat: 0, calories: 0 };
   for (const m of ["protein", "carbs", "fat", "calories"]) db.nutrition[k][m] = (db.nutrition[k][m] || 0) + (req.body[m] || 0);
   db.nutritionLog = db.nutritionLog || [];
-  if (req.body.label) db.nutritionLog.push({
-    date: k, time: new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }),
-    label: req.body.label, protein: req.body.protein || 0, carbs: req.body.carbs || 0, fat: req.body.fat || 0, calories: req.body.calories || 0,
-    ...(req.body.description?.trim() ? { description: req.body.description.trim() } : {}),
-  });
-  await save(); res.json(db.nutrition[k]);
+  let entry = null;
+  if (req.body.label) {
+    entry = {
+      id: crypto.randomUUID(), date: k, time: resolveEntryTime(req.body.time),
+      label: req.body.label, protein: req.body.protein || 0, carbs: req.body.carbs || 0, fat: req.body.fat || 0, calories: req.body.calories || 0,
+      ...(req.body.description?.trim() ? { description: req.body.description.trim() } : {}),
+    };
+    db.nutritionLog.push(entry);
+  }
+  await save(); res.json({ ...db.nutrition[k], entry });
+});
+// Currently only supports moving an entry's logged time — the total nutrient
+// sums for the day are keyed by date not by entry, so a time-only edit never
+// needs to touch db.nutrition[k].
+app.patch("/nutrition/log/:id", async (req, res) => {
+  if (!HHMM_RE.test(req.body.time || '')) return res.status(400).json({ error: 'time must be HH:MM' });
+  const entry = (db.nutritionLog || []).find(e => e.id === req.params.id);
+  if (!entry) return res.status(404).json({ error: 'entry not found' });
+  entry.time = req.body.time;
+  await save();
+  res.json({ ok: true, entry });
 });
 app.post("/nutrition/analyze", async (req, res) => {
   if (!process.env.GEMINI_API_KEY) return res.status(400).json({ error: 'GEMINI_API_KEY not set' });
   const { imageBase64, mode, description } = req.body;
   if (!imageBase64 && !description?.trim()) return res.status(400).json({ error: 'imageBase64 or description required' });
+
+  // Meal photos and text descriptions are inherently ambiguous about portion
+  // size (Gemini is guessing at a whole plate/described amount), so both ask
+  // for three sized estimates up front instead of one guess the user then
+  // has to correct with a blind x0.5/1.5/2 multiplier. A nutrition-label
+  // photo has no such ambiguity -- it's reading fixed per-serving numbers off
+  // the label itself -- so that one stays a single flat result.
+  const portionsSchema = '{"description":"brief meal description","portions":[{"label":"Small","calories":0,"protein":0,"carbs":0,"fat":0},{"label":"Medium","calories":0,"protein":0,"carbs":0,"fat":0},{"label":"Large","calories":0,"protein":0,"carbs":0,"fat":0}]}';
 
   let promptText, image;
   if (imageBase64) {
@@ -882,21 +914,21 @@ app.post("/nutrition/analyze", async (req, res) => {
     const mimeType = mimeMatch ? mimeMatch[1] : 'image/jpeg';
     const rawBase64 = imageBase64.replace(/^data:image\/\w+;base64,/, '');
     const labelPrompt = 'Read this nutrition label precisely. Return ONLY valid JSON: {"description":"product name","calories":0,"protein":0,"carbs":0,"fat":0}. Use per-serving values. All numbers as integers.';
-    const mealPrompt = 'Analyse this meal photo. Estimate nutritional content for the whole plate. Return ONLY valid JSON: {"description":"brief meal description","calories":0,"protein":0,"carbs":0,"fat":0}. All numbers as integers.';
+    const mealPrompt = `Analyse this meal photo. Estimate nutritional content for three portion sizes: a smaller portion, what's actually shown in the photo, and a larger portion. Return ONLY valid JSON: ${portionsSchema}. "Medium" is your best estimate of the actual portion shown. All numbers as integers.`;
     promptText = mode === 'label' ? labelPrompt : mealPrompt;
     image = { mimeType, data: rawBase64 };
   } else {
     // No photo — estimate from a plain-text description instead (e.g. "two
     // eggs and a slice of wholemeal toast with butter"). Same response
-    // shape either way, so the frontend doesn't need a separate code path
-    // past this endpoint.
-    promptText = `Estimate the nutritional content of this food/meal from the description alone: "${description.trim()}". Return ONLY valid JSON: {"description":"brief meal description","calories":0,"protein":0,"carbs":0,"fat":0}. All numbers as integers.`;
+    // shape as the meal-photo path, so the frontend doesn't need a separate
+    // code path past this endpoint.
+    promptText = `Estimate the nutritional content of this food/meal from the description alone: "${description.trim()}", for three portion sizes: a smaller portion, a typical portion, and a larger portion. Return ONLY valid JSON: ${portionsSchema}. "Medium" is your best estimate of what was actually described. All numbers as integers.`;
   }
 
   const result = await callGeminiResilient({
     messages: [{ role: 'user', content: promptText }],
     ...(image ? { image } : {}),
-    maxTokens: 300,
+    maxTokens: 450,
     jsonMode: true,
   });
   if (!result.ok) return res.status(500).json({ error: result.error?.message || `Gemini returned ${result.status}` });

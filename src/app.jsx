@@ -115,13 +115,22 @@ const toLocalDateStr = (date) => {
 const todayLocalStr = () => toLocalDateStr(new Date());
 const fmtDate = () => new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
 const fmtDateShort = () => new Date().toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
+// Sleep target is stored/computed as decimal hours (e.g. 7.3) -- shown as
+// "7h 18m" instead, since a bare decimal hour count reads oddly next to
+// clock-formatted times elsewhere in the app.
+const fmtHoursMins = h => {
+  if (h == null) return '—';
+  const totalMin = Math.round(h * 60);
+  const hh = Math.floor(totalMin / 60), mm = totalMin % 60;
+  return mm ? `${hh}h ${mm}m` : `${hh}h`;
+};
 const pct = (v, t) => (t && t > 0 ? Math.min(100, Math.round(v / t * 100)) : 0);
 // Calorie display default is approximate (nearest 300) — precision that isn't
 // really there anyway for most logged food, and it's less anxiety-inducing to
 // track than exact numbers. Settings > Nutrition can switch to exact.
 const roundCal = (v, exact) => (v == null ? v : exact ? Math.round(v) : Math.round(v / 300) * 300);
 
-function Header({ s, onSignOut }) {
+function Header({ s, onSignOut, onOpenSettings }) {
   const today = s?.today || {};
   const n = s?.nutritionToday || {};
   const mt = s?.macroTargets || {};
@@ -142,7 +151,14 @@ function Header({ s, onSignOut }) {
   return (
     <div className="hdr">
       <div className="masthead">
-        <div className="mast-left">Vol. I &nbsp;·&nbsp; Est. 2026</div>
+        <div className="mast-left" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          {onOpenSettings && (
+            <button onClick={onOpenSettings} style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 7, letterSpacing: '.14em', textTransform: 'uppercase', background: 'none', border: '1px solid var(--rule)', color: 'var(--dim)', padding: '2px 6px', cursor: 'pointer', lineHeight: 1.4 }}>
+              Settings
+            </button>
+          )}
+          <span>Vol. I &nbsp;·&nbsp; Est. 2026</span>
+        </div>
         <div className="mast-title">PRESS</div>
         <div className="mast-right mast-right-stack">
           <span>{fmtDateShort()}</span>
@@ -168,7 +184,7 @@ function Header({ s, onSignOut }) {
 }
 
 // ── S1: FRONT PAGE ───────────────────────────────────────────────────────────
-function S1({ s, briefing, onShowBriefing, onShowAfternoon, onShowNight, onShowWeekly, afternoonLoaded, nightLoaded, weeklyLoaded, newscastLoading, newscastError }) {
+function S1({ s, briefing, onShowBriefing, onShowAfternoon, onShowNight, onShowWeekly, afternoonLoaded, nightLoaded, weeklyLoaded, loadingPeriod, newscastError }) {
   const today = s?.today || {};
   const recovery = today.recovery ?? s?.recoveryTrend?.at(-1) ?? null;
 
@@ -237,6 +253,10 @@ function S1({ s, briefing, onShowBriefing, onShowAfternoon, onShowNight, onShowW
   // of-day slot should ever be current.
   const canAfternoon = hour >= 12 && hour < 18;
   const canNight = hour >= 18;
+  // Weekly review is only worth generating early in the week, before it's
+  // stale news -- Mon/Tue/Wed only (getDay(): 0=Sun ... 3=Wed).
+  const day = new Date().getDay();
+  const canWeekly = day >= 1 && day <= 3;
 
   return (
     <section id="s1" style={{ padding: '18px 20px 16px', justifyContent: 'space-between' }}>
@@ -260,29 +280,31 @@ function S1({ s, briefing, onShowBriefing, onShowAfternoon, onShowNight, onShowW
       )}
 
       {canAfternoon && (
-        <div className="briefing-preview fade" style={{ flexShrink: 0, cursor: newscastLoading ? 'default' : 'pointer', opacity: newscastLoading ? 0.6 : 1 }} onClick={onShowAfternoon}>
+        <div className="briefing-preview fade" style={{ flexShrink: 0, cursor: loadingPeriod === 'afternoon' ? 'default' : 'pointer', opacity: loadingPeriod === 'afternoon' ? 0.6 : 1 }} onClick={onShowAfternoon}>
           <div className="kicker" style={{ marginBottom: 3 }}>Mid-Day Update</div>
           <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 11, color: 'var(--dim)', fontStyle: 'italic' }}>
-            {newscastLoading ? 'Generating…' : afternoonLoaded ? 'Read mid-day update' : 'Generate mid-day report'}
+            {loadingPeriod === 'afternoon' ? 'Generating…' : afternoonLoaded ? 'Read mid-day update' : 'Generate mid-day report'}
           </div>
         </div>
       )}
 
       {canNight && (
-        <div className="briefing-preview fade" style={{ flexShrink: 0, cursor: newscastLoading ? 'default' : 'pointer', opacity: newscastLoading ? 0.6 : 1 }} onClick={onShowNight}>
+        <div className="briefing-preview fade" style={{ flexShrink: 0, cursor: loadingPeriod === 'night' ? 'default' : 'pointer', opacity: loadingPeriod === 'night' ? 0.6 : 1 }} onClick={onShowNight}>
           <div className="kicker" style={{ marginBottom: 3 }}>Tonight's Report</div>
           <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 11, color: 'var(--dim)', fontStyle: 'italic' }}>
-            {newscastLoading ? 'Generating…' : nightLoaded ? "Read tonight's report" : 'Generate evening report'}
+            {loadingPeriod === 'night' ? 'Generating…' : nightLoaded ? "Read tonight's report" : 'Generate evening report'}
           </div>
         </div>
       )}
 
-      <div className="briefing-preview fade" style={{ flexShrink: 0, cursor: newscastLoading ? 'default' : 'pointer', opacity: newscastLoading ? 0.6 : 1 }} onClick={onShowWeekly}>
+      {canWeekly && (
+      <div className="briefing-preview fade" style={{ flexShrink: 0, cursor: loadingPeriod === 'weekly' ? 'default' : 'pointer', opacity: loadingPeriod === 'weekly' ? 0.6 : 1 }} onClick={onShowWeekly}>
         <div className="kicker" style={{ marginBottom: 3 }}>Weekly Review</div>
         <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 11, color: 'var(--dim)', fontStyle: 'italic' }}>
-          {newscastLoading ? 'Generating…' : weeklyLoaded ? 'Read weekly review' : 'Generate weekly review'}
+          {loadingPeriod === 'weekly' ? 'Generating…' : weeklyLoaded ? 'Read weekly review' : 'Generate weekly review'}
         </div>
       </div>
+      )}
 
       {newscastError && (
         <div className="fade" style={{ flexShrink: 0, fontFamily: "'JetBrains Mono',monospace", fontSize: 10, color: 'var(--red)', padding: '6px 0' }}>
@@ -323,7 +345,7 @@ function S1({ s, briefing, onShowBriefing, onShowAfternoon, onShowNight, onShowW
             <div className="sc-label">Sleep</div>
             <div className="sc-num plum" style={{ fontSize: 'clamp(26px,6vw,40px)' }}>{sleep != null ? sleep.toFixed(1) : '—'}<span style={{ fontSize: '.4em', color: 'var(--dim)' }}>h</span></div>
             <div className="sc-delta" style={{ color: 'var(--dim)' }}>
-              {sleep != null ? `${sleepEff != null ? `${Math.round(sleepEff * 100)}% eff · ` : ''}${sleepDebt.toFixed(1)}h debt` : `Target: ${sleepTarget}h`}
+              {sleep != null ? `${sleepEff != null ? `${Math.round(sleepEff * 100)}% eff · ` : ''}${sleepDebt.toFixed(1)}h debt` : `Target: ${fmtHoursMins(sleepTarget)}`}
             </div>
           </div>
           <div style={{ borderTop: '1px solid var(--rule)', paddingTop: 10 }}>
@@ -338,7 +360,7 @@ function S1({ s, briefing, onShowBriefing, onShowAfternoon, onShowNight, onShowW
       <div className="fade" style={{ flexShrink: 0 }}>
         <div className="prog-head">Daily Progress</div>
         {[
-          { label: 'Sleep',    color: 'var(--plum)',   val: sleep,                       target: sleepTarget,   fmt: v => `${v.toFixed(1)}h`,                 tgt: `${sleepTarget}` },
+          { label: 'Sleep',    color: 'var(--plum)',   val: sleep,                       target: sleepTarget,   fmt: v => `${v.toFixed(1)}h`,                 tgt: fmtHoursMins(sleepTarget) },
           { label: 'Recovery', color: 'var(--gold)',   val: recovery,                    target: 100,           fmt: v => `${Math.round(v)}`,                   tgt: '100' },
           { label: 'Steps',    color: 'var(--forest)', val: steps ? steps/1000 : null,   target: 10,            fmt: v => `${Math.round(v*1000).toLocaleString()}`, tgt: '10k' },
           { label: 'Protein',  color: 'var(--ember)',  val: protein,                     target: proteinTarget, fmt: v => `${Math.round(v)}g`,                  tgt: `${proteinTarget}g` },
@@ -495,7 +517,9 @@ function S2({ s, refresh }) {
           {debt > 0
             ? `Sleep debt stands at ${debt.toFixed(1)} hours. Consistent nights above target needed to clear it.`
             : 'Sleep debt cleared. Maintain consistent bedtimes to hold this position.'}
-          {' '}Target {sleepTarget}h ({s?.sleepTargetLearned ? 'learned from your recent nights' : 'default — not enough data yet to personalise'}).
+        </div>
+        <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, color: 'var(--dim)', marginTop: -8, marginBottom: 14 }}>
+          Target {fmtHoursMins(sleepTarget)} ({s?.sleepTargetLearned ? 'learned from your recent nights' : 'default — not enough data yet to personalise'})
         </div>
       </div>
       <div className="chart-wrap fade" style={{ flex: '0 0 90px', position: 'relative' }}>
@@ -511,7 +535,7 @@ function S2({ s, refresh }) {
                 <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}>
                   <svg viewBox="0 0 320 100" style={{ width: '100%', height: '100%', position: 'absolute', inset: 0 }} preserveAspectRatio="none">
                     <line x1="0" y1={tgtY} x2="320" y2={tgtY} stroke="var(--gold)" strokeWidth="1" strokeDasharray="4,4" opacity="0.7" />
-                    <text x="4" y={tgtY - 3} fontSize="7" fill="var(--gold)" fontFamily="JetBrains Mono,monospace" opacity="0.9">target {sleepTarget}h{s?.sleepTargetLearned ? ' · learned' : ' · default'}</text>
+                    <text x="4" y={tgtY - 3} fontSize="7" fill="var(--gold)" fontFamily="JetBrains Mono,monospace" opacity="0.9">target {fmtHoursMins(sleepTarget)}{s?.sleepTargetLearned ? ' · learned' : ' · default'}</text>
                   </svg>
                 </div>
               );
@@ -719,6 +743,21 @@ const glycogenPct = (elapsedS, totalS) => {
 // instead of the list. v0.1 is the first tracked release, not literally the
 // app's first version — everything before this had no changelog at all.
 const CHANGELOG = [
+  {
+    version: '0.23',
+    date: '2026-07-24',
+    features: [
+      'Fixed the mid-day/evening/weekly report buttons all showing "Generating…" together when only one was clicked',
+      'Weekly Review now only appears Monday–Wednesday, before it becomes stale news',
+      'Fixed steps sometimes including stray samples from the previous day, inflating the daily total',
+      'Fixed a text-described meal (no photo) being mislabeled "Per 100g values" — it\'s a whole-portion AI estimate like a photo scan, not a per-100g reference, so the grams calculator no longer misapplies to it',
+      'You can now set/edit the time on a logged meal, both when logging it and afterwards in today\'s log',
+      'Fixed camera barcode scans always reporting "Product not found" — the scan result was being read from the wrong field',
+      'Meal photos and text-described meals now offer Small/Medium/Large portion estimates from Gemini up front, instead of one guess you had to correct yourself with a x0.5/1.5/2 multiplier',
+      'Sleep target now shown as "Xh Ym" instead of a decimal hour count, and moved out of the stretched sleep-summary paragraph into its own line',
+      'Settings moved to the top-left of the header, out of the Profile section',
+    ],
+  },
   {
     version: '0.22',
     date: '2026-07-21',
@@ -2802,6 +2841,20 @@ function S4({ s, refresh }) {
   const [portion, setPortion] = useState(1);
   const [analysed, setAnalysed] = useState(false);
   const [photoErr, setPhotoErr] = useState('');
+  // True only for a barcode lookup's actual per-100g label values — photo
+  // and text-description estimates are Gemini's guess at the whole portion
+  // already (e.g. "large portion"), not a per-100g reference, so the grams
+  // calculator (which multiplies by grams/100) would silently scale an
+  // already-whole-portion estimate as if it were a per-100g figure.
+  const [gramBased, setGramBased] = useState(false);
+  const nowHHMM = () => new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+  const [mealTime, setMealTime] = useState(nowHHMM());
+  // Small/Medium/Large estimates from Gemini for a meal photo or text
+  // description (see applyAnalysis) — null falls back to the old single-
+  // estimate + x0.5/1/1.5/2 multiplier flow (still used for label-photo
+  // scans, which read one fixed per-serving value off the label itself).
+  const [portionOptions, setPortionOptions] = useState(null);
+  const [selectedPortionIdx, setSelectedPortionIdx] = useState(1);
 
   // Tab + barcode state
   const [foodTab, setFoodTab] = useState('log');
@@ -2840,6 +2893,36 @@ function S4({ s, refresh }) {
     setFat(base100.fat ? String(Math.round(base100.fat * m * 10) / 10) : '');
   };
 
+  const applyPortionOption = (opt) => {
+    setCalories(String(Math.round(opt.calories || 0)));
+    setProtein(String(opt.protein || 0));
+    setCarbs(String(opt.carbs || 0));
+    setFat(String(opt.fat || 0));
+  };
+
+  // Meal photo / text description now return three sized estimates
+  // (data.portions) instead of one guess — this applies the middle
+  // ("Medium") one by default and stashes the rest for the Portion picker.
+  // A nutrition-label photo still returns the old flat shape (a label has
+  // one real per-serving value, no size to guess), so that falls back to
+  // the pre-existing single-estimate + multiplier flow.
+  const applyAnalysis = (data) => {
+    if (Array.isArray(data.portions) && data.portions.length) {
+      const mid = Math.floor((data.portions.length - 1) / 2);
+      setPortionOptions(data.portions);
+      setSelectedPortionIdx(mid);
+      applyPortionOption(data.portions[mid]);
+      baseNutrition.current = { ...data.portions[mid] };
+    } else {
+      setPortionOptions(null);
+      const base = { calories: data.calories || 0, protein: data.protein || 0, carbs: data.carbs || 0, fat: data.fat || 0 };
+      baseNutrition.current = base;
+      setPortion(1);
+      applyPortion(1, base);
+    }
+    if (data.description) setDescription(data.description);
+  };
+
   const fillForm = (food) => {
     setLabel(food.name || '');
     setCalories(String(food.calories || ''));
@@ -2850,6 +2933,8 @@ function S4({ s, refresh }) {
     baseNutrition.current = { calories: food.calories || 0, protein: food.protein || 0, carbs: food.carbs || 0, fat: food.fat || 0 };
     setAnalysed(true);
     setPortion(1);
+    setGramBased(false);
+    setPortionOptions(null);
   };
 
   const stopCamera = () => {
@@ -2881,7 +2966,7 @@ function S4({ s, refresh }) {
     setBarcodeLoading(true); setBarcodeErr('');
     try {
       const d = await api('food/barcode', { method: 'POST', body: JSON.stringify({ barcode: code }) });
-      if (d.name) { fillForm(d); setGrams('100'); }
+      if (d.product) { fillForm(d.product); setGrams('100'); setGramBased(true); }
       else setBarcodeErr('Product not found — try entering barcode manually');
     } catch { setBarcodeErr('Lookup failed'); }
     setBarcodeLoading(false);
@@ -2924,6 +3009,7 @@ function S4({ s, refresh }) {
       if (d.product) {
         fillForm(d.product);
         setGrams('100');
+        setGramBased(true);
         setFoodTab('log');
       } else { setBarcodeErr('Product not found'); }
     } catch { setBarcodeErr('Lookup failed'); }
@@ -2933,7 +3019,7 @@ function S4({ s, refresh }) {
   const handlePhoto = async e => {
     const file = e.target.files?.[0];
     if (!file) return;
-    setAnalysing(true); setDescription(''); setAnalysed(false); setPhotoErr('');
+    setAnalysing(true); setDescription(''); setAnalysed(false); setPhotoErr(''); setGramBased(false); setPortionOptions(null);
     const previewUrl = URL.createObjectURL(file);
     // Revoke the previous preview's blob URL before replacing it — otherwise
     // every photo scanned in a session leaks a blob reference for the tab's
@@ -2948,11 +3034,7 @@ function S4({ s, refresh }) {
           body: JSON.stringify({ imageBase64: ev.target.result, mode: scanMode }),
         });
         if (data.error) throw new Error(data.error);
-        const base = { calories: data.calories || 0, protein: data.protein || 0, carbs: data.carbs || 0, fat: data.fat || 0 };
-        baseNutrition.current = base;
-        if (data.description) setDescription(data.description);
-        setPortion(1);
-        applyPortion(1, base);
+        applyAnalysis(data);
         if (!label && data.description) setLabel(data.description.slice(0, 40));
         setAnalysed(true);
       } catch (e) { setPhotoErr(e.message || 'Photo analysis failed — try again.'); }
@@ -2965,7 +3047,7 @@ function S4({ s, refresh }) {
   const [foodDesc, setFoodDesc] = useState('');
   const handleDescribe = async () => {
     if (!foodDesc.trim()) return;
-    setAnalysing(true); setDescription(''); setAnalysed(false); setPhotoErr('');
+    setAnalysing(true); setDescription(''); setAnalysed(false); setPhotoErr(''); setGramBased(false); setPortionOptions(null);
     setPhotoPreview(prev => { if (prev) URL.revokeObjectURL(prev); return null; });
     try {
       const data = await api('nutrition/analyze', {
@@ -2973,11 +3055,7 @@ function S4({ s, refresh }) {
         body: JSON.stringify({ description: foodDesc }),
       });
       if (data.error) throw new Error(data.error);
-      const base = { calories: data.calories || 0, protein: data.protein || 0, carbs: data.carbs || 0, fat: data.fat || 0 };
-      baseNutrition.current = base;
-      if (data.description) setDescription(data.description);
-      setPortion(1);
-      applyPortion(1, base);
+      applyAnalysis(data);
       if (!label && data.description) setLabel(data.description.slice(0, 40));
       setAnalysed(true);
     } catch (e) { setPhotoErr(e.message || 'Estimate failed — try again.'); }
@@ -2988,16 +3066,15 @@ function S4({ s, refresh }) {
   // decide when to refresh, so a loop of several posts can accumulate and refresh once
   // instead of each call clobbering the previous one with a stale s.nutritionLog closure.
   const postMeal = async (body) => {
-    const nutritionToday = await api('nutrition', { method: 'POST', body: JSON.stringify(body) });
-    const entry = { date: todayLocalStr(), time: new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }), ...body };
+    const { entry, ...nutritionToday } = await api('nutrition', { method: 'POST', body: JSON.stringify(body) });
     return { entry, nutritionToday };
   };
 
   const logMeal = async () => {
     if (!calories && !protein) return;
     setLogging(true);
-    const { entry, nutritionToday } = await postMeal({ label, protein: +protein || 0, carbs: +carbs || 0, fat: +fat || 0, calories: +calories || 0, ...(description.trim() ? { description: description.trim() } : {}) });
-    setLabel(''); setProtein(''); setCarbs(''); setFat(''); setCalories(''); setDescription(''); setAnalysed(false);
+    const { entry, nutritionToday } = await postMeal({ label, protein: +protein || 0, carbs: +carbs || 0, fat: +fat || 0, calories: +calories || 0, time: mealTime, ...(description.trim() ? { description: description.trim() } : {}) });
+    setLabel(''); setProtein(''); setCarbs(''); setFat(''); setCalories(''); setDescription(''); setAnalysed(false); setMealTime(nowHHMM()); setPortionOptions(null);
     setLogging(false);
     refresh({ ...s, nutritionToday, nutritionLog: [...(s?.nutritionLog || []), entry] });
   };
@@ -3005,6 +3082,12 @@ function S4({ s, refresh }) {
   const logFood = async (food) => {
     const { entry, nutritionToday } = await postMeal({ label: food.name || food.label, protein: food.protein || 0, carbs: food.carbs || 0, fat: food.fat || 0, calories: food.calories || 0, ...(food.description ? { description: food.description } : {}) });
     refresh({ ...s, nutritionToday, nutritionLog: [...(s?.nutritionLog || []), entry] });
+  };
+
+  const editEntryTime = async (id, time) => {
+    if (!id) return;
+    refresh({ ...s, nutritionLog: (s?.nutritionLog || []).map(e => e.id === id ? { ...e, time } : e) });
+    await api(`nutrition/log/${id}`, { method: 'PATCH', body: JSON.stringify({ time }) });
   };
 
   const logWater = async (delta) => {
@@ -3202,7 +3285,7 @@ function S4({ s, refresh }) {
             </div>
 
             {/* Gram calculator (shown after barcode lookup) */}
-            {analysed && baseNutrition.current.calories > 0 && !photoPreview && (
+            {analysed && baseNutrition.current.calories > 0 && gramBased && (
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
                 <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)' }}>Grams:</span>
                 <input
@@ -3214,7 +3297,20 @@ function S4({ s, refresh }) {
               </div>
             )}
 
-            {analysed && photoPreview && (
+            {analysed && portionOptions && (
+              <div className="portion-row">
+                <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)', letterSpacing: '.08em' }}>Portion:</span>
+                {portionOptions.map((opt, i) => (
+                  <button key={i} className="portion-btn"
+                    style={{ background: selectedPortionIdx === i ? 'var(--ink)' : 'none', color: selectedPortionIdx === i ? 'var(--paper)' : 'var(--ink)' }}
+                    onClick={() => { setSelectedPortionIdx(i); applyPortionOption(opt); baseNutrition.current = { ...opt }; }}>
+                    {opt.label} · {opt.calories}kcal
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {analysed && !gramBased && !portionOptions && (
               <div className="portion-row">
                 <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)', letterSpacing: '.08em' }}>Portion:</span>
                 {[0.5, 1, 1.5, 2].map(m => (
@@ -3239,6 +3335,10 @@ function S4({ s, refresh }) {
                 <input className="nutri-input wide" placeholder="Description / notes (optional)…" value={description} onChange={e => setDescription(e.target.value)} />
               </div>
               <div className="nutri-log-row">
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 2, alignItems: 'flex-end' }}>
+                  <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 7, letterSpacing: '.1em', color: 'var(--dim)' }}>TIME</span>
+                  <input className="nutri-input narrow" type="time" value={mealTime} onChange={e => setMealTime(e.target.value)} />
+                </div>
                 {[['Protein', protein, setProtein], ['Carbs', carbs, setCarbs], ['Fat', fat, setFat], ['kcal', calories, setCalories]].map(([lbl, val, set]) => (
                   <div key={lbl} style={{ display: 'flex', flexDirection: 'column', gap: 2, alignItems: 'flex-end' }}>
                     <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 7, letterSpacing: '.1em', color: 'var(--dim)' }}>{lbl.toUpperCase()}</span>
@@ -3251,7 +3351,7 @@ function S4({ s, refresh }) {
               </div>
               {analysed && (
                 <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)', fontStyle: 'italic', marginTop: 4 }}>
-                  {photoPreview ? 'AI estimate — verify against actual label' : 'Per 100g values — adjust grams above'}
+                  {gramBased ? 'Per 100g values — adjust grams above' : 'AI estimate — verify against actual amount'}
                 </div>
               )}
               {/* Save as template */}
@@ -3285,7 +3385,12 @@ function S4({ s, refresh }) {
                             <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, color: 'var(--dim)', fontWeight: 400, marginTop: 1 }}>{m.description}</div>
                           )}
                         </td>
-                        <td>{m.time || '—'}</td>
+                        <td>
+                          {m.id ? (
+                            <input type="time" value={m.time || ''} onChange={e => editEntryTime(m.id, e.target.value)}
+                              style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, border: 'none', background: 'none', color: 'var(--ink)', padding: 0 }} />
+                          ) : (m.time || '—')}
+                        </td>
                         <td className="up">{m.protein ? `${m.protein}g` : '—'}</td>
                         <td className="hi">{m.calories || '—'}</td>
                       </tr>
@@ -4120,7 +4225,7 @@ function TrendsPanel() {
   );
 }
 
-function S6({ s, onOpenSettings, refresh }) {
+function S6({ s, refresh }) {
   const supplements = s?.supplements || [];
   const suppLogToday = s?.supplementLogToday || [];
   const suppLoggedSet = new Set(suppLogToday.map(e => e.name));
@@ -4196,10 +4301,6 @@ function S6({ s, onOpenSettings, refresh }) {
       <div className="fade" style={{ flexShrink: 0 }}>
         <div className="kicker">Profile</div>
         <div className="headline" style={{ fontSize: 'clamp(24px,6vw,44px)', lineHeight: '.96' }}>{s?.profile?.name || 'Profile'}</div>
-        <button className="settings-open-btn" onClick={onOpenSettings}>
-          <span>Settings</span>
-          <span>→</span>
-        </button>
       </div>
 
       <div className="fade" style={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>
@@ -6015,7 +6116,7 @@ function App() {
   const [showAfternoonNewscast, setShowAfternoonNewscast] = useState(false);
   const [showNightNewscast, setShowNightNewscast] = useState(false);
   const [showWeeklyReview, setShowWeeklyReview] = useState(false);
-  const [newscastLoading, setNewscastLoading] = useState(false);
+  const [loadingPeriod, setLoadingPeriod] = useState(null);
   const [newscastError, setNewscastError] = useState('');
   const [showSettings, setShowSettings] = useState(false);
   const [showWiki, setShowWiki] = useState(false);
@@ -6026,8 +6127,8 @@ function App() {
     .catch(() => setSummaryError('Failed to load — check your connection and try again.'));
 
   const fetchNewscast = async (period) => {
-    if (newscastLoading) return;
-    setNewscastLoading(true);
+    if (loadingPeriod) return;
+    setLoadingPeriod(period);
     setNewscastError('');
     try {
       const data = await api(`newscast?period=${period}`);
@@ -6040,12 +6141,12 @@ function App() {
     } catch {
       setNewscastError('Connection error — try again.');
     }
-    setNewscastLoading(false);
+    setLoadingPeriod(null);
   };
 
   const fetchWeeklyReview = async () => {
-    if (newscastLoading) return;
-    setNewscastLoading(true);
+    if (loadingPeriod) return;
+    setLoadingPeriod('weekly');
     setNewscastError('');
     try {
       const data = await api('weekly-review');
@@ -6054,7 +6155,7 @@ function App() {
     } catch {
       setNewscastError('Connection error — try again.');
     }
-    setNewscastLoading(false);
+    setLoadingPeriod(null);
   };
 
   const handleOnboardDone = () => { localStorage.setItem('press_onboarded', '1'); setOnboarded(true); };
@@ -6196,19 +6297,19 @@ function App() {
             onShowNight={() => nightNewscast ? setShowNightNewscast(true) : fetchNewscast('night')}
             onShowWeekly={() => weeklyReview ? setShowWeeklyReview(true) : fetchWeeklyReview()}
             afternoonLoaded={!!afternoonNewscast} nightLoaded={!!nightNewscast} weeklyLoaded={!!weeklyReview}
-            newscastLoading={newscastLoading} newscastError={newscastError} />,
+            loadingPeriod={loadingPeriod} newscastError={newscastError} />,
     s2: <S2 key="s2" s={s} refresh={refresh} />,
     s3: <S3 key="s3" s={s} onStartWorkout={planDay => setLoggerPlanDay(planDay ?? null)} onImport={() => setShowImport(true)} onHistory={() => setShowHistory(true)} refresh={refresh} />,
     s4: <S4 key="s4" s={s} refresh={refresh} />,
     s5: <S5 key="s5" s={s} refresh={refresh} />,
-    s6: <S6 key="s6" s={s} onOpenSettings={() => setShowSettings(true)} refresh={refresh} />,
+    s6: <S6 key="s6" s={s} refresh={refresh} />,
     s7: <S7 key="s7" s={s} />,
   };
 
   return (
     <>
       {!onboarded && <Onboarding onComplete={handleOnboardDone} onOpenImport={() => { handleOnboardDone(); setShowImport(true); }} />}
-      <Header s={s} onSignOut={() => signOut(auth)} />
+      <Header s={s} onSignOut={() => signOut(auth)} onOpenSettings={() => setShowSettings(true)} />
       {summaryError && !s && (
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, padding: '8px 16px', background: '#7a1414', color: '#f5f0e2', fontFamily: 'JetBrains Mono, monospace', fontSize: 10, letterSpacing: '.06em' }}>
           <span>{summaryError}</span>

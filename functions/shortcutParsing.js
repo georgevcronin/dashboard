@@ -63,6 +63,30 @@ function sum(str) {
   return nums.length ? nums.reduce((a, b) => a + b, 0) : null;
 }
 
+// Health Auto Export's "Find Health Samples" query has no reliable "just
+// today" scoping (same issue latestSession works around for sleep) -- a
+// sync can include samples from the tail end of the previous day, which
+// silently inflates a same-day sum like steps. Filters values against their
+// parallel _dates list, keeping only samples whose parsed date (via dayFn,
+// so callers control timezone bucketing) matches targetDay. Falls back to
+// summing everything if datesStr is missing/shorter than valuesStr -- an
+// older Shortcut setup without the _dates field still gets a real total
+// rather than silently losing all its steps.
+function sumForDay(valuesStr, datesStr, targetDay, dayFn) {
+  const nums = parseNumberList(valuesStr);
+  if (!nums.length) return null;
+  const dateLines = (datesStr || '').split('\n').map(s => s.trim()).filter(Boolean);
+  if (dateLines.length !== nums.length) return sum(valuesStr);
+  let total = 0, matched = 0;
+  for (let i = 0; i < nums.length; i++) {
+    const ts = parseShortcutDate(dateLines[i]);
+    if (ts == null || dayFn(ts) !== targetDay) continue;
+    total += nums[i];
+    matched++;
+  }
+  return matched ? total : null;
+}
+
 // Apple's sleep-stage naming varies (Watch vs. third-party trackers, iOS
 // version), so this matches broadly rather than against one exact string.
 function isInBedType(type) { return (type || '').toLowerCase().includes('bed'); }
@@ -180,7 +204,7 @@ function computeSleepMetrics(startsStr, endsStr, typesStr) {
 }
 
 module.exports = {
-  unwrapShortcutBody, parseShortcutDate, parseNumberList, average, sum,
+  unwrapShortcutBody, parseShortcutDate, parseNumberList, average, sum, sumForDay,
   isAsleepType, isAwakeType, isInBedType, isDeepType, isRemType, isLightType,
   unionDurationMs, computeSleepMetrics,
 };
