@@ -720,6 +720,13 @@ const glycogenPct = (elapsedS, totalS) => {
 // app's first version — everything before this had no changelog at all.
 const CHANGELOG = [
   {
+    version: '0.26',
+    date: '2026-07-24',
+    features: [
+      'Re-importing a Hevy CSV now merges in any sets missing from an already-imported session (e.g. warm-ups a fixed export now includes) instead of skipping the whole session because it was seen before.',
+    ],
+  },
+  {
     version: '0.25',
     date: '2026-07-24',
     features: [
@@ -2126,7 +2133,7 @@ function HevyImport({ onClose, refresh }) {
   const [status, setStatus] = useState('idle');
   const [result, setResult] = useState(null);
   const [error, setError] = useState('');
-  const [progress, setProgress] = useState({ done: 0, total: 0, imported: 0, skipped: 0, current: null });
+  const [progress, setProgress] = useState({ done: 0, total: 0, imported: 0, merged: 0, skipped: 0, current: null });
   const [log, setLog] = useState([]);
   const logRef = useRef();
   const fileRef = useRef();
@@ -2153,18 +2160,19 @@ function HevyImport({ onClose, refresh }) {
     flushSync(() => {
       setStatus('importing');
       setLog([]);
-      setProgress({ done: 0, total, imported: 0, skipped: 0, current: sessions[0] || null });
+      setProgress({ done: 0, total, imported: 0, merged: 0, skipped: 0, current: sessions[0] || null });
     });
 
-    setProgress({ done: 0, total, current: sessions[0], imported: 0, skipped: 0 });
+    setProgress({ done: 0, total, current: sessions[0], imported: 0, merged: 0, skipped: 0 });
 
-    let totalImported = 0, totalSkipped = 0;
+    let totalImported = 0, totalMerged = 0, totalSkipped = 0;
     try {
       const r = await authFetch(`${API_BASE}/import/hevy`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ sessions }),
       }).then(res => res.ok ? res.json() : Promise.reject(new Error(`HTTP ${res.status}`)));
       totalImported = r?.imported || 0;
+      totalMerged = r?.merged || 0;
       totalSkipped = r?.skipped || 0;
       setLog(sessions.map(s => ({ name: s.name, date: s.date, exCount: s.exercises.length })));
     } catch (err) {
@@ -2173,8 +2181,8 @@ function HevyImport({ onClose, refresh }) {
       return;
     }
 
-    setProgress({ done: total, total, imported: totalImported, skipped: totalSkipped, current: null });
-    setResult({ ok: true, imported: totalImported, skipped: totalSkipped });
+    setProgress({ done: total, total, imported: totalImported, merged: totalMerged, skipped: totalSkipped, current: null });
+    setResult({ ok: true, imported: totalImported, merged: totalMerged, skipped: totalSkipped });
     await api('summary').then(refresh);
     setStatus('done');
   };
@@ -2264,7 +2272,8 @@ function HevyImport({ onClose, refresh }) {
                 <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 22, fontWeight: 700, marginBottom: 6 }}>
                   {result.imported} sessions imported.
                 </div>
-                {result.skipped > 0 && <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, color: 'var(--dim)', marginBottom: 16 }}>{result.skipped} already existed — skipped.</div>}
+                {result.merged > 0 && <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, color: 'var(--dim)', marginBottom: 4 }}>{result.merged} already-imported sessions gained new sets (e.g. warm-ups this file has that were missing before).</div>}
+                {result.skipped > 0 && <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, color: 'var(--dim)', marginBottom: 16 }}>{result.skipped} already fully imported — skipped.</div>}
                 <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--forest)', marginBottom: 20, letterSpacing: '.06em' }}>✓ Progressive overload + fatigue models updated</div>
               </>
             ) : (

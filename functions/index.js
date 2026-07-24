@@ -1129,22 +1129,36 @@ app.post("/import/hevy", async (req, res) => {
   if (!Array.isArray(sessions)) return res.status(400).json({ error: 'sessions must be array' });
   db.workouts = db.workouts || [];
   db.lifts = db.lifts || [];
-  let imported = 0, skipped = 0;
+  let imported = 0, merged = 0, skipped = 0;
   const newLiftEntries = [];
+  // Per-set dedup, not whole-session skip: an already-imported session can
+  // still be missing sets a later re-import has (e.g. a CSV re-export after
+  // the warmup-set-drop bug was fixed) — matching the same per-set dedup
+  // ingestWorkout already does for the API path, rather than discarding the
+  // whole session because *a* workout record for that date/name exists.
+  // Checks newLiftEntries too so two sessions in the same batch can't both
+  // add the same "missing" set.
+  const isDupeLift = (date, exercise, kg, reps) =>
+    db.lifts.some(l => l.date === date && l.exercise === exercise && Math.abs((l.kg || 0) - kg) < 0.1 && l.reps === reps) ||
+    newLiftEntries.some(l => l.date === date && l.exercise === exercise && Math.abs((l.kg || 0) - kg) < 0.1 && l.reps === reps);
   for (const session of sessions) {
     const exists = db.workouts.some(w => w.date === session.date && w.name === session.name);
-    if (exists) { skipped++; continue; }
-    db.workouts.unshift({ date: session.date, name: session.name, duration: session.duration || null, source: 'hevy' });
+    if (!exists) db.workouts.unshift({ date: session.date, name: session.name, duration: session.duration || null, source: 'hevy' });
+    let addedForSession = 0;
     for (const ex of (session.exercises || [])) {
       for (const set of (ex.sets || [])) {
-        if ((set.kg || 0) > 0 || (set.reps || 0) > 0) {
-          const entry = { date: session.date, exercise: ex.name, kg: set.kg || 0, reps: set.reps || 0, source: 'hevy' };
-          if (set.type && set.type !== 'N') entry.type = set.type;
-          newLiftEntries.push(entry);
-        }
+        const kg = set.kg || 0, reps = set.reps || 0;
+        if (kg <= 0 && reps <= 0) continue;
+        if (isDupeLift(session.date, ex.name, kg, reps)) continue;
+        const entry = { date: session.date, exercise: ex.name, kg, reps, source: 'hevy' };
+        if (set.type && set.type !== 'N') entry.type = set.type;
+        newLiftEntries.push(entry);
+        addedForSession++;
       }
     }
-    imported++;
+    if (!exists) imported++;
+    else if (addedForSession) merged++;
+    else skipped++;
   }
   // Errors here used to be silently swallowed (server-side console.error
   // only), which is exactly how this bug went unnoticed: the write failed
@@ -1164,7 +1178,7 @@ app.post("/import/hevy", async (req, res) => {
     console.error('[import/hevy] save failed:', e.message);
     return res.status(500).json({ ok: false, error: 'Save failed: ' + e.message });
   }
-  res.json({ ok: true, imported, skipped });
+  res.json({ ok: true, imported, merged, skipped });
 });
 
 // ---------- Weekly guidance (advisory — never a locked day-by-day schedule) ----------
