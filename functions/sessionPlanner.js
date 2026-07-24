@@ -335,7 +335,61 @@ function generateSessionExercises({ type, targetMuscles, backboneExerciseNames, 
   });
 }
 
+// Session-length estimate/cap, driven by the full-body auto-generator's
+// duration slider (functions/index.js's /plan/session-exercises). Per-set
+// timings are the app's own numbers, not generic guesses: 3 minutes rest
+// between working sets matches TRAINING_ETHOS's stated "rest fully between
+// working sets (about 3-4 minutes)" exactly; warmup rest is shorter since
+// warmups are lighter and never pushed to real effort.
+const SET_EXECUTION_S = 45;
+const WORKING_REST_S = 180;
+const WARMUP_REST_S = 60;
+const EXERCISE_TRANSITION_S = 90;
+
+function estimateSessionDurationSec(exercises) {
+  const list = exercises || [];
+  let total = 0;
+  list.forEach((ex, i) => {
+    if (i > 0) total += EXERCISE_TRANSITION_S;
+    const sets = ex.sets || [];
+    sets.forEach((set, j) => {
+      total += SET_EXECUTION_S;
+      const isLastSetOfSession = i === list.length - 1 && j === sets.length - 1;
+      if (!isLastSetOfSession) total += (set.type === 'W' ? WARMUP_REST_S : WORKING_REST_S);
+    });
+  });
+  return total;
+}
+
+function estimateSessionDurationMin(exercises) {
+  return Math.round(estimateSessionDurationSec(exercises) / 60);
+}
+
+// Trims to fit maxDurationMin by dropping, one at a time, whichever
+// exercise's primary muscle(s) currently carry the HIGHEST fatigue among
+// what's left — i.e. already most recently/heavily stimulated ("highest
+// adaptation right now"), so exercises for genuinely fresh, under-trained
+// muscles are the last thing cut. Rescored after every cut, since removing
+// one exercise can change which is now the worst offender. Never cuts below
+// one exercise, even if that alone still exceeds the cap — a cap this tight
+// is a user choice to respect, not a reason to return an empty session.
+function capSessionDuration(exercises, currentFatigue, maxDurationMin) {
+  if (!maxDurationMin) return exercises;
+  let list = [...(exercises || [])];
+  while (list.length > 1 && estimateSessionDurationMin(list) > maxDurationMin) {
+    const scored = list.map(e => {
+      const muscles = EXERCISE_DB.find(x => x.name === e.name)?.primary || [];
+      const fatigue = muscles.length ? Math.max(...muscles.map(m => (currentFatigue || {})[m] || 0)) : 0;
+      return { e, fatigue };
+    });
+    scored.sort((a, b) => b.fatigue - a.fatigue);
+    list = list.filter(e => e.name !== scored[0].e.name);
+  }
+  return list;
+}
+
 module.exports = {
   generateSessionExercises, progressionFor, suggestedWorkingSetCount, suggestedRirSequence,
   isLowRepPattern, LOW_REP_THRESHOLD, isStapleExercise, STAPLE_SESSION_THRESHOLD,
+  estimateSessionDurationMin, capSessionDuration,
 };

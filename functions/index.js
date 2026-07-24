@@ -11,7 +11,7 @@ const { computeMuscleLevels, classifyLift, estimate1RM } = require('./strengthSt
 const { loadAllLifts, appendLifts, removeLiftsAndAppend } = require('./liftChunks');
 const { DEFAULTS, loadForUserDoc, saveDocExcludingLifts } = require('./userDoc');
 const { computeProgression } = require('./progression');
-const { generateSessionExercises, progressionFor, isLowRepPattern, LOW_REP_THRESHOLD } = require('./sessionPlanner');
+const { generateSessionExercises, progressionFor, isLowRepPattern, LOW_REP_THRESHOLD, estimateSessionDurationMin, capSessionDuration } = require('./sessionPlanner');
 const { computeSleepScore } = require('./sleepScore');
 const { callGeminiResilient, parseGeminiJSON } = require('./gemini');
 const { unwrapShortcutBody, average, sumForDay, computeSleepMetrics } = require('./shortcutParsing');
@@ -1072,7 +1072,7 @@ app.post("/mentor", async (req, res) => {
 // one bucket explicitly still returns the previous richer single-bucket
 // session (multiple exercises, accessories included).
 app.post("/plan/session-exercises", async (req, res) => {
-  const { type = 'lift', bucket: reqBucket } = req.body;
+  const { type = 'lift', bucket: reqBucket, maxDurationMin } = req.body;
   let { targetMuscles, backboneExercises } = req.body;
   const lifts = db.lifts || [];
 
@@ -1143,14 +1143,15 @@ app.post("/plan/session-exercises", async (req, res) => {
     const backbone = pickBackboneExercises(musclePicks, { travelMode, lifts, favoriteExercises, count: backboneCount });
     const coveredMuscles = new Set(backbone.flatMap(e => e.primary));
     const uncoveredCount = musclePicks.filter(m => !coveredMuscles.has(m)).length;
-    const exercises = generateSessionExercises({
+    const exercises = capSessionDuration(generateSessionExercises({
       type, targetMuscles: musclePicks, backboneExerciseNames: backbone.map(e => e.name), lifts, travelMode,
       avoidMuscles, avoidMusclesSecondary, offlineMuscles, cnsFatigue, metabolicFatigue, trainingMonths, favoriteExercises,
       accessoryCountOverride: uncoveredCount, isolationOnly: isolationLeaning,
-    });
+    }), currentFatigue, maxDurationMin);
     return res.json({
       exercises, targetMuscles, backboneExercises: exercises.map(e => e.name), bucket: 'full body', preferredSplit,
       neglectedMuscles: neglectedMuscles(preferredSplit, muscleLastTrainedDays),
+      estimatedDurationMin: estimateSessionDurationMin(exercises),
     });
   }
 
@@ -1169,11 +1170,11 @@ app.post("/plan/session-exercises", async (req, res) => {
     backboneExercises = pickBackboneExercises(targetMuscles, { travelMode, lifts, favoriteExercises }).map(e => e.name);
   }
 
-  const exercises = generateSessionExercises({
+  const exercises = capSessionDuration(generateSessionExercises({
     type, targetMuscles, backboneExerciseNames: backboneExercises, lifts, travelMode,
     avoidMuscles, avoidMusclesSecondary, offlineMuscles, cnsFatigue, metabolicFatigue, trainingMonths, favoriteExercises,
-  });
-  res.json({ exercises, targetMuscles: targetMuscles || [], backboneExercises: backboneExercises || [], bucket });
+  }), currentFatigue, maxDurationMin);
+  res.json({ exercises, targetMuscles: targetMuscles || [], backboneExercises: backboneExercises || [], bucket, estimatedDurationMin: estimateSessionDurationMin(exercises) });
 });
 
 app.get('/progression/:exercise', async (req, res) => {

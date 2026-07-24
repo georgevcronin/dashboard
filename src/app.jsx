@@ -744,6 +744,13 @@ const glycogenPct = (elapsedS, totalS) => {
 // app's first version — everything before this had no changelog at all.
 const CHANGELOG = [
   {
+    version: '0.29',
+    date: '2026-07-24',
+    features: [
+      'Auto-generated sessions now show an estimated length, and a Max Length slider lets you cap it — over the cap, exercises for whichever muscles are already most recently trained get dropped first, keeping the ones your freshest muscles still need.',
+    ],
+  },
+  {
     version: '0.28',
     date: '2026-07-24',
     features: [
@@ -2599,12 +2606,18 @@ function S3({ s, onStartWorkout, onImport, onHistory, refresh }) {
   const [pickedBucket, setPickedBucket] = useState(null);
   const [preloading, setPreloading] = useState(false);
   const [splitNeglected, setSplitNeglected] = useState([]);
+  const [estimatedDurationMin, setEstimatedDurationMin] = useState(null);
+  // Committed cap — what regeneration actually uses. Only changes when
+  // Refresh Guidance is clicked (see generatePlan below), not on every drag
+  // of the slider, which only updates sliderDraft for display.
+  const maxDurationMin = s?.profile?.maxSessionDurationMin ?? 60;
+  const [sliderDraft, setSliderDraft] = useState(maxDurationMin);
   useEffect(() => {
     setPreloading(true);
     setPreloadedExercises(null);
     const body = selectedBucket
-      ? { type: 'lift', targetMuscles: selectedBucket.muscles, bucket: selectedBucket.name }
-      : { type: 'lift' };
+      ? { type: 'lift', targetMuscles: selectedBucket.muscles, bucket: selectedBucket.name, maxDurationMin }
+      : { type: 'lift', maxDurationMin };
     authFetch(`${API_BASE}/plan/session-exercises`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
@@ -2612,13 +2625,18 @@ function S3({ s, onStartWorkout, onImport, onHistory, refresh }) {
       setPreloadedExercises(data.exercises || []);
       setPickedBucket(data.bucket ? { name: data.bucket, muscles: data.targetMuscles, backboneExercises: data.backboneExercises } : null);
       setSplitNeglected(data.neglectedMuscles || []);
+      setEstimatedDurationMin(data.estimatedDurationMin ?? null);
       setPreloading(false);
     }).catch(() => setPreloading(false));
-  }, [selectedBucket?.name]);
+  }, [selectedBucket?.name, maxDurationMin]);
 
   const generatePlan = async () => {
     setGenning(true);
-    await authFetch(`${API_BASE}/plan/week`, { method: 'POST' });
+    const requests = [authFetch(`${API_BASE}/plan/week`, { method: 'POST' })];
+    if (sliderDraft !== maxDurationMin) {
+      requests.push(api('profile', { method: 'POST', body: JSON.stringify({ maxSessionDurationMin: sliderDraft }) }));
+    }
+    await Promise.all(requests);
     setGenning(false);
     window.location.reload();
   };
@@ -2701,10 +2719,17 @@ function S3({ s, onStartWorkout, onImport, onHistory, refresh }) {
 
         <div style={{ paddingTop: guidance ? 8 : 0 }}>
           {pickedBucket?.name && preloadedExercises?.length > 0 && (
-            <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--gold)', textTransform: 'capitalize', marginBottom: 6 }}>
-              {selectedBucket ? 'Selected' : 'Freshest right now'}: {pickedBucket.name}
+            <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--gold)', textTransform: 'capitalize', marginBottom: 6, display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+              <span>{selectedBucket ? 'Selected' : 'Freshest right now'}: {pickedBucket.name}</span>
+              {estimatedDurationMin != null && <span style={{ color: 'var(--dim)' }}>~{estimatedDurationMin} min</span>}
             </div>
           )}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+            <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, color: 'var(--dim)', whiteSpace: 'nowrap' }}>Max length</span>
+            <input type="range" min="20" max="90" step="5" value={sliderDraft} onChange={e => setSliderDraft(+e.target.value)}
+              style={{ flex: 1, accentColor: 'var(--ink)' }} />
+            <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, color: 'var(--dim)', minWidth: 44, textAlign: 'right' }}>{sliderDraft} min</span>
+          </div>
           {preloadedExercises?.length > 0 && (
             <div style={{ marginBottom: 10 }}>
               {preloadedExercises.map((ex, i) => {

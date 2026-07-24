@@ -1,6 +1,6 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { generateSessionExercises, progressionFor, suggestedWorkingSetCount, suggestedRirSequence, isLowRepPattern, LOW_REP_THRESHOLD, isStapleExercise, STAPLE_SESSION_THRESHOLD } = require('../functions/sessionPlanner');
+const { generateSessionExercises, progressionFor, suggestedWorkingSetCount, suggestedRirSequence, isLowRepPattern, LOW_REP_THRESHOLD, isStapleExercise, STAPLE_SESSION_THRESHOLD, estimateSessionDurationMin, capSessionDuration } = require('../functions/sessionPlanner');
 const daysAgo = (n) => new Date(Date.now() - n * 86400000).toISOString().slice(0, 10);
 const { isCompoundExercise } = require('../functions/muscleTaxonomy');
 
@@ -278,4 +278,51 @@ test(`isLowRepPattern is true once a majority of hard sets are at or under ${LOW
 test('isLowRepPattern ignores sets with no reps logged yet', () => {
   const sets = [{ reps: 2 }, { reps: 3 }, { reps: '' }, { reps: 0 }];
   assert.equal(isLowRepPattern(sets), false, 'only 2 real sets logged (2, 3) — below the minimum sample size');
+});
+
+test('estimateSessionDurationMin counts execution + rest but skips rest after the very last set', () => {
+  const oneSet = [{ name: 'X', sets: [{ type: 'N' }] }];
+  assert.equal(estimateSessionDurationMin(oneSet), 1, '45s execution, no rest after the only set — rounds to 1 min');
+
+  const twoWorkingSets = [{ name: 'X', sets: [{ type: 'N' }, { type: 'N' }] }];
+  // 2*45s execution + 1*180s rest (after set 1, not after the last set) = 270s = 4.5min -> 5
+  assert.equal(estimateSessionDurationMin(twoWorkingSets), 5);
+});
+
+test('estimateSessionDurationMin adds a transition between exercises but not after the last one', () => {
+  const twoExercises = [{ name: 'X', sets: [{ type: 'N' }] }, { name: 'Y', sets: [{ type: 'N' }] }];
+  // X: 45s exec + 180s rest (more exercises follow) = 225s
+  // transition: 90s
+  // Y: 45s exec, no rest (last set of the session) = 45s
+  // total = 360s = 6min exactly
+  assert.equal(estimateSessionDurationMin(twoExercises), 6);
+});
+
+test('estimateSessionDurationMin gives warmup sets shorter rest than working sets', () => {
+  const withWarmup = [{ name: 'X', sets: [{ type: 'W' }, { type: 'N' }, { type: 'N' }] }];
+  // 3*45s exec + 60s (after warmup) + 180s (after set 2, not the last) = 375s = 6.25min -> 6
+  assert.equal(estimateSessionDurationMin(withWarmup), 6);
+});
+
+test('capSessionDuration is a no-op when maxDurationMin is unset', () => {
+  const exercises = [{ name: 'Barbell Bench Press', sets: [{ type: 'N' }, { type: 'N' }, { type: 'N' }] }];
+  assert.deepEqual(capSessionDuration(exercises, {}, null), exercises);
+  assert.deepEqual(capSessionDuration(exercises, {}, 0), exercises);
+});
+
+test('capSessionDuration drops the exercise targeting the highest-fatigue ("most adapted") muscle first', () => {
+  const exercises = [
+    { name: 'Barbell Bench Press', sets: [{ type: 'N' }, { type: 'N' }, { type: 'N' }] }, // primary: chest, triceps, front-delt
+    { name: 'Weighted Pull-Up', sets: [{ type: 'N' }, { type: 'N' }, { type: 'N' }] }, // primary: lats, biceps
+  ];
+  const currentFatigue = { chest: 80, lats: 10 };
+  const out = capSessionDuration(exercises, currentFatigue, 10);
+  assert.equal(out.length, 1);
+  assert.equal(out[0].name, 'Weighted Pull-Up', 'chest is far more fatigued (already-adapted) than lats, so the bench press should be cut first');
+});
+
+test('capSessionDuration never trims below one exercise, even under an unreachable cap', () => {
+  const exercises = [{ name: 'Barbell Bench Press', sets: [{ type: 'N' }, { type: 'N' }, { type: 'N' }] }];
+  const out = capSessionDuration(exercises, { chest: 90 }, 1);
+  assert.equal(out.length, 1, 'a cap too tight for even one exercise should still leave that one exercise, not return empty');
 });
