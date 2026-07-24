@@ -990,18 +990,65 @@ app.post("/sync-token", async (req, res) => {
 // ---------- Personal Journalist ----------
 const TRAINING_ETHOS = "Training philosophy — this is the standing stance, not a menu of options to present neutrally: Effort is non-negotiable. Push hard for training close to true failure, always expressed in concrete RIR (reps in reserve) terms — 'take that set to RIR 0-1', 'RIR 3-4 is too far out, add weight or a rep next time' — never vague language like 'push yourself' or 'go hard'. On any exercise with more than one working set, RIR always decreases set to set — the first working set leaves more in reserve, each subsequent set gets closer to true failure, with the last set at RIR 0-1; never repeat the same RIR across sets of the same exercise. Full-body sessions, 2-4x/week: frequency over volume — fewer working sets per session, volume spread across the week rather than stacked into one session. Fully autoregulated: no rigid periodized templates — adjust load, sets, and exercise choice session to session based on real fatigue and performance, and trigger deloads purely from fatigue/performance data, never a fixed schedule. Progress via double progression — climb reps to the top of the rep range at target RIR, then add weight and drop back down in reps. Reps run 1-9, biased toward the higher end (up to 8-9), since 1-2 reps rarely deliver enough stimulus per set to be worth defaulting to. Favor stable, structured movements (machines, fixed-path, cables) over free-weight variations specifically because they let effort be pushed to true failure without technical form breakdown becoming the limiter — not dogma against barbells, just a preference for whatever lets intensity go higher safely; stick with an exercise as long as double progression keeps working, only rotate it out once progress stalls. Prioritize lagging muscle groups with extra frequency or volume over strong points. Warm up with a couple of ramping sets (roughly 60% then 85% of the working weight) before working sets, adjusted by how the day feels, and rest fully between working sets (about 3-4 minutes) to protect effort quality over session speed. When something hurts or flares up, work around it — swap the offending movement or angle and keep training everything else hard, rather than broadly backing off. Keep cardio/conditioning sessions separate from strength sessions so lifting stimulus never gets diluted by concurrent-training interference. No program should be copied wholesale — build around the individual's recovery, goals, and response. A caloric surplus without real training stimulus adds fat, not muscle.";
 
+// Long-term memory: a small, bounded set of durable facts (training
+// preferences, injuries, equipment, goals) the model itself maintains
+// across conversations, stored in db.profile.mentorMemory and editable in
+// Settings. Bounded so the cost of including it is flat regardless of
+// account age — the opposite of Live data below, which grows with history
+// and is deliberately kept short-window instead. Capped here server-side
+// too, never trusting the model to have honored the limit stated in-prompt.
+const MENTOR_MEMORY_CAP = 20;
+const MENTOR_MEMORY_ENTRY_MAX_LEN = 140;
+
 app.post("/mentor", async (req, res) => {
   if (!process.env.GEMINI_API_KEY) return res.json({ reply: "Add GEMINI_API_KEY to functions/.env to enable the Personal Journalist." });
   const s = db;
   const recentWeights = Object.fromEntries(Object.entries(s.weight || {}).slice(-14));
-  const system = "You are Personal Journalist, " + (s.profile?.name || "the user") + "'s personal peak-performance coach. Be direct, concise (2-4 short sentences). No greeting, no self-introduction, no restating who you are — answer the question directly, every time, including the first message of a conversation. " + TRAINING_ETHOS + " Live data: " + JSON.stringify({ recovery: s.metrics, weights: recentWeights, lifts: s.lifts?.slice(-10), water: s.water, workouts: s.workouts?.slice(-5), thoughts: s.thoughts?.slice(-5) });
+  // 14-day window, not the full history: metrics grows one entry per day
+  // forever, and unlike weights/lifts/workouts/thoughts below it had no cap
+  // at all — on a long-running account that's a large, ever-growing prompt
+  // on every single chat message. Two weeks is enough for the model to read
+  // a real trend (sleep debt, recovery dipping) without the unbounded cost.
+  const recentMetrics = Object.fromEntries(Object.entries(s.metrics || {}).slice(-14));
+  const memory = db.profile?.mentorMemory || [];
+  const memoryBlock = memory.length
+    ? "Known long-term facts about this athlete, from past conversations: " + memory.map(m => "- " + m).join(" ")
+    : "No long-term facts saved about this athlete yet.";
+  const system = "You are Personal Journalist, " + (s.profile?.name || "the user") + "'s personal peak-performance coach. Be direct, concise (2-4 short sentences). No greeting, no self-introduction, no restating who you are — answer the question directly, every time, including the first message of a conversation. "
+    + TRAINING_ETHOS + " " + memoryBlock
+    + " Respond with ONLY a JSON object of the exact shape {\"reply\": string, \"memory\": string[]}. \"reply\" is the visible answer to the athlete — never mention this JSON structure or the memory list inside it. \"memory\" is the FULL current set of durable, worth-remembering facts about this athlete (training preferences, injuries/limitations, equipment access, goals) that should carry into every future conversation: start from the known facts above, add anything new this message reveals, drop anything superseded or no longer true, keep each entry under "
+    + MENTOR_MEMORY_ENTRY_MAX_LEN + " characters and the list under " + MENTOR_MEMORY_CAP + " items. If nothing durable came up this message, return the known facts unchanged. This field is saved silently and never shown to the athlete directly."
+    + " Live data: " + JSON.stringify({ recovery: recentMetrics, weights: recentWeights, lifts: s.lifts?.slice(-10), water: s.water, workouts: s.workouts?.slice(-5), thoughts: s.thoughts?.slice(-5) });
   const recentMessages = req.body.messages.slice(-10);
 
   const mentorMessages = [{ role: "system", content: system }, ...recentMessages];
-  const result = await callGeminiResilient({ messages: mentorMessages, maxTokens: 700 });
-  if (result.ok) return res.json({ reply: result.content });
-  console.error("Gemini mentor error:", result.status, JSON.stringify(result.error));
-  res.json({ reply: "Personal Journalist error: " + (result.error?.message || `Gemini returned ${result.status}`) });
+  // 1500, not the old 700: the memory list alone can now run up to ~700
+  // tokens at its cap (20 items x 140 chars), on top of the reply text and
+  // JSON structure overhead — 700 total left near-zero room for the actual
+  // reply and would trigger a truncation-retry (callGeminiResilient) on
+  // nearly every turn once memory filled up.
+  const result = await callGeminiResilient({ messages: mentorMessages, maxTokens: 1500, jsonMode: true });
+  if (!result.ok) {
+    console.error("Gemini mentor error:", result.status, JSON.stringify(result.error));
+    return res.json({ reply: "Personal Journalist error: " + (result.error?.message || `Gemini returned ${result.status}`) });
+  }
+  let reply = result.content, newMemory = null;
+  try {
+    const parsed = parseGeminiJSON(result.content);
+    if (parsed?.reply) {
+      reply = parsed.reply;
+      if (Array.isArray(parsed.memory)) {
+        newMemory = parsed.memory.filter(Boolean).map(m => String(m).trim().slice(0, MENTOR_MEMORY_ENTRY_MAX_LEN)).slice(0, MENTOR_MEMORY_CAP);
+      }
+    }
+  } catch (e) {
+    // Structured output occasionally comes back malformed — fall back to
+    // showing the raw text rather than losing the reply entirely; memory
+    // simply doesn't update this turn.
+    console.error("[mentor] failed to parse structured reply:", e.message);
+  }
+  if (newMemory) { db.profile = { ...db.profile, mentorMemory: newMemory }; await save(); }
+  res.json({ reply });
 });
 
 // Deterministic — exercise selection is muscle-coverage scoring over

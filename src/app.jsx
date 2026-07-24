@@ -744,6 +744,15 @@ const glycogenPct = (elapsedS, totalS) => {
 // app's first version — everything before this had no changelog at all.
 const CHANGELOG = [
   {
+    version: '0.28',
+    date: '2026-07-24',
+    features: [
+      'Personal Journalist now has persistent memory — it saves durable facts about you (training preferences, injuries, goals) across conversations instead of starting fresh every chat. Editable in Settings.',
+      'Fixed Personal Journalist sometimes timing out and showing "Connection error" on a reply that was actually still coming — the app was giving up sooner than the reply could legitimately take',
+      'Trimmed the health-metrics data Personal Journalist reads to the last 14 days instead of your entire history, keeping every chat message fast regardless of how long you\'ve used the app',
+    ],
+  },
+  {
     version: '0.27',
     date: '2026-07-24',
     features: [
@@ -5169,6 +5178,7 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
   const [sensMuscle, setSensMuscle] = useState(ALL_MUSCLES[0]);
   const [sensValue, setSensValue] = useState('1.0');
   const [savingSens, setSavingSens] = useState(false);
+  const [newMemoryEntry, setNewMemoryEntry] = useState('');
   const [panelOrder, setPanelOrder] = useState(s?.profile?.panelOrder?.length ? s.profile.panelOrder : DEFAULT_PANEL_ORDER);
   const [hiddenPanels, setHiddenPanels] = useState(s?.profile?.hiddenPanels || []);
   const [recoveryTabOrder, setRecoveryTabOrder] = useState(s?.profile?.recoveryTabOrder?.length ? s.profile.recoveryTabOrder : DEFAULT_RECOVERY_TAB_ORDER);
@@ -5240,6 +5250,23 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
     await api(`supplements/${encodeURIComponent(name)}`, { method: 'DELETE' });
     refresh({ ...s, supplements: supplements.filter(sp => sp.name !== name) });
   };
+
+  // mentorMemory lives on the profile (not a dedicated collection like
+  // supplements) — it's automatically maintained by the Personal Journalist
+  // itself turn to turn (see functions/index.js's /mentor), this is just a
+  // manual override on the same field.
+  const mentorMemory = s?.profile?.mentorMemory || [];
+  const saveMentorMemory = async (next) => {
+    const profile = await api('profile', { method: 'POST', body: JSON.stringify({ mentorMemory: next }) });
+    refresh({ ...s, profile });
+  };
+  const addMemoryEntry = () => {
+    const text = newMemoryEntry.trim();
+    if (!text) return;
+    setNewMemoryEntry('');
+    saveMentorMemory([...mentorMemory, text]);
+  };
+  const removeMemoryEntry = (i) => saveMentorMemory(mentorMemory.filter((_, j) => j !== i));
 
   const setMuscleSensitivity = async (muscle, value) => {
     setSavingSens(true);
@@ -5395,6 +5422,25 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
                   {label}
                 </button>
               ))}
+            </div>
+          </div>
+          <div className="prof-field">
+            <span className="prof-lbl">Personal Journalist Memory <span style={{ fontSize: 8, color: 'var(--dim)', textTransform: 'none' }}>(facts it remembers across chats)</span></span>
+            {mentorMemory.length === 0 && (
+              <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)', fontStyle: 'italic' }}>Nothing saved yet — it fills in as you chat.</div>
+            )}
+            {mentorMemory.map((m, i) => (
+              <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 6, marginBottom: 4 }}>
+                <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, flex: 1 }}>{m}</span>
+                <button className="prof-btn" onClick={() => removeMemoryEntry(i)} style={{ fontSize: 8, padding: '2px 8px', flexShrink: 0 }}>✕</button>
+              </div>
+            ))}
+            <div style={{ display: 'flex', gap: 6, marginTop: 4 }}>
+              <input className="prof-input" placeholder="Add a fact manually…" value={newMemoryEntry}
+                onChange={e => setNewMemoryEntry(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') addMemoryEntry(); }}
+                style={{ flex: 1 }} />
+              <button className="prof-btn" onClick={addMemoryEntry} disabled={!newMemoryEntry.trim()} style={{ fontSize: 8, padding: '5px 14px', flexShrink: 0 }}>Add</button>
             </div>
           </div>
         </div>
@@ -5871,7 +5917,12 @@ function MentorChat({ onClose }) {
           method: 'POST',
           body: JSON.stringify({ messages: newMsgs.filter(m => m.role !== 'assistant' || newMsgs.indexOf(m) > 0).map(m => ({ role: m.role, content: m.content })) }),
         }),
-        new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 60_000)),
+        // 130s, not 60s: the backend's Gemini retry chain (callGeminiResilient
+        // — up to 3 attempts at 25s each, ~10s backoff between them, plus one
+        // fallback-model call on persistent 503s) can legitimately take ~120s
+        // in the worst case. A shorter client timeout was giving up on
+        // requests that were still going to succeed server-side.
+        new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 130_000)),
       ]);
       setMsgs(p => [...p, { role: 'assistant', content: data.reply || 'No reply.' }]);
     } catch {
