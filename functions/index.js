@@ -347,6 +347,16 @@ function hevyKey() {
   return process.env.HEVY_API_KEY || functions.config().hevy?.key;
 }
 
+// Maps Hevy's set_type onto the app's own W/N/D vocabulary (SET_TYPES in
+// src/app.jsx). 'failure' has no dedicated slot here, so it's treated as a
+// normal working set like anything else that isn't explicitly a warmup or a
+// dropset — the app tracks effort via RIR/RPE, not a separate failure type.
+function hevySetType(setType) {
+  if (setType === 'warmup') return 'W';
+  if (setType === 'dropset') return 'D';
+  return 'N';
+}
+
 // Source-agnostic: called from every import path (Hevy webhook/backfill, CSV
 // import, parsed-session import) so an exercise name that doesn't resolve to
 // a real EXERCISE_DB entry (via findExercise, which now also checks
@@ -391,13 +401,14 @@ async function ingestWorkout(w) {
     const name = (ex.title || ex.name || "").toLowerCase();
     if (!name) continue;
     for (const set of (ex.sets || [])) {
-      if (set.set_type === "warmup") continue;
       const kg = set.weight_kg ?? (set.weight_lbs ? set.weight_lbs / 2.20462 : 0);
       const reps = set.reps || 0;
       // Deduplicate against all lifts regardless of source
       const isDupe = db.lifts.find(l => l.date === wDate && l.exercise === name && Math.abs((l.kg || 0) - kg) < 0.1 && l.reps === reps);
       if (!isDupe && (kg > 0 || reps > 0)) {
         const entry = { date: wDate, exercise: name, kg: Math.round(kg * 100) / 100, reps, source: "hevy" };
+        const type = hevySetType(set.set_type);
+        if (type !== 'N') entry.type = type;
         if (set.rpe != null) entry.rir = Math.max(0, Math.round((10 - set.rpe) * 10) / 10);
         newEntries.push(entry);
       }
@@ -1127,7 +1138,9 @@ app.post("/import/hevy", async (req, res) => {
     for (const ex of (session.exercises || [])) {
       for (const set of (ex.sets || [])) {
         if ((set.kg || 0) > 0 || (set.reps || 0) > 0) {
-          newLiftEntries.push({ date: session.date, exercise: ex.name, kg: set.kg || 0, reps: set.reps || 0, source: 'hevy' });
+          const entry = { date: session.date, exercise: ex.name, kg: set.kg || 0, reps: set.reps || 0, source: 'hevy' };
+          if (set.type && set.type !== 'N') entry.type = set.type;
+          newLiftEntries.push(entry);
         }
       }
     }
@@ -1350,7 +1363,11 @@ app.post('/session/complete', async (req, res) => {
 
     const newLiftEntries = sets
       .filter(s => s.exercise && s.kg && s.reps)
-      .map(s => ({ exercise: s.exercise, kg: +s.kg, reps: +s.reps, rpe: s.rpe || null, date: workout.date, ...(s.machine ? { machine: s.machine } : {}), ...(s.pulleyType ? { pulleyType: s.pulleyType } : {}) }));
+      .map(s => ({
+        exercise: s.exercise, kg: +s.kg, reps: +s.reps, rpe: s.rpe || null, date: workout.date,
+        ...(s.type && s.type !== 'N' ? { type: s.type } : {}),
+        ...(s.machine ? { machine: s.machine } : {}), ...(s.pulleyType ? { pulleyType: s.pulleyType } : {}),
+      }));
     const isReplacedToday = l => l.date === workout.date && sets.some(s => s.exercise === l.exercise);
     await removeLiftsAndAppend(liftsDocRef, isReplacedToday, newLiftEntries);
     db.lifts = db.lifts.filter(l => !isReplacedToday(l));

@@ -720,6 +720,14 @@ const glycogenPct = (elapsedS, totalS) => {
 // app's first version — everything before this had no changelog at all.
 const CHANGELOG = [
   {
+    version: '0.25',
+    date: '2026-07-24',
+    features: [
+      "Fixed Hevy warm-up sets being silently dropped during import instead of saved — they're now imported and tagged as warm-ups (not lumped in as working sets), so \"Import Hevy\" and the API backfill both bring in your full set history.",
+      'Adding an exercise now autofills the actual previous structure (warm-up sets included) instead of always flattening history into plain working sets.',
+    ],
+  },
+  {
     version: '0.24',
     date: '2026-07-24',
     features: [
@@ -1432,7 +1440,7 @@ function WorkoutLogger({ planDay, lifts, customExercises, experienceLevel, onClo
       setNewCustomExercises(p => p.some(ce => ce.name === key) ? p : [...p, { name: key }]);
     }
     const prev = prevData[key];
-    const sets = prev?.sets?.map(s => ({ type: 'N', kg: String(s.kg || ''), reps: String(s.reps || ''), rpe: '', done: false }))
+    const sets = prev?.sets?.map(s => ({ type: s.type || 'N', kg: String(s.kg || ''), reps: String(s.reps || ''), rpe: '', done: false }))
       || [{ type: 'N', kg: '', reps: '', rpe: '', done: false }];
     setExercises(p => [...p, { name: key, bw: false, targetReps: 8, sets }]);
     setNewEx(''); setSuggestions([]);
@@ -1576,6 +1584,7 @@ function WorkoutLogger({ planDay, lifts, customExercises, experienceLevel, onClo
     const today = todayLocalStr();
     const allSets = valid.flatMap(ex => ex.sets.map(s => ({
       exercise: ex.name, kg: parseFloat(s.kg) || 0, reps: parseInt(s.reps) || 0, rpe: parseInt(s.rpe) || null,
+      ...(s.type && s.type !== 'N' ? { type: s.type } : {}),
       ...(ex.machine ? { machine: ex.machine } : {}),
       ...(ex.pulleyType ? { pulleyType: ex.pulleyType } : {}),
     })));
@@ -1781,7 +1790,7 @@ function WorkoutLogger({ planDay, lifts, customExercises, experienceLevel, onClo
                 {/* Previous performance */}
                 {prev && (
                   <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)', marginBottom: 3 }}>
-                    {localDateFromYMD(prev.date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })} · {prev.sets.map(s => ex.bw ? `BW×${s.reps}` : `${s.kg}×${s.reps}`).join(', ')}
+                    {localDateFromYMD(prev.date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })} · {prev.sets.map(s => `${ex.bw ? `BW×${s.reps}` : `${s.kg}×${s.reps}`}${s.type === 'W' ? 'w' : ''}`).join(', ')}
                   </div>
                 )}
 
@@ -2095,7 +2104,14 @@ function parseHevyCSV(text) {
     if (!map[key].exercises[exName]) map[key].exercises[exName] = [];
     const kg = parseFloat(row['weight_kg'] ?? row['Weight (kg)'] ?? row['Weight']) || 0;
     const reps = parseInt(row['reps'] || row['Reps']) || 0;
-    if (kg > 0 || reps > 0) map[key].exercises[exName].push({ kg, reps });
+    // Hevy's export uses the same set_type vocabulary as its API
+    // (warmup/normal/failure/dropset) — mapped onto the app's W/N/D here so
+    // warmup sets are remembered as warmup sets, not indistinguishable from
+    // working sets (see hevySetType in functions/index.js for the same
+    // mapping on the API import path).
+    const rawType = (row['set_type'] || row['Set Type'] || '').toLowerCase();
+    const type = rawType === 'warmup' ? 'W' : rawType === 'dropset' ? 'D' : 'N';
+    if (kg > 0 || reps > 0) map[key].exercises[exName].push({ kg, reps, type });
   }
   return Object.values(map).map(s => ({
     ...s,
