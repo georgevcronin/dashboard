@@ -1084,7 +1084,14 @@ app.post("/plan/session-exercises", async (req, res) => {
   const cnsFatigue = computeCNSFatigue(lifts, db.cnsSensitivity || 1.0, getRecoveryScore(db));
   const avoidMuscles = Object.entries(currentFatigue).filter(([,v])=>v>FATIGUE_CEILING).map(([m])=>m);
   const avoidMusclesSecondary = Object.entries(currentFatigue).filter(([,v])=>v>SECONDARY_FATIGUE_CEILING).map(([m])=>m);
-  const offlineMuscles = avoidMuscles.filter(m => activeInjuries.some(i => (i.muscles || []).includes(m)));
+  // Self-declared at Onboarding step 5 (editable later) — 'ignore' folds
+  // into offlineMuscles unconditionally (not just when fatigued), the exact
+  // same hard-exclusion mechanism an injury already gets: never a priority
+  // target, and never a primary muscle in any picked exercise, regardless
+  // of current fatigue level.
+  const muscleFocus = db.profile?.muscleFocus || {};
+  const ignoredMuscles = Object.entries(muscleFocus).filter(([,v]) => v === 'ignore').map(([m]) => m);
+  const offlineMuscles = [...new Set([...avoidMuscles.filter(m => activeInjuries.some(i => (i.muscles || []).includes(m))), ...ignoredMuscles])];
   const travelMode = db.profile?.travelMode || false;
   const trainingMonths = trainingMonthsIfKnown(db.profile);
   // Self-reported at onboarding — a real anchor for a brand-new account with
@@ -1094,7 +1101,7 @@ app.post("/plan/session-exercises", async (req, res) => {
 
   if (type === 'lift' && !targetMuscles?.length && !reqBucket) {
     const muscleLastTrainedDays = computeMuscleLastTrainedDays(lifts);
-    const priority = computeMusclePriority(currentFatigue, offlineMuscles, muscleLastTrainedDays);
+    const priority = computeMusclePriority(currentFatigue, offlineMuscles, muscleLastTrainedDays, muscleFocus);
 
     // Explicit choice always wins; auto-detect only fills in a default for
     // an account that's never set one — never silently overrides a real
@@ -1158,7 +1165,7 @@ app.post("/plan/session-exercises", async (req, res) => {
   let bucket = reqBucket || null;
 
   if (type === 'lift' && !targetMuscles?.length) {
-    const priority = computeMusclePriority(currentFatigue, offlineMuscles);
+    const priority = computeMusclePriority(currentFatigue, offlineMuscles, null, muscleFocus);
     const buckets = Object.entries(MUSCLE_GROUPS)
       .map(([name, muscles]) => { const scored = scoreBucket(muscles, priority); return scored ? { name, ...scored } : null; })
       .filter(Boolean)
@@ -1273,8 +1280,10 @@ function computeWeeklyGuidance() {
   const weekMetabolic = computeMetabolicFatigue(db.lifts, (db.nutrition || {})[day()]?.carbs || 0);
   const weekCNS = computeCNSFatigue(db.lifts, db.cnsSensitivity || 1.0, getRecoveryScore(db));
   const maturityWeek = computeDataMaturity(db.lifts);
+  const muscleFocus = db.profile?.muscleFocus || {};
+  const ignoredMuscles = Object.entries(muscleFocus).filter(([,v]) => v === 'ignore').map(([m]) => m);
   return generateWeeklyGuidance({
-    currentFatigue, weekMetabolic, weekCNS, offlineMuscles: [],
+    currentFatigue, weekMetabolic, weekCNS, offlineMuscles: ignoredMuscles,
     dataMature: maturityWeek.hasEnoughData,
     trainingPriority: db.profile?.trainingPriority || 'strength',
     muscleLastTrainedDays: computeMuscleLastTrainedDays(db.lifts),
@@ -1283,6 +1292,7 @@ function computeWeeklyGuidance() {
     // resolution — the guidance display and the session it's previewing
     // must agree on which split is actually in effect.
     preferredSplit: db.profile?.preferredSplit || detectPreferredSplit(db.lifts) || 'Full Body',
+    muscleFocus,
   });
 }
 

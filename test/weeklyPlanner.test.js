@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const {
   computeMusclePriority, scoreBucket, generateWeeklyGuidance,
   pickBackboneExercises, planLiftSessionsTarget, planCardioSessionsTarget,
-  stalenessBoost, MUSCLE_GROUPS, FATIGUE_CEILING,
+  stalenessBoost, MUSCLE_GROUPS, FATIGUE_CEILING, FOCUS_MUSCLE_BONUS,
 } = require('../functions/weeklyPlanner');
 
 test('computeMusclePriority marks offline muscles as -1 regardless of fatigue', () => {
@@ -16,6 +16,27 @@ test('computeMusclePriority marks muscles at/over the fatigue ceiling as -1', ()
   assert.equal(priority.quads, -1);
   const priorityBelow = computeMusclePriority({ quads: FATIGUE_CEILING - 1 }, []);
   assert.ok(priorityBelow.quads >= 0);
+});
+
+test('computeMusclePriority gives a self-declared "focus" muscle a flat priority bonus', () => {
+  const priority = computeMusclePriority({ quads: 40, chest: 40 }, [], null, { quads: 'focus' });
+  assert.equal(priority.quads, 60 + FOCUS_MUSCLE_BONUS);
+  assert.equal(priority.chest, 60, 'a muscle not marked focus should be unaffected');
+});
+
+test('a "focus" bonus cannot rescue a muscle that is still over the fatigue ceiling', () => {
+  const priority = computeMusclePriority({ quads: FATIGUE_CEILING }, [], null, { quads: 'focus' });
+  assert.equal(priority.quads, -1, 'hard exclusion wins over an additive bonus');
+});
+
+test('computeMusclePriority does not itself special-case "ignore" — that is the caller\'s job via offlineMuscles', () => {
+  // Confirms the documented split of responsibility: computeMusclePriority
+  // only ever sees an 'ignore' value through the muscleFocus param for the
+  // (irrelevant) focus-bonus check; ignoring a muscle happens by the caller
+  // folding it into offlineMuscles instead, so passing 'ignore' here alone
+  // should NOT exclude the muscle.
+  const priority = computeMusclePriority({ quads: 40 }, [], null, { quads: 'ignore' });
+  assert.equal(priority.quads, 60, 'muscleFocus:"ignore" alone (without also being in offlineMuscles) should not exclude');
 });
 
 test('scoreBucket returns null when every muscle in the bucket is unavailable', () => {

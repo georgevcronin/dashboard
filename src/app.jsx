@@ -23,7 +23,7 @@ import { AreaChart, BarChart, Sparkline, AdaptationChart } from './charts.jsx';
 // couldn't see at all). One implementation, bundled into both. EXERCISE_DB
 // itself is imported separately for the session-logging autocomplete, which
 // needs the full exercise name list rather than a derived lookup.
-const { ALL_MUSCLES, musclesForExercise, isCompoundExercise, findExercise } = muscleTaxonomyPkg;
+const { ALL_MUSCLES, PRIMARY_MUSCLES, musclesForExercise, isCompoundExercise, findExercise } = muscleTaxonomyPkg;
 const { computeStructuralFatigue, computeACWR, computePerformanceTrend, computeMetabolicFatigue, computeCNSFatigue, cnsLoad } = fatiguePkg;
 const { progressionFor, suggestedWorkingSetCount, suggestedRirSequence, isLowRepPattern, LOW_REP_THRESHOLD } = sessionPlannerPkg;
 const { e1rm: calcE1RM } = strengthStandardsPkg;
@@ -743,6 +743,13 @@ const glycogenPct = (elapsedS, totalS) => {
 // instead of the list. v0.1 is the first tracked release, not literally the
 // app's first version — everything before this had no changelog at all.
 const CHANGELOG = [
+  {
+    version: '0.30',
+    date: '2026-07-24',
+    features: [
+      'Added a Muscle Focus step to onboarding — mark any muscle Focus (extra priority when picking what to train) or Ignore (excluded from fatigue tracking and never picked as a target) instead of the app treating everything equally.',
+    ],
+  },
   {
     version: '0.29',
     date: '2026-07-24',
@@ -4653,7 +4660,7 @@ function S7({ s }) {
 const TRAINING_SPLITS = ['Full Body', 'Upper / Lower', 'Push / Pull / Legs', 'Arnold Split', 'PPL Arnold', 'Other'];
 
 function Onboarding({ onComplete, onOpenImport }) {
-  const TOTAL = 7;
+  const TOTAL = 8;
   const [step, setStep] = useState(0);
   const [echelon, setEchelon] = useState('full');
 
@@ -4665,6 +4672,14 @@ function Onboarding({ onComplete, onOpenImport }) {
   const [favoriteInput, setFavoriteInput] = useState('');
   const [favorites, setFavorites] = useState([]);
   const [experienceLevel, setExperienceLevel] = useState('');
+
+  // Step 5 (muscle focus) -- 'focus' | 'ignore', absent = normal. 'focus'
+  // gives a real priority boost in session generation (FOCUS_MUSCLE_BONUS,
+  // functions/weeklyPlanner.js); 'ignore' hard-excludes the muscle from
+  // both fatigue/freshness scales and being a primary target in any
+  // generated session (folded into offlineMuscles server-side, same
+  // mechanism as an injury).
+  const [muscleFocus, setMuscleFocus] = useState({});
 
   // Step 1
   const [name, setName] = useState('');
@@ -4746,6 +4761,10 @@ function Onboarding({ onComplete, onOpenImport }) {
     await api('profile', { method: 'POST', body: JSON.stringify({ trainingBackground, experienceLevel: experienceLevel || undefined }) }).catch(() => {});
   };
 
+  const saveStep5 = async () => {
+    await api('profile', { method: 'POST', body: JSON.stringify({ muscleFocus }) }).catch(() => {});
+  };
+
   const advance = async () => {
     setSaving(true);
     try {
@@ -4753,6 +4772,7 @@ function Onboarding({ onComplete, onOpenImport }) {
       if (step === 2) await saveStep2();
       if (step === 3) await api('profile', { method: 'POST', body: JSON.stringify({ trackingLevel: echelon }) }).catch(() => {});
       if (step === 4) await saveStep4();
+      if (step === 5) await saveStep5();
     } catch {}
     setSaving(false);
     setStep(s => s + 1);
@@ -4997,8 +5017,40 @@ function Onboarding({ onComplete, onOpenImport }) {
           </>
         )}
 
-        {/* ── STEP 5: CONNECT SERVICES ── */}
+        {/* ── STEP 5: MUSCLE FOCUS ── */}
         {step === 5 && (
+          <>
+            <div className="ob-h">Muscle focus</div>
+            <div className="ob-deck">
+              Focus gives a muscle extra priority when picking what's freshest to train. Ignore takes it off the board entirely — no fatigue tracking, never picked as a target. Everything defaults to Normal; only set what you actually want to change.
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 2, marginBottom: 20 }}>
+              {PRIMARY_MUSCLES.map(m => {
+                const val = muscleFocus[m] || 'normal';
+                return (
+                  <div key={m} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0', borderBottom: '1px solid var(--paper2)' }}>
+                    <span style={{ flex: 1, fontFamily: "'JetBrains Mono',monospace", fontSize: 11, textTransform: 'capitalize' }}>{muscleDisplayLabel(m)}</span>
+                    <div style={{ display: 'flex', gap: 4 }}>
+                      {['focus', 'normal', 'ignore'].map(opt => (
+                        <button key={opt} className={`prof-btn${val === opt ? ' solid' : ''}`} style={{ fontSize: 8, padding: '4px 8px', textTransform: 'capitalize' }}
+                          onClick={() => setMuscleFocus(p => opt === 'normal' ? { ...p, [m]: undefined } : { ...p, [m]: opt })}>
+                          {opt}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            <div className="ob-nav">
+              <button className="ob-back" onClick={() => setStep(4)}>← Back</button>
+              <button className="ob-next" onClick={advance} disabled={saving}>{saving ? 'Saving…' : 'Continue'}</button>
+            </div>
+          </>
+        )}
+
+        {/* ── STEP 6: CONNECT SERVICES ── */}
+        {step === 6 && (
           <>
             <div className="ob-h">Connect Services</div>
             <div className="ob-deck">Optional — you can always connect these later from the Profile page.</div>
@@ -5101,14 +5153,14 @@ function Onboarding({ onComplete, onOpenImport }) {
             </div>
 
             <div className="ob-nav">
-              <button className="ob-back" onClick={() => setStep(4)}>← Back</button>
-              <button className="ob-next" onClick={() => setStep(6)}>Continue</button>
+              <button className="ob-back" onClick={() => setStep(5)}>← Back</button>
+              <button className="ob-next" onClick={() => setStep(7)}>Continue</button>
             </div>
           </>
         )}
 
-        {/* ── STEP 6: ALL SET ── */}
-        {step === 6 && (
+        {/* ── STEP 7: ALL SET ── */}
+        {step === 7 && (
           <>
             <div className="ob-logo" style={{ fontSize: 'clamp(36px,9vw,60px)' }}>You're set up.</div>
             <div className="ob-sub" style={{ marginBottom: 6 }}>Press is ready.</div>

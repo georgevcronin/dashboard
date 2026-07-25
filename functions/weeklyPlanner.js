@@ -123,22 +123,33 @@ function stalenessBoost(daysSinceLastTrained) {
   return Math.min(60, 35 + (d - 21) * 2);
 }
 
-// Per-muscle priority: -1 means "do not load right now" (injured or already
-// at/over the fatigue ceiling); otherwise higher = fresher/more-overdue =
-// more deserving of stimulus. Called live at guidance time and again at
-// session-start time — never cached against a specific day, since fatigue
-// moves session to session. muscleLastTrainedDays is optional (null skips
-// the staleness boost entirely, e.g. for callers that don't have lift
+// Self-declared "focus" muscle (Onboarding step 5 / db.profile.muscleFocus,
+// editable later) — an explicit "I want extra frequency/volume here" signal
+// the athlete gives directly, additive on top of the fatigue-freshness
+// score same as stalenessBoost, so it nudges ranking without overriding a
+// muscle that's still genuinely too fatigued to load (that's a hard -1
+// exclusion below, a flat bonus can't undo it). "Ignore" is not handled
+// here at all — it's folded into offlineMuscles by the caller (same hard
+// exclusion as an injury), not a priority adjustment.
+const FOCUS_MUSCLE_BONUS = 25;
+
+// Per-muscle priority: -1 means "do not load right now" (injured, ignored,
+// or already at/over the fatigue ceiling); otherwise higher = fresher/more-
+// overdue = more deserving of stimulus. Called live at guidance time and
+// again at session-start time — never cached against a specific day, since
+// fatigue moves session to session. muscleLastTrainedDays is optional (null
+// skips the staleness boost entirely, e.g. for callers that don't have lift
 // history handy) — passing it blends in atrophy-risk prioritization from
 // computeMuscleLastTrainedDays (functions/fatigue.js).
-function computeMusclePriority(currentFatigue, offlineMuscles, muscleLastTrainedDays = null) {
+function computeMusclePriority(currentFatigue, offlineMuscles, muscleLastTrainedDays = null, muscleFocus = {}) {
   const priority = {};
   for (const m of PRIMARY_MUSCLES) {
     if (offlineMuscles.includes(m)) { priority[m] = -1; continue; }
     const fatigue = currentFatigue[m] || 0;
     if (fatigue >= FATIGUE_CEILING) { priority[m] = -1; continue; }
     const boost = muscleLastTrainedDays ? stalenessBoost(muscleLastTrainedDays[m]) : 0;
-    priority[m] = (100 - fatigue) + boost;
+    const focusBoost = muscleFocus[m] === 'focus' ? FOCUS_MUSCLE_BONUS : 0;
+    priority[m] = (100 - fatigue) + boost + focusBoost;
   }
   return priority;
 }
@@ -226,8 +237,8 @@ function focusGroups(preferredSplit) {
 // atrophy-risk prioritization that /plan/session-exercises's full-body
 // auto-pick actually uses, rather than the display showing plain fatigue-
 // freshness while session generation weighs staleness too.
-function generateWeeklyGuidance({ currentFatigue, weekMetabolic, weekCNS, offlineMuscles, dataMature, trainingPriority = 'strength', muscleLastTrainedDays = null, preferredSplit = 'Full Body' }) {
-  const priority = computeMusclePriority(currentFatigue || {}, offlineMuscles || [], muscleLastTrainedDays);
+function generateWeeklyGuidance({ currentFatigue, weekMetabolic, weekCNS, offlineMuscles, dataMature, trainingPriority = 'strength', muscleLastTrainedDays = null, preferredSplit = 'Full Body', muscleFocus = {} }) {
+  const priority = computeMusclePriority(currentFatigue || {}, offlineMuscles || [], muscleLastTrainedDays, muscleFocus);
   const groups = focusGroups(preferredSplit);
 
   const buckets = Object.entries(groups)
@@ -257,5 +268,5 @@ function generateWeeklyGuidance({ currentFatigue, weekMetabolic, weekCNS, offlin
 
 module.exports = {
   generateWeeklyGuidance, pickBackboneExercises, computeMusclePriority, scoreBucket, planLiftSessionsTarget, planCardioSessionsTarget,
-  stalenessBoost, MUSCLE_GROUPS, FATIGUE_CEILING, SECONDARY_FATIGUE_CEILING, TRAINING_PRIORITIES,
+  stalenessBoost, MUSCLE_GROUPS, FATIGUE_CEILING, SECONDARY_FATIGUE_CEILING, FOCUS_MUSCLE_BONUS, TRAINING_PRIORITIES,
 };
