@@ -219,8 +219,8 @@ section.visible .fade:nth-child(6){transition-delay:.56s}
 .cam-frame::after{bottom:-2px;right:-2px;border-width:0 3px 3px 0}
 .cam-lbl{position:absolute;bottom:100px;left:0;right:0;text-align:center;font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:rgba(255,255,255,.7)}
 .cam-close{position:absolute;top:20px;right:20px;background:rgba(0,0,0,.6);border:1px solid rgba(255,255,255,.3);color:#fff;font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.1em;text-transform:uppercase;padding:8px 14px;cursor:pointer}
-.portion-row{display:flex;align-items:center;gap:10px;margin:6px 0}
-.portion-btn{width:24px;height:24px;border:1px solid var(--rule);background:none;cursor:pointer;font-family:'JetBrains Mono',monospace;font-size:14px;display:flex;align-items:center;justify-content:center;color:var(--ink)}
+.portion-row{display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin:6px 0}
+.portion-btn{width:auto;height:auto;min-width:24px;border:1px solid var(--rule);background:none;cursor:pointer;font-family:'JetBrains Mono',monospace;font-size:9px;white-space:nowrap;display:flex;align-items:center;justify-content:center;padding:5px 9px;color:var(--ink)}
 .briefing-overlay{position:fixed;inset:0;z-index:1100;background:var(--paper);display:flex;flex-direction:column;overflow-y:auto}
 .briefing-hdr{background:var(--ink);color:var(--paper);padding:12px 16px;display:flex;justify-content:space-between;align-items:center;flex-shrink:0;position:sticky;top:0;z-index:1}
 .briefing-masthead{font-family:'Playfair Display',serif;font-size:14px;font-weight:700;letter-spacing:.04em}

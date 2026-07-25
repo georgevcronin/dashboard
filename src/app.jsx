@@ -744,6 +744,13 @@ const glycogenPct = (elapsedS, totalS) => {
 // app's first version — everything before this had no changelog at all.
 const CHANGELOG = [
   {
+    version: '0.31',
+    date: '2026-07-25',
+    features: [
+      'Fixed the Small/Medium/Large portion buttons overlapping their own labels — they were still sized for the old short "×1.5" style buttons.',
+    ],
+  },
+  {
     version: '0.30',
     date: '2026-07-24',
     features: [
