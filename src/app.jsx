@@ -25,7 +25,7 @@ import { AreaChart, BarChart, Sparkline, AdaptationChart } from './charts.jsx';
 // needs the full exercise name list rather than a derived lookup.
 const { ALL_MUSCLES, PRIMARY_MUSCLES, musclesForExercise, isCompoundExercise, findExercise } = muscleTaxonomyPkg;
 const { computeStructuralFatigue, computeACWR, computePerformanceTrend, computeMetabolicFatigue, computeCNSFatigue, cnsLoad } = fatiguePkg;
-const { progressionFor, suggestedWorkingSetCount, suggestedRirSequence, isLowRepPattern, LOW_REP_THRESHOLD } = sessionPlannerPkg;
+const { progressionFor, suggestedWorkingSetCount, suggestedRirSequence, isLowRepPattern, LOW_REP_THRESHOLD, estimateSessionDurationMin, capSessionDuration } = sessionPlannerPkg;
 const { e1rm: calcE1RM } = strengthStandardsPkg;
 const { defaultMachineBrands } = machineBrandsPkg;
 const {
@@ -743,6 +743,13 @@ const glycogenPct = (elapsedS, totalS) => {
 // instead of the list. v0.1 is the first tracked release, not literally the
 // app's first version — everything before this had no changelog at all.
 const CHANGELOG = [
+  {
+    version: '0.34',
+    date: '2026-07-25',
+    features: [
+      "Fixed the session Max Length slider only applying after clicking Refresh Guidance — dragging it now updates the exercise list and estimated length instantly, no round-trip.",
+    ],
+  },
   {
     version: '0.33',
     date: '2026-07-25',
@@ -2630,38 +2637,48 @@ function S3({ s, onStartWorkout, onImport, onHistory, refresh }) {
   // schedule to read back, this always reflects fatigue right now. Auto-picks
   // the freshest muscle group unless the athlete has overridden that choice
   // via the muscle-focus chips below.
-  const [preloadedExercises, setPreloadedExercises] = useState(null);
+  const [rawExercises, setRawExercises] = useState([]);
+  const [currentFatigueMap, setCurrentFatigueMap] = useState({});
   const [pickedBucket, setPickedBucket] = useState(null);
   const [preloading, setPreloading] = useState(false);
   const [splitNeglected, setSplitNeglected] = useState([]);
-  const [estimatedDurationMin, setEstimatedDurationMin] = useState(null);
-  // Committed cap — what regeneration actually uses. Only changes when
-  // Refresh Guidance is clicked (see generatePlan below), not on every drag
-  // of the slider, which only updates sliderDraft for display.
-  const maxDurationMin = s?.profile?.maxSessionDurationMin ?? 60;
-  const [sliderDraft, setSliderDraft] = useState(maxDurationMin);
+  // Persisted per-athlete so it sticks across visits (saved in generatePlan
+  // below) — the slider itself doesn't wait for that, though: it's purely
+  // reactive against whatever was last fetched, see displayedExercises.
+  const [sliderDraft, setSliderDraft] = useState(s?.profile?.maxSessionDurationMin ?? 60);
   useEffect(() => {
     setPreloading(true);
-    setPreloadedExercises(null);
+    setRawExercises([]);
     const body = selectedBucket
-      ? { type: 'lift', targetMuscles: selectedBucket.muscles, bucket: selectedBucket.name, maxDurationMin }
-      : { type: 'lift', maxDurationMin };
+      ? { type: 'lift', targetMuscles: selectedBucket.muscles, bucket: selectedBucket.name }
+      : { type: 'lift' };
     authFetch(`${API_BASE}/plan/session-exercises`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     }).then(r => r.json()).then(data => {
-      setPreloadedExercises(data.exercises || []);
+      setRawExercises(data.exercises || []);
+      setCurrentFatigueMap(data.currentFatigue || {});
       setPickedBucket(data.bucket ? { name: data.bucket, muscles: data.targetMuscles, backboneExercises: data.backboneExercises } : null);
       setSplitNeglected(data.neglectedMuscles || []);
-      setEstimatedDurationMin(data.estimatedDurationMin ?? null);
       setPreloading(false);
     }).catch(() => setPreloading(false));
-  }, [selectedBucket?.name, maxDurationMin]);
+  }, [selectedBucket?.name]);
+
+  // Truly reactive: recomputed instantly as the slider moves, no server
+  // round-trip. capSessionDuration/estimateSessionDurationMin are the exact
+  // same pure functions the backend uses (functions/sessionPlanner.js,
+  // bundled into the frontend via esbuild) — run here against whichever
+  // exercise list + fatigue reading was last fetched, not re-fetched.
+  const displayedExercises = useMemo(
+    () => capSessionDuration(rawExercises, currentFatigueMap, sliderDraft),
+    [rawExercises, currentFatigueMap, sliderDraft]
+  );
+  const estimatedDurationMin = displayedExercises.length ? estimateSessionDurationMin(displayedExercises) : null;
 
   const generatePlan = async () => {
     setGenning(true);
     const requests = [authFetch(`${API_BASE}/plan/week`, { method: 'POST' })];
-    if (sliderDraft !== maxDurationMin) {
+    if (sliderDraft !== (s?.profile?.maxSessionDurationMin ?? 60)) {
       requests.push(api('profile', { method: 'POST', body: JSON.stringify({ maxSessionDurationMin: sliderDraft }) }));
     }
     await Promise.all(requests);
@@ -2746,7 +2763,7 @@ function S3({ s, onStartWorkout, onImport, onHistory, refresh }) {
         )}
 
         <div style={{ paddingTop: guidance ? 8 : 0 }}>
-          {pickedBucket?.name && preloadedExercises?.length > 0 && (
+          {pickedBucket?.name && displayedExercises?.length > 0 && (
             <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--gold)', textTransform: 'capitalize', marginBottom: 6, display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
               <span>{selectedBucket ? 'Selected' : 'Freshest right now'}: {pickedBucket.name}</span>
               {estimatedDurationMin != null && <span style={{ color: 'var(--dim)' }}>~{estimatedDurationMin} min</span>}
@@ -2758,9 +2775,9 @@ function S3({ s, onStartWorkout, onImport, onHistory, refresh }) {
               style={{ flex: 1, accentColor: 'var(--ink)' }} />
             <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, color: 'var(--dim)', minWidth: 44, textAlign: 'right' }}>{sliderDraft} min</span>
           </div>
-          {preloadedExercises?.length > 0 && (
+          {displayedExercises?.length > 0 && (
             <div style={{ marginBottom: 10 }}>
-              {preloadedExercises.map((ex, i) => {
+              {displayedExercises.map((ex, i) => {
                 // Exclude warmup sets ('W') from the summary — prog.suggestKg > 0
                 // (real prior history) prepends 2 warmups ahead of the working
                 // sets, and counting/describing those in the headline made the
@@ -2781,7 +2798,7 @@ function S3({ s, onStartWorkout, onImport, onHistory, refresh }) {
           {preloading && (
             <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)', marginBottom: 8 }}>Preparing exercises…</div>
           )}
-          {!preloading && preloadedExercises?.length === 0 && (
+          {!preloading && displayedExercises?.length === 0 && (
             <div style={{ fontSize: 11, color: 'var(--dim)', fontStyle: 'italic', marginBottom: 8 }}>No fresh muscle group available right now — Freestyle, or rest and try again later.</div>
           )}
           {!preloading && splitNeglected.length > 0 && (
@@ -2790,8 +2807,8 @@ function S3({ s, onStartWorkout, onImport, onHistory, refresh }) {
             </div>
           )}
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-            <button className="action-btn primary" disabled={!preloadedExercises?.length}
-              onClick={() => onStartWorkout({ sessions: [{ type: 'lift', targetMuscles: pickedBucket?.muscles, backboneExercises: pickedBucket?.backboneExercises }], preloadedExercises })}>
+            <button className="action-btn primary" disabled={!displayedExercises?.length}
+              onClick={() => onStartWorkout({ sessions: [{ type: 'lift', targetMuscles: pickedBucket?.muscles, backboneExercises: pickedBucket?.backboneExercises }], preloadedExercises: displayedExercises })}>
               Start Session
             </button>
             <button className="action-btn" onClick={() => onStartWorkout(null)}>Freestyle</button>

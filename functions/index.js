@@ -1197,6 +1197,13 @@ app.post("/plan/session-exercises", async (req, res) => {
       exercises, targetMuscles, backboneExercises: exercises.map(e => e.name), bucket: 'full body', preferredSplit,
       neglectedMuscles: neglectedMuscles(preferredSplit, muscleLastTrainedDays),
       estimatedDurationMin: estimateSessionDurationMin(exercises),
+      // currentFatigue: lets the frontend re-run capSessionDuration itself
+      // as the Max Length slider moves, instantly, instead of a network
+      // round-trip per drag tick — see S3's displayedExercises in
+      // src/app.jsx. Harmless to expose: it's this athlete's own data,
+      // already implicitly visible via the freshness percentages shown
+      // elsewhere on the same screen.
+      currentFatigue,
     });
   }
 
@@ -1219,7 +1226,7 @@ app.post("/plan/session-exercises", async (req, res) => {
     type, targetMuscles, backboneExerciseNames: backboneExercises, lifts, travelMode,
     avoidMuscles, avoidMusclesSecondary, offlineMuscles, cnsFatigue, metabolicFatigue, trainingMonths, favoriteExercises,
   }), currentFatigue, maxDurationMin);
-  res.json({ exercises, targetMuscles: targetMuscles || [], backboneExercises: backboneExercises || [], bucket, estimatedDurationMin: estimateSessionDurationMin(exercises) });
+  res.json({ exercises, targetMuscles: targetMuscles || [], backboneExercises: backboneExercises || [], bucket, estimatedDurationMin: estimateSessionDurationMin(exercises), currentFatigue });
 });
 
 app.get('/progression/:exercise', async (req, res) => {
