@@ -744,6 +744,13 @@ const glycogenPct = (elapsedS, totalS) => {
 // app's first version — everything before this had no changelog at all.
 const CHANGELOG = [
   {
+    version: '0.33',
+    date: '2026-07-25',
+    features: [
+      "Added a way to cross off a logged meal (removes it and unwinds it from the day's totals, not just a visual hide) and a History tab showing the last 7 days of logged meals.",
+    ],
+  },
+  {
     version: '0.32',
     date: '2026-07-25',
     features: [
@@ -2962,6 +2969,9 @@ function S4({ s, refresh }) {
   const [templatesLoaded, setTemplatesLoaded] = useState(false);
   const [templateName, setTemplateName] = useState('');
   const [savingTemplate, setSavingTemplate] = useState(false);
+  const [historyLog, setHistoryLog] = useState([]);
+  const [historyLoaded, setHistoryLoaded] = useState(false);
+  const [expandedHistoryDate, setExpandedHistoryDate] = useState(null);
 
   const [camOpen, setCamOpen] = useState(false);
   const [camErr, setCamErr] = useState('');
@@ -3183,6 +3193,15 @@ function S4({ s, refresh }) {
     await api(`nutrition/log/${id}`, { method: 'PATCH', body: JSON.stringify({ time }) });
   };
 
+  // Cross off a logged meal — removes it and unwinds it from the day's
+  // running totals (server does the actual subtraction; nutritionToday
+  // here just mirrors what it returns rather than recomputing locally).
+  const deleteMealEntry = async (id) => {
+    if (!id) return;
+    const data = await api(`nutrition/log/${id}`, { method: 'DELETE' });
+    refresh({ ...s, nutritionToday: data.nutritionToday, nutritionLog: (s?.nutritionLog || []).filter(e => e.id !== id) });
+  };
+
   const logWater = async (delta) => {
     const data = await api('water', { method: 'POST', body: JSON.stringify({ delta }) });
     refresh({ ...s, waterToday: data.today });
@@ -3207,6 +3226,24 @@ function S4({ s, refresh }) {
     setTemplates(t => t.filter(x => x.name !== name));
   };
 
+  const loadHistory = async () => {
+    if (historyLoaded) return;
+    const d = await api('nutrition/history?days=7');
+    setHistoryLog(d.log || []);
+    setHistoryLoaded(true);
+  };
+
+  const deleteHistoryEntry = async (id) => {
+    if (!id) return;
+    const data = await api(`nutrition/log/${id}`, { method: 'DELETE' });
+    setHistoryLog(h => h.filter(e => e.id !== id));
+    // The deleted entry might be today's, in which case the log/totals
+    // shown on the Log tab need to stay in sync too.
+    if ((s?.nutritionLog || []).some(e => e.id === id)) {
+      refresh({ ...s, nutritionToday: data.nutritionToday, nutritionLog: (s?.nutritionLog || []).filter(e => e.id !== id) });
+    }
+  };
+
   const saveAsTemplate = async () => {
     const nm = templateName.trim();
     if (!nm || (!calories && !protein)) return;
@@ -3223,6 +3260,7 @@ function S4({ s, refresh }) {
     setFoodTab(t);
     if (t === 'recent') loadRecent();
     if (t === 'templates') loadTemplates();
+    if (t === 'history') loadHistory();
   };
 
   const tabStyle = (t) => ({
@@ -3287,7 +3325,7 @@ function S4({ s, refresh }) {
 
         {/* Tabs */}
         <div style={{ display: 'flex', borderBottom: '1px solid var(--rule)', marginBottom: 12 }}>
-          {[['log','Log'],['recent','Recent'],['templates','Templates']].map(([t,l]) => (
+          {[['log','Log'],['recent','Recent'],['templates','Templates'],['history','History']].map(([t,l]) => (
             <button key={t} style={tabStyle(t)} onClick={() => switchTab(t)}>{l}</button>
           ))}
         </div>
@@ -3468,7 +3506,7 @@ function S4({ s, refresh }) {
               <>
                 <div className="rule-thin" />
                 <table className="data-table">
-                  <thead><tr><th>Meal</th><th>Time</th><th>Pro</th><th>kcal</th></tr></thead>
+                  <thead><tr><th>Meal</th><th>Time</th><th>Pro</th><th>kcal</th><th /></tr></thead>
                   <tbody>
                     {todayLog.map((m, i) => (
                       <tr key={i}>
@@ -3486,6 +3524,14 @@ function S4({ s, refresh }) {
                         </td>
                         <td className="up">{m.protein ? `${m.protein}g` : '—'}</td>
                         <td className="hi">{m.calories || '—'}</td>
+                        <td>
+                          {m.id && (
+                            <button onClick={() => deleteMealEntry(m.id)} aria-label={`Cross off ${m.label || m.name || 'meal'}`}
+                              style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 11, border: 'none', background: 'none', color: 'var(--dim)', cursor: 'pointer', padding: '4px 6px' }}>
+                              ×
+                            </button>
+                          )}
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -3568,6 +3614,54 @@ function S4({ s, refresh }) {
                 </div>
               );
             })}
+          </div>
+        )}
+
+        {/* HISTORY TAB — last 7 days */}
+        {foodTab === 'history' && (
+          <div>
+            {!historyLoaded && <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, color: 'var(--dim)' }}>Loading…</div>}
+            {historyLoaded && historyLog.length === 0 && (
+              <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, color: 'var(--dim)' }}>Nothing logged in the last 7 days.</div>
+            )}
+            {(() => {
+              const byDate = {};
+              for (const m of historyLog) (byDate[m.date] ||= []).push(m);
+              const dates = Object.keys(byDate).sort().reverse();
+              return dates.map(d => {
+                const meals = byDate[d];
+                const totals = meals.reduce((a, m) => ({ calories: a.calories + (m.calories || 0), protein: a.protein + (m.protein || 0) }), { calories: 0, protein: 0 });
+                const isOpen = expandedHistoryDate === d;
+                return (
+                  <div key={d} className="hist-row" onClick={() => setExpandedHistoryDate(isOpen ? null : d)}>
+                    <div className="hist-row-hdr">
+                      <span className="hist-date">{d}</span>
+                      <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 11, color: 'var(--ink)' }}>{meals.length} meal{meals.length !== 1 ? 's' : ''} · {totals.protein}g P · {totals.calories}kcal</span>
+                      <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)', marginLeft: 'auto' }}>{isOpen ? '▲' : '▸'}</span>
+                    </div>
+                    {isOpen && (
+                      <div className="hist-detail">
+                        {meals.map((m, i) => (
+                          <div key={i} className="hist-ex" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                            <span>
+                              {m.time ? `${m.time} · ` : ''}{m.label || m.name || 'Meal'}
+                              {m.protein ? ` · ${m.protein}g P` : ''} · {m.calories || 0}kcal
+                              {m.description && <div style={{ fontSize: 8, color: 'var(--dim)', marginTop: 1 }}>{m.description}</div>}
+                            </span>
+                            {m.id && (
+                              <button onClick={e => { e.stopPropagation(); deleteHistoryEntry(m.id); }} aria-label={`Cross off ${m.label || m.name || 'meal'}`}
+                                style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 11, border: 'none', background: 'none', color: 'var(--dim)', cursor: 'pointer', padding: '4px 6px', flexShrink: 0 }}>
+                                ×
+                              </button>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              });
+            })()}
           </div>
         )}
       </div>

@@ -906,6 +906,38 @@ app.patch("/nutrition/log/:id", async (req, res) => {
   await save();
   res.json({ ok: true, entry });
 });
+// "Cross off" a logged meal — removes it from the log and unwinds its
+// macros from that date's daily total (the exact inverse of /nutrition's
+// additive update), not just a client-side hide. Clamped at 0 rather than
+// letting the day's total go negative if it's ever out of sync with the
+// log (shouldn't happen, but the totals are a separate running sum from
+// the log entries, not derived from them, so nothing guarantees it).
+app.delete("/nutrition/log/:id", async (req, res) => {
+  db.nutritionLog = db.nutritionLog || [];
+  const idx = db.nutritionLog.findIndex(e => e.id === req.params.id);
+  if (idx === -1) return res.status(404).json({ error: 'entry not found' });
+  const [entry] = db.nutritionLog.splice(idx, 1);
+  const k = entry.date;
+  if (db.nutrition?.[k]) {
+    for (const m of ["protein", "carbs", "fat", "calories"]) {
+      db.nutrition[k][m] = Math.max(0, (db.nutrition[k][m] || 0) - (entry[m] || 0));
+    }
+  }
+  await save();
+  res.json({ ok: true, nutritionToday: db.nutrition[day()] || { protein: 0, carbs: 0, fat: 0, calories: 0 } });
+});
+// Last N days of individual logged meals, grouped client-side by date — the
+// main /summary payload only ever sends *today's* nutritionLog (see its
+// nutritionLog: filter(l => l.date === day()) above), so a multi-day history
+// view needs its own fetch rather than reusing what's already loaded.
+app.get("/nutrition/history", async (req, res) => {
+  const days = Math.min(30, Math.max(1, parseInt(req.query.days) || 7));
+  const cutoff = day(new Date(Date.now() - days * 864e5));
+  const log = (db.nutritionLog || [])
+    .filter(e => e.date >= cutoff)
+    .sort((a, b) => (b.date + (b.time || '')).localeCompare(a.date + (a.time || '')));
+  res.json({ log });
+});
 app.post("/nutrition/analyze", async (req, res) => {
   if (!process.env.GEMINI_API_KEY) return res.status(400).json({ error: 'GEMINI_API_KEY not set' });
   const { imageBase64, mode, description } = req.body;
