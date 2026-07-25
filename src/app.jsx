@@ -744,6 +744,13 @@ const glycogenPct = (elapsedS, totalS) => {
 // app's first version — everything before this had no changelog at all.
 const CHANGELOG = [
   {
+    version: '0.32',
+    date: '2026-07-25',
+    features: [
+      "Fixed meal name and description on photo/text-scanned meals being copies of each other — the name was literally just the description's first 40 characters. Gemini now returns a real short name and a genuinely separate description.",
+    ],
+  },
+  {
     version: '0.31',
     date: '2026-07-25',
     features: [
@@ -3008,6 +3015,7 @@ function S4({ s, refresh }) {
       applyPortion(1, base);
     }
     if (data.description) setDescription(data.description);
+    if (!label && data.name) setLabel(data.name);
   };
 
   const fillForm = (food) => {
@@ -3122,7 +3130,6 @@ function S4({ s, refresh }) {
         });
         if (data.error) throw new Error(data.error);
         applyAnalysis(data);
-        if (!label && data.description) setLabel(data.description.slice(0, 40));
         setAnalysed(true);
       } catch (e) { setPhotoErr(e.message || 'Photo analysis failed — try again.'); }
       setAnalysing(false);
@@ -3143,7 +3150,6 @@ function S4({ s, refresh }) {
       });
       if (data.error) throw new Error(data.error);
       applyAnalysis(data);
-      if (!label && data.description) setLabel(data.description.slice(0, 40));
       setAnalysed(true);
     } catch (e) { setPhotoErr(e.message || 'Estimate failed — try again.'); }
     setAnalysing(false);

@@ -917,14 +917,20 @@ app.post("/nutrition/analyze", async (req, res) => {
   // has to correct with a blind x0.5/1.5/2 multiplier. A nutrition-label
   // photo has no such ambiguity -- it's reading fixed per-serving numbers off
   // the label itself -- so that one stays a single flat result.
-  const portionsSchema = '{"description":"brief meal description","portions":[{"label":"Small","calories":0,"protein":0,"carbs":0,"fat":0},{"label":"Medium","calories":0,"protein":0,"carbs":0,"fat":0},{"label":"Large","calories":0,"protein":0,"carbs":0,"fat":0}]}';
+  // name and description are deliberately two separate fields, not one
+  // string the frontend truncates for a "name" — that was the previous
+  // shape, and it made the meal name and description read as copies of
+  // each other (the name was literally just the description's first 40
+  // characters). name is a short label; description is real content
+  // (ingredients/prep/notable detail), not a restatement of the name.
+  const portionsSchema = '{"name":"short meal name (2-5 words), e.g. \'Fried Egg on Toast\'","description":"one factual sentence on what it actually is -- ingredients, cooking method, anything notable -- not a restatement of the name","portions":[{"label":"Small","calories":0,"protein":0,"carbs":0,"fat":0},{"label":"Medium","calories":0,"protein":0,"carbs":0,"fat":0},{"label":"Large","calories":0,"protein":0,"carbs":0,"fat":0}]}';
 
   let promptText, image;
   if (imageBase64) {
     const mimeMatch = imageBase64.match(/^data:(image\/\w+);base64,/);
     const mimeType = mimeMatch ? mimeMatch[1] : 'image/jpeg';
     const rawBase64 = imageBase64.replace(/^data:image\/\w+;base64,/, '');
-    const labelPrompt = 'Read this nutrition label precisely. Return ONLY valid JSON: {"description":"product name","calories":0,"protein":0,"carbs":0,"fat":0}. Use per-serving values. All numbers as integers.';
+    const labelPrompt = 'Read this nutrition label precisely. Return ONLY valid JSON: {"name":"product name","description":"brief note on flavor/variant/serving size if legible, else an empty string","calories":0,"protein":0,"carbs":0,"fat":0}. Use per-serving values. All numbers as integers.';
     const mealPrompt = `Analyse this meal photo. Estimate nutritional content for three portion sizes: a smaller portion, what's actually shown in the photo, and a larger portion. Return ONLY valid JSON: ${portionsSchema}. "Medium" is your best estimate of the actual portion shown. All numbers as integers.`;
     promptText = mode === 'label' ? labelPrompt : mealPrompt;
     image = { mimeType, data: rawBase64 };
