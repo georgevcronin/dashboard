@@ -744,6 +744,13 @@ const glycogenPct = (elapsedS, totalS) => {
 // app's first version — everything before this had no changelog at all.
 const CHANGELOG = [
   {
+    version: '0.35',
+    date: '2026-07-25',
+    features: [
+      'Settings now lets you change everything Onboarding originally collected — date of birth, height, experience level, typical split, usual sets/reps, favorite exercises, and Muscle Focus — all pre-filled with your current values instead of onboarding being the only chance to set them.',
+    ],
+  },
+  {
     version: '0.34',
     date: '2026-07-25',
     features: [
@@ -5357,6 +5364,20 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
   const [waterTarget, setWaterTarget] = useState(s?.profile?.waterTarget || 7);
   const [trainingDays, setTrainingDays] = useState(s?.profile?.trainingDaysPerWeek || 4);
   const [trackingLevel, setTrackingLevel] = useState(s?.profile?.trackingLevel || 'full');
+  // Everything below mirrors a field originally only ever set once at
+  // Onboarding (dob/height/training background/experience/muscle focus) —
+  // pre-filled from whatever's already on the profile so re-opening
+  // Settings shows the real current values, not blank inputs.
+  const [dobVal, setDobVal] = useState(s?.profile?.dob || '');
+  const [heightVal, setHeightVal] = useState(s?.profile?.heightCm ? String(Math.round(s.profile.heightCm)) : '');
+  const [experienceLevel, setExperienceLevel] = useState(s?.profile?.experienceLevel || '');
+  const [splitVal, setSplitVal] = useState(s?.profile?.trainingBackground?.split || '');
+  const [usualSetsVal, setUsualSetsVal] = useState(s?.profile?.trainingBackground?.usualSets ?? '');
+  const [usualRepsLowVal, setUsualRepsLowVal] = useState(s?.profile?.trainingBackground?.usualRepsLow ?? '');
+  const [usualRepsHighVal, setUsualRepsHighVal] = useState(s?.profile?.trainingBackground?.usualRepsHigh ?? '');
+  const [favoriteInputVal, setFavoriteInputVal] = useState('');
+  const [favoritesVal, setFavoritesVal] = useState(s?.profile?.trainingBackground?.favoriteExercises || []);
+  const [showMuscleFocus, setShowMuscleFocus] = useState(false);
   const [healthGuideOpen, setHealthGuideOpen] = useState(false);
   const [urlCopied, setUrlCopied] = useState(false);
   const [stravaStarted, setStravaStarted] = useState(false);
@@ -5469,6 +5490,45 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
   };
   const removeMemoryEntry = (i) => saveMentorMemory(mentorMemory.filter((_, j) => j !== i));
 
+  const saveDob = () => {
+    if (dobVal === (s?.profile?.dob || '')) return;
+    const age = dobVal ? Math.floor((Date.now() - new Date(dobVal)) / (365.25 * 24 * 3600 * 1000)) : null;
+    api('profile', { method: 'POST', body: JSON.stringify({ dob: dobVal || undefined, age }) }).then(profile => refresh({ ...s, profile }));
+  };
+  const saveHeight = () => {
+    const cm = parseFloat(heightVal);
+    if (!cm || cm === s?.profile?.heightCm) return;
+    api('profile', { method: 'POST', body: JSON.stringify({ heightCm: cm }) }).then(profile => refresh({ ...s, profile }));
+  };
+  const saveExperienceLevel = (lvl) => {
+    setExperienceLevel(lvl);
+    api('profile', { method: 'POST', body: JSON.stringify({ experienceLevel: lvl }) }).then(profile => refresh({ ...s, profile }));
+  };
+  const saveTrainingBackground = (patch) => {
+    const trainingBackground = { split: splitVal || undefined, usualSets: usualSetsVal ? parseInt(usualSetsVal) : undefined, usualRepsLow: usualRepsLowVal ? parseInt(usualRepsLowVal) : undefined, usualRepsHigh: usualRepsHighVal ? parseInt(usualRepsHighVal) : undefined, favoriteExercises: favoritesVal, ...patch };
+    api('profile', { method: 'POST', body: JSON.stringify({ trainingBackground }) }).then(profile => refresh({ ...s, profile }));
+  };
+  const addFavorite = () => {
+    const name = favoriteInputVal.trim();
+    if (!name || favoritesVal.includes(name)) return;
+    const next = [...favoritesVal, name];
+    setFavoritesVal(next);
+    setFavoriteInputVal('');
+    saveTrainingBackground({ favoriteExercises: next });
+  };
+  const removeFavorite = (name) => {
+    const next = favoritesVal.filter(f => f !== name);
+    setFavoritesVal(next);
+    saveTrainingBackground({ favoriteExercises: next });
+  };
+
+  const muscleFocusMap = s?.profile?.muscleFocus || {};
+  const saveMuscleFocusValue = (muscle, val) => {
+    const next = { ...muscleFocusMap };
+    if (val === 'normal') delete next[muscle]; else next[muscle] = val;
+    api('profile', { method: 'POST', body: JSON.stringify({ muscleFocus: next }) }).then(profile => refresh({ ...s, profile }));
+  };
+
   const setMuscleSensitivity = async (muscle, value) => {
     setSavingSens(true);
     await api('muscle-sensitivity', { method: 'PUT', body: JSON.stringify({ muscle, value }) });
@@ -5548,6 +5608,15 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
             </div>
           </div>
           <div className="prof-field">
+            <span className="prof-lbl">Date of Birth</span>
+            <input className="prof-input" type="date" value={dobVal} onChange={e => setDobVal(e.target.value)} onBlur={saveDob} style={{ flex: 1, minWidth: 0 }} />
+          </div>
+          <div className="prof-field">
+            <span className="prof-lbl">Height <span style={{ fontSize: 8, color: 'var(--dim)', textTransform: 'none' }}>(cm)</span></span>
+            <input className="prof-input" type="number" inputMode="decimal" value={heightVal} onChange={e => setHeightVal(e.target.value)} onBlur={saveHeight}
+              placeholder="e.g. 180" style={{ flex: 1, minWidth: 0, maxWidth: 80 }} />
+          </div>
+          <div className="prof-field">
             <span className="prof-lbl">Training Priority <span style={{ fontSize: 8, color: 'var(--dim)', textTransform: 'none' }}>(shapes weekly guidance)</span></span>
             <div style={{ display: 'flex', gap: 6 }}>
               {['strength','cardio','sport'].map(p => (
@@ -5609,6 +5678,98 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
                 }
               }}
               placeholder="e.g. 2" style={{ flex: 1, minWidth: 0, maxWidth: 80 }} />
+          </div>
+          <div className="prof-field">
+            <span className="prof-lbl">Experience Level <span style={{ fontSize: 8, color: 'var(--dim)', textTransform: 'none' }}>(new-lifter fatigue budget)</span></span>
+            <div style={{ display: 'flex', gap: 6 }}>
+              {['New to training', 'Experienced'].map(lvl => (
+                <button key={lvl} className="prof-btn" onClick={() => saveExperienceLevel(lvl)}
+                  style={experienceLevel === lvl ? { background: 'var(--ink)', color: 'var(--paper)', borderColor: 'var(--ink)' } : {}}>
+                  {lvl}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="prof-field">
+            <span className="prof-lbl">Typical Split <span style={{ fontSize: 8, color: 'var(--dim)', textTransform: 'none' }}>(a starting anchor, not the auto-generator's Preferred Split above)</span></span>
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+              {TRAINING_SPLITS.map(sp => (
+                <button key={sp} className="prof-btn" onClick={() => { setSplitVal(sp); saveTrainingBackground({ split: sp }); }}
+                  style={splitVal === sp ? { background: 'var(--ink)', color: 'var(--paper)', borderColor: 'var(--ink)' } : {}}>
+                  {sp}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="prof-field">
+            <span className="prof-lbl">Usual Working Sets Per Exercise</span>
+            <input className="prof-input" type="number" inputMode="numeric" value={usualSetsVal}
+              onChange={e => setUsualSetsVal(e.target.value)}
+              onBlur={() => saveTrainingBackground({ usualSets: usualSetsVal ? parseInt(usualSetsVal) : undefined })}
+              placeholder="e.g. 3" style={{ flex: 1, minWidth: 0, maxWidth: 80 }} />
+          </div>
+          <div className="prof-field">
+            <span className="prof-lbl">Usual Rep Range</span>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <input className="prof-input" type="number" inputMode="numeric" value={usualRepsLowVal}
+                onChange={e => setUsualRepsLowVal(e.target.value)}
+                onBlur={() => saveTrainingBackground({ usualRepsLow: usualRepsLowVal ? parseInt(usualRepsLowVal) : undefined })}
+                placeholder="Low" style={{ width: 60 }} />
+              <span style={{ color: 'var(--dim)' }}>–</span>
+              <input className="prof-input" type="number" inputMode="numeric" value={usualRepsHighVal}
+                onChange={e => setUsualRepsHighVal(e.target.value)}
+                onBlur={() => saveTrainingBackground({ usualRepsHigh: usualRepsHighVal ? parseInt(usualRepsHighVal) : undefined })}
+                placeholder="High" style={{ width: 60 }} />
+            </div>
+          </div>
+          <div className="prof-field">
+            <span className="prof-lbl">Favorite / Go-To Exercises</span>
+            <div style={{ display: 'flex', gap: 8, marginBottom: 8, width: '100%' }}>
+              <input className="prof-input" list="settings-exercise-options" placeholder="e.g. Barbell Bench Press" value={favoriteInputVal}
+                onChange={e => setFavoriteInputVal(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addFavorite(); } }}
+                style={{ flex: 1, minWidth: 0 }} />
+              <button className="prof-btn" onClick={addFavorite} disabled={!favoriteInputVal.trim()}>Add</button>
+            </div>
+            <datalist id="settings-exercise-options">
+              {BASE_EXERCISES.map(n => <option key={n} value={n} />)}
+            </datalist>
+            {favoritesVal.length > 0 && (
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                {favoritesVal.map(f => (
+                  <span key={f} className="prof-btn solid" style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'default' }}>
+                    {f}
+                    <span style={{ cursor: 'pointer' }} onClick={() => removeFavorite(f)}>×</span>
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+          <div className="prof-field">
+            <span className="prof-lbl">Muscle Focus <span style={{ fontSize: 8, color: 'var(--dim)', textTransform: 'none' }}>(Focus/Ignore per muscle)</span></span>
+            <button className="prof-btn" onClick={() => setShowMuscleFocus(v => !v)} style={{ marginBottom: showMuscleFocus ? 8 : 0 }}>
+              {showMuscleFocus ? 'Hide' : 'Show'} muscle list
+            </button>
+            {showMuscleFocus && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 2, width: '100%' }}>
+                {PRIMARY_MUSCLES.map(m => {
+                  const val = muscleFocusMap[m] || 'normal';
+                  return (
+                    <div key={m} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 0', borderBottom: '1px solid var(--paper2)' }}>
+                      <span style={{ flex: 1, fontFamily: "'JetBrains Mono',monospace", fontSize: 10, textTransform: 'capitalize' }}>{muscleDisplayLabel(m)}</span>
+                      <div style={{ display: 'flex', gap: 4 }}>
+                        {['focus', 'normal', 'ignore'].map(opt => (
+                          <button key={opt} className={`prof-btn${val === opt ? ' solid' : ''}`} style={{ fontSize: 8, padding: '4px 8px', textTransform: 'capitalize' }}
+                            onClick={() => saveMuscleFocusValue(m, opt)}>
+                            {opt}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
           <div className="prof-field">
             <span className="prof-lbl">Dark Mode</span>
