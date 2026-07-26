@@ -2792,9 +2792,21 @@ function S3({ s, onStartWorkout, onImport, onHistory, refresh }) {
                 // reps from the first warmup) for an exercise genuinely
                 // prescribing 4 working sets at a different rep target.
                 const workingSets = ex.sets?.filter(s => s.type !== 'W') ?? [];
+                // Which muscle(s) this specific pick is actually for — not
+                // returned by the backend (generateSessionExercises only
+                // sends {name, note, sets}), but EXERCISE_DB is already
+                // bundled into the frontend, so a lookup here is enough.
+                const primaryMuscles = EXERCISE_DB.find(e => e.name === ex.name)?.primary || [];
                 return (
                   <div key={i} style={{ display: 'flex', alignItems: 'baseline', gap: 8, padding: '3px 0', borderBottom: '1px solid var(--rule)' }}>
-                    <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, color: 'var(--ink)', textTransform: 'capitalize', flex: 1 }}>{ex.name}</span>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, color: 'var(--ink)', textTransform: 'capitalize' }}>{ex.name}</span>
+                      {primaryMuscles.length > 0 && (
+                        <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, color: 'var(--dim)', textTransform: 'capitalize', marginTop: 1 }}>
+                          {primaryMuscles.map(muscleDisplayLabel).join(', ')}
+                        </div>
+                      )}
+                    </div>
                     <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)' }}>{workingSets.length || ex.sets?.length || 3} sets · {workingSets[0]?.reps ?? ex.sets?.[0]?.reps ?? 8} reps</span>
                     {workingSets[0]?.kg ? <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--gold)' }}>{workingSets[0].kg}kg</span> : null}
                   </div>
