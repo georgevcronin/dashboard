@@ -744,6 +744,13 @@ const glycogenPct = (elapsedS, totalS) => {
 // app's first version — everything before this had no changelog at all.
 const CHANGELOG = [
   {
+    version: '0.38',
+    date: '2026-07-27',
+    features: [
+      'On phone-width screens, replaced the single long vertical scroll through every section with a bottom dock — tap Dispatch/Sleep/Training/Nutrition/Recovery/Body/Records to jump straight to it. Desktop/tablet layout is unchanged.',
+    ],
+  },
+  {
     version: '0.37',
     date: '2026-07-27',
     features: [
@@ -5376,6 +5383,7 @@ function Onboarding({ onComplete, onOpenImport }) {
 // here double as the fallback when a profile has never set a preference.
 const DEFAULT_PANEL_ORDER = ['s1', 's2', 's3', 's4', 's5', 's6', 's7'];
 const PANEL_LABELS = { s1: 'Dispatch', s2: 'Sleep', s3: 'Training', s4: 'Nutrition', s5: 'Recovery', s6: 'Body & Supplements', s7: 'Personal Records' };
+const DOCK_LABELS = { s1: 'Dispatch', s2: 'Sleep', s3: 'Training', s4: 'Nutrition', s5: 'Recovery', s6: 'Body', s7: 'Records' };
 const DEFAULT_RECOVERY_TAB_ORDER = ['fatigue', 'ranking', 'types', 'adaptation', 'soreness', 'injuries'];
 const RECOVERY_TAB_LABELS = { fatigue: 'Structural', ranking: 'Ranking', types: 'Types', adaptation: 'Adaptation', soreness: 'Soreness', injuries: 'Injuries' };
 
@@ -6646,6 +6654,19 @@ function App() {
   const [showSettings, setShowSettings] = useState(false);
   const [showWiki, setShowWiki] = useState(false);
   const [summaryError, setSummaryError] = useState('');
+  // Below 480px the newspaper's column layout collapses to one column anyway
+  // (see .scroll's column-width in PRESS_CSS), which reads as one long
+  // vertical scroll through every section back to back. The dock replaces
+  // that with tap-to-switch, one section on screen at a time; above 480px
+  // the multi-column scroll layout stays as-is.
+  const [isMobile, setIsMobile] = useState(() => window.matchMedia('(max-width:480px)').matches);
+  const [activeSection, setActiveSection] = useState(null);
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width:480px)');
+    const onChange = e => setIsMobile(e.matches);
+    mq.addEventListener('change', onChange);
+    return () => mq.removeEventListener('change', onChange);
+  }, []);
 
   const loadSummary = () => api('summary', { throwOnError: true })
     .then(data => {
@@ -6799,6 +6820,15 @@ function App() {
     const scroll = document.getElementById('press-scroll');
     if (!scroll) return;
     const sections = [...scroll.querySelectorAll('section')];
+
+    // Dock mode shows one section at a time via display:none, not scroll
+    // position, so there's nothing for an IntersectionObserver to key off —
+    // just reveal whichever section is current immediately.
+    if (isMobile) {
+      sections.forEach(sec => sec.classList.add('visible'));
+      return;
+    }
+
     const dots = [...document.querySelectorAll('#sec-nav .sn-dot')];
 
     sections[0]?.classList.add('visible');
@@ -6814,7 +6844,7 @@ function App() {
     sections.forEach(sec => obs.observe(sec));
 
     return () => obs.disconnect();
-  }, [user, !!s]);
+  }, [user, !!s, isMobile, activeSection]);
 
   if (user === undefined) return <LoadingScreen />;
 
@@ -6868,8 +6898,25 @@ function App() {
         {sectionIds.map(id => <div key={id} className="sn-dot" />)}
       </nav>
       <div className="scroll" id="press-scroll">
-        {sectionIds.map(id => sectionEls[id])}
+        {sectionIds.map(id => {
+          if (!isMobile) return sectionEls[id];
+          const active = (sectionIds.includes(activeSection) ? activeSection : sectionIds[0]) === id;
+          return <div key={id} style={{ display: active ? 'contents' : 'none' }}>{sectionEls[id]}</div>;
+        })}
       </div>
+      {isMobile && (
+        <nav className="dock" aria-label="Sections">
+          {sectionIds.map(id => {
+            const active = (sectionIds.includes(activeSection) ? activeSection : sectionIds[0]) === id;
+            return (
+              <button key={id} className={'dock-btn' + (active ? ' active' : '')}
+                onClick={() => { setActiveSection(id); window.scrollTo(0, 0); }}>
+                {DOCK_LABELS[id]}
+              </button>
+            );
+          })}
+        </nav>
+      )}
       {/* Floating personal journalist chat bubble */}
       {!chatOpen && (
         <button className="chat-bubble" onClick={() => setChatOpen(true)} aria-label="Open personal journalist chat">PJ</button>
