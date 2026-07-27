@@ -98,7 +98,7 @@ test('computeAdaptationSeries returns a sample per muscle across the requested w
   for (const point of series.chest) assert.ok('h' in point && 'adapt' in point);
 });
 
-test('estimateAtrophyRate returns null with fewer than 2 qualifying gaps', () => {
+test('estimateAtrophyRate returns null with zero qualifying gaps', () => {
   assert.equal(estimateAtrophyRate([]), null);
   const lifts = [{ date: daysAgo(100), exercise: 'Back Squat', kg: 100, reps: 5 }];
   assert.equal(estimateAtrophyRate(lifts), null);
@@ -111,8 +111,19 @@ test('estimateAtrophyRate finds a positive rate given a clear detraining pattern
     { date: daysAgo(200), exercise: 'Deadlift', kg: 160, reps: 5 },
     { date: daysAgo(170), exercise: 'Deadlift', kg: 140, reps: 5 }, // 30-day gap, real decline
   ];
-  const rate = estimateAtrophyRate(lifts);
-  assert.ok(rate != null && rate > 0, 'should find a positive median decline rate across the two gaps');
+  const result = estimateAtrophyRate(lifts);
+  assert.ok(result != null && result.rate > 0, 'should find a positive median decline rate across the two gaps');
+  assert.equal(result.gapCount, 2);
+});
+
+test('estimateAtrophyRate returns a lower-confidence single-gap estimate rather than falling back to null', () => {
+  const lifts = [
+    { date: daysAgo(120), exercise: 'Back Squat', kg: 140, reps: 5 },
+    { date: daysAgo(90), exercise: 'Back Squat', kg: 120, reps: 5 }, // sole 30-day gap, real decline
+  ];
+  const result = estimateAtrophyRate(lifts);
+  assert.ok(result != null && result.rate > 0, 'one real qualifying gap should still beat the flat default');
+  assert.equal(result.gapCount, 1);
 });
 
 test('DEFAULT_ATROPHY_RATE is a sane positive fallback', () => {

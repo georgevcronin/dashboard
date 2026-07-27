@@ -744,6 +744,13 @@ const glycogenPct = (elapsedS, totalS) => {
 // app's first version — everything before this had no changelog at all.
 const CHANGELOG = [
   {
+    version: '0.40',
+    date: '2026-07-27',
+    features: [
+      'Adaptation tab\'s atrophy-rate calibration no longer needs 2+ training gaps to offer a personal estimate — a single real 14-90 day gap now works too, labeled "(low confidence)" since a lone data point is noisier than a median across several.',
+    ],
+  },
+  {
     version: '0.39',
     date: '2026-07-27',
     features: [
@@ -3838,7 +3845,7 @@ function S5({ s, refresh }) {
   const estimatedAtrophyRate = useMemo(() => estimateAtrophyRate(s?.lifts), [s?.lifts]);
   useEffect(() => {
     if (estimatedAtrophyRate != null && !atrophyCalibrated) {
-      setAtrophyRate(estimatedAtrophyRate);
+      setAtrophyRate(estimatedAtrophyRate.rate);
       setAtrophyCalibrated(true);
     }
   }, [estimatedAtrophyRate]);
@@ -4250,10 +4257,10 @@ function S5({ s, refresh }) {
 
               <div style={{ marginTop: 14, display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 10 }}>
                 {estimatedAtrophyRate != null ? (
-                  <button className="prof-btn" onClick={() => { setAtrophyRate(estimatedAtrophyRate); setAtrophyCalibrated(true); }}
+                  <button className="prof-btn" onClick={() => { setAtrophyRate(estimatedAtrophyRate.rate); setAtrophyCalibrated(true); }}
                     style={atrophyCalibrated ? { background: 'var(--ink)', color: 'var(--paper)', borderColor: 'var(--ink)' } : {}}
-                    title={`Calibrated from your own training gaps (14-90 days). Median 1RM drop = ${(estimatedAtrophyRate * 24 * 100).toFixed(3)}%/day`}>
-                    {atrophyCalibrated ? '✓ calibrated from your gaps' : 'calibrate from your gaps'}
+                    title={`Calibrated from ${estimatedAtrophyRate.gapCount} of your own training gap${estimatedAtrophyRate.gapCount === 1 ? '' : 's'} (14-90 days). ${estimatedAtrophyRate.gapCount === 1 ? 'Single gap — noisier than a median across several, but still real signal.' : 'Median'} 1RM drop = ${(estimatedAtrophyRate.rate * 24 * 100).toFixed(3)}%/day`}>
+                    {atrophyCalibrated ? '✓ calibrated from your gaps' : 'calibrate from your gaps'}{estimatedAtrophyRate.gapCount === 1 ? ' (low confidence)' : ''}
                   </button>
                 ) : (
                   <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)', fontStyle: 'italic' }}>Needs a 14+ day training gap to calibrate — using a default rate.</span>

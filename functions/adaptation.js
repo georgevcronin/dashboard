@@ -154,9 +154,13 @@ const DEFAULT_ATROPHY_RATE = 0.003; // adaptation units / hour
 // (gamma contribution is negligible by day 14, so any e1RM drop over a gap
 // that long is attributable to genuine detraining, not supercompensation
 // fading) where e1RM measurably declined, and returns the median
-// decline-rate across all qualifying gaps. Returns null with fewer than 2
-// qualifying gaps — not enough signal to trust a personal estimate over the
-// default.
+// decline-rate across all qualifying gaps, plus how many gaps that median
+// was drawn from. Returns null with zero qualifying gaps — nothing to
+// calibrate from at all. A single gap is real signal (still gated to 14-90
+// days, still filtered for a genuine decline), just noisier than a median
+// across several — callers should treat gapCount === 1 as lower-confidence
+// rather than withholding it entirely, since even one real detraining gap
+// beats the flat default.
 function estimateAtrophyRate(lifts) {
   const byExercise = {};
   for (const l of (lifts || [])) {
@@ -182,9 +186,9 @@ function estimateAtrophyRate(lifts) {
       rates.push(drop / gapH);
     }
   }
-  if (rates.length < 2) return null;
+  if (rates.length < 1) return null;
   rates.sort((a, b) => a - b);
-  return rates[Math.floor(rates.length / 2)];
+  return { rate: rates[Math.floor(rates.length / 2)], gapCount: rates.length };
 }
 
 module.exports = {
