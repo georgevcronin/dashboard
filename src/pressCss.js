@@ -180,7 +180,8 @@ section.visible .fade:nth-child(6){transition-delay:.56s}
 .nutri-input.wide{flex:1}.nutri-input.narrow{width:52px;text-align:right}
 .nutri-photo-btn{font-family:'JetBrains Mono',monospace;font-size:8px;letter-spacing:.12em;text-transform:uppercase;padding:6px 12px;cursor:pointer;border:1px solid var(--rule);background:none;color:var(--dim)}
 .nutri-submit-btn{font-family:'JetBrains Mono',monospace;font-size:8px;letter-spacing:.12em;text-transform:uppercase;padding:6px 12px;cursor:pointer;background:var(--ink);color:var(--paper);border:none}
-.chat-bubble{position:fixed;bottom:24px;right:20px;z-index:500;width:44px;height:44px;border-radius:50%;background:var(--ink);color:var(--paper);border:none;cursor:pointer;font-size:16px;display:flex;align-items:center;justify-content:center;font-family:'JetBrains Mono',monospace;box-shadow:0 2px 12px rgba(0,0,0,.18)}
+.chat-bubble{position:fixed;bottom:24px;right:20px;z-index:500;width:44px;height:44px;border-radius:50%;background:var(--ink);color:var(--paper);border:none;cursor:grab;font-size:16px;display:flex;align-items:center;justify-content:center;font-family:'JetBrains Mono',monospace;box-shadow:0 2px 12px rgba(0,0,0,.18);touch-action:none;user-select:none}
+.chat-bubble:active{cursor:grabbing}
 .chat-panel{position:fixed;right:0;top:0;bottom:0;width:min(380px,100vw);background:var(--paper);border-left:3px solid var(--ink);z-index:600;display:flex;flex-direction:column}
 .chat-hdr{padding:14px 16px;border-bottom:2px solid var(--ink);display:flex;align-items:center;justify-content:space-between;flex-shrink:0}
 .chat-msgs{flex:1;overflow-y:auto;padding:14px 14px 8px;display:flex;flex-direction:column;gap:10px}
@@ -321,6 +322,7 @@ section.visible .fade:nth-child(6){transition-delay:.56s}
 .scroll{padding-bottom:60px}
 .dock{display:flex;position:fixed;bottom:0;left:0;right:0;z-index:200;background:var(--paper);border-top:2px solid var(--ink);padding-bottom:env(safe-area-inset-bottom)}
 .dock-btn{flex:1;min-height:44px;background:none;border:none;border-top:2px solid transparent;font-family:'JetBrains Mono',monospace;font-size:8px;letter-spacing:.08em;text-transform:uppercase;color:var(--dim);cursor:pointer;padding:6px 2px}
+.chat-bubble{bottom:calc(68px + env(safe-area-inset-bottom))}
 .dock-btn.active{color:var(--ink);font-weight:600;border-top-color:var(--ink);margin-top:-2px}
 }
 `;

@@ -744,6 +744,13 @@ const glycogenPct = (elapsedS, totalS) => {
 // app's first version — everything before this had no changelog at all.
 const CHANGELOG = [
   {
+    version: '0.39',
+    date: '2026-07-27',
+    features: [
+      'Fixed the Muscle Fatigue headline\'s "Train X Today" — it was naming the 2nd-most-fatigued muscle, which is backwards advice (recommending to load what\'s already loaded). Now pulls the actual top pick from the same weekly guidance the Training section shows.',
+    ],
+  },
+  {
     version: '0.38',
     date: '2026-07-27',
     features: [
@@ -4017,8 +4024,16 @@ function S5({ s, refresh }) {
     });
   }, [adaptSvgsReady, stimulusContributions, s?.muscleLevels]);
 
-  const hl1 = topMuscles[0] ? `${topMuscles[0][0].toUpperCase() + topMuscles[0].slice(1)} Loaded —` : 'Fresh —';
-  const hl2 = topMuscles[1] ? `Train ${topMuscles[1][0].toUpperCase() + topMuscles[1].slice(1)} Today` : 'All Systems Go';
+  const cap = str => str[0].toUpperCase() + str.slice(1);
+  const hl1 = topMuscles[0] ? `${cap(topMuscles[0])} Loaded —` : 'Fresh —';
+  // Was topMuscles[1] (the 2nd-most-fatigued muscle) mislabeled as a "Train
+  // this" instruction — backwards, since fatigue ranking and training
+  // priority are different things (see computeMusclePriority in
+  // weeklyPlanner.js: priority favors LOW fatigue + staleness, not high
+  // fatigue). Pull the real top pick from the same weekly guidance the
+  // Training section already shows, so this headline agrees with it.
+  const topPick = s?.weeklyPlan?.muscleFocus?.[0]?.name;
+  const hl2 = topPick ? `Train ${cap(topPick)} Today` : 'All Systems Go';
 
   const logSoreness = async () => {
     if (!selectedMuscle) return;
@@ -6654,6 +6669,50 @@ function App() {
   const [showSettings, setShowSettings] = useState(false);
   const [showWiki, setShowWiki] = useState(false);
   const [summaryError, setSummaryError] = useState('');
+  const [bubblePos, setBubblePos] = useState(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem('press_pj_bubble_pos'));
+      return saved && typeof saved.x === 'number' && typeof saved.y === 'number' ? saved : null;
+    } catch { return null; }
+  });
+  const bubbleDrag = useRef({ dragging: false, moved: false, offsetX: 0, offsetY: 0 });
+  const BUBBLE_SIZE = 44;
+  const clampBubblePos = (x, y) => {
+    const dockEl = document.querySelector('.dock');
+    const dockH = dockEl && getComputedStyle(dockEl).display !== 'none' ? dockEl.getBoundingClientRect().height : 0;
+    const maxX = Math.max(8, window.innerWidth - BUBBLE_SIZE - 8);
+    const maxY = Math.max(8, window.innerHeight - BUBBLE_SIZE - 8 - dockH);
+    return { x: Math.min(Math.max(8, x), maxX), y: Math.min(Math.max(8, y), maxY) };
+  };
+  useEffect(() => {
+    const onResize = () => setBubblePos(pos => pos ? clampBubblePos(pos.x, pos.y) : pos);
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
+  const onBubblePointerDown = e => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    bubbleDrag.current = { dragging: true, moved: false, offsetX: e.clientX - rect.left, offsetY: e.clientY - rect.top };
+    e.currentTarget.setPointerCapture(e.pointerId);
+  };
+  const onBubblePointerMove = e => {
+    if (!bubbleDrag.current.dragging) return;
+    bubbleDrag.current.moved = true;
+    setBubblePos(clampBubblePos(e.clientX - bubbleDrag.current.offsetX, e.clientY - bubbleDrag.current.offsetY));
+  };
+  const onBubblePointerUp = () => {
+    if (!bubbleDrag.current.dragging) return;
+    bubbleDrag.current.dragging = false;
+    if (bubbleDrag.current.moved) {
+      setBubblePos(pos => {
+        if (pos) { try { localStorage.setItem('press_pj_bubble_pos', JSON.stringify(pos)); } catch {} }
+        return pos;
+      });
+    }
+  };
+  const onBubbleClick = () => {
+    if (bubbleDrag.current.moved) { bubbleDrag.current.moved = false; return; }
+    setChatOpen(true);
+  };
   // Below 480px the newspaper's column layout collapses to one column anyway
   // (see .scroll's column-width in PRESS_CSS), which reads as one long
   // vertical scroll through every section back to back. The dock replaces
@@ -6917,9 +6976,13 @@ function App() {
           })}
         </nav>
       )}
-      {/* Floating personal journalist chat bubble */}
+      {/* Floating personal journalist chat bubble — draggable, position persisted in localStorage */}
       {!chatOpen && (
-        <button className="chat-bubble" onClick={() => setChatOpen(true)} aria-label="Open personal journalist chat">PJ</button>
+        <button className="chat-bubble" aria-label="Open personal journalist chat"
+          style={bubblePos ? { left: bubblePos.x, top: bubblePos.y, right: 'auto', bottom: 'auto' } : undefined}
+          onPointerDown={onBubblePointerDown} onPointerMove={onBubblePointerMove}
+          onPointerUp={onBubblePointerUp} onPointerCancel={onBubblePointerUp}
+          onClick={onBubbleClick}>PJ</button>
       )}
       {chatOpen && <MentorChat onClose={() => setChatOpen(false)} />}
       {showSettings && <SettingsOverlay s={s} onClose={() => setShowSettings(false)} refresh={refresh} onSignOut={() => signOut(auth)} onOpenImport={() => { setShowSettings(false); setShowImport(true); }} onOpenWiki={() => { setShowSettings(false); setShowWiki(true); }} setBriefing={setBriefing} />}
