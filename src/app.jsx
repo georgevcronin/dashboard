@@ -744,6 +744,13 @@ const glycogenPct = (elapsedS, totalS) => {
 // app's first version — everything before this had no changelog at all.
 const CHANGELOG = [
   {
+    version: '0.41',
+    date: '2026-07-27',
+    features: [
+      'Settings → Profile → Name now has an explicit Save button with saving/success/error states, instead of only saving silently on blur — a failed save previously looked identical to a successful one.',
+    ],
+  },
+  {
     version: '0.40',
     date: '2026-07-27',
     features: [
@@ -5436,6 +5443,9 @@ function PanelOrderEditor({ order, hidden, labels, onChange }) {
 
 function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenWiki, setBriefing }) {
   const [nameVal, setNameVal] = useState(s?.profile?.name || '');
+  const [nameSaving, setNameSaving] = useState(false);
+  const [nameSaved, setNameSaved] = useState(false);
+  const [nameError, setNameError] = useState('');
   const [trainingExpVal, setTrainingExpVal] = useState(s?.profile?.trainingExperienceYears ?? '');
   const [sleepTarget, setSleepTarget] = useState(s?.profile?.sleepTarget || 8);
   const [waterTarget, setWaterTarget] = useState(s?.profile?.waterTarget || 7);
@@ -5567,6 +5577,21 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
   };
   const removeMemoryEntry = (i) => saveMentorMemory(mentorMemory.filter((_, j) => j !== i));
 
+  const saveName = async () => {
+    if (nameVal === (s?.profile?.name || '')) return;
+    setNameSaving(true);
+    setNameError('');
+    try {
+      const profile = await api('profile', { method: 'POST', body: JSON.stringify({ name: nameVal }), throwOnError: true });
+      refresh({ ...s, profile });
+      setNameSaved(true);
+      setTimeout(() => setNameSaved(false), 2000);
+    } catch {
+      setNameError('Save failed — check your connection and try again.');
+    }
+    setNameSaving(false);
+  };
+
   const saveDob = () => {
     if (dobVal === (s?.profile?.dob || '')) return;
     const age = dobVal ? Math.floor((Date.now() - new Date(dobVal)) / (365.25 * 24 * 3600 * 1000)) : null;
@@ -5650,10 +5675,15 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
           <div className="settings-sh">Profile</div>
           <div className="prof-field">
             <span className="prof-lbl">Name</span>
-            <input className="prof-input" value={nameVal} onChange={e => setNameVal(e.target.value)}
-              onBlur={() => nameVal !== (s?.profile?.name || '') && api('profile', { method: 'POST', body: JSON.stringify({ name: nameVal }) }).then(profile => refresh({ ...s, profile }))}
-              placeholder="Your name" style={{ flex: 1, minWidth: 0 }} />
+            <div style={{ display: 'flex', gap: 6, flex: 1, minWidth: 0 }}>
+              <input className="prof-input" value={nameVal} onChange={e => { setNameVal(e.target.value); setNameError(''); }}
+                onBlur={saveName} placeholder="Your name" style={{ flex: 1, minWidth: 0 }} />
+              <button className="prof-btn" onClick={saveName} disabled={nameSaving || nameVal === (s?.profile?.name || '')}>
+                {nameSaving ? 'Saving…' : nameSaved ? '✓ Saved' : 'Save'}
+              </button>
+            </div>
           </div>
+          {nameError && <div style={{ fontSize: 9, fontFamily: "'JetBrains Mono',monospace", color: 'var(--red)', marginTop: -8, marginBottom: 8 }}>{nameError}</div>}
           <div className="prof-field">
             <span className="prof-lbl">Goal</span>
             <div style={{ display: 'flex', gap: 6 }}>
