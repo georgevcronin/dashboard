@@ -744,6 +744,13 @@ const glycogenPct = (elapsedS, totalS) => {
 // app's first version — everything before this had no changelog at all.
 const CHANGELOG = [
   {
+    version: '0.42',
+    date: '2026-07-27',
+    features: [
+      'Fixed invisible text in Dark Mode — Settings\' close ×, the Morning Briefing edition label, and a trained-day\'s label in the weekly strip were all hardcoded to a light color meant for a dark header background, which goes light in Dark Mode (--ink and --paper swap), making the text disappear against itself.',
+    ],
+  },
+  {
     version: '0.41',
     date: '2026-07-27',
     features: [
