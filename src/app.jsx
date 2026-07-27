@@ -535,7 +535,6 @@ function S2({ s, refresh }) {
                 <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}>
                   <svg viewBox="0 0 320 100" style={{ width: '100%', height: '100%', position: 'absolute', inset: 0 }} preserveAspectRatio="none">
                     <line x1="0" y1={tgtY} x2="320" y2={tgtY} stroke="var(--gold)" strokeWidth="1" strokeDasharray="4,4" opacity="0.7" />
-                    <text x="4" y={tgtY - 3} fontSize="7" fill="var(--gold)" fontFamily="JetBrains Mono,monospace" opacity="0.9">target {fmtHoursMins(sleepTarget)}{s?.sleepTargetLearned ? ' · learned' : ' · default'}</text>
                   </svg>
                 </div>
               );
@@ -743,6 +742,14 @@ const glycogenPct = (elapsedS, totalS) => {
 // instead of the list. v0.1 is the first tracked release, not literally the
 // app's first version — everything before this had no changelog at all.
 const CHANGELOG = [
+  {
+    version: '0.43',
+    date: '2026-07-27',
+    features: [
+      'Added "Restart Setup" in Settings → Account, to redo the Onboarding wizard on demand without affecting an already-set-up account\'s normal behavior of never showing it automatically.',
+      'Settings\' 15 sections are now grouped into 7 collapsible categories (Profile & Training, Dashboard Layout, Targets & Nutrition, Connected Data, Tools, Account, What\'s New) instead of one long undifferentiated scroll — only Profile & Training is open by default.',
+    ],
+  },
   {
     version: '0.42',
     date: '2026-07-27',
@@ -5448,7 +5455,7 @@ function PanelOrderEditor({ order, hidden, labels, onChange }) {
   );
 }
 
-function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenWiki, setBriefing }) {
+function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenWiki, setBriefing, onRestartSetup }) {
   const [nameVal, setNameVal] = useState(s?.profile?.name || '');
   const [nameSaving, setNameSaving] = useState(false);
   const [nameSaved, setNameSaved] = useState(false);
@@ -5677,6 +5684,8 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
       </div>
       <div className="settings-body">
 
+        <details className="settings-group" open>
+        <summary className="settings-group-h">Profile &amp; Training</summary>
         {/* ── PROFILE ── */}
         <div className="settings-sec">
           <div className="settings-sh">Profile</div>
@@ -5935,7 +5944,10 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
             </button>
           ))}
         </div>
+        </details>
 
+        <details className="settings-group">
+        <summary className="settings-group-h">Dashboard Layout</summary>
         {/* ── LAYOUT ── */}
         <div className="settings-sec">
           <div className="settings-sh">Home Screen Order</div>
@@ -5946,7 +5958,10 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
           <div className="settings-sh">Recovery Tab Order</div>
           <PanelOrderEditor order={recoveryTabOrder} hidden={hiddenRecoveryTabs} labels={RECOVERY_TAB_LABELS} onChange={saveRecoveryTabs} />
         </div>
+        </details>
 
+        <details className="settings-group">
+        <summary className="settings-group-h">Targets &amp; Nutrition</summary>
         {/* ── TARGETS ── */}
         <div className="settings-sec">
           <div className="settings-sh">Targets</div>
@@ -5985,7 +6000,10 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
             </button>
           </div>
         </div>
+        </details>
 
+        <details className="settings-group">
+        <summary className="settings-group-h">Connected Data</summary>
         {/* ── CONNECTED SERVICES ── */}
         <div className="settings-sec">
           <div className="settings-sh">Connected Services</div>
@@ -6142,7 +6160,10 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
             </button>
           </div>
         </div>
+        </details>
 
+        <details className="settings-group">
+        <summary className="settings-group-h">Tools</summary>
         {/* ── APP ── */}
         <div className="settings-sec">
           <div className="settings-sh">App</div>
@@ -6241,15 +6262,22 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
           </button>
         </div>
 
+        </details>
+
+        <details className="settings-group">
+        <summary className="settings-group-h">Account</summary>
         {/* ── ACCOUNT ── */}
         <div className="settings-sec">
           <div className="settings-sh">Account</div>
-          <button className="prof-btn" style={{ width: '100%', padding: '11px', textAlign: 'center', marginTop: 4 }} onClick={onSignOut}>Sign Out</button>
+          <button className="prof-btn" style={{ width: '100%', padding: '11px', textAlign: 'center', marginTop: 4 }} onClick={onRestartSetup}>Restart Setup</button>
+          <button className="prof-btn" style={{ width: '100%', padding: '11px', textAlign: 'center', marginTop: 8 }} onClick={onSignOut}>Sign Out</button>
         </div>
+        </details>
 
+        <details className="settings-group">
+        <summary className="settings-group-h">v{CHANGELOG[0].version} · What's New</summary>
         {/* ── WHAT'S NEW ── */}
         <div className="settings-sec">
-          <div className="settings-sh">v{CHANGELOG[0].version} · What's New</div>
           {CHANGELOG.map(entry => (
             <div key={entry.version} style={{ marginBottom: 14 }}>
               <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)', marginBottom: 6 }}>
@@ -6261,6 +6289,7 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
             </div>
           ))}
         </div>
+        </details>
 
       </div>
     </div>
@@ -6764,6 +6793,12 @@ function App() {
   // the multi-column scroll layout stays as-is.
   const [isMobile, setIsMobile] = useState(() => window.matchMedia('(max-width:480px)').matches);
   const [activeSection, setActiveSection] = useState(null);
+  // Separate from `onboarded` (which gates first-run access and is never
+  // reset once true) -- this only forces the Onboarding overlay open again
+  // for someone who already finished setup and explicitly asked to redo it
+  // from Settings. Not persisted: a reload drops back out of it safely if
+  // it's ever abandoned mid-way.
+  const [forceOnboarding, setForceOnboarding] = useState(false);
   useEffect(() => {
     const mq = window.matchMedia('(max-width:480px)');
     const onChange = e => setIsMobile(e.matches);
@@ -6989,7 +7024,12 @@ function App() {
 
   return (
     <>
-      {!onboarded && <Onboarding onComplete={handleOnboardDone} onOpenImport={() => { handleOnboardDone(); setShowImport(true); }} />}
+      {(!onboarded || forceOnboarding) && (
+        <Onboarding
+          onComplete={() => { handleOnboardDone(); setForceOnboarding(false); }}
+          onOpenImport={() => { handleOnboardDone(); setForceOnboarding(false); setShowImport(true); }}
+        />
+      )}
       <Header s={s} onSignOut={() => signOut(auth)} onOpenSettings={() => setShowSettings(true)} />
       {summaryError && !s && (
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, padding: '8px 16px', background: '#7a1414', color: '#f5f0e2', fontFamily: 'JetBrains Mono, monospace', fontSize: 10, letterSpacing: '.06em' }}>
@@ -7029,7 +7069,7 @@ function App() {
           onClick={onBubbleClick}>PJ</button>
       )}
       {chatOpen && <MentorChat onClose={() => setChatOpen(false)} />}
-      {showSettings && <SettingsOverlay s={s} onClose={() => setShowSettings(false)} refresh={refresh} onSignOut={() => signOut(auth)} onOpenImport={() => { setShowSettings(false); setShowImport(true); }} onOpenWiki={() => { setShowSettings(false); setShowWiki(true); }} setBriefing={setBriefing} />}
+      {showSettings && <SettingsOverlay s={s} onClose={() => setShowSettings(false)} refresh={refresh} onSignOut={() => signOut(auth)} onOpenImport={() => { setShowSettings(false); setShowImport(true); }} onOpenWiki={() => { setShowSettings(false); setShowWiki(true); }} setBriefing={setBriefing} onRestartSetup={() => { setForceOnboarding(true); setShowSettings(false); }} />}
       {showWiki && <WikiOverlay onClose={() => setShowWiki(false)} />}
       {showBriefing && briefing && <BriefingOverlay briefing={briefing} onClose={() => setShowBriefing(false)} />}
       {showAfternoonNewscast && afternoonNewscast && <NewscastOverlay newscast={afternoonNewscast} onClose={() => setShowAfternoonNewscast(false)} />}
