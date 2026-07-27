@@ -744,6 +744,13 @@ const glycogenPct = (elapsedS, totalS) => {
 // app's first version — everything before this had no changelog at all.
 const CHANGELOG = [
   {
+    version: '0.37',
+    date: '2026-07-27',
+    features: [
+      "Fixed Onboarding silently swallowing save failures — a genuine error (bad connection, timeout, whatever) looked identical to success, walking you through all 7 steps to \"You're set up\" with nothing actually saved. Now stops on the failed step with a visible error and a Retry.",
+    ],
+  },
+  {
     version: '0.36',
     date: '2026-07-27',
     features: [
@@ -4855,6 +4862,14 @@ function Onboarding({ onComplete, onOpenImport }) {
   const [hevyKeySaved, setHevyKeySaved] = useState(false);
   const [urlCopied, setUrlCopied] = useState(false);
   const [saving, setSaving] = useState(false);
+  // Surfaced when a step's save genuinely fails — advance() previously
+  // swallowed every save error and moved to the next step regardless (api()
+  // only rejects on network failure, not on an HTTP error response, and
+  // nothing here checked for either), so a real save failure looked
+  // identical to success: "Saving…" then straight through to "You're set
+  // up" with nothing actually written. Now it stops on the current step and
+  // lets the athlete retry instead.
+  const [stepError, setStepError] = useState('');
 
   const SHORTCUT_URL = `${API_BASE}/shortcut`;
   // Personal sync URL — each account gets its own token so its data lands
@@ -4884,20 +4899,25 @@ function Onboarding({ onComplete, onOpenImport }) {
     });
   };
 
+  // throwOnError on every call below — api() otherwise only rejects on a
+  // network-level failure, not an HTTP error response, so a genuine save
+  // failure (auth hiccup, timeout, 500, whatever) would resolve normally
+  // and look identical to success. advance()'s try/catch is the single
+  // place that reacts to a real failure now.
   const saveStep1 = async () => {
     const kg = weightUnit === 'kg' ? parseFloat(weightVal) : parseFloat(weightVal) * 0.453592;
     const cm = heightUnit === 'cm' ? parseFloat(heightVal) : parseFloat(heightVal) * 30.48;
     const age = dob ? Math.floor((Date.now() - new Date(dob)) / (365.25 * 24 * 3600 * 1000)) : null;
     const profileBody = { name: name || undefined, dob: dob || undefined, age, heightCm: cm || undefined, sex: sex || undefined };
-    await api('profile', { method: 'POST', body: JSON.stringify(profileBody) });
-    if (kg > 0) await api('weight', { method: 'POST', body: JSON.stringify({ kg }) });
-    if (bodyFat) await api('bodyfat', { method: 'POST', body: JSON.stringify({ pct: parseFloat(bodyFat) }) });
+    await api('profile', { method: 'POST', body: JSON.stringify(profileBody), throwOnError: true });
+    if (kg > 0) await api('weight', { method: 'POST', body: JSON.stringify({ kg }), throwOnError: true });
+    if (bodyFat) await api('bodyfat', { method: 'POST', body: JSON.stringify({ pct: parseFloat(bodyFat) }), throwOnError: true });
   };
 
   const saveStep2 = async () => {
     const macroGoalMap = { 'Lose Fat': 'cut', 'Build Muscle': 'bulk', 'Maintain': 'recomp', 'Athletic Performance': 'recomp' };
-    await api('profile', { method: 'POST', body: JSON.stringify({ goal, sleepTarget, waterTarget, trainingDaysPerWeek: trainingDays }) });
-    if (macroGoalMap[goal]) await api('macro-auto', { method: 'POST', body: JSON.stringify({ goal: macroGoalMap[goal] }) }).catch(() => {});
+    await api('profile', { method: 'POST', body: JSON.stringify({ goal, sleepTarget, waterTarget, trainingDaysPerWeek: trainingDays }), throwOnError: true });
+    if (macroGoalMap[goal]) await api('macro-auto', { method: 'POST', body: JSON.stringify({ goal: macroGoalMap[goal] }), throwOnError: true });
   };
 
   const saveStep4 = async () => {
@@ -4908,24 +4928,27 @@ function Onboarding({ onComplete, onOpenImport }) {
       usualRepsHigh: usualRepsHigh ? parseInt(usualRepsHigh) : undefined,
       favoriteExercises: favorites,
     };
-    await api('profile', { method: 'POST', body: JSON.stringify({ trainingBackground, experienceLevel: experienceLevel || undefined }) }).catch(() => {});
+    await api('profile', { method: 'POST', body: JSON.stringify({ trainingBackground, experienceLevel: experienceLevel || undefined }), throwOnError: true });
   };
 
   const saveStep5 = async () => {
-    await api('profile', { method: 'POST', body: JSON.stringify({ muscleFocus }) }).catch(() => {});
+    await api('profile', { method: 'POST', body: JSON.stringify({ muscleFocus }), throwOnError: true });
   };
 
   const advance = async () => {
     setSaving(true);
+    setStepError('');
     try {
       if (step === 1) await saveStep1();
       if (step === 2) await saveStep2();
-      if (step === 3) await api('profile', { method: 'POST', body: JSON.stringify({ trackingLevel: echelon }) }).catch(() => {});
+      if (step === 3) await api('profile', { method: 'POST', body: JSON.stringify({ trackingLevel: echelon }), throwOnError: true });
       if (step === 4) await saveStep4();
       if (step === 5) await saveStep5();
-    } catch {}
+      setStep(s => s + 1);
+    } catch {
+      setStepError('Something didn’t save — check your connection and try again.');
+    }
     setSaving(false);
-    setStep(s => s + 1);
   };
 
   const progressPct = (step / (TOTAL - 1)) * 100;
@@ -5012,9 +5035,10 @@ function Onboarding({ onComplete, onOpenImport }) {
             <input style={inputStyle} placeholder="Leave blank if unknown" type="number" step="0.1"
               value={bodyFat} onChange={e => setBodyFat(e.target.value)} inputMode="decimal" />
 
+            {stepError && <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--red)', marginBottom: 6 }}>{stepError}</div>}
             <div className="ob-nav">
-              <button className="ob-back" onClick={() => setStep(0)}>← Back</button>
-              <button className="ob-next" onClick={advance} disabled={saving}>{saving ? 'Saving…' : 'Continue'}</button>
+              <button className="ob-back" onClick={() => { setStepError(''); setStep(0); }}>← Back</button>
+              <button className="ob-next" onClick={advance} disabled={saving}>{saving ? 'Saving…' : stepError ? 'Retry' : 'Continue'}</button>
             </div>
           </>
         )}
@@ -5066,9 +5090,10 @@ function Onboarding({ onComplete, onOpenImport }) {
               </div>
             </div>
 
+            {stepError && <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--red)', marginBottom: 6 }}>{stepError}</div>}
             <div className="ob-nav">
-              <button className="ob-back" onClick={() => setStep(1)}>← Back</button>
-              <button className="ob-next" onClick={advance} disabled={saving || !goal}>{saving ? 'Saving…' : 'Continue'}</button>
+              <button className="ob-back" onClick={() => { setStepError(''); setStep(1); }}>← Back</button>
+              <button className="ob-next" onClick={advance} disabled={saving || !goal}>{saving ? 'Saving…' : stepError ? 'Retry' : 'Continue'}</button>
             </div>
           </>
         )}
@@ -5088,9 +5113,10 @@ function Onboarding({ onComplete, onOpenImport }) {
                 </div>
               </button>
             ))}
+            {stepError && <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--red)', marginBottom: 6 }}>{stepError}</div>}
             <div className="ob-nav">
-              <button className="ob-back" onClick={() => setStep(2)}>← Back</button>
-              <button className="ob-next" onClick={advance} disabled={saving}>{saving ? 'Saving…' : 'Continue'}</button>
+              <button className="ob-back" onClick={() => { setStepError(''); setStep(2); }}>← Back</button>
+              <button className="ob-next" onClick={advance} disabled={saving}>{saving ? 'Saving…' : stepError ? 'Retry' : 'Continue'}</button>
             </div>
           </>
         )}
@@ -5160,9 +5186,10 @@ function Onboarding({ onComplete, onOpenImport }) {
               </div>
             )}
 
+            {stepError && <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--red)', marginBottom: 6 }}>{stepError}</div>}
             <div className="ob-nav">
-              <button className="ob-back" onClick={() => setStep(3)}>← Back</button>
-              <button className="ob-next" onClick={advance} disabled={saving}>{saving ? 'Saving…' : 'Continue'}</button>
+              <button className="ob-back" onClick={() => { setStepError(''); setStep(3); }}>← Back</button>
+              <button className="ob-next" onClick={advance} disabled={saving}>{saving ? 'Saving…' : stepError ? 'Retry' : 'Continue'}</button>
             </div>
           </>
         )}
@@ -5192,9 +5219,10 @@ function Onboarding({ onComplete, onOpenImport }) {
                 );
               })}
             </div>
+            {stepError && <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--red)', marginBottom: 6 }}>{stepError}</div>}
             <div className="ob-nav">
-              <button className="ob-back" onClick={() => setStep(4)}>← Back</button>
-              <button className="ob-next" onClick={advance} disabled={saving}>{saving ? 'Saving…' : 'Continue'}</button>
+              <button className="ob-back" onClick={() => { setStepError(''); setStep(4); }}>← Back</button>
+              <button className="ob-next" onClick={advance} disabled={saving}>{saving ? 'Saving…' : stepError ? 'Retry' : 'Continue'}</button>
             </div>
           </>
         )}
