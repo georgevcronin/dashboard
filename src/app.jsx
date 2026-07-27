@@ -744,6 +744,13 @@ const glycogenPct = (elapsedS, totalS) => {
 // app's first version — everything before this had no changelog at all.
 const CHANGELOG = [
   {
+    version: '0.36',
+    date: '2026-07-27',
+    features: [
+      "Fixed Onboarding showing again from scratch on a new browser/device for an already-set-up account — completion was only ever tracked in that browser's local storage, with no check against the real account data.",
+    ],
+  },
+  {
     version: '0.35',
     date: '2026-07-25',
     features: [
@@ -6613,7 +6620,22 @@ function App() {
   const [summaryError, setSummaryError] = useState('');
 
   const loadSummary = () => api('summary', { throwOnError: true })
-    .then(data => { setS(data); setSummaryError(''); })
+    .then(data => {
+      setS(data);
+      setSummaryError('');
+      // Backend-driven, not just localStorage: onboarded state previously
+      // relied entirely on press_onboarded in this browser's localStorage,
+      // so a real, fully-set-up account showed Onboarding again from
+      // scratch on any new browser/device or cleared storage, with no way
+      // to tell "genuinely new" from "just a new browser" apart. A real
+      // account is anything with an explicit completion flag, a saved
+      // name, or any real lift history — never re-onboard those, no matter
+      // what this specific browser remembers.
+      if (!onboarded && (data?.profile?.onboardingComplete || data?.profile?.name || data?.lifts?.length > 0)) {
+        localStorage.setItem('press_onboarded', '1');
+        setOnboarded(true);
+      }
+    })
     .catch(() => setSummaryError('Failed to load — check your connection and try again.'));
 
   const fetchNewscast = async (period) => {
@@ -6648,7 +6670,15 @@ function App() {
     setLoadingPeriod(null);
   };
 
-  const handleOnboardDone = () => { localStorage.setItem('press_onboarded', '1'); setOnboarded(true); };
+  const handleOnboardDone = () => {
+    localStorage.setItem('press_onboarded', '1');
+    setOnboarded(true);
+    // Explicit, permanent signal on the account itself — belt-and-braces
+    // alongside the profile-name/lift-history checks in loadSummary above,
+    // for the case where someone finishes onboarding without ever setting
+    // a name and hasn't logged anything yet either.
+    api('profile', { method: 'POST', body: JSON.stringify({ onboardingComplete: true }) }).catch(() => {});
+  };
 
   // Applies the synced preference once real profile data loads, and caches it
   // so index.html's bootstrap script (which runs before this JS even loads)
