@@ -7,6 +7,7 @@
 
 const { RECOVERY_H, findExercise, musclesForExercise, isCompoundExercise } = require('./muscleTaxonomy');
 const { e1rm: calcE1RM } = require('./strengthStandards');
+const { classifyMuscles } = require('./emgActivation');
 
 const avg = (a) => (a.length ? a.reduce((x, y) => x + y, 0) / a.length : null);
 const liftTime = (l) => new Date(l.start || l.date).getTime();
@@ -28,11 +29,15 @@ function computeMuscleLastTrainedDays(lifts) {
   const now = Date.now();
   const lastSeenMs = {};
   for (const l of (lifts || [])) {
-    const entry = findExercise(l.exercise);
-    if (!entry) continue;
+    // A press/row built from real EMG data (PressRowBuilder) carries its own
+    // per-lift weighted profile and won't resolve via findExercise (it's a
+    // generated identity, not a static exerciseDb.js entry) — classify its
+    // primary muscles from that instead of skipping it entirely.
+    const primary = l.emgWeights ? classifyMuscles(l.emgWeights).primary : findExercise(l.exercise)?.primary;
+    if (!primary) continue;
     const t = liftTime(l);
     if (isNaN(t)) continue;
-    for (const m of entry.primary || []) {
+    for (const m of primary) {
       if (!lastSeenMs[m] || t > lastSeenMs[m]) lastSeenMs[m] = t;
     }
   }
@@ -53,6 +58,18 @@ function computeStructuralFatigue(lifts, musclePeaks, soreness = [], sensitivity
     const hoursAgo = (now - liftTime(l)) / 3_600_000;
     if (hoursAgo > 336 || hoursAgo < 0) continue;
     const load = (l.kg || 0) * (l.reps || 1);
+    // A PressRowBuilder-generated exercise carries its own real EMG-weighted
+    // profile (% of each muscle's own MVIC at the chosen angle) rather than
+    // crediting every muscle the flat full load musclesForExercise's union
+    // gives everything else — see functions/emgActivation.js.
+    if (l.emgWeights) {
+      for (const [m, pct] of Object.entries(l.emgWeights)) {
+        const hl = recoveryHours[m] || RECOVERY_H[m] || 72;
+        const decay = Math.exp(-0.693 * hoursAgo / hl);
+        scores[m] = (scores[m] || 0) + load * (pct / 100) * decay;
+      }
+      continue;
+    }
     for (const m of musclesForExercise(l.exercise)) {
       const hl = recoveryHours[m] || RECOVERY_H[m] || 72;
       const decay = Math.exp(-0.693 * hoursAgo / hl);

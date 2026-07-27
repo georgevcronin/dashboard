@@ -11,6 +11,9 @@ import machineBrandsPkg from '../functions/machineBrands.js';
 import adaptationPkg from '../functions/adaptation.js';
 import plateCalculatorPkg from '../functions/plateCalculator.js';
 import weeklyPlannerPkg from '../functions/weeklyPlanner.js';
+import emgActivationPkg from '../functions/emgActivation.js';
+import muscleCapacityPkg from '../functions/muscleCapacity.js';
+import { chestSplitForExercise } from '../functions/chestHeadSplit.js';
 import { EXERCISE_DB, EXERCISE_MUSCLE_GROUPS, EXERCISE_PATTERNS } from '../functions/exerciseDb.js';
 import { PRESS_CSS } from './pressCss.js';
 import { AreaChart, BarChart, Sparkline, AdaptationChart } from './charts.jsx';
@@ -34,6 +37,8 @@ const {
 } = adaptationPkg;
 const { platesForWeight, STANDARD_PLATES_KG } = plateCalculatorPkg;
 const { FATIGUE_CEILING } = weeklyPlannerPkg;
+const { ANGLES: EMG_ANGLES, PRESS_ANGLE_DESC, ROW_ANGLE_DESC, classifyMuscles, emgForAngle } = emgActivationPkg;
+const { buildObservations, solveMuscleCapacities, predictExerciseE1RM, suggestedWeightForReps } = muscleCapacityPkg;
 
 const FIREBASE_CONFIG = {
   apiKey: "AIzaSyDlVzSc9yow5GHbQipRWuYAZ5QTQ-jmXiY",
@@ -743,6 +748,21 @@ const glycogenPct = (elapsedS, totalS) => {
 // app's first version — everything before this had no changelog at all.
 const CHANGELOG = [
   {
+    version: '0.45',
+    date: '2026-07-28',
+    features: [
+      'Chest exercises now show a lower/mid/upper pec split (e.g. "Lower 38% · Mid 42% · Upper 20%") in the session preview and while logging — literature-grounded per bench angle, shown for all 27 chest exercises already in the database. Informational only: fatigue and stimulus outside a workout still track a single chest number, unchanged and fully comparable to every other muscle.',
+    ],
+  },
+  {
+    version: '0.44',
+    date: '2026-07-28',
+    features: [
+      'Added a "Build Press/Row" exercise builder to the workout logger — pick Press or Row, equipment, an EMG-backed angle, and (for cable/machine) a brand, and it becomes its own tracked exercise with a real per-muscle weighted fatigue/stimulus profile instead of the flat primary/secondary every other exercise gets.',
+      'New angles now get a suggested first-set target weight, cross-calibrated from your real history on other angle-mapped press/row exercises via a per-muscle strength regression — with a full breakdown of which muscle contributed how much, and clearly flagged as a rough estimate when a contributing muscle has no supporting history yet.',
+    ],
+  },
+  {
     version: '0.43',
     date: '2026-07-27',
     features: [
@@ -1379,6 +1399,146 @@ function ExerciseBrowser({ onAdd }) {
   );
 }
 
+// Builds a genuinely new exercise identity from Row/Press + equipment +
+// angle + brand, rather than resolving to an existing exerciseDb.js entry —
+// each combination gets its own EMG-weighted muscle profile (functions/
+// emgActivation.js) and is tracked as its own exercise going forward, same
+// as any other custom exercise. See onAdd's second argument in WorkoutLogger
+// for how the weighted profile travels with the logged sets.
+function PressRowBuilder({ onAdd, lifts }) {
+  const [open, setOpen] = useState(false);
+  const [pattern, setPattern] = useState(null);
+  const [equipment, setEquipment] = useState(null);
+  const [angle, setAngle] = useState(null);
+  const [brand, setBrand] = useState('');
+  const [brandPicked, setBrandPicked] = useState(false);
+
+  const reset = () => { setPattern(null); setEquipment(null); setAngle(null); setBrand(''); setBrandPicked(false); };
+
+  const needsBrand = equipment === 'cable' || equipment === 'machine';
+  const brands = needsBrand ? defaultMachineBrands(equipment) : [];
+
+  const pickBrand = b => { setBrand(b); setBrandPicked(true); };
+  const skipBrand = () => { setBrand(''); setBrandPicked(true); };
+
+  // Cross-exercise target-weight prediction (functions/muscleCapacity.js):
+  // solves per-muscle "capacity" from the athlete's real history on OTHER
+  // press/row exercises they've angle-mapped, then predicts this exact,
+  // possibly-never-logged angle's expected e1RM from those capacities. Only
+  // recomputed when lifts actually change, not on every angle click.
+  const capacityResult = useMemo(() => solveMuscleCapacities(buildObservations(lifts)), [lifts]);
+  const prediction = angle != null ? predictExerciseE1RM(pattern, angle, capacityResult) : null;
+  const suggestedKg = prediction ? suggestedWeightForReps(prediction.e1rm, 8) : null;
+
+  const build = () => {
+    const weights = emgForAngle(pattern, angle);
+    if (!weights) return;
+    const { primary, secondary } = classifyMuscles(weights);
+    const equipLabel = equipment[0].toUpperCase() + equipment.slice(1);
+    const patternLabel = pattern === 'press' ? 'Press' : 'Row';
+    const name = brand.trim()
+      ? `${equipLabel} ${patternLabel} — ${angle}° — ${brand.trim()}`
+      : `${equipLabel} ${patternLabel} — ${angle}°`;
+    onAdd(name, { primary, secondary, emgWeights: weights, suggestedKg });
+    setOpen(false);
+    reset();
+  };
+
+  const tileStyle = { padding: '9px 12px', fontFamily: "'JetBrains Mono',monospace", fontSize: 11, textTransform: 'capitalize', cursor: 'pointer', border: '1px solid var(--rule)', background: 'var(--paper)', color: 'var(--ink)', textAlign: 'left' };
+  const showAngleStep = pattern && equipment && angle == null;
+  const showBrandStep = pattern && equipment && angle != null && needsBrand && !brandPicked;
+  const showConfirm = pattern && equipment && angle != null && (!needsBrand || brandPicked);
+
+  return (
+    <div style={{ marginTop: 10, borderTop: '1px solid var(--rule)', paddingTop: 10 }}>
+      <button onClick={() => { setOpen(v => !v); reset(); }} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, fontFamily: "'JetBrains Mono',monospace", fontSize: 9, letterSpacing: '.12em', textTransform: 'uppercase', color: 'var(--dim)' }}>
+        {open ? '− ' : '+ '}Build Press/Row
+      </button>
+      {open && (
+        <div style={{ marginTop: 10 }}>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', marginBottom: 8, fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)', textTransform: 'capitalize' }}>
+            {pattern && <button onClick={() => reset()} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--dim)', textTransform: 'capitalize', padding: 0 }}>{pattern}</button>}
+            {equipment && <><span>›</span><button onClick={() => { setEquipment(null); setAngle(null); setBrand(''); setBrandPicked(false); }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--dim)', textTransform: 'capitalize', padding: 0 }}>{equipment}</button></>}
+            {angle != null && <><span>›</span><button onClick={() => { setAngle(null); setBrand(''); setBrandPicked(false); }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--dim)', padding: 0 }}>{angle}°</button></>}
+            {brandPicked && brand && <><span>›</span><span>{brand}</span></>}
+          </div>
+
+          {!pattern && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <button style={tileStyle} onClick={() => setPattern('press')}>Press</button>
+              <button style={tileStyle} onClick={() => setPattern('row')}>Row</button>
+            </div>
+          )}
+
+          {pattern && !equipment && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              {['barbell', 'dumbbell', 'cable', 'machine'].map(eq => (
+                <button key={eq} style={tileStyle} onClick={() => setEquipment(eq)}>{eq}</button>
+              ))}
+            </div>
+          )}
+
+          {showAngleStep && (
+            <div>
+              <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)', lineHeight: 1.6, marginBottom: 10 }}>
+                {pattern === 'press' ? PRESS_ANGLE_DESC : ROW_ANGLE_DESC}
+              </div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                {EMG_ANGLES.map(a => (
+                  <button key={a} style={{ ...tileStyle, flex: '0 0 auto', padding: '7px 10px' }} onClick={() => setAngle(a)}>{a}°</button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {showBrandStep && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              {brands.map(b => (
+                <button key={b} style={tileStyle} onClick={() => pickBrand(b)}>{b}</button>
+              ))}
+              <button style={{ ...tileStyle, color: 'var(--dim)' }} onClick={skipBrand}>Skip brand</button>
+            </div>
+          )}
+
+          {showConfirm && (
+            <div>
+              <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 11, color: 'var(--ink)', marginBottom: 8 }}>
+                {equipment[0].toUpperCase() + equipment.slice(1)} {pattern === 'press' ? 'Press' : 'Row'} — {angle}°{brand.trim() ? ` — ${brand.trim()}` : ''}
+              </div>
+              <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)', lineHeight: 1.6, marginBottom: suggestedKg ? 6 : 10 }}>
+                {suggestedKg
+                  ? `Suggested first set: ~${suggestedKg}kg × 8 reps${prediction.confidence === 'partial' ? ' — rough estimate, some contributing muscles have no history yet' : ' — from your history on other angles'}.`
+                  : 'No target weight suggestion yet — log at least 3 other press/row exercises (with angles set) to calibrate one.'}
+              </div>
+              {prediction?.breakdown && (
+                <div style={{ marginBottom: 10, border: '1px solid var(--rule)' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 8px', fontFamily: "'JetBrains Mono',monospace", fontSize: 8, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--dim)', borderBottom: '1px solid var(--rule)' }}>
+                    <span style={{ flex: 1 }}>Muscle</span>
+                    <span style={{ width: 34, textAlign: 'right' }}>EMG</span>
+                    <span style={{ width: 64, textAlign: 'right' }}>Capacity</span>
+                    <span style={{ width: 48, textAlign: 'right' }}>Adds</span>
+                  </div>
+                  {prediction.breakdown.map(b => (
+                    <div key={b.muscle} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 8px', fontFamily: "'JetBrains Mono',monospace", fontSize: 9, borderBottom: '1px solid var(--rule)' }}>
+                      <span style={{ flex: 1, textTransform: 'capitalize', color: 'var(--ink)' }}>{b.muscle.replace('-', ' ')}</span>
+                      <span style={{ color: 'var(--dim)', width: 34, textAlign: 'right' }}>{b.pct}%</span>
+                      <span style={{ color: 'var(--dim)', width: 64, textAlign: 'right' }}>{b.hasData ? `× ${b.capacity}kg` : 'no data'}</span>
+                      <span style={{ color: 'var(--ink)', width: 48, textAlign: 'right' }}>{b.hasData ? `${b.contribution}kg` : '—'}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <button className="prof-btn solid" onClick={build}>Add Exercise</button>
+            </div>
+          )}
+
+          <button className="ol-btn ol-btn-ghost" style={{ fontSize: 8, marginTop: 8 }} onClick={() => { setOpen(false); reset(); }}>Cancel</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function PlateCalculator() {
   const [open, setOpen] = useState(false);
   const [barWeight, setBarWeight] = useState('20');
@@ -1593,16 +1753,26 @@ function WorkoutLogger({ planDay, lifts, customExercises, experienceLevel, onClo
     setSuggestions([...nameMatches, ...tagMatches].slice(0, 8));
   };
 
-  const addExercise = name => {
+  // `custom` (optional) carries a generated exercise's own muscle data —
+  // {primary, secondary, emgWeights} from PressRowBuilder — so it's a real
+  // exercise-taxonomy entry (visible to session generation, staleness,
+  // PR tracking) instead of the bare {name} every other custom exercise
+  // gets, and so fatigue.js can use emgWeights for weighted attribution
+  // once it's copied onto each set at finish() below.
+  const addExercise = (name, custom) => {
     if (!name.trim()) return;
     const key = name.toLowerCase().trim();
+    // suggestedKg is a one-off logging convenience (this session's first-set
+    // prefill), not a fact about the exercise itself -- kept out of the
+    // stored customExercises record, unlike primary/secondary/emgWeights.
+    const { suggestedKg, ...taxonomy } = custom || {};
     if (!allExercises.includes(key)) {
-      setNewCustomExercises(p => p.some(ce => ce.name === key) ? p : [...p, { name: key }]);
+      setNewCustomExercises(p => p.some(ce => ce.name === key) ? p : [...p, { name: key, ...taxonomy }]);
     }
     const prev = prevData[key];
     const sets = prev?.sets?.map(s => ({ type: s.type || 'N', kg: String(s.kg || ''), reps: String(s.reps || ''), rpe: '', done: false }))
-      || [{ type: 'N', kg: '', reps: '', rpe: '', done: false }];
-    setExercises(p => [...p, { name: key, bw: false, targetReps: 8, sets }]);
+      || [{ type: 'N', kg: suggestedKg ? String(suggestedKg) : '', reps: '', rpe: '', done: false }];
+    setExercises(p => [...p, { name: key, bw: false, targetReps: 8, sets, ...(custom?.emgWeights ? { emgWeights: custom.emgWeights } : {}) }]);
     setNewEx(''); setSuggestions([]);
     setTimeout(() => inputRef.current?.focus(), 50);
     // No progression fetch here — the render below already calls
@@ -1747,6 +1917,7 @@ function WorkoutLogger({ planDay, lifts, customExercises, experienceLevel, onClo
       ...(s.type && s.type !== 'N' ? { type: s.type } : {}),
       ...(ex.machine ? { machine: ex.machine } : {}),
       ...(ex.pulleyType ? { pulleyType: ex.pulleyType } : {}),
+      ...(ex.emgWeights ? { emgWeights: ex.emgWeights } : {}),
     })));
     try {
       const r = await api('session/complete', {
@@ -1943,6 +2114,21 @@ function WorkoutLogger({ planDay, lifts, customExercises, experienceLevel, onClo
                     <button onClick={() => removeExercise(i)} style={{ background: 'none', border: 'none', color: 'var(--dim)', cursor: 'pointer', fontSize: 16, lineHeight: 1, padding: 0 }}>×</button>
                   </div>
                 </div>
+
+                {/* Chest-head split — informational only, shown just for this
+                    logged exercise. Deliberately doesn't feed fatigue/stimulus
+                    as its own tracked muscle (see functions/chestHeadSplit.js):
+                    outside a workout, chest stays one number comparable to
+                    every other unsplit muscle; inside one, you can see which
+                    head this specific exercise is actually emphasizing. */}
+                {(() => {
+                  const split = chestSplitForExercise(ex.name);
+                  return split && (
+                    <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, color: 'var(--dim)', marginBottom: 3 }}>
+                      Lower {split.lower}% · Mid {split.mid}% · Upper {split.upper}%
+                    </div>
+                  );
+                })()}
 
                 {/* History chart (expanded) */}
                 {isExpanded && <ExHistoryChart name={ex.name} lifts={lifts} />}
@@ -2177,6 +2363,7 @@ function WorkoutLogger({ planDay, lifts, customExercises, experienceLevel, onClo
           </div>
 
           <ExerciseBrowser onAdd={addExercise} />
+          <PressRowBuilder onAdd={addExercise} lifts={lifts} />
           <PlateCalculator />
         </div>
       )}
@@ -2853,6 +3040,7 @@ function S3({ s, onStartWorkout, onImport, onHistory, refresh }) {
                 // sends {name, note, sets}), but EXERCISE_DB is already
                 // bundled into the frontend, so a lookup here is enough.
                 const primaryMuscles = EXERCISE_DB.find(e => e.name === ex.name)?.primary || [];
+                const chestSplit = chestSplitForExercise(ex.name);
                 return (
                   <div key={i} style={{ display: 'flex', alignItems: 'baseline', gap: 8, padding: '3px 0', borderBottom: '1px solid var(--rule)' }}>
                     <div style={{ flex: 1, minWidth: 0 }}>
@@ -2860,6 +3048,11 @@ function S3({ s, onStartWorkout, onImport, onHistory, refresh }) {
                       {primaryMuscles.length > 0 && (
                         <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, color: 'var(--dim)', textTransform: 'capitalize', marginTop: 1 }}>
                           {primaryMuscles.map(muscleDisplayLabel).join(', ')}
+                        </div>
+                      )}
+                      {chestSplit && (
+                        <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, color: 'var(--dim)', marginTop: 1 }}>
+                          Lower {chestSplit.lower}% · Mid {chestSplit.mid}% · Upper {chestSplit.upper}%
                         </div>
                       )}
                     </div>

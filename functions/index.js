@@ -1517,6 +1517,7 @@ app.post('/session/complete', async (req, res) => {
         exercise: s.exercise, kg: +s.kg, reps: +s.reps, rpe: s.rpe || null, date: workout.date,
         ...(s.type && s.type !== 'N' ? { type: s.type } : {}),
         ...(s.machine ? { machine: s.machine } : {}), ...(s.pulleyType ? { pulleyType: s.pulleyType } : {}),
+        ...(s.emgWeights ? { emgWeights: s.emgWeights } : {}),
       }));
     const isReplacedToday = l => l.date === workout.date && sets.some(s => s.exercise === l.exercise);
     await removeLiftsAndAppend(liftsDocRef, isReplacedToday, newLiftEntries);

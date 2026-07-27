@@ -39,6 +39,25 @@ test('computeStructuralFatigue does not misattribute Cable exercises to abs', ()
   assert.equal(out.abs, undefined, 'Cable Crossover should not produce an abs fatigue score');
 });
 
+test('computeStructuralFatigue credits a PressRowBuilder exercise by its real emgWeights %, not full load', () => {
+  // Same muscle (lats), same date/decay, same raw load and peak in both
+  // cases -- the only difference is emgWeights crediting 62% instead of
+  // musclesForExercise's flat 100%, so any gap is purely from the weighting.
+  const weightedLift = [{ date: daysAgo(0), exercise: 'Cable Row — 90°', kg: 100, reps: 8, emgWeights: { lats: 62 } }];
+  const fullCreditLift = [{ date: daysAgo(0), exercise: 'Pull-Up (Wide Grip)', kg: 100, reps: 8 }]; // primary includes lats, full (unweighted) credit
+  const peaks = { lats: 800 };
+  const weightedOut = computeStructuralFatigue(weightedLift, peaks, [], {});
+  const fullOut = computeStructuralFatigue(fullCreditLift, peaks, [], {});
+  assert.ok(weightedOut.lats < fullOut.lats * 0.7, 'weighted (62%) credit should be well under the same raw load credited at full (100%)');
+});
+
+test('computeStructuralFatigue with emgWeights only attributes to muscles present in the weights, ignoring musclesForExercise entirely', () => {
+  const lifts = [{ date: daysAgo(0), exercise: 'Cable Row — 90°', kg: 100, reps: 8, emgWeights: { lats: 62 } }];
+  const out = computeStructuralFatigue(lifts, { lats: 620 }, [], {});
+  assert.ok('lats' in out);
+  assert.equal(out.biceps, undefined, 'a real row would normally credit biceps too, but emgWeights did not include it here, so it should not appear');
+});
+
 test('musclePeaksFromLifts finds the single highest-volume day per muscle', () => {
   const lifts = [
     { date: '2026-01-01', exercise: 'Back Squat', kg: 100, reps: 5 }, // 500
@@ -166,6 +185,14 @@ test('computeMuscleLastTrainedDays only counts PRIMARY targets, not secondary', 
   const out = computeMuscleLastTrainedDays(lifts);
   assert.ok('chest' in out);
   assert.ok(!('serratus' in out), 'secondary-only muscles should not count as a genuine training focus');
+});
+
+test('computeMuscleLastTrainedDays classifies a PressRowBuilder exercise\'s primary muscles from emgWeights (>=60 threshold), not findExercise', () => {
+  const lifts = [{ date: daysAgo(4), exercise: 'Cable Row — 90°', kg: 100, reps: 8, emgWeights: { lats: 62, biceps: 80, 'mid-traps': 40 } }];
+  const out = computeMuscleLastTrainedDays(lifts);
+  assert.ok(Math.abs(out.lats - 4) < 1, 'lats at 62% clears the 60 primary threshold');
+  assert.ok(Math.abs(out.biceps - 4) < 1, 'biceps at 80% clears the 60 primary threshold');
+  assert.equal(out['mid-traps'], undefined, '40% is below the 60 primary threshold, so this should not count as a genuine training focus');
 });
 
 test('fatigueTimeline reports zero fatigue for the very first lift of a muscle', () => {
