@@ -23,7 +23,7 @@ test('every muscle referenced in a curated profile is a real taxonomy muscle', (
 
 test('emgProfileForExercise is case-insensitive and returns null for anything uncurated', () => {
   assert.deepEqual(emgProfileForExercise('Back Squat'), emgProfileForExercise('back squat'));
-  assert.equal(emgProfileForExercise('Cable Crossover'), null, 'fly-pattern chest exercises remain uncurated (no dedicated axis)');
+  assert.equal(emgProfileForExercise('Barbell Shrug'), null, 'shrugs remain uncurated -- no scapular-elevation axis exists at all');
   assert.equal(emgProfileForExercise(''), null);
 });
 
@@ -70,8 +70,31 @@ test('exercises already covered by the athlete\'s own exerciseAngles.js mapping 
   assert.equal(emgProfileForExercise('Chest-Supported Barbell Row'), null);
 });
 
-test('fly-pattern, carry, shrug, tibialis, and rotator-cuff/traps-dependent pull exercises remain uncurated (no honest single-axis fit)', () => {
-  for (const name of ['Cable Crossover', 'Farmer\'s Carry', 'Barbell Shrug', 'Tibialis Raise (Wall Sit)', 'Face Pull', 'Upright Row', 'Close-Grip Bench Press', 'Hammer Curl']) {
+test('carry, shrug, and tibialis exercises remain uncurated -- no literature axis exists at all for these mechanisms', () => {
+  for (const name of ['Farmer\'s Carry', 'Suitcase Carry', 'Goblet Carry', 'Barbell Shrug', 'Dumbbell Shrug', 'Cable Shrug', 'Tibialis Raise (Wall Sit)', 'Tibialis Raise (ATG Sled Push)']) {
     assert.equal(emgProfileForExercise(name), null, `${name} should remain uncurated`);
   }
+});
+
+test('phase 5: fly-pattern exercises credit chest only, from PRESS_EMG\'s own peak chest value', () => {
+  const fly = emgProfileForExercise('Cable Crossover');
+  assert.deepEqual(Object.keys(fly), ['chest']);
+});
+
+test('phase 5: leg raises now credit abs (the real primary mover) by layering CORE_ANTIEXT_EMG under HIP_FLEXION_EMG, and get harder in the expected order', () => {
+  const lying = emgProfileForExercise('Lying Leg Raise');
+  const incline = emgProfileForExercise('Incline Bench Leg Raise');
+  const hanging = emgProfileForExercise('Hanging Leg Raise');
+  assert.ok('abs' in lying && 'hip-flexors' in lying);
+  assert.ok(lying.abs < incline.abs && incline.abs < hanging.abs);
+});
+
+test('phase 5: face pull credits rotator-cuff (exerciseDb.js\'s co-primary tag), unlike a plain high row', () => {
+  const facePull = emgProfileForExercise('Face Pull');
+  assert.ok('rotator-cuff' in facePull);
+});
+
+test('phase 5: hammer curl and close-grip bench press are curated but numerically identical to their standard-grip counterparts (documented axis limitation)', () => {
+  assert.deepEqual(emgProfileForExercise('Hammer Curl'), emgProfileForExercise('Dumbbell Curl (Standing)'));
+  assert.deepEqual(emgProfileForExercise('Close-Grip Bench Press'), emgProfileForExercise('Barbell Bench Press'));
 });

@@ -308,7 +308,110 @@ const EXERCISE_EMG_PROFILES = {
   // Seated Leg Curl value (moderate, machine/prone-equivalent difficulty).
   'glute-ham raise (ghr)': { hamstrings: 96 },
   'swiss ball leg curl': { hamstrings: 90 },
+
+  // Phase 5: the previously-skipped categories, curated with best-available
+  // (imperfect but real, source-derived) proxies now that "curate the rest"
+  // was explicitly requested. Each is flagged with exactly what it does NOT
+  // capture, same transparency standard as the crunch family above. Three
+  // categories are still left OUT even now: shrugs, loaded carries, and
+  // tibialis raises have no literature axis in movementEmg.js at all (not an
+  // imperfect fit -- a true absence), so curating them would mean inventing
+  // numbers rather than deriving them, which breaks this file's core
+  // discipline. See the end-of-file note for the full list.
+
+  // Chest-fly-pattern: no horizontal-adduction axis exists, so this reuses
+  // PRESS_EMG's own peak chest value (angle 75, its highest point in the
+  // table) chest-only -- the same single-muscle-isolation approach already
+  // used for Leg Extension and the lateral raise family. Does NOT capture
+  // that a fly recruits far less front-delt/triceps than a press at the same
+  // arm angle (a real fly is closer to pure chest isolation); every fly
+  // variant below reads identically since nothing in this axis differentiates
+  // cable direction, machine vs. free, or Svend Press's isometric squeeze.
+  'cable fly (high to low)': { chest: 70 },
+  'cable fly (low to high)': { chest: 70 },
+  'cable crossover': { chest: 70 },
+  'pec deck / machine fly': { chest: 70 },
+  'incline cable fly': { chest: 70 },
+  'svend press': { chest: 70 },
+
+  // Pullovers: mechanically closest to the already-curated Cable
+  // Straight-Arm Pulldown (ROW_EMG[0], arm stays extended, lats/teres-major
+  // dominant, minimal elbow-flexor involvement) -- a pullover's arc from
+  // overhead to hip is the sagittal-plane version of the same
+  // straight-arm-lat mechanic. Does NOT capture the chest-stretch component
+  // at the top of the rep (exerciseDb.js's own secondary tag, abs, also goes
+  // uncredited -- no axis tracks rib-cage/ab bracing during a pullover).
+  'cable pullover': { lats: 95, 'teres-major': 82 },
+  'dumbbell pullover': { lats: 95, 'teres-major': 82 },
+
+  // Face pulls: exerciseDb.js tags rotator-cuff as co-primary with rear-delt,
+  // which only ROTATOR_CUFF_EMG tracks -- used here instead of ROW_EMG so
+  // that primary muscle isn't silently dropped, at the cost of NOT crediting
+  // rhomboids/mid-traps (exerciseDb.js's secondary tags, no combined table
+  // exists). Overhead Cable Face Pull uses the more extreme 180° (full
+  // external rotation, arm overhead) vs. standard Face Pull's 150°(matching
+  // the existing External Rotation (Cable) curated value).
+  'face pull': { 'rotator-cuff': 60, 'rear-delt': 70 },
+  'overhead cable face pull': { 'rotator-cuff': 62.33, 'rear-delt': 80 },
+
+  // Upright Row: a scaled-up lateral raise with elbows leading -- same
+  // frontal-plane abduction axis and same PRESS_FRONTAL_EMG[90] values
+  // already used for the lateral raise family. Does NOT capture
+  // exerciseDb.js's secondary rhomboids/traps (upright row pulls the bar
+  // higher than a lateral raise, recruiting more upper-trap/scapular-
+  // elevation than pure abduction does -- no axis tracks that difference).
+  'upright row': { 'mid-delt': 100, 'front-delt': 95 },
+
+  // Hammer Curl / Cross-Body Hammer Curl: exerciseDb.js tags brachialis/
+  // brachioradialis as PRIMARY here (biceps secondary) -- the inverse
+  // emphasis of a standard curl's tags -- but movementEmg.js's ELBOW_EMG has
+  // no grip-rotation axis, so there is no real data to express that reversal
+  // with. Reuses the standard curl's same-shape-proxy value rather than
+  // inventing a difference the source literature doesn't support; the known
+  // consequence is that these read numerically identical to a standard
+  // Dumbbell Curl, which does not reflect the neutral grip's real emphasis
+  // shift toward brachialis/brachioradialis.
+  'hammer curl': { biceps: 95.5, brachialis: 95.5, brachioradialis: 95.5 },
+  'cross-body hammer curl': { biceps: 95.5, brachialis: 95.5, brachioradialis: 95.5 },
+
+  // Close-Grip Bench Press / Diamond Push-Up: same reasoning as Hammer Curl
+  // above -- exerciseDb.js tags these triceps-first (chest secondhand),
+  // reflecting the narrow grip's real triceps bias, but no elbow-tuck axis
+  // exists for chest presses (PRESS_FRONTAL_EMG's low end is a relative
+  // baseline for the flare CUE, not an absolute crediting source at rest).
+  // Reuses the standard flat press/push-up values; still a real improvement
+  // over flat credit (differentiates chest/triceps/front-delt at all,
+  // instead of crediting all three equally), but does NOT capture the
+  // narrow-grip triceps boost the exercise is actually chosen for.
+  'close-grip bench press': { 'front-delt': 85, 'mid-delt': 58, chest: 68.7, biceps: 73, triceps: 58, serratus: 24, 'lower-traps': 19 },
+  'diamond push-up': { 'front-delt': 85, 'mid-delt': 58, chest: 68.7, biceps: 73, triceps: 58, serratus: 24, 'lower-traps': 19 },
+
+  // Leg raises: HIP_FLEXION_EMG alone doesn't track abs at all (the real
+  // primary mover exerciseDb.js tags), which is why these were skipped
+  // through phase 4. Since HIP_FLEXION_EMG's columns (hip-flexors, quads,
+  // adductors) and CORE_ANTIEXT_EMG's columns (abs, obliques,
+  // transverse-abs, erectors, lats) are disjoint, not conflicting, this
+  // layers both tables together -- the dynamic hip-flexion mover plus the
+  // anti-extension core bracing that's genuinely also happening -- rather
+  // than picking one table and dropping real muscles the other one tracks.
+  // Lever/angle scaled by difficulty: Lying (shortest effective lever, hips
+  // supported) < Incline Bench (moderate) < Hanging (longest lever, full
+  // bodyweight, hardest).
+  'lying leg raise': { abs: 66, obliques: 63.5, 'transverse-abs': 73, erectors: 27, lats: 44, 'hip-flexors': 66.67, quads: 65, adductors: 45 },
+  'incline bench leg raise': { abs: 76, obliques: 72.5, 'transverse-abs': 82, erectors: 34, lats: 53, 'hip-flexors': 66.67, quads: 65, adductors: 45 },
+  'hanging leg raise': { abs: 87, obliques: 82.5, 'transverse-abs': 91, erectors: 41, lats: 62, 'hip-flexors': 69.33, quads: 66, adductors: 44 },
 };
+
+// Genuinely left uncurated, even after the "curate the rest" pass above --
+// not an imperfect-fit judgment call like everything else in this file, but
+// a real absence: movementEmg.js has no axis at all for these mechanisms
+// (scapular elevation for shrugs, isometric loaded-carry grip/trunk bracing,
+// or tibialis/dorsiflexion). Assigning them a value would mean inventing a
+// number, not deriving one from the source literature -- the one line this
+// file has not crossed. They keep flat musclesForExercise() credit:
+// Barbell Shrug, Dumbbell Shrug, Cable Shrug, Farmer's Carry, Suitcase
+// Carry, Goblet Carry, Tibialis Raise (Wall Sit), Tibialis Raise (ATG Sled
+// Push).
 
 function emgProfileForExercise(name) {
   return EXERCISE_EMG_PROFILES[(name || '').toLowerCase().trim()] || null;

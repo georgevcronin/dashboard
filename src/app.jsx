@@ -820,6 +820,13 @@ const glycogenPct = (elapsedS, totalS) => {
 // app's first version — everything before this had no changelog at all.
 const CHANGELOG = [
   {
+    version: '0.49',
+    date: '2026-07-28',
+    features: [
+      'Curated EMG fatigue profiles now cover chest flys, pullovers, face pulls, upright rows, hammer curls, and close-grip/diamond triceps-emphasis presses too (201 of 212 exercises now curated) — each honestly flagged in code for exactly what it does and doesn\'t capture versus the ideal data. Loaded carries, shrugs, and tibialis raises are the only 8 left on flat crediting, since no literature axis exists for those mechanisms at all.',
+    ],
+  },
+  {
     version: '0.48',
     date: '2026-07-28',
     features: [
