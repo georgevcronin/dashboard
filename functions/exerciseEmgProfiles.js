@@ -299,6 +299,18 @@ const EXERCISE_EMG_PROFILES = {
   'dumbbell row (pronated)': { lats: 70, biceps: 76, 'rear-delt': 58, 'mid-delt': 67, 'mid-traps': 63, rhomboids: 62, 'teres-major': 56, brachioradialis: 62 },
   'wide-grip cable row': { lats: 46, biceps: 73, 'rear-delt': 85, 'mid-delt': 90, 'mid-traps': 88, rhomboids: 89, 'teres-major': 46, brachioradialis: 61 },
 
+  // Kelso Shrug: same ROW_EMG pull-direction axis as the rest of the row
+  // family, at three fixed angles (matching the pull-up/pulldown family's
+  // grip-width-differentiated approach) instead of one default -- the
+  // trap/rhomboid/rear-delt-vs-lat/teres-major ratio genuinely shifts with
+  // pull angle, which is the whole point of having low/mid/high variants.
+  // biceps/brachioradialis dropped at all three angles, same precedent as
+  // Cable Straight-Arm Pulldown above: the elbow stays locked, so this axis's
+  // elbow-flexor-synergist columns don't apply here.
+  'kelso shrug (low pulley)': { lats: 90, 'rear-delt': 24, 'mid-delt': 30, 'mid-traps': 31, rhomboids: 28, 'teres-major': 73 },
+  'kelso shrug (mid pulley)': { lats: 62, 'rear-delt': 68, 'mid-delt': 77, 'mid-traps': 73, rhomboids: 73, 'teres-major': 52 },
+  'kelso shrug (high pulley)': { lats: 32, 'rear-delt': 95, 'mid-delt': 91, 'mid-traps': 96, rhomboids: 95, 'teres-major': 40 },
+
   // Glute-Ham Raise and Swiss Ball Leg Curl are knee-flexion dominant, same
   // as the already-curated Lying/Seated/Nordic leg curls -- KNEE_EMG's
   // hamstrings-only value, same precedent (glutes is exerciseDb.js's

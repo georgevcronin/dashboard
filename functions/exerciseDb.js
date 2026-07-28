@@ -1606,6 +1606,39 @@ const EXERCISE_DB = [
     lesserKnown: false,
     muscleGroup: "back", pattern: "shrug", movementId: "shrug", movementName: "Shrug"
   },
+  {
+    id: 'kelso-shrug-low',
+    name: 'Kelso Shrug (Low Pulley)',
+    category: 'pull', equipment: 'cable',
+    primary: ['mid-traps', 'rhomboids'], secondary: ['lats', 'teres-major'],
+    curve: 'matching',
+    curveNote: 'Bent-over, straight-arm scapular retraction from a low pulley — unlike a vertical shrug, this targets mid/lower traps and rhomboids, not upper-trap elevation. Low pulley angle pulls closer to a lat/teres-major-dominant direction, less pure retraction than the high-pulley version.',
+    form: ['Hinge to ~45-70° torso angle, arms hanging straight', 'Elbows stay locked — no rowing, pull comes from the shoulder blades', 'Retract scapulae straight back, squeeze at end range', 'Control the return, full protraction between reps'],
+    lesserKnown: true,
+    muscleGroup: "back", pattern: "row", movementId: "kelso-shrug", movementName: "Kelso Shrug"
+  },
+  {
+    id: 'kelso-shrug-mid',
+    name: 'Kelso Shrug (Mid Pulley)',
+    category: 'pull', equipment: 'cable',
+    primary: ['mid-traps', 'rhomboids'], secondary: ['rear-delt', 'lats'],
+    curve: 'matching',
+    curveNote: 'Same bent-over, straight-arm retraction as the low/high-pulley versions, from a mid-height pulley — the most balanced ratio of mid-traps/rhomboids to lats/rear-delt of the three.',
+    form: ['Hinge to ~45-70° torso angle, arms hanging straight', 'Elbows stay locked — no rowing, pull comes from the shoulder blades', 'Retract scapulae straight back, squeeze at end range', 'Control the return, full protraction between reps'],
+    lesserKnown: true,
+    muscleGroup: "back", pattern: "row", movementId: "kelso-shrug", movementName: "Kelso Shrug"
+  },
+  {
+    id: 'kelso-shrug-high',
+    name: 'Kelso Shrug (High Pulley)',
+    category: 'pull', equipment: 'cable',
+    primary: ['mid-traps', 'rhomboids'], secondary: ['rear-delt', 'mid-delt'],
+    curve: 'matching',
+    curveNote: 'Same bent-over, straight-arm retraction as the low/mid-pulley versions, from a high pulley — the pull direction shifts toward rear-delt/mid-delt, the most retraction-dominant (least lat-assisted) of the three.',
+    form: ['Hinge to ~45-70° torso angle, arms hanging straight', 'Elbows stay locked — no rowing, pull comes from the shoulder blades', 'Retract scapulae straight back, squeeze at end range', 'Control the return, full protraction between reps'],
+    lesserKnown: true,
+    muscleGroup: "back", pattern: "row", movementId: "kelso-shrug", movementName: "Kelso Shrug"
+  },
 
   // ── ADDITIONAL SHOULDERS ─────────────────────────────────────────────────────
   {

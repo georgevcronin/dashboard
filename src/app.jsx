@@ -820,6 +820,13 @@ const glycogenPct = (elapsedS, totalS) => {
 // app's first version — everything before this had no changelog at all.
 const CHANGELOG = [
   {
+    version: '0.50',
+    date: '2026-07-28',
+    features: [
+      'Added Kelso Shrug (Low/Mid/High Pulley) as new exercises — bent-over, straight-arm scapular retraction, targeting mid-traps/rhomboids rather than a vertical shrug\'s upper-trap elevation. Curated EMG fatigue weighting from the same pull-angle data as the rest of the row family, so the mid-traps/rhomboid-vs-lat/rear-delt ratio genuinely shifts across the three pulley heights.',
+    ],
+  },
+  {
     version: '0.49',
     date: '2026-07-28',
     features: [

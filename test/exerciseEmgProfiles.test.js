@@ -98,3 +98,14 @@ test('phase 5: hammer curl and close-grip bench press are curated but numericall
   assert.deepEqual(emgProfileForExercise('Hammer Curl'), emgProfileForExercise('Dumbbell Curl (Standing)'));
   assert.deepEqual(emgProfileForExercise('Close-Grip Bench Press'), emgProfileForExercise('Barbell Bench Press'));
 });
+
+test('Kelso Shrug variants shift from lat/teres-major-dominant (low pulley) to rear-delt/mid-traps-dominant (high pulley), and never carry biceps/brachioradialis (straight-arm)', () => {
+  const low = emgProfileForExercise('Kelso Shrug (Low Pulley)');
+  const high = emgProfileForExercise('Kelso Shrug (High Pulley)');
+  assert.ok(low.lats > low['rear-delt'], 'low pulley should be lat/teres-major-dominant');
+  assert.ok(high['rear-delt'] > high.lats, 'high pulley should be rear-delt/mid-traps-dominant');
+  assert.ok(high['mid-traps'] > low['mid-traps'], 'mid-traps/rhomboid retraction emphasis should increase with pulley height');
+  for (const variant of [low, emgProfileForExercise('Kelso Shrug (Mid Pulley)'), high]) {
+    assert.ok(!('biceps' in variant) && !('brachioradialis' in variant), 'straight-arm retraction should not carry elbow-flexor synergist credit');
+  }
+});
