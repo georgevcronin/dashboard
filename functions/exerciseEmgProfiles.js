@@ -416,14 +416,15 @@ const EXERCISE_EMG_PROFILES = {
 
 // Genuinely left uncurated, even after the "curate the rest" pass above --
 // not an imperfect-fit judgment call like everything else in this file, but
-// a real absence: movementEmg.js has no axis at all for these mechanisms
-// (scapular elevation for shrugs, isometric loaded-carry grip/trunk bracing,
-// or tibialis/dorsiflexion). Assigning them a value would mean inventing a
-// number, not deriving one from the source literature -- the one line this
-// file has not crossed. They keep flat musclesForExercise() credit:
-// Barbell Shrug, Dumbbell Shrug, Cable Shrug, Farmer's Carry, Suitcase
-// Carry, Goblet Carry, Tibialis Raise (Wall Sit), Tibialis Raise (ATG Sled
-// Push).
+// a real absence: movementEmg.js has no scapular-elevation axis for shrugs.
+// Assigning one would mean inventing a number, not deriving one from the
+// source literature -- the one line this file has not crossed. They keep
+// flat musclesForExercise() credit: Barbell Shrug, Dumbbell Shrug, Cable
+// Shrug. (The loaded carries and Tibialis Raise (ATG Sled Push), which had
+// the same problem, were removed from exerciseDb.js entirely rather than
+// left on flat credit -- see that file's history. Tibialis Raise (Wall Sit)
+// remains, still flat, since a genuine dorsiflexion isolation hold has some
+// standalone value even without a weighting axis.)
 
 function emgProfileForExercise(name) {
   return EXERCISE_EMG_PROFILES[(name || '').toLowerCase().trim()] || null;

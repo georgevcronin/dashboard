@@ -820,6 +820,13 @@ const glycogenPct = (elapsedS, totalS) => {
 // app's first version — everything before this had no changelog at all.
 const CHANGELOG = [
   {
+    version: '0.51',
+    date: '2026-07-28',
+    features: [
+      'Removed Farmer\'s Carry, Suitcase Carry, Goblet Carry, and Tibialis Raise (ATG Sled Push) from the exercise list — no EMG literature covers isometric loaded-carry bracing or sled-push dorsiflexion, so they had no honest path to weighted fatigue crediting.',
+    ],
+  },
+  {
     version: '0.50',
     date: '2026-07-28',
     features: [

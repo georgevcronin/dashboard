@@ -1292,17 +1292,6 @@ const EXERCISE_DB = [
     muscleGroup: "calves", pattern: "raise", movementId: "tibialis-raise", movementName: "Tibialis Raise"
   },
   {
-    id: 'tibialis-anterior-sled',
-    name: 'Tibialis Raise (ATG Sled Push)',
-    category: 'legs', equipment: 'machine',
-    primary: ['tibialis'], secondary: ['calves', 'quads'],
-    curve: 'matching',
-    curveNote: 'Walking backward pushing sled is the gold standard for tibialis loading — progressive and scalable. Pioneered in ATG system for knee rehab and patellar tendon strengthening.',
-    form: ['Sled behind you, pull rope or push handles', 'Walk backward, leading with heels', 'Toe-up style on each step', 'Start very light — tibialis is undertrained in most people'],
-    lesserKnown: true,
-    muscleGroup: "calves", pattern: "raise", movementId: "tibialis-raise", movementName: "Tibialis Raise"
-  },
-  {
     id: 'donkey-calf-raise',
     name: 'Donkey Calf Raise',
     category: 'legs', equipment: 'bodyweight',
@@ -1459,17 +1448,6 @@ const EXERCISE_DB = [
     form: ['Hold bar at arms length, arc side to side', 'Hips stay square — rotation from thorax', 'Control each end of the arc', 'Light weight — this is rotation, not a press'],
     lesserKnown: false,
     muscleGroup: "core", pattern: "rotation", movementId: "landmine-rotation", movementName: "Landmine Rotation"
-  },
-  {
-    id: 'suitcase-carry',
-    name: 'Suitcase Carry',
-    category: 'core', equipment: 'dumbbell',
-    primary: ['obliques', 'transverse-abs'], secondary: ['glutes', 'forearms', 'traps'],
-    curve: 'partial',
-    curveNote: 'Unilateral loaded carry creates lateral flexion demand on core throughout each step. Functional anti-lateral flexion and gait stability — one of the most transferable core exercises.',
-    form: ['Heavy dumbbell in one hand at side', 'Resist lateral lean — stand tall', 'Walk with normal gait', 'Switch hands each set or halfway through'],
-    lesserKnown: false,
-    muscleGroup: "core", pattern: "carry", movementId: "suitcase-carry", movementName: "Suitcase Carry"
   },
   {
     id: 'roman-chair-sit-up',
@@ -1819,17 +1797,6 @@ const EXERCISE_DB = [
     lesserKnown: false,
     muscleGroup: "forearms", pattern: "curl", movementId: "wrist-curl", movementName: "Wrist Curl"
   },
-  {
-    id: 'farmers-carry',
-    name: 'Farmer\'s Carry',
-    category: 'arms', equipment: 'dumbbell',
-    primary: ['forearms', 'traps'], secondary: ['core', 'glutes', 'calves'],
-    curve: 'partial',
-    curveNote: 'Heavy load carried for distance or time — grip, trap, and entire kinetic chain loaded isometrically. Functional strength builder with massive carryover to all pulling movements.',
-    form: ['Heavy dumbbells or trap bar', 'Stand tall — do not lean', 'Walk with controlled steps', 'Grip hard — forearm fatigue is the point'],
-    lesserKnown: false,
-    muscleGroup: "forearms", pattern: "carry", movementId: "farmers-carry", movementName: "Farmer's Carry"
-  },
 
   // ── ADDITIONAL LEGS ──────────────────────────────────────────────────────────
   {
@@ -2071,7 +2038,6 @@ const EXERCISE_DB = [
   { id: 'glute-ham-developer-curl', name: 'GHD Sit-Up', category: 'core', equipment: 'machine', primary: ['abs', 'hip-flexors'], secondary: ['glutes', 'hamstrings'], curve: 'matching', curveNote: 'GHD sit-up allows hyperextension at the bottom — full ab stretch followed by full contraction. One of the highest ab loading exercises when full ROM is used.', form: ['Feet in GHD pads', 'Lower back to horizontal or beyond', 'Rise to vertical — do not just partial rep', 'Start conservatively — DOMS is severe'], lesserKnown: true, muscleGroup: "core", pattern: "crunch", movementId: "ghd-situp", movementName: "GHD Sit-Up" },
   { id: 'incline-bench-leg-raise', name: 'Incline Bench Leg Raise', category: 'core', equipment: 'bodyweight', primary: ['abs', 'hip-flexors'], secondary: [], curve: 'matching', curveNote: 'Decline angle from incline bench adds bodyweight resistance at the top of leg raise — increasing load where hanging leg raises decrease it. Excellent lower ab loaing.', form: ['Grip top of incline bench', 'Legs hang at bottom', 'Raise to 90° or above', 'Lower under control — key part of the exercise'], lesserKnown: false, muscleGroup: "core", pattern: "raise", movementId: "leg-raise", movementName: "Leg Raise" },
   { id: 'stir-the-pot', name: 'Stir the Pot (Ball Plank)', category: 'core', equipment: 'bodyweight', primary: ['transverse-abs', 'obliques'], secondary: ['abs', 'shoulders'], curve: 'partial', curveNote: 'Elbows on stability ball, draw circles — anti-rotation demand extremely high throughout. Higher TVA activation than standard plank due to instability.', form: ['Elbows on ball, body plank', 'Draw small clockwise then counter-clockwise circles', 'Hips completely still — only arms move', 'Small circles first — increase size as strength improves'], lesserKnown: true, isometric: true, muscleGroup: "core", pattern: "hold", movementId: "stir-the-pot", movementName: "Stir the Pot" },
-  { id: 'goblet-carry', name: 'Goblet Carry', category: 'core', equipment: 'dumbbell', primary: ['transverse-abs', 'core'], secondary: ['front-delt', 'traps'], curve: 'partial', curveNote: 'Dumbbell at chest level carried for distance — front-loaded carry demands strong TVA engagement and upright posture. Core anti-flexion under load.', form: ['Dumbbell pressed to chest, elbows in', 'Walk tall — do not lean back', 'Core braced throughout', 'Heavier than suitcase carry typically'], lesserKnown: false, muscleGroup: "core", pattern: "carry", movementId: "loaded-carry", movementName: "Loaded Carry" },
   { id: 'press-pallof', name: 'Half-Kneeling Pallof Press', category: 'core', equipment: 'cable', primary: ['obliques', 'transverse-abs'], secondary: ['glutes', 'hip-flexors'], curve: 'matching', curveNote: 'Kneeling removes leg base of support — forces core and glute to resist rotation and lateral lean simultaneously. More demanding than standing version.', form: ['Kneel on inside knee relative to cable', 'Press handle straight out', 'Resist rotation and lateral lean', 'Keep hips square'], lesserKnown: true, isometric: true, muscleGroup: "core", pattern: "rotation", movementId: "pallof-press", movementName: "Pallof Press" },
   { id: 'barbell-rollout-standing', name: 'Standing Ab Rollout', category: 'core', equipment: 'barbell', primary: ['abs', 'transverse-abs'], secondary: ['lats', 'erectors'], curve: 'matching', curveNote: 'Most advanced version of ab rollout — full body extension from standing. Extremely high anti-extension demand. Only appropriate for very advanced trainees.', form: ['Stand upright, bend to grip bar', 'Roll out to horizontal or below', 'Return using abs and lats combined', 'Very few people can do this correctly'], lesserKnown: true, muscleGroup: "core", pattern: "rollout", movementId: "ab-rollout", movementName: "Ab Rollout" },
   { id: 'dumbbell-row-pronated', name: 'Dumbbell Row (Pronated)', category: 'pull', equipment: 'dumbbell', primary: ['lats', 'rhomboids'], secondary: ['rear-delt', 'brachioradialis'], curve: 'partial', curveNote: 'Pronated grip shifts emphasis from biceps to brachioradialis and increases rhomboid/mid-trap recruitment. Varied grip for complete back development.', form: ['Overhand grip on dumbbell', 'Pull to lower ribcage area', 'Elbow more flared than supinated version', 'Control the descent'], lesserKnown: false, muscleGroup: "back", pattern: "row", movementId: "dumbbell-row", movementName: "Dumbbell Row" },

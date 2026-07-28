@@ -70,9 +70,17 @@ test('exercises already covered by the athlete\'s own exerciseAngles.js mapping 
   assert.equal(emgProfileForExercise('Chest-Supported Barbell Row'), null);
 });
 
-test('carry, shrug, and tibialis exercises remain uncurated -- no literature axis exists at all for these mechanisms', () => {
-  for (const name of ['Farmer\'s Carry', 'Suitcase Carry', 'Goblet Carry', 'Barbell Shrug', 'Dumbbell Shrug', 'Cable Shrug', 'Tibialis Raise (Wall Sit)', 'Tibialis Raise (ATG Sled Push)']) {
+test('shrug and remaining tibialis exercises remain uncurated -- no literature axis exists at all for these mechanisms', () => {
+  for (const name of ['Barbell Shrug', 'Dumbbell Shrug', 'Cable Shrug', 'Tibialis Raise (Wall Sit)']) {
     assert.equal(emgProfileForExercise(name), null, `${name} should remain uncurated`);
+  }
+});
+
+test('loaded carries and Tibialis Raise (ATG Sled Push) were removed entirely, not just left uncurated', () => {
+  const { EXERCISE_DB } = require('../functions/exerciseDb');
+  const names = new Set(EXERCISE_DB.map(e => e.name));
+  for (const name of ['Farmer\'s Carry', 'Suitcase Carry', 'Goblet Carry', 'Tibialis Raise (ATG Sled Push)']) {
+    assert.ok(!names.has(name), `${name} should no longer be in exerciseDb.js`);
   }
 });
 
