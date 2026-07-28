@@ -2018,6 +2018,16 @@ app.post('/session/join', async (req, res) => {
 // in-progress solo workout into their tab in the shared session, the
 // moment they connect (creator starting, or joiner joining) — not
 // forward-only. See GROUP_WORKOUT.md §2 "Merge-on-connect."
+// Replace semantics (delete-then-insert), not purely additive — this is
+// called both once at connect (the original "merge-on-connect" from
+// GROUP_WORKOUT.md §2) AND repeatedly afterward as the frontend's debounced
+// local->shared sync (the caller's own tab in the group session IS their
+// normal solo-logging UI, kept live-synced outward rather than merged only
+// once). Additive semantics would have duplicated every set on every sync.
+// Known tradeoff, consistent with the feature's accepted last-write-wins
+// model: if another participant adds a bare exercise placeholder to my tab
+// between my polls, an in-flight sync from stale local state could
+// transiently wipe it until my next poll reconciles it back in.
 app.post('/session/:id/merge', async (req, res) => {
   const ref = firestore.collection('liveSessions').doc(req.params.id);
   const snap = await ref.get();
@@ -2028,7 +2038,9 @@ app.post('/session/:id/merge', async (req, res) => {
   }
   const sets = Array.isArray(req.body?.sets) ? req.body.sets : [];
   const now = new Date().toISOString();
+  const existingMine = await ref.collection('entries').where('uid', '==', req.uid).get();
   const batch = firestore.batch();
+  existingMine.docs.forEach(d => batch.delete(d.ref));
   for (const s of sets) {
     if (!s.exercise) continue;
     batch.set(ref.collection('entries').doc(), {

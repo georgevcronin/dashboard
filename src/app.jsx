@@ -822,6 +822,13 @@ const glycogenPct = (elapsedS, totalS) => {
 // app's first version — everything before this had no changelog at all.
 const CHANGELOG = [
   {
+    version: '0.57',
+    date: '2026-07-29',
+    features: [
+      'Group Session no longer opens as a separate page — it\'s now a small tab strip right in the normal workout logger. "You" is just your regular logging screen, unchanged; tapping someone else\'s name shows their sets inline, still editable. Also fixed: exercises with a weight/reps typed in (not yet checked off) now actually reach the shared session, and edits sync out continuously instead of only once when you connect.',
+    ],
+  },
+  {
     version: '0.56',
     date: '2026-07-28',
     features: [
@@ -1804,7 +1811,19 @@ function WorkoutLogger({ planDay, lifts, customExercises, experienceLevel, onClo
   // never checked off, since that's exactly the kind of set easy to
   // overlook walking away from the gym.
   const [confirmAction, setConfirmAction] = useState(null);
-  const [showGroupSession, setShowGroupSession] = useState(() => { try { return !!localStorage.getItem(GROUP_SESSION_KEY); } catch { return false; } });
+  // ── Group session (inline, not a separate page) ─────────────────────────
+  // See .design/feature-brainstorm/GROUP_WORKOUT.md. "Your own tab" IS this
+  // component's normal exercises state/UI, unchanged — no separate view for
+  // it. Only switching to someone else's tab swaps in a different (still
+  // plain, non-boxy) view below. groupSessionId persists across a reload
+  // the same way ACTIVE_SESSION_KEY does.
+  const [groupSessionId, setGroupSessionId] = useState(() => { try { return localStorage.getItem(GROUP_SESSION_KEY) || null; } catch { return null; } });
+  const [showGroupStart, setShowGroupStart] = useState(false);
+  const [groupData, setGroupData] = useState(null); // { code, participants, entries }
+  const [activeGroupTab, setActiveGroupTab] = useState(null); // null = "me"
+  const [groupBusy, setGroupBusy] = useState(false);
+  const [newGroupExercise, setNewGroupExercise] = useState('');
+  const [finishingGroup, setFinishingGroup] = useState(false);
   const inputRef = useRef();
 
   const allExercises = useMemo(() => {
@@ -2068,6 +2087,116 @@ function WorkoutLogger({ planDay, lifts, customExercises, experienceLevel, onClo
     } finally { setCoachLoading(p => ({ ...p, [name]: false })); }
   };
 
+  const myUid = auth.currentUser?.uid;
+
+  const persistGroupSessionId = (id) => {
+    setGroupSessionId(id);
+    try { if (id) localStorage.setItem(GROUP_SESSION_KEY, id); else localStorage.removeItem(GROUP_SESSION_KEY); } catch {}
+  };
+
+  // Converts the current local exercises state into the flat set shape the
+  // group-session API (and /session/complete) both use. Includes any set
+  // with a weight+reps typed in, not just ones checked off "done" — a plain
+  // in-progress number is still something worth the rest of the group
+  // seeing, and this is also what fixes exercises silently not showing up
+  // on the other side (the earlier version only sent done sets).
+  const exercisesToGroupSets = () => {
+    const sets = [];
+    exercises.forEach(ex => {
+      (ex.sets || []).forEach(st => {
+        if (st.kg && st.reps) {
+          sets.push({
+            exercise: ex.name, kg: st.kg, reps: st.reps, rpe: st.rpe || null,
+            type: st.type && st.type !== 'N' ? st.type : null,
+            machine: ex.machine || null, pulleyType: ex.pulleyType || null,
+          });
+        }
+      });
+    });
+    return sets;
+  };
+
+  const loadGroup = () => {
+    if (!groupSessionId) return;
+    api(`session/${groupSessionId}`).then(r => {
+      if (r.error || r.ended) { persistGroupSessionId(null); setGroupData(null); return; }
+      setGroupData(r);
+      // Anything already shared to my tab (e.g. an exercise someone else
+      // added "to everyone") that my local state doesn't know about yet
+      // gets folded in here, so it shows up in my normal exercise list
+      // ready to fill in — otherwise the next local->shared sync below
+      // would silently wipe it right back out.
+      const myNames = new Set(exercises.map(ex => ex.name));
+      const incomingNames = [...new Set((r.entries || []).filter(e => e.uid === myUid).map(e => e.exercise))];
+      const missing = incomingNames.filter(n => n && !myNames.has(n));
+      if (missing.length) {
+        setExercises(prev => [...prev, ...missing.map(name => ({ name, bw: false, targetReps: 8, sets: [{ type: 'N', kg: '', reps: '', rpe: '', done: false }] }))]);
+      }
+    }).catch(() => {});
+  };
+
+  useEffect(() => { loadGroup(); }, [groupSessionId]);
+  // Manual refresh happens implicitly on the next poll tick or tab switch;
+  // ~2-minute automatic poll while a group session is attached — no polling
+  // once it's finished/left. See GROUP_WORKOUT.md §1.
+  useEffect(() => {
+    if (!groupSessionId) return;
+    const t = setInterval(loadGroup, 2 * 60 * 1000);
+    return () => clearInterval(t);
+  }, [groupSessionId]);
+
+  // Local exercises -> shared session, debounced. This is the "your own tab
+  // IS the normal logging UI" side of the design: every local edit
+  // eventually propagates outward instead of only merging once at connect.
+  // Replace semantics server-side (not additive) so repeated pushes don't
+  // duplicate. See functions/index.js's /session/:id/merge.
+  const groupSyncTimer = useRef(null);
+  useEffect(() => {
+    if (!groupSessionId) return;
+    if (groupSyncTimer.current) clearTimeout(groupSyncTimer.current);
+    groupSyncTimer.current = setTimeout(() => {
+      api(`session/${groupSessionId}/merge`, { method: 'POST', body: JSON.stringify({ sets: exercisesToGroupSets() }) }).catch(() => {});
+    }, 1500);
+    return () => clearTimeout(groupSyncTimer.current);
+  }, [exercises, groupSessionId]);
+
+  const addGroupExerciseToEveryone = async () => {
+    const name = newGroupExercise.trim();
+    if (!name || !groupData) return;
+    setGroupBusy(true);
+    const others = groupData.participants.filter(p => p.status === 'active' && p.uid !== myUid);
+    for (const p of others) {
+      await api(`session/${groupSessionId}/entries`, { method: 'POST', body: JSON.stringify({ uid: p.uid, exercise: name }) }).catch(() => {});
+    }
+    // My own copy just joins local state normally, same as typing a new
+    // exercise into the regular add-exercise flow — it'll sync out shortly.
+    if (!exercises.some(ex => ex.name === name)) {
+      setExercises(prev => [...prev, { name, bw: false, targetReps: 8, sets: [{ type: 'N', kg: '', reps: '', rpe: '', done: false }] }]);
+    }
+    setNewGroupExercise('');
+    setGroupBusy(false);
+    loadGroup();
+  };
+
+  const updateOtherEntry = async (entryId, patch) => {
+    await api(`session/${groupSessionId}/entries/${entryId}`, { method: 'PUT', body: JSON.stringify(patch) }).catch(() => {});
+    loadGroup();
+  };
+  const deleteOtherEntry = async (entryId) => {
+    await api(`session/${groupSessionId}/entries/${entryId}`, { method: 'DELETE' }).catch(() => {});
+    loadGroup();
+  };
+  const addSetToOther = async (uid, exerciseName) => {
+    await api(`session/${groupSessionId}/entries`, { method: 'POST', body: JSON.stringify({ uid, exercise: exerciseName }) }).catch(() => {});
+    loadGroup();
+  };
+
+  const leaveGroup = async () => {
+    setGroupBusy(true);
+    await api(`session/${groupSessionId}/leave`, { method: 'POST' }).catch(() => {});
+    persistGroupSessionId(null); setGroupData(null); setActiveGroupTab(null); setGroupBusy(false);
+  };
+
   const finish = async () => {
     const valid = exercises.map(ex => ({
       ...ex, sets: ex.sets.filter(s => s.done || s.kg !== '' || s.reps !== ''),
@@ -2083,10 +2212,28 @@ function WorkoutLogger({ planDay, lifts, customExercises, experienceLevel, onClo
       ...(ex.emgWeights ? { emgWeights: ex.emgWeights } : {}),
     })));
     try {
-      const r = await api('session/complete', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ workout: { name: planDay?.sessions?.[0]?.title || 'Session', date: today }, sets: allSets, customExercises: newCustomExercises }),
-      });
+      let r;
+      if (groupSessionId) {
+        setFinishingGroup(true);
+        // Refresh-then-submit (§4): one last push of local state, then pull
+        // the freshest shared data — which may include edits someone else
+        // made to my sets — and submit THAT as the final record, not the
+        // possibly-stale local `allSets`.
+        await api(`session/${groupSessionId}/merge`, { method: 'POST', body: JSON.stringify({ sets: exercisesToGroupSets() }) }).catch(() => {});
+        const fresh = await api(`session/${groupSessionId}`).catch(() => null);
+        const myEntries = (fresh?.entries || groupData?.entries || []).filter(e => e.uid === myUid && e.exercise && e.kg && e.reps);
+        const finalSets = myEntries.map(e => ({ exercise: e.exercise, kg: e.kg, reps: e.reps, rpe: e.rpe, type: e.type, machine: e.machine, pulleyType: e.pulleyType }));
+        r = await api(`session/${groupSessionId}/finish`, {
+          method: 'POST',
+          body: JSON.stringify({ workout: { name: planDay?.sessions?.[0]?.title || 'Session', date: today }, sets: finalSets, customExercises: newCustomExercises }),
+        });
+        persistGroupSessionId(null); setGroupData(null); setFinishingGroup(false);
+      } else {
+        r = await api('session/complete', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ workout: { name: planDay?.sessions?.[0]?.title || 'Session', date: today }, sets: allSets, customExercises: newCustomExercises }),
+        });
+      }
       clearActiveSession(); // saved server-side now — stop persisting/offering to restore this one
       await api('summary').then(refresh);
       setSummary({
@@ -2137,10 +2284,31 @@ function WorkoutLogger({ planDay, lifts, customExercises, experienceLevel, onClo
               <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, letterSpacing: '.12em', textTransform: 'uppercase', padding: '2px 7px', background: cns.color, color: 'var(--paper)' }}>{cns.label}</span>
             )}
           </div>
-          {!summary && (
-            <button onClick={() => setShowGroupSession(true)} style={{ marginTop: 4, background: 'none', border: 'none', fontFamily: "'JetBrains Mono',monospace", fontSize: 8, letterSpacing: '.1em', textTransform: 'uppercase', color: 'var(--dim)', cursor: 'pointer', padding: 0 }}>
+          {!summary && !groupSessionId && (
+            <button onClick={() => setShowGroupStart(true)} style={{ marginTop: 4, background: 'none', border: 'none', fontFamily: "'JetBrains Mono',monospace", fontSize: 8, letterSpacing: '.1em', textTransform: 'uppercase', color: 'var(--dim)', cursor: 'pointer', padding: 0 }}>
               + Group Session
             </button>
+          )}
+          {/* Tab strip appears here once a group session is attached — a
+              plain row of small text buttons, same font/size as the rest of
+              the header, not a separate page or a different visual style. */}
+          {!summary && groupSessionId && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 4, flexWrap: 'wrap' }}>
+              <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, letterSpacing: '.1em', textTransform: 'uppercase', color: 'var(--dim)' }}>Code {groupData?.code || '…'}</span>
+              {(groupData?.participants || []).filter(p => p.status === 'active').map(p => {
+                const isMe = p.uid === myUid;
+                const active = isMe ? activeGroupTab === null : activeGroupTab === p.uid;
+                return (
+                  <button key={p.uid} onClick={() => setActiveGroupTab(isMe ? null : p.uid)}
+                    style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontFamily: "'JetBrains Mono',monospace", fontSize: 8, letterSpacing: '.1em', textTransform: 'uppercase', color: active ? 'var(--ink)' : 'var(--dim)', textDecoration: active ? 'underline' : 'none' }}>
+                    {isMe ? 'You' : (p.displayNameFirst || 'Someone')}
+                  </button>
+                );
+              })}
+              <button onClick={leaveGroup} disabled={groupBusy} style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontFamily: "'JetBrains Mono',monospace", fontSize: 8, letterSpacing: '.1em', textTransform: 'uppercase', color: 'var(--dim)' }}>
+                Leave
+              </button>
+            </div>
           )}
         </div>
         {summary ? (
@@ -2154,7 +2322,7 @@ function WorkoutLogger({ planDay, lifts, customExercises, experienceLevel, onClo
             <button className="ol-btn ol-btn-solid" onClick={() => {
               const hasUnchecked = exercises.some(e => e.sets.some(s => !s.done && (s.kg !== '' || s.reps !== '')));
               if (hasUnchecked) setConfirmAction('finish'); else finish();
-            }} disabled={saving}>{saving ? 'Saving…' : 'Finish'}</button>
+            }} disabled={saving}>{finishingGroup ? 'Finishing…' : saving ? 'Saving…' : 'Finish'}</button>
           </div>
         )}
       </div>
@@ -2185,7 +2353,7 @@ function WorkoutLogger({ planDay, lifts, customExercises, experienceLevel, onClo
         </div>
       )}
 
-      {!loading && !summary && (
+      {!loading && !summary && activeGroupTab === null && (
         <div style={{ padding: '16px 20px', flex: 1, display: 'flex', flexDirection: 'column' }}>
 
           {/* AI plan context */}
@@ -2548,6 +2716,60 @@ function WorkoutLogger({ planDay, lifts, customExercises, experienceLevel, onClo
         </div>
       )}
 
+      {/* Someone else's tab in a group session — a plain list using the same
+          typography as the rest of the app (Times New Roman body text,
+          JetBrains Mono labels), not a separate boxy page. Full mutual edit:
+          any active participant can edit or delete any other's sets while
+          both are still active. */}
+      {!loading && !summary && activeGroupTab !== null && (() => {
+        const otherParticipant = (groupData?.participants || []).find(p => p.uid === activeGroupTab);
+        const otherEntries = (groupData?.entries || []).filter(e => e.uid === activeGroupTab);
+        const otherExerciseNames = [...new Set(otherEntries.map(e => e.exercise))];
+        return (
+          <div style={{ padding: '16px 20px', flex: 1, display: 'flex', flexDirection: 'column' }}>
+            <div className="kicker" style={{ marginBottom: 10 }}>{otherParticipant?.displayNameFirst || 'Someone'}'s sets</div>
+
+            {otherExerciseNames.length === 0 && (
+              <div style={{ fontFamily: "'Times New Roman',serif", fontSize: 13, color: 'var(--dim)', fontStyle: 'italic' }}>Nothing logged here yet.</div>
+            )}
+
+            {otherExerciseNames.map(exName => (
+              <div key={exName} style={{ marginBottom: 18 }}>
+                <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 15, fontWeight: 700, marginBottom: 6, textTransform: 'capitalize' }}>{exName}</div>
+                {otherEntries.filter(e => e.exercise === exName).map(e => (
+                  <div key={`${e.id}-${e.updatedAt}`} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 0', borderBottom: '1px solid var(--paper2)' }}>
+                    <input style={{ width: 56, border: 'none', borderBottom: '1px solid var(--rule)', background: 'transparent', fontFamily: 'Times New Roman,serif', fontSize: 14, color: 'var(--ink)' }}
+                      type="number" inputMode="decimal" placeholder="kg" defaultValue={e.kg ?? ''}
+                      onBlur={ev => { const v = ev.target.value ? +ev.target.value : null; if (v !== e.kg) updateOtherEntry(e.id, { kg: v }); }} />
+                    <span style={{ fontSize: 11, color: 'var(--dim)' }}>×</span>
+                    <input style={{ width: 46, border: 'none', borderBottom: '1px solid var(--rule)', background: 'transparent', fontFamily: 'Times New Roman,serif', fontSize: 14, color: 'var(--ink)' }}
+                      type="number" inputMode="numeric" placeholder="reps" defaultValue={e.reps ?? ''}
+                      onBlur={ev => { const v = ev.target.value ? +ev.target.value : null; if (v !== e.reps) updateOtherEntry(e.id, { reps: v }); }} />
+                    <input style={{ width: 46, border: 'none', borderBottom: '1px solid var(--rule)', background: 'transparent', fontFamily: 'Times New Roman,serif', fontSize: 14, color: 'var(--ink)' }}
+                      type="number" inputMode="decimal" placeholder="RPE" defaultValue={e.rpe ?? ''}
+                      onBlur={ev => { const v = ev.target.value ? +ev.target.value : null; if (v !== e.rpe) updateOtherEntry(e.id, { rpe: v }); }} />
+                    <button onClick={() => deleteOtherEntry(e.id)} style={{ background: 'none', border: 'none', color: 'var(--dim)', cursor: 'pointer', fontSize: 15, padding: '0 4px', marginLeft: 'auto' }}>×</button>
+                  </div>
+                ))}
+                <button onClick={() => addSetToOther(activeGroupTab, exName)}
+                  style={{ marginTop: 6, background: 'none', border: 'none', fontFamily: "'JetBrains Mono',monospace", fontSize: 8, letterSpacing: '.1em', textTransform: 'uppercase', color: 'var(--dim)', cursor: 'pointer', padding: 0 }}>
+                  + Set
+                </button>
+              </div>
+            ))}
+
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 10 }}>
+              <input value={newGroupExercise} onChange={e => setNewGroupExercise(e.target.value)} placeholder="Add exercise for everyone"
+                style={{ flex: 1, border: 'none', borderBottom: '1px solid var(--rule)', background: 'transparent', fontFamily: 'Times New Roman,serif', fontSize: 14, color: 'var(--ink)', padding: '4px 0' }} />
+              <button onClick={addGroupExerciseToEveryone} disabled={groupBusy || !newGroupExercise.trim()}
+                style={{ background: 'none', border: 'none', fontFamily: "'JetBrains Mono',monospace", fontSize: 8, letterSpacing: '.1em', textTransform: 'uppercase', color: 'var(--dim)', cursor: 'pointer', padding: 0 }}>
+                Add
+              </button>
+            </div>
+          </div>
+        );
+      })()}
+
       {/* Rest timer — shows live glycogen replenishment (% recovered, half-life
           45s) rather than a plain time countdown; stays capped at 100% once
           rest is over rather than auto-clearing, until Skip or the next set. */}
@@ -2585,7 +2807,12 @@ function WorkoutLogger({ planDay, lifts, customExercises, experienceLevel, onClo
           </div>
         </div>
       )}
-      {showGroupSession && <GroupSessionOverlay onClose={() => setShowGroupSession(false)} />}
+      {showGroupStart && (
+        <GroupSessionStartModal
+          onClose={() => setShowGroupStart(false)}
+          onStarted={(sessionId) => { persistGroupSessionId(sessionId); setShowGroupStart(false); }}
+        />
+      )}
     </div>
   );
 }
@@ -3008,57 +3235,23 @@ function StrengthLevelPanel({ muscleLevels, hasSex }) {
 
 const GROUP_SESSION_KEY = 'press_group_session_id';
 
-// A standalone, deliberately simpler set-logging UI, separate from the
-// full WorkoutLogger (fatigue calc, rest timer, plate calculator, coach
-// notes) — those are solo-specific richness this feature doesn't need, and
-// the mutual-edit multi-tab model here is different enough from solo
-// logging to warrant its own UI rather than retrofitting it into an
-// already-large, battle-tested component. See
-// .design/feature-brainstorm/GROUP_WORKOUT.md for the full design this
-// implements: code-based join, merge-on-connect, full mutual edit while
-// active, manual/2-min-poll refresh, self-scoped finish/leave.
-function GroupSessionOverlay({ onClose }) {
-  const [sessionId, setSessionId] = useState(() => { try { return localStorage.getItem(GROUP_SESSION_KEY) || null; } catch { return null; } });
+// Small one-time dialog: start a new group session (get a code) or join an
+// existing one (enter a code). Deliberately just this step, not the ongoing
+// session view — once connected, WorkoutLogger shows a plain tab strip
+// inline (see its groupSessionId/groupData state) instead of a separate
+// page, so the normal solo logging UI/formatting never changes underneath
+// it. See .design/feature-brainstorm/GROUP_WORKOUT.md.
+function GroupSessionStartModal({ onClose, onStarted }) {
   const [joinCode, setJoinCode] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  const [data, setData] = useState(null);
-  const [activeTabUid, setActiveTabUid] = useState(null);
-  const [newExercise, setNewExercise] = useState('');
-  const [addScope, setAddScope] = useState('mine');
-  const [finishing, setFinishing] = useState(false);
-
-  const myUid = auth.currentUser?.uid;
-
-  const persistSessionId = (id) => {
-    setSessionId(id);
-    try { if (id) localStorage.setItem(GROUP_SESSION_KEY, id); else localStorage.removeItem(GROUP_SESSION_KEY); } catch {}
-  };
-
-  // Merge-on-connect (§2): whatever the caller's already logged in their
-  // current in-progress solo workout (the same ACTIVE_SESSION_KEY the
-  // regular WorkoutLogger persists to) gets copied into their tab the
-  // moment they connect — not forward-only.
-  const mergeExistingSolo = async (newSessionId) => {
-    const restored = loadActiveSession();
-    if (!restored?.exercises?.length) return;
-    const sets = [];
-    restored.exercises.forEach(ex => {
-      (ex.sets || []).forEach(st => {
-        if (st.done && st.kg && st.reps) sets.push({ exercise: ex.name, kg: st.kg, reps: st.reps, rpe: st.rpe || null, type: st.type && st.type !== 'N' ? st.type : null });
-      });
-    });
-    if (sets.length) await api(`session/${newSessionId}/merge`, { method: 'POST', body: JSON.stringify({ sets }) }).catch(() => {});
-  };
 
   const startSession = async () => {
     setBusy(true); setError('');
     try {
       const r = await api('session', { method: 'POST' });
-      await mergeExistingSolo(r.sessionId);
-      persistSessionId(r.sessionId);
-    } catch { setError('Could not start a session — try again.'); }
-    setBusy(false);
+      onStarted(r.sessionId);
+    } catch { setError('Could not start a session — try again.'); setBusy(false); }
   };
 
   const joinSession = async () => {
@@ -3067,169 +3260,30 @@ function GroupSessionOverlay({ onClose }) {
     try {
       const r = await api('session/join', { method: 'POST', body: JSON.stringify({ code: joinCode.trim().toUpperCase() }) });
       if (r.error) { setError(r.error); setBusy(false); return; }
-      await mergeExistingSolo(r.sessionId);
-      persistSessionId(r.sessionId);
-    } catch { setError('Could not join — check the code and try again.'); }
-    setBusy(false);
-  };
-
-  const load = () => {
-    if (!sessionId) return;
-    api(`session/${sessionId}`).then(r => {
-      if (r.error || r.ended) { persistSessionId(null); setData(null); return; }
-      setData(r);
-      setActiveTabUid(prev => (prev && r.participants.some(p => p.uid === prev)) ? prev : (r.participants.find(p => p.status === 'active')?.uid || r.participants[0]?.uid || null));
-    }).catch(() => {});
-  };
-
-  useEffect(() => { load(); }, [sessionId]);
-  // Manual refresh (the button below) or an automatic poll every ~2 minutes
-  // while this overlay is open — no polling once it's closed. See §1.
-  useEffect(() => {
-    if (!sessionId) return;
-    const t = setInterval(load, 2 * 60 * 1000);
-    return () => clearInterval(t);
-  }, [sessionId]);
-
-  const addExercise = async () => {
-    const name = newExercise.trim();
-    if (!name || !data) return;
-    const targets = addScope === 'everyone' ? data.participants.filter(p => p.status === 'active') : data.participants.filter(p => p.uid === myUid);
-    setBusy(true);
-    for (const p of targets) {
-      await api(`session/${sessionId}/entries`, { method: 'POST', body: JSON.stringify({ uid: p.uid, exercise: name }) }).catch(() => {});
-    }
-    setNewExercise('');
-    setBusy(false);
-    load();
-  };
-
-  const updateEntry = async (entryId, patch) => {
-    await api(`session/${sessionId}/entries/${entryId}`, { method: 'PUT', body: JSON.stringify(patch) }).catch(() => {});
-    load();
-  };
-  const deleteEntry = async (entryId) => {
-    await api(`session/${sessionId}/entries/${entryId}`, { method: 'DELETE' }).catch(() => {});
-    load();
-  };
-
-  const finishSession = async () => {
-    setFinishing(true);
-    // Refresh-then-submit (§4): pull the freshest shared state right before
-    // saving, so an edit someone else made to my sets in the last couple
-    // minutes isn't silently discarded by a stale local save.
-    const fresh = await api(`session/${sessionId}`).catch(() => null);
-    const myEntries = (fresh?.entries || data?.entries || []).filter(e => e.uid === myUid);
-    const sets = myEntries.filter(e => e.exercise && e.kg && e.reps).map(e => ({ exercise: e.exercise, kg: e.kg, reps: e.reps, rpe: e.rpe, type: e.type, machine: e.machine, pulleyType: e.pulleyType }));
-    await api(`session/${sessionId}/finish`, {
-      method: 'POST',
-      body: JSON.stringify({ workout: { name: 'Group Session', date: todayLocalStr() }, sets, customExercises: [] }),
-    }).catch(() => {});
-    persistSessionId(null); setData(null); setFinishing(false);
-    clearActiveSession(); // avoid an unrelated "resume?" prompt for a solo session this already absorbed
-    onClose();
-  };
-
-  const leaveSession = async () => {
-    setBusy(true);
-    await api(`session/${sessionId}/leave`, { method: 'POST' }).catch(() => {});
-    persistSessionId(null); setData(null); setBusy(false);
-    onClose();
+      onStarted(r.sessionId);
+    } catch { setError('Could not join — check the code and try again.'); setBusy(false); }
   };
 
   const inputStyle = { width: '100%', border: 'none', borderBottom: '2px solid var(--ink)', padding: '8px 0', background: 'transparent', fontFamily: 'Times New Roman,serif', fontSize: 16, outline: 'none', color: 'var(--ink)', boxSizing: 'border-box' };
 
-  // ── Not yet in a session: start or join ──
-  if (!sessionId) {
-    return (
-      <div className="onboard-overlay" style={{ zIndex: 9998 }}>
-        <div className="ob-wrap">
-          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--dim)', fontFamily: "'JetBrains Mono',monospace", fontSize: 9, letterSpacing: '.12em', textTransform: 'uppercase', padding: 0, marginBottom: 20 }}>← Back</button>
-          <div className="ob-h">Group Session</div>
-          <div className="ob-deck">Log a workout together — up to 4 people, each logs their own sets and can see everyone else's.</div>
-
-          <button className="ob-next" style={{ width: '100%', padding: '14px 0', marginBottom: 24 }} onClick={startSession} disabled={busy}>
-            {busy ? 'Starting…' : 'Start a New Session'}
-          </button>
-
-          <label className="ob-label">Join with a code</label>
-          <input style={inputStyle} value={joinCode} maxLength={4} placeholder="4-character code"
-            onChange={e => { setJoinCode(e.target.value.toUpperCase()); setError(''); }} autoCapitalize="characters" autoCorrect="off" />
-          <button className="ob-next" style={{ width: '100%', padding: '14px 0', marginTop: 14 }} onClick={joinSession} disabled={busy || !joinCode.trim()}>
-            {busy ? 'Joining…' : 'Join'}
-          </button>
-          {error && <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--red)', marginTop: 14 }}>{error}</div>}
-        </div>
-      </div>
-    );
-  }
-
-  // ── In a session ──
-  const activeParticipants = (data?.participants || []).filter(p => p.status === 'active');
-  const activeTab = activeParticipants.find(p => p.uid === activeTabUid) || activeParticipants[0];
-  const tabEntries = (data?.entries || []).filter(e => e.uid === activeTab?.uid);
-  const exercisesForTab = Array.from(new Set(tabEntries.map(e => e.exercise)));
-
   return (
     <div className="onboard-overlay" style={{ zIndex: 9998 }}>
       <div className="ob-wrap">
-        <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--dim)', fontFamily: "'JetBrains Mono',monospace", fontSize: 9, letterSpacing: '.12em', textTransform: 'uppercase', padding: 0, marginBottom: 12 }}>← Close</button>
+        <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--dim)', fontFamily: "'JetBrains Mono',monospace", fontSize: 9, letterSpacing: '.12em', textTransform: 'uppercase', padding: 0, marginBottom: 20 }}>← Back</button>
         <div className="ob-h">Group Session</div>
-        {data?.code && <div className="ob-deck">Code: <strong style={{ fontFamily: "'JetBrains Mono',monospace", letterSpacing: '.1em' }}>{data.code}</strong> — share it so others can join.</div>}
+        <div className="ob-deck">Log a workout together — up to 4 people, each logs their own sets and can see everyone else's.</div>
 
-        <div style={{ display: 'flex', gap: 6, margin: '14px 0', flexWrap: 'wrap' }}>
-          {activeParticipants.map(p => (
-            <button key={p.uid} className={`ob-unit-btn${activeTab?.uid === p.uid ? ' active' : ''}`} onClick={() => setActiveTabUid(p.uid)}>
-              {p.uid === myUid ? 'You' : (p.displayNameFirst || 'Someone')}
-            </button>
-          ))}
-          <button className="prof-btn" onClick={load} style={{ marginLeft: 'auto' }}>Refresh</button>
-        </div>
+        <button className="ob-next" style={{ width: '100%', padding: '14px 0', marginBottom: 24 }} onClick={startSession} disabled={busy}>
+          {busy ? 'Starting…' : 'Start a New Session'}
+        </button>
 
-        {activeTab?.uid === myUid && (
-          <div style={{ display: 'flex', gap: 6, marginBottom: 14 }}>
-            <input style={{ ...inputStyle, flex: 1 }} value={newExercise} onChange={e => setNewExercise(e.target.value)} placeholder="Add exercise" />
-            <select value={addScope} onChange={e => setAddScope(e.target.value)} style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, background: 'var(--paper)', color: 'var(--ink)', border: '1px solid var(--rule)' }}>
-              <option value="mine">Just me</option>
-              <option value="everyone">Everyone</option>
-            </select>
-            <button className="prof-btn solid" onClick={addExercise} disabled={busy || !newExercise.trim()}>Add</button>
-          </div>
-        )}
-
-        {exercisesForTab.length === 0 && <div style={{ fontSize: 11, color: 'var(--dim)', margin: '20px 0' }}>No sets logged yet on this tab.</div>}
-
-        {exercisesForTab.map(exName => (
-          <div key={exName} style={{ marginBottom: 16 }}>
-            <div className="settings-sh">{exName}</div>
-            {tabEntries.filter(e => e.exercise === exName).map(e => (
-              // Keyed on updatedAt too, not just id — these are uncontrolled
-              // inputs (defaultValue), which only apply on mount. Without
-              // this, a poll refresh picking up someone else's edit (or my
-              // own from another device) wouldn't visibly update the field,
-              // silently defeating the whole point of the shared view.
-              <div key={`${e.id}-${e.updatedAt}`} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 0' }}>
-                <input className="prof-input" style={{ width: 60 }} type="number" inputMode="decimal" placeholder="kg" defaultValue={e.kg ?? ''}
-                  onBlur={ev => { const v = ev.target.value ? +ev.target.value : null; if (v !== e.kg) updateEntry(e.id, { kg: v }); }} />
-                <span style={{ fontSize: 10, color: 'var(--dim)' }}>×</span>
-                <input className="prof-input" style={{ width: 50 }} type="number" inputMode="numeric" placeholder="reps" defaultValue={e.reps ?? ''}
-                  onBlur={ev => { const v = ev.target.value ? +ev.target.value : null; if (v !== e.reps) updateEntry(e.id, { reps: v }); }} />
-                <input className="prof-input" style={{ width: 50 }} type="number" inputMode="decimal" placeholder="RPE" defaultValue={e.rpe ?? ''}
-                  onBlur={ev => { const v = ev.target.value ? +ev.target.value : null; if (v !== e.rpe) updateEntry(e.id, { rpe: v }); }} />
-                <button onClick={() => deleteEntry(e.id)} style={{ background: 'none', border: 'none', color: 'var(--dim)', cursor: 'pointer', fontSize: 14, padding: '0 6px' }}>×</button>
-              </div>
-            ))}
-            <button className="prof-btn" style={{ fontSize: 9, padding: '3px 8px', marginTop: 4 }}
-              onClick={() => api(`session/${sessionId}/entries`, { method: 'POST', body: JSON.stringify({ uid: activeTab.uid, exercise: exName }) }).then(load)}>
-              + Set
-            </button>
-          </div>
-        ))}
-
-        <div className="ob-nav" style={{ justifyContent: 'space-between' }}>
-          <button className="ob-back" onClick={leaveSession} disabled={busy}>Leave Group</button>
-          <button className="ob-next" onClick={finishSession} disabled={finishing}>{finishing ? 'Finishing…' : 'Finish My Workout'}</button>
-        </div>
+        <label className="ob-label">Join with a code</label>
+        <input style={inputStyle} value={joinCode} maxLength={4} placeholder="4-character code"
+          onChange={e => { setJoinCode(e.target.value.toUpperCase()); setError(''); }} autoCapitalize="characters" autoCorrect="off" />
+        <button className="ob-next" style={{ width: '100%', padding: '14px 0', marginTop: 14 }} onClick={joinSession} disabled={busy || !joinCode.trim()}>
+          {busy ? 'Joining…' : 'Join'}
+        </button>
+        {error && <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--red)', marginTop: 14 }}>{error}</div>}
       </div>
     </div>
   );
@@ -3242,7 +3296,7 @@ function S3({ s, onStartWorkout, onImport, onHistory, refresh }) {
   const lastSession = workouts[0] || null;
   const sessionLifts = lastSession ? lifts.filter(l => l.date === lastSession.date) : [];
   const [genning, setGenning] = useState(false);
-  const [showGroupSession, setShowGroupSession] = useState(() => { try { return !!localStorage.getItem(GROUP_SESSION_KEY); } catch { return false; } });
+  const [showGroupStart, setShowGroupStart] = useState(false);
 
   const exerciseMap = {};
   sessionLifts.forEach(l => {
@@ -3497,7 +3551,11 @@ function S3({ s, onStartWorkout, onImport, onHistory, refresh }) {
               Start Session
             </button>
             <button className="action-btn" onClick={() => onStartWorkout(null)}>Freestyle</button>
-            <button className="action-btn" onClick={() => setShowGroupSession(true)}>Group Session</button>
+            <button className="action-btn" onClick={() => {
+              let existing = null;
+              try { existing = localStorage.getItem(GROUP_SESSION_KEY); } catch {}
+              if (existing) onStartWorkout(null); else setShowGroupStart(true);
+            }}>Group Session</button>
             {selectedBucket && <button className="action-btn" onClick={() => setSelectedBucket(null)}>Auto-Pick Freshest</button>}
             <button onClick={generatePlan} disabled={genning}
               style={{ marginLeft: 'auto', background: 'none', border: 'none', fontFamily: "'JetBrains Mono',monospace", fontSize: 9, letterSpacing: '.1em', textTransform: 'uppercase', color: 'var(--dim)', cursor: 'pointer', padding: 0 }}>
@@ -3612,7 +3670,16 @@ function S3({ s, onStartWorkout, onImport, onHistory, refresh }) {
           </div>
         ))}
       </div>
-      {showGroupSession && <GroupSessionOverlay onClose={() => setShowGroupSession(false)} />}
+      {showGroupStart && (
+        <GroupSessionStartModal
+          onClose={() => setShowGroupStart(false)}
+          onStarted={(sessionId) => {
+            try { localStorage.setItem(GROUP_SESSION_KEY, sessionId); } catch {}
+            setShowGroupStart(false);
+            onStartWorkout(null); // lands in WorkoutLogger, which picks up the session from localStorage on mount
+          }}
+        />
+      )}
     </section>
   );
 }
