@@ -1025,10 +1025,31 @@ app.post("/profile", async (req, res) => {
   // keeps this generic endpoint safe against a client just including them
   // in a broader profile-save payload without meaning to bypass anything.
   delete body.username; delete body.displayName; delete body.lastUsernameChangeAt;
+  // Per-category visibility toggles, gating what a follower can see (see
+  // USERNAME_AND_COMPARISON.md §4/§6). Only the two known keys are ever
+  // merged in, whitelisted rather than trusting an arbitrary client object,
+  // since this becomes a real access-control input once follow/comparison
+  // read it. workoutSessions defaults true (visible), comparison defaults
+  // false (opt-in) — both applied at read time in the endpoints that check
+  // them, not stamped into the stored object here, so an account that's
+  // never touched this at all still gets the right defaults.
+  if (body.visibility && typeof body.visibility === 'object') {
+    const v = {};
+    if (typeof body.visibility.workoutSessions === 'boolean') v.workoutSessions = body.visibility.workoutSessions;
+    if (typeof body.visibility.comparison === 'boolean') v.comparison = body.visibility.comparison;
+    body.visibility = { ...(db.profile?.visibility || {}), ...v };
+  } else {
+    delete body.visibility;
+  }
   db.profile = { ...db.profile, ...body };
   await save();
   res.json(db.profile);
 });
+
+// true (visible) unless explicitly toggled off — see /profile's visibility
+// merge above for why the default lives here rather than in stored data.
+const isWorkoutSessionsVisible = profile => profile?.visibility?.workoutSessions !== false;
+const isComparisonVisible = profile => profile?.visibility?.comparison === true;
 
 // ---------- Username / display name ----------
 // See .design/feature-brainstorm/USERNAME_AND_COMPARISON.md for the design.
@@ -1059,25 +1080,35 @@ app.post('/account/username', async (req, res) => {
     });
   }
 
+  const trimmedDisplayName = displayName.trim();
+  // displayNameFirst is denormalized onto the usernames doc itself (not
+  // just db.profile) so prefix search (below) can read matches straight off
+  // usernames/ without an N+1 cross-user read per result — kept in sync
+  // here since /account/username is the only path that ever changes either
+  // field.
+  const displayNameFirstForIndex = deriveDisplayNameFirst(trimmedDisplayName);
+
   if (newUsername !== currentUsername) {
     try {
       await firestore.runTransaction(async (tx) => {
         const newRef = firestore.collection('usernames').doc(newUsername);
         const newSnap = await tx.get(newRef);
         if (newSnap.exists && newSnap.data().uid !== req.uid) throw new Error('USERNAME_TAKEN');
-        tx.set(newRef, { uid: req.uid });
+        tx.set(newRef, { uid: req.uid, displayNameFirst: displayNameFirstForIndex });
         if (currentUsername) tx.delete(firestore.collection('usernames').doc(currentUsername));
       });
     } catch (e) {
       if (e.message === 'USERNAME_TAKEN') return res.status(409).json({ error: 'That username is already taken' });
       throw e;
     }
+  } else {
+    await firestore.collection('usernames').doc(newUsername).set({ uid: req.uid, displayNameFirst: displayNameFirstForIndex }, { merge: true });
   }
 
   db.profile = {
     ...db.profile,
     username: newUsername,
-    displayName: displayName.trim(),
+    displayName: trimmedDisplayName,
     ...(isChange ? { lastUsernameChangeAt: new Date().toISOString() } : {}),
   };
   await save();
@@ -1086,6 +1117,118 @@ app.post('/account/username', async (req, res) => {
     displayName: db.profile.displayName,
     displayNameFirst: deriveDisplayNameFirst(db.profile.displayName),
   });
+});
+
+// Open prefix search over the usernames collection — reads displayNameFirst
+// straight off each match (denormalized at claim time above), so this never
+// needs to cross-read another user's own document. Exact Firestore
+// range-query idiom for "starts with prefix": [prefix, prefix+'').
+app.get('/account/search', async (req, res) => {
+  const prefix = normalizeUsername((req.query.prefix || '').toString());
+  if (!prefix) return res.json({ results: [] });
+  const snap = await firestore.collection('usernames')
+    .where(admin.firestore.FieldPath.documentId(), '>=', prefix)
+    .where(admin.firestore.FieldPath.documentId(), '<', prefix + '')
+    .limit(20)
+    .get();
+  const results = snap.docs
+    .filter(d => d.id !== db.profile?.username) // don't surface yourself in your own search
+    .map(d => ({ username: d.id, uid: d.data().uid, displayNameFirst: d.data().displayNameFirst || '' }));
+  res.json({ results });
+});
+
+// ---------- Follow requests ----------
+// followRequests/{fromUid}_{toUid} — deliberately doubles as both the
+// pending request AND, once accepted, the follow edge itself (status:
+// 'accepted' == "fromUid follows toUid"), rather than a separate `follows`
+// collection — one doc's lifecycle covers both, and "who do I follow" /
+// "who follows me" are both simple queries against the same collection.
+// Both sides' username/displayNameFirst are denormalized onto the request
+// doc at creation time (read once, from the usernames collection, which is
+// itself already denormalized — never a cross-read into the other
+// person's own per-user document).
+const followRequestId = (fromUid, toUid) => `${fromUid}_${toUid}`;
+
+app.post('/follow-request', async (req, res) => {
+  const toUsername = normalizeUsername((req.body?.toUsername || '').toString());
+  if (!toUsername) return res.status(400).json({ error: 'toUsername required' });
+  const targetSnap = await firestore.collection('usernames').doc(toUsername).get();
+  if (!targetSnap.exists) return res.status(404).json({ error: 'No account with that username' });
+  const toUid = targetSnap.data().uid;
+  if (toUid === req.uid) return res.status(400).json({ error: "You can't follow yourself" });
+
+  const id = followRequestId(req.uid, toUid);
+  const ref = firestore.collection('followRequests').doc(id);
+  const existing = await ref.get();
+  if (existing.exists && existing.data().status === 'accepted') return res.json({ status: 'accepted' });
+
+  await ref.set({
+    fromUid: req.uid, toUid,
+    fromUsername: db.profile?.username || null, fromDisplayNameFirst: deriveDisplayNameFirst(db.profile?.displayName),
+    toUsername, toDisplayNameFirst: targetSnap.data().displayNameFirst || '',
+    status: 'pending', createdAt: new Date().toISOString(), requesterSeenAcceptance: false,
+  });
+  res.json({ status: 'pending' });
+});
+
+app.post('/follow-requests/:fromUid/accept', async (req, res) => {
+  const fromUid = req.params.fromUid;
+  const ref = firestore.collection('followRequests').doc(followRequestId(fromUid, req.uid));
+  const snap = await ref.get();
+  if (!snap.exists || snap.data().status !== 'pending' || snap.data().toUid !== req.uid) {
+    return res.status(404).json({ error: 'No pending request from that account' });
+  }
+  await ref.update({ status: 'accepted', acceptedAt: new Date().toISOString() });
+  res.json({ status: 'accepted' });
+});
+
+// Powers the Profile-area badge — incoming pending requests (need action)
+// and requests of mine that were accepted since I last looked (the
+// "requester also gets notified" behavior from the design doc).
+app.get('/follow-requests', async (req, res) => {
+  const [incomingSnap, acceptedSnap] = await Promise.all([
+    firestore.collection('followRequests').where('toUid', '==', req.uid).where('status', '==', 'pending').get(),
+    firestore.collection('followRequests').where('fromUid', '==', req.uid).where('status', '==', 'accepted').where('requesterSeenAcceptance', '==', false).get(),
+  ]);
+  res.json({
+    incoming: incomingSnap.docs.map(d => ({ fromUid: d.data().fromUid, fromUsername: d.data().fromUsername, fromDisplayNameFirst: d.data().fromDisplayNameFirst, createdAt: d.data().createdAt })),
+    recentlyAccepted: acceptedSnap.docs.map(d => ({ toUid: d.data().toUid, toUsername: d.data().toUsername, toDisplayNameFirst: d.data().toDisplayNameFirst })),
+  });
+});
+
+app.post('/follow-requests/ack-accepted', async (req, res) => {
+  const snap = await firestore.collection('followRequests').where('fromUid', '==', req.uid).where('status', '==', 'accepted').where('requesterSeenAcceptance', '==', false).get();
+  await Promise.all(snap.docs.map(d => d.ref.update({ requesterSeenAcceptance: true })));
+  res.json({ ok: true });
+});
+
+// ---------- Profile view ----------
+// Minimal (first name + username + Follow button) for non-followers;
+// workout-session data (subject to the target's own visibility toggle) once
+// isFollowing is true. The cross-user read here is deliberately read-only
+// and touches only the target's own `users/{uid}` document directly — never
+// the request-scoped `db`/`save` globals — same pattern already accepted
+// for the group-workout and comparison features in
+// USERNAME_AND_COMPARISON.md / GROUP_WORKOUT.md.
+app.get('/account/:username', async (req, res) => {
+  const username = normalizeUsername(req.params.username);
+  const targetSnap = await firestore.collection('usernames').doc(username).get();
+  if (!targetSnap.exists) return res.status(404).json({ error: 'No account with that username' });
+  const targetUid = targetSnap.data().uid;
+  const displayNameFirst = targetSnap.data().displayNameFirst || '';
+
+  if (targetUid === req.uid) return res.json({ username, displayNameFirst, isSelf: true });
+
+  const reqSnap = await firestore.collection('followRequests').doc(followRequestId(req.uid, targetUid)).get();
+  const isFollowing = reqSnap.exists && reqSnap.data().status === 'accepted';
+
+  const base = { username, displayNameFirst, isFollowing };
+  if (!isFollowing) return res.json(base);
+
+  const targetDoc = await userDocRef(targetUid).get();
+  const targetData = targetDoc.data() || {};
+  if (!isWorkoutSessionsVisible(targetData.profile)) return res.json(base);
+  res.json({ ...base, workouts: targetData.workouts || [] });
 });
 
 // Per-user token for open webhook routes (/shortcut, /health) — lets each

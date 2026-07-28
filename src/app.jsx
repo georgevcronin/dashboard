@@ -209,7 +209,7 @@ const pct = (v, t) => (t && t > 0 ? Math.min(100, Math.round(v / t * 100)) : 0);
 // track than exact numbers. Settings > Nutrition can switch to exact.
 const roundCal = (v, exact) => (v == null ? v : exact ? Math.round(v) : Math.round(v / 300) * 300);
 
-function Header({ s, onSignOut, onOpenSettings }) {
+function Header({ s, onSignOut, onOpenSettings, socialBadgeCount }) {
   const today = s?.today || {};
   const n = s?.nutritionToday || {};
   const mt = s?.macroTargets || {};
@@ -233,7 +233,7 @@ function Header({ s, onSignOut, onOpenSettings }) {
         <div className="mast-left" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           {onOpenSettings && (
             <button onClick={onOpenSettings} style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 7, letterSpacing: '.14em', textTransform: 'uppercase', background: 'none', border: '1px solid var(--rule)', color: 'var(--dim)', padding: '2px 6px', cursor: 'pointer', lineHeight: 1.4 }}>
-              Settings
+              Settings{socialBadgeCount > 0 ? ` (${socialBadgeCount})` : ''}
             </button>
           )}
           <span>Vol. I &nbsp;·&nbsp; Est. 2026</span>
@@ -821,6 +821,13 @@ const glycogenPct = (elapsedS, totalS) => {
 // instead of the list. v0.1 is the first tracked release, not literally the
 // app's first version — everything before this had no changelog at all.
 const CHANGELOG = [
+  {
+    version: '0.54',
+    date: '2026-07-28',
+    features: [
+      'Added a Social section in Settings: search for other accounts by username, send/accept follow requests (a badge on the Settings button shows pending requests and any that were just accepted), and a profile view for people you find — minimal for accounts you don\'t follow yet, workout sessions visible once they accept your follow request and have that category toggled on. New per-category visibility toggles (workout sessions on by default, strength/stimulus comparison off by default) control what a follower can see.',
+    ],
+  },
   {
     version: '0.53',
     date: '2026-07-28',
@@ -5807,7 +5814,7 @@ function PanelOrderEditor({ order, hidden, labels, onChange }) {
   );
 }
 
-function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenWiki, setBriefing, onRestartSetup }) {
+function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenWiki, setBriefing, onRestartSetup, followBadge, reloadFollowBadge }) {
   const [nameVal, setNameVal] = useState(s?.profile?.name || '');
   const [nameSaving, setNameSaving] = useState(false);
   const [nameSaved, setNameSaved] = useState(false);
@@ -6062,6 +6069,62 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
       });
       await api('push/subscribe', { method: 'POST', body: JSON.stringify({ subscription: sub }) });
     } catch {}
+  };
+
+  // ── Social: search, follow requests, profile view ──────────────────────
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState([]);
+  const [searching, setSearching] = useState(false);
+  const [viewingUsername, setViewingUsername] = useState(null);
+  const [viewedProfile, setViewedProfile] = useState(null);
+  const [profileLoading, setProfileLoading] = useState(false);
+  const [followingPending, setFollowingPending] = useState({}); // username -> true, while a request is in flight/sent this session
+  const visibility = s?.profile?.visibility || {};
+  const workoutSessionsVisible = visibility.workoutSessions !== false;
+  const comparisonVisible = visibility.comparison === true;
+
+  const runSearch = (q) => {
+    setSearchQuery(q);
+    if (!q.trim()) { setSearchResults([]); return; }
+    setSearching(true);
+    api(`account/search?prefix=${encodeURIComponent(q.trim())}`)
+      .then(r => setSearchResults(r.results || []))
+      .catch(() => {})
+      .finally(() => setSearching(false));
+  };
+
+  const openProfile = (username) => {
+    setViewingUsername(username);
+    setViewedProfile(null);
+    setProfileLoading(true);
+    api(`account/${encodeURIComponent(username)}`)
+      .then(r => setViewedProfile(r))
+      .catch(() => setViewedProfile({ error: true }))
+      .finally(() => setProfileLoading(false));
+  };
+
+  const sendFollowRequest = async (username) => {
+    setFollowingPending(p => ({ ...p, [username]: true }));
+    try {
+      await api('follow-request', { method: 'POST', body: JSON.stringify({ toUsername: username }) });
+    } catch {
+      setFollowingPending(p => ({ ...p, [username]: false }));
+    }
+  };
+
+  const acceptFollowRequest = async (fromUid) => {
+    await api(`follow-requests/${fromUid}/accept`, { method: 'POST' });
+    reloadFollowBadge?.();
+  };
+
+  const ackAccepted = async () => {
+    await api('follow-requests/ack-accepted', { method: 'POST' });
+    reloadFollowBadge?.();
+  };
+
+  const saveVisibility = async (patch) => {
+    const profile = await api('profile', { method: 'POST', body: JSON.stringify({ visibility: { workoutSessions: workoutSessionsVisible, comparison: comparisonVisible, ...patch } }) });
+    refresh({ ...s, profile });
   };
 
   return (
@@ -6358,6 +6421,68 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
               </div>
             </button>
           ))}
+        </div>
+        </details>
+
+        <details className="settings-group">
+        <summary className="settings-group-h">Social{followBadge && (followBadge.incoming.length + followBadge.recentlyAccepted.length) > 0 ? ` (${followBadge.incoming.length + followBadge.recentlyAccepted.length})` : ''}</summary>
+
+        {followBadge?.recentlyAccepted?.length > 0 && (
+          <div className="settings-sec">
+            <div className="settings-sh">Accepted</div>
+            {followBadge.recentlyAccepted.map(r => (
+              <div key={r.toUid} style={{ fontSize: 11, color: 'var(--dim)', marginBottom: 4 }}>
+                {r.toDisplayNameFirst} accepted your follow request
+              </div>
+            ))}
+            <button className="prof-btn" onClick={ackAccepted} style={{ marginTop: 4 }}>Dismiss</button>
+          </div>
+        )}
+
+        {followBadge?.incoming?.length > 0 && (
+          <div className="settings-sec">
+            <div className="settings-sh">Follow Requests</div>
+            {followBadge.incoming.map(r => (
+              <div key={r.fromUid} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+                <span style={{ fontSize: 12 }}>{r.fromDisplayNameFirst} <span style={{ color: 'var(--dim)', fontFamily: "'JetBrains Mono',monospace", fontSize: 9 }}>@{r.fromUsername}</span></span>
+                <button className="prof-btn solid" style={{ fontSize: 9, padding: '4px 10px' }} onClick={() => acceptFollowRequest(r.fromUid)}>Accept</button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div className="settings-sec">
+          <div className="settings-sh">Find People</div>
+          <input className="prof-input" style={{ width: '100%', boxSizing: 'border-box' }} value={searchQuery}
+            onChange={e => runSearch(e.target.value)} placeholder="Search by username" autoCapitalize="none" autoCorrect="off" />
+          {searching && <div style={{ fontSize: 10, color: 'var(--dim)', marginTop: 6 }}>Searching…</div>}
+          {searchResults.map(r => (
+            <div key={r.uid} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 8 }}>
+              <button onClick={() => openProfile(r.username)} style={{ background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left', padding: 0, fontSize: 12, color: 'var(--ink)' }}>
+                {r.displayNameFirst} <span style={{ color: 'var(--dim)', fontFamily: "'JetBrains Mono',monospace", fontSize: 9 }}>@{r.username}</span>
+              </button>
+              <button className="prof-btn" style={{ fontSize: 9, padding: '4px 10px' }}
+                disabled={followingPending[r.username]} onClick={() => sendFollowRequest(r.username)}>
+                {followingPending[r.username] ? 'Requested' : 'Follow'}
+              </button>
+            </div>
+          ))}
+        </div>
+
+        <div className="settings-sec">
+          <div className="settings-sh">Visibility</div>
+          <div className="prof-field">
+            <span className="prof-lbl">Workout sessions visible to followers</span>
+            <button className={`prof-btn${workoutSessionsVisible ? ' solid' : ''}`} onClick={() => saveVisibility({ workoutSessions: !workoutSessionsVisible })}>
+              {workoutSessionsVisible ? 'On' : 'Off'}
+            </button>
+          </div>
+          <div className="prof-field">
+            <span className="prof-lbl">Strength/stimulus comparison <span style={{ fontWeight: 400, textTransform: 'none', fontSize: 9, color: 'var(--dim)' }}>(requires mutual follow + both people opted in)</span></span>
+            <button className={`prof-btn${comparisonVisible ? ' solid' : ''}`} onClick={() => saveVisibility({ comparison: !comparisonVisible })}>
+              {comparisonVisible ? 'On' : 'Off'}
+            </button>
+          </div>
         </div>
         </details>
 
@@ -6707,6 +6832,41 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
         </details>
 
       </div>
+      {viewingUsername && (
+        <div className="onboard-overlay" style={{ zIndex: 10000 }} onClick={() => setViewingUsername(null)}>
+          <div className="ob-wrap" onClick={e => e.stopPropagation()}>
+            <button onClick={() => setViewingUsername(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--dim)', fontFamily: "'JetBrains Mono',monospace", fontSize: 9, letterSpacing: '.12em', textTransform: 'uppercase', padding: 0, marginBottom: 20 }}>← Back</button>
+            {profileLoading && <div style={{ fontSize: 12, color: 'var(--dim)' }}>Loading…</div>}
+            {!profileLoading && viewedProfile?.error && <div style={{ fontSize: 12, color: 'var(--red)' }}>Couldn't load this profile.</div>}
+            {!profileLoading && viewedProfile && !viewedProfile.error && (
+              <>
+                <div className="ob-h">{viewedProfile.displayNameFirst}</div>
+                <div className="ob-deck">@{viewedProfile.username}</div>
+                {!viewedProfile.isFollowing && !viewedProfile.isSelf && (
+                  <button className="prof-btn solid" style={{ marginTop: 12 }}
+                    disabled={followingPending[viewedProfile.username]}
+                    onClick={() => sendFollowRequest(viewedProfile.username)}>
+                    {followingPending[viewedProfile.username] ? 'Requested' : 'Follow'}
+                  </button>
+                )}
+                {viewedProfile.isFollowing && !viewedProfile.workouts && (
+                  <div style={{ fontSize: 11, color: 'var(--dim)', marginTop: 12 }}>Workout sessions aren't visible for this account.</div>
+                )}
+                {viewedProfile.workouts && (
+                  <div style={{ marginTop: 16 }}>
+                    <div className="settings-sh">Recent Workouts</div>
+                    {viewedProfile.workouts.slice(-10).reverse().map((w, i) => (
+                      <div key={i} style={{ fontSize: 12, padding: '6px 0', borderBottom: '1px solid var(--paper2)' }}>
+                        {localDateFromYMD(w.date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })} — {w.name} ({w.sets} sets)
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -7408,6 +7568,18 @@ function App() {
     navigator.serviceWorker.register('/sw.js').catch(() => {});
   }, [user]);
 
+  // Follow-request badge (incoming pending + accepted-but-unseen-by-me) —
+  // shown as a count on the Settings button per the design doc's "badge on
+  // the profile/settings nav icon" note. Reloaded on login and whenever
+  // Settings closes (accept/ack actions happen inside it).
+  const [followBadge, setFollowBadge] = useState({ incoming: [], recentlyAccepted: [] });
+  const loadFollowRequests = () => {
+    if (!user) return;
+    api('follow-requests').then(r => setFollowBadge({ incoming: r.incoming || [], recentlyAccepted: r.recentlyAccepted || [] })).catch(() => {});
+  };
+  useEffect(loadFollowRequests, [user]);
+  const socialBadgeCount = followBadge.incoming.length + followBadge.recentlyAccepted.length;
+
   useEffect(() => {
     const el = document.createElement('style');
     el.id = 'press-css';
@@ -7528,7 +7700,7 @@ function App() {
           onOpenImport={() => { handleOnboardDone(); setForceOnboarding(false); setShowImport(true); }}
         />
       )}
-      <Header s={s} onSignOut={() => signOut(auth)} onOpenSettings={() => setShowSettings(true)} />
+      <Header s={s} onSignOut={() => signOut(auth)} onOpenSettings={() => setShowSettings(true)} socialBadgeCount={socialBadgeCount} />
       {summaryError && !s && (
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, padding: '8px 16px', background: '#7a1414', color: '#f5f0e2', fontFamily: 'JetBrains Mono, monospace', fontSize: 10, letterSpacing: '.06em' }}>
           <span>{summaryError}</span>
@@ -7567,7 +7739,7 @@ function App() {
           onClick={onBubbleClick}>PJ</button>
       )}
       {chatOpen && <MentorChat onClose={() => setChatOpen(false)} />}
-      {showSettings && <SettingsOverlay s={s} onClose={() => setShowSettings(false)} refresh={refresh} onSignOut={() => signOut(auth)} onOpenImport={() => { setShowSettings(false); setShowImport(true); }} onOpenWiki={() => { setShowSettings(false); setShowWiki(true); }} setBriefing={setBriefing} onRestartSetup={() => { setForceOnboarding(true); setShowSettings(false); }} />}
+      {showSettings && <SettingsOverlay s={s} onClose={() => { setShowSettings(false); loadFollowRequests(); }} refresh={refresh} onSignOut={() => signOut(auth)} onOpenImport={() => { setShowSettings(false); setShowImport(true); }} onOpenWiki={() => { setShowSettings(false); setShowWiki(true); }} setBriefing={setBriefing} onRestartSetup={() => { setForceOnboarding(true); setShowSettings(false); }} followBadge={followBadge} reloadFollowBadge={loadFollowRequests} />}
       {showWiki && <WikiOverlay onClose={() => setShowWiki(false)} />}
       {showBriefing && briefing && <BriefingOverlay briefing={briefing} onClose={() => setShowBriefing(false)} />}
       {showAfternoonNewscast && afternoonNewscast && <NewscastOverlay newscast={afternoonNewscast} onClose={() => setShowAfternoonNewscast(false)} />}
