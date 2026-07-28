@@ -820,6 +820,13 @@ const glycogenPct = (elapsedS, totalS) => {
 // app's first version — everything before this had no changelog at all.
 const CHANGELOG = [
   {
+    version: '0.48',
+    date: '2026-07-28',
+    features: [
+      'Weighted EMG fatigue attribution now also covers bench/overhead press variants (flat, incline, decline) and the rest of the row family (bent-over, T-bar, cable, machine, wide-grip) — 183 of 212 exercises now have a curated profile instead of flat credit. Exercises with no honest single-axis fit (chest flys, pullovers, shrugs, loaded carries, close-grip/diamond triceps-emphasis presses, hammer curls, face pulls, tibialis raises, leg raises) are deliberately left uncurated rather than forced onto data that would misrepresent them.',
+    ],
+  },
+  {
     version: '0.47',
     date: '2026-07-28',
     features: [

@@ -223,6 +223,91 @@ const EXERCISE_EMG_PROFILES = {
   'bicycle crunch': { 'obliques': 55, 'abs': 56 },
   'v-up': { 'abs': 76, 'obliques': 72.5 },
   'ghd sit-up': { 'abs': 87, 'obliques': 82.5 },
+
+  // Phase 4: the remaining chest-press and overhead-press pattern exercises,
+  // using PRESS_EMG's sagittal shoulder-flexion axis directly -- the same
+  // table the athlete's own hand-mapped press exercises (exerciseAngles.js)
+  // already use, just applied as a fixed default here instead of a per-set
+  // pick. Flat/incline/decline bench share the standard bench-press-arc
+  // angles (30/60/90); standing/seated overhead press variants sit near the
+  // top of the range (150-180). NOT curated here, deliberately: Close-Grip
+  // Bench Press, Diamond Push-Up, Svend Press, and JM Press -- this table
+  // has no elbow-tuck/grip-width axis for chest presses (only the frontal-
+  // plane cue table does, and that's calibrated for a relative "which way to
+  // flare" cue, not absolute crediting weights), so using flat-bench values
+  // for a triceps-emphasis variant would mute exactly the distinction
+  // exerciseDb.js's own primary tags are making. Any chest-fly-pattern
+  // exercise (Cable Fly, Cable Crossover, Pec Deck, Incline Cable Fly) and
+  // both pullovers remain uncurated for the reason documented at the top of
+  // this file's history: no dedicated horizontal-adduction/overhead-
+  // extension axis exists in the source literature.
+  'barbell bench press': { 'front-delt': 85, 'mid-delt': 58, chest: 68.7, biceps: 73, triceps: 58, serratus: 24, 'lower-traps': 19 },
+  'incline barbell bench press': { 'front-delt': 97, 'mid-delt': 87, chest: 66.7, biceps: 78, triceps: 67, serratus: 42, 'lower-traps': 35 },
+  'decline barbell bench press': { 'front-delt': 55, 'mid-delt': 28, chest: 49, biceps: 60, triceps: 45, serratus: 14, 'lower-traps': 10 },
+  'dumbbell bench press (flat)': { 'front-delt': 85, 'mid-delt': 58, chest: 68.7, biceps: 73, triceps: 58, serratus: 24, 'lower-traps': 19 },
+  'dumbbell incline bench press': { 'front-delt': 97, 'mid-delt': 87, chest: 66.7, biceps: 78, triceps: 67, serratus: 42, 'lower-traps': 35 },
+  'dumbbell decline bench press': { 'front-delt': 55, 'mid-delt': 28, chest: 49, biceps: 60, triceps: 45, serratus: 14, 'lower-traps': 10 },
+  'push-up': { 'front-delt': 85, 'mid-delt': 58, chest: 68.7, biceps: 73, triceps: 58, serratus: 24, 'lower-traps': 19 },
+  'weighted push-up': { 'front-delt': 85, 'mid-delt': 58, chest: 68.7, biceps: 73, triceps: 58, serratus: 24, 'lower-traps': 19 },
+  'machine chest press': { 'front-delt': 85, 'mid-delt': 58, chest: 68.7, biceps: 73, triceps: 58, serratus: 24, 'lower-traps': 19 },
+  'ring push-up': { 'front-delt': 85, 'mid-delt': 58, chest: 68.7, biceps: 73, triceps: 58, serratus: 24, 'lower-traps': 19 },
+  'single-arm cable press': { 'front-delt': 85, 'mid-delt': 58, chest: 68.7, biceps: 73, triceps: 58, serratus: 24, 'lower-traps': 19 },
+  'single-arm dumbbell press': { 'front-delt': 85, 'mid-delt': 58, chest: 68.7, biceps: 73, triceps: 58, serratus: 24, 'lower-traps': 19 },
+  'hex press (floor)': { 'front-delt': 72, 'mid-delt': 42, chest: 61.7, biceps: 68, triceps: 52, serratus: 18, 'lower-traps': 14 },
+  'push press': { 'front-delt': 97, 'mid-delt': 107, chest: 14.3, biceps: 75, triceps: 85, serratus: 95, 'lower-traps': 90 },
+  'z-press': { 'front-delt': 95, 'mid-delt': 102, chest: 9.3, biceps: 72, triceps: 90, serratus: 98, 'lower-traps': 95 },
+  'half-kneeling dumbbell press': { 'front-delt': 97, 'mid-delt': 107, chest: 14.3, biceps: 75, triceps: 85, serratus: 95, 'lower-traps': 90 },
+  'barbell overhead press': { 'front-delt': 97, 'mid-delt': 107, chest: 14.3, biceps: 75, triceps: 85, serratus: 95, 'lower-traps': 90 },
+  'dumbbell overhead press': { 'front-delt': 97, 'mid-delt': 107, chest: 14.3, biceps: 75, triceps: 85, serratus: 95, 'lower-traps': 90 },
+  'arnold press': { 'front-delt': 99, 'mid-delt': 109, chest: 21.7, biceps: 78, triceps: 80, serratus: 90, 'lower-traps': 82 },
+  'seated dumbbell overhead press': { 'front-delt': 97, 'mid-delt': 107, chest: 14.3, biceps: 75, triceps: 85, serratus: 95, 'lower-traps': 90 },
+  'pike push-up': { 'front-delt': 100, 'mid-delt': 103, chest: 31.3, biceps: 80, triceps: 76, serratus: 82, 'lower-traps': 72 },
+  'handstand push-up (wall)': { 'front-delt': 97, 'mid-delt': 107, chest: 14.3, biceps: 75, triceps: 85, serratus: 95, 'lower-traps': 90 },
+  'behind-neck press (smith machine)': { 'front-delt': 95, 'mid-delt': 102, chest: 9.3, biceps: 72, triceps: 90, serratus: 98, 'lower-traps': 95 },
+  'smith machine overhead press': { 'front-delt': 97, 'mid-delt': 107, chest: 14.3, biceps: 75, triceps: 85, serratus: 95, 'lower-traps': 90 },
+
+  // Row-pattern exercises, same ROW_EMG axis. Bent-over/free-weight rows
+  // pull to the lower torso (lat-dominant, 45-60°); cable/machine rows with
+  // a fixed horizontal path sit at 90°; wide-grip and high-pull variants
+  // (matching exerciseDb.js's own rear-delt/rhomboids/mid-traps-primary tags
+  // for these two) sit at 120°, same as the existing curated High Cable Row
+  // precedent. NOT curated: Face Pull, Overhead Cable Face Pull, and Upright
+  // Row -- exerciseDb.js tags rotator-cuff and/or traps as primary/secondary
+  // for these, and neither ROW_EMG nor ROTATOR_CUFF_EMG tracks that
+  // combination; crediting from ROW_EMG alone would silently drop a real
+  // primary muscle, a regression versus flat credit (same reasoning as the
+  // skipped leg-raise exercises). Chest-Supported Barbell Row, JM Press, and
+  // (above) Machine Shoulder Press are already covered by the athlete's own
+  // exerciseAngles.js mapping (exact name match) and are deliberately left
+  // out here so a generic fixed default can't shadow their real hand-picked
+  // angle.
+  'barbell row (overhand / pendlay)': { lats: 78, biceps: 70, 'rear-delt': 46, 'mid-delt': 55, 'mid-traps': 52, rhomboids: 50, 'teres-major': 61, brachioradialis: 61 },
+  'barbell row (underhand / yates)': { lats: 85, biceps: 64, 'rear-delt': 34, 'mid-delt': 42, 'mid-traps': 41, rhomboids: 38, 'teres-major': 67, brachioradialis: 60 },
+  'meadows row': { lats: 78, biceps: 70, 'rear-delt': 46, 'mid-delt': 55, 'mid-traps': 52, rhomboids: 50, 'teres-major': 61, brachioradialis: 61 },
+  'dumbbell row (three-point)': { lats: 78, biceps: 70, 'rear-delt': 46, 'mid-delt': 55, 'mid-traps': 52, rhomboids: 50, 'teres-major': 61, brachioradialis: 61 },
+  'chest-supported dumbbell row': { lats: 62, biceps: 80, 'rear-delt': 68, 'mid-delt': 77, 'mid-traps': 73, rhomboids: 73, 'teres-major': 52, brachioradialis: 63 },
+  'seated cable row': { lats: 62, biceps: 80, 'rear-delt': 68, 'mid-delt': 77, 'mid-traps': 73, rhomboids: 73, 'teres-major': 52, brachioradialis: 63 },
+  'single-arm cable row': { lats: 62, biceps: 80, 'rear-delt': 68, 'mid-delt': 77, 'mid-traps': 73, rhomboids: 73, 'teres-major': 52, brachioradialis: 63 },
+  'high cable row': { lats: 46, biceps: 73, 'rear-delt': 85, 'mid-delt': 90, 'mid-traps': 88, rhomboids: 89, 'teres-major': 46, brachioradialis: 61 },
+  't-bar row': { lats: 78, biceps: 70, 'rear-delt': 46, 'mid-delt': 55, 'mid-traps': 52, rhomboids: 50, 'teres-major': 61, brachioradialis: 61 },
+  'machine row (seated)': { lats: 62, biceps: 80, 'rear-delt': 68, 'mid-delt': 77, 'mid-traps': 73, rhomboids: 73, 'teres-major': 52, brachioradialis: 63 },
+  'single-arm landmine row': { lats: 78, biceps: 70, 'rear-delt': 46, 'mid-delt': 55, 'mid-traps': 52, rhomboids: 50, 'teres-major': 61, brachioradialis: 61 },
+  'standing single-arm cable row': { lats: 62, biceps: 80, 'rear-delt': 68, 'mid-delt': 77, 'mid-traps': 73, rhomboids: 73, 'teres-major': 52, brachioradialis: 63 },
+  'bent-over dumbbell row (bilateral)': { lats: 78, biceps: 70, 'rear-delt': 46, 'mid-delt': 55, 'mid-traps': 52, rhomboids: 50, 'teres-major': 61, brachioradialis: 61 },
+  'rack row (barbell inverted)': { lats: 70, biceps: 76, 'rear-delt': 58, 'mid-delt': 67, 'mid-traps': 63, rhomboids: 62, 'teres-major': 56, brachioradialis: 62 },
+  'inverted row (trx/rings)': { lats: 70, biceps: 76, 'rear-delt': 58, 'mid-delt': 67, 'mid-traps': 63, rhomboids: 62, 'teres-major': 56, brachioradialis: 62 },
+  'dumbbell row (pronated)': { lats: 70, biceps: 76, 'rear-delt': 58, 'mid-delt': 67, 'mid-traps': 63, rhomboids: 62, 'teres-major': 56, brachioradialis: 62 },
+  'wide-grip cable row': { lats: 46, biceps: 73, 'rear-delt': 85, 'mid-delt': 90, 'mid-traps': 88, rhomboids: 89, 'teres-major': 46, brachioradialis: 61 },
+
+  // Glute-Ham Raise and Swiss Ball Leg Curl are knee-flexion dominant, same
+  // as the already-curated Lying/Seated/Nordic leg curls -- KNEE_EMG's
+  // hamstrings-only value, same precedent (glutes is exerciseDb.js's
+  // secondary tag here, not tracked at this axis, dropped same as the
+  // existing leg curls). GHR uses the harder Nordic-equivalent value (full
+  // bodyweight lever, no machine assist); Swiss Ball Leg Curl uses the
+  // Seated Leg Curl value (moderate, machine/prone-equivalent difficulty).
+  'glute-ham raise (ghr)': { hamstrings: 96 },
+  'swiss ball leg curl': { hamstrings: 90 },
 };
 
 function emgProfileForExercise(name) {

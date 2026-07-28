@@ -23,7 +23,7 @@ test('every muscle referenced in a curated profile is a real taxonomy muscle', (
 
 test('emgProfileForExercise is case-insensitive and returns null for anything uncurated', () => {
   assert.deepEqual(emgProfileForExercise('Back Squat'), emgProfileForExercise('back squat'));
-  assert.equal(emgProfileForExercise('Barbell Bench Press'), null, 'bench press is press-pattern, not yet curated in phase 1');
+  assert.equal(emgProfileForExercise('Cable Crossover'), null, 'fly-pattern chest exercises remain uncurated (no dedicated axis)');
   assert.equal(emgProfileForExercise(''), null);
 });
 
@@ -48,4 +48,30 @@ test('extension-pattern (tricep) exercises only credit triceps, not biceps', () 
 test('leg curl exercises credit hamstrings only, from the knee-flexion table', () => {
   const legCurl = emgProfileForExercise('Seated Leg Curl');
   assert.deepEqual(Object.keys(legCurl), ['hamstrings']);
+});
+
+test('incline bench press credits front-delt/mid-delt higher and chest lower than flat bench press (phase 4)', () => {
+  const flat = emgProfileForExercise('Barbell Bench Press');
+  const incline = emgProfileForExercise('Incline Barbell Bench Press');
+  assert.ok(incline['front-delt'] > flat['front-delt']);
+  assert.ok(incline.chest < flat.chest);
+});
+
+test('a wide/high-pull row credits rear-delt/rhomboids over lats, unlike a bent-over row (phase 4)', () => {
+  const wide = emgProfileForExercise('Wide-Grip Cable Row');
+  const bentOver = emgProfileForExercise('Barbell Row (Overhand / Pendlay)');
+  assert.ok(wide['rear-delt'] > wide.lats);
+  assert.ok(bentOver.lats > bentOver['rear-delt']);
+});
+
+test('exercises already covered by the athlete\'s own exerciseAngles.js mapping are not shadowed by a phase 4 default', () => {
+  assert.equal(emgProfileForExercise('Machine Shoulder Press'), null);
+  assert.equal(emgProfileForExercise('JM Press'), null);
+  assert.equal(emgProfileForExercise('Chest-Supported Barbell Row'), null);
+});
+
+test('fly-pattern, carry, shrug, tibialis, and rotator-cuff/traps-dependent pull exercises remain uncurated (no honest single-axis fit)', () => {
+  for (const name of ['Cable Crossover', 'Farmer\'s Carry', 'Barbell Shrug', 'Tibialis Raise (Wall Sit)', 'Face Pull', 'Upright Row', 'Close-Grip Bench Press', 'Hammer Curl']) {
+    assert.equal(emgProfileForExercise(name), null, `${name} should remain uncurated`);
+  }
 });
