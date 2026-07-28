@@ -1804,6 +1804,7 @@ function WorkoutLogger({ planDay, lifts, customExercises, experienceLevel, onClo
   // never checked off, since that's exactly the kind of set easy to
   // overlook walking away from the gym.
   const [confirmAction, setConfirmAction] = useState(null);
+  const [showGroupSession, setShowGroupSession] = useState(() => { try { return !!localStorage.getItem(GROUP_SESSION_KEY); } catch { return false; } });
   const inputRef = useRef();
 
   const allExercises = useMemo(() => {
@@ -2136,6 +2137,11 @@ function WorkoutLogger({ planDay, lifts, customExercises, experienceLevel, onClo
               <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, letterSpacing: '.12em', textTransform: 'uppercase', padding: '2px 7px', background: cns.color, color: 'var(--paper)' }}>{cns.label}</span>
             )}
           </div>
+          {!summary && (
+            <button onClick={() => setShowGroupSession(true)} style={{ marginTop: 4, background: 'none', border: 'none', fontFamily: "'JetBrains Mono',monospace", fontSize: 8, letterSpacing: '.1em', textTransform: 'uppercase', color: 'var(--dim)', cursor: 'pointer', padding: 0 }}>
+              + Group Session
+            </button>
+          )}
         </div>
         {summary ? (
           <button className="ol-btn ol-btn-solid" onClick={onClose}>Back to Press</button>
@@ -2579,6 +2585,7 @@ function WorkoutLogger({ planDay, lifts, customExercises, experienceLevel, onClo
           </div>
         </div>
       )}
+      {showGroupSession && <GroupSessionOverlay onClose={() => setShowGroupSession(false)} />}
     </div>
   );
 }
