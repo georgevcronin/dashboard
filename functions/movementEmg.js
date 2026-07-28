@@ -277,6 +277,41 @@ const ROTATOR_CUFF_ELEVATION_MODIFIER = {
   90: { infraspinatus: -22, 'teres-minor': -14 },
 };
 
+// ---------- Section 21: shrugs (scapular elevation, + bar-path modifier) ----------
+// 0% = bottom (scapula depressed, traps stretched), 100% = top ("ears to
+// shoulders," scapula fully elevated). A pure scapular-elevation movement,
+// distinct from every row/pulldown table above (those are glenohumeral
+// pull-direction axes; this is scapulothoracic elevation, a different joint
+// action entirely -- exactly the gap that left shrugs uncurated through the
+// earlier phases). Levator scapulae is the movement's real #2 mover per the
+// source (tracks closely behind upper trapezius throughout) but has no
+// taxonomy home in this app (not a sub-head of any of the 31 tracked
+// muscles) -- dropped rather than merged into `traps`, same rule as every
+// other untracked source muscle in this file.
+const SHRUG_ELEVATION_LEVELS = [0, 15, 30, 45, 60, 75, 90, 100];
+const SHRUG_ELEVATION_EMG = {
+  0:   { traps: 15, 'mid-traps': 10, rhomboids: 8,  forearms: 40 },
+  15:  { traps: 30, 'mid-traps': 15, rhomboids: 12, forearms: 45 },
+  30:  { traps: 48, 'mid-traps': 20, rhomboids: 16, forearms: 50 },
+  45:  { traps: 64, 'mid-traps': 26, rhomboids: 20, forearms: 55 },
+  60:  { traps: 78, 'mid-traps': 32, rhomboids: 25, forearms: 60 },
+  75:  { traps: 90, 'mid-traps': 38, rhomboids: 30, forearms: 65 },
+  90:  { traps: 98, 'mid-traps': 42, rhomboids: 33, forearms: 68 },
+  100: { traps: 100, 'mid-traps': 45, rhomboids: 35, forearms: 70 },
+};
+// Bar-path modifier (add to Table A's values): pulling the bar back and up
+// instead of straight up shifts emphasis from the pure elevators (traps,
+// levator scapulae) toward the retractors (mid-traps, rhomboids). Reference
+// data only -- directional estimates per the source, not measured deltas --
+// but kept here since a future behind-the-back-style shrug variant would be
+// a real, legitimate use of it, unlike the elbow/rotator-cuff modifiers
+// above which had no live per-exercise input to apply against.
+const SHRUG_BAR_PATH_MODIFIER = {
+  vertical:  { traps: 0,   'mid-traps': 0,   rhomboids: 0 },
+  retraction: { traps: -5,  'mid-traps': 15,  rhomboids: 12 },
+  behindBack: { traps: -10, 'mid-traps': 25,  rhomboids: 20 },
+};
+
 function tableForAngle(table, angle) {
   return table[angle] || null;
 }
@@ -295,5 +330,6 @@ module.exports = {
   WRIST_ANGLES, WRIST_CURL_EMG, WRIST_EXTENSION_EMG,
   NECK_ANGLES, NECK_EMG,
   ROTATOR_CUFF_ANGLES, ROTATOR_CUFF_EMG, ROTATOR_CUFF_ELEVATION_MODIFIER,
+  SHRUG_ELEVATION_LEVELS, SHRUG_ELEVATION_EMG, SHRUG_BAR_PATH_MODIFIER,
   tableForAngle,
 };

@@ -23,7 +23,7 @@ test('every muscle referenced in a curated profile is a real taxonomy muscle', (
 
 test('emgProfileForExercise is case-insensitive and returns null for anything uncurated', () => {
   assert.deepEqual(emgProfileForExercise('Back Squat'), emgProfileForExercise('back squat'));
-  assert.equal(emgProfileForExercise('Barbell Shrug'), null, 'shrugs remain uncurated -- no scapular-elevation axis exists at all');
+  assert.equal(emgProfileForExercise('Tibialis Raise (Wall Sit)'), null, 'no dorsiflexion axis exists in the source literature at all');
   assert.equal(emgProfileForExercise(''), null);
 });
 
@@ -70,10 +70,18 @@ test('exercises already covered by the athlete\'s own exerciseAngles.js mapping 
   assert.equal(emgProfileForExercise('Chest-Supported Barbell Row'), null);
 });
 
-test('shrug and remaining tibialis exercises remain uncurated -- no literature axis exists at all for these mechanisms', () => {
-  for (const name of ['Barbell Shrug', 'Dumbbell Shrug', 'Cable Shrug', 'Tibialis Raise (Wall Sit)']) {
-    assert.equal(emgProfileForExercise(name), null, `${name} should remain uncurated`);
-  }
+test('Tibialis Raise (Wall Sit) remains uncurated -- no dorsiflexion literature axis exists at all', () => {
+  assert.equal(emgProfileForExercise('Tibialis Raise (Wall Sit)'), null);
+});
+
+test('phase 6: shrugs are curated from movementEmg.js\'s real scapular-elevation table (section 21), and all three read numerically identical since none of exerciseDb.js\'s variants differ in bar path', () => {
+  const barbell = emgProfileForExercise('Barbell Shrug');
+  const dumbbell = emgProfileForExercise('Dumbbell Shrug');
+  const cable = emgProfileForExercise('Cable Shrug');
+  assert.ok(barbell.traps > barbell['mid-traps'], 'a vertical shrug should be traps-dominant, not retraction-dominant');
+  assert.ok(!('levator-scapulae' in barbell), 'levator scapulae has no taxonomy home and must not be invented as a new key');
+  assert.deepEqual(barbell, dumbbell);
+  assert.deepEqual(barbell, cable);
 });
 
 test('loaded carries and Tibialis Raise (ATG Sled Push) were removed entirely, not just left uncurated', () => {

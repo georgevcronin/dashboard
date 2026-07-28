@@ -412,19 +412,38 @@ const EXERCISE_EMG_PROFILES = {
   'lying leg raise': { abs: 66, obliques: 63.5, 'transverse-abs': 73, erectors: 27, lats: 44, 'hip-flexors': 66.67, quads: 65, adductors: 45 },
   'incline bench leg raise': { abs: 76, obliques: 72.5, 'transverse-abs': 82, erectors: 34, lats: 53, 'hip-flexors': 66.67, quads: 65, adductors: 45 },
   'hanging leg raise': { abs: 87, obliques: 82.5, 'transverse-abs': 91, erectors: 41, lats: 62, 'hip-flexors': 69.33, quads: 66, adductors: 44 },
+
+  // Phase 6: shrugs. movementEmg.js's SHRUG_ELEVATION_EMG (section 21) covers
+  // this properly -- a real scapular-elevation axis, distinct from every row/
+  // pulldown table's glenohumeral pull-direction axis, which is exactly the
+  // gap that left these three uncurated through phase 5. Uses the elevation
+  // table's 100% (top-of-rep) row: the specific position exerciseDb.js's own
+  // form cues call out ("Hold at top for 1 second" / "full elevation at top"),
+  // so it's the position that best represents what the rep is actually for.
+  // All three use the vertical/straight-up bar-path modifier (0) -- none of
+  // exerciseDb.js's three shrug variants is a behind-the-back or retraction-
+  // arc version, so they come out numerically identical, which is itself the
+  // honest finding here (a real difference would require the app to actually
+  // carry a distinct behind-the-back/retraction-arc exercise, which it
+  // doesn't yet). Levator scapulae, the movement's real #2 mover per the
+  // source, has no taxonomy home and is dropped rather than merged into
+  // `traps` -- see movementEmg.js's own comment on this table for why.
+  'barbell shrug': { traps: 100, 'mid-traps': 45, rhomboids: 35, forearms: 70 },
+  'dumbbell shrug': { traps: 100, 'mid-traps': 45, rhomboids: 35, forearms: 70 },
+  'cable shrug': { traps: 100, 'mid-traps': 45, rhomboids: 35, forearms: 70 },
 };
 
-// Genuinely left uncurated, even after the "curate the rest" pass above --
-// not an imperfect-fit judgment call like everything else in this file, but
-// a real absence: movementEmg.js has no scapular-elevation axis for shrugs.
-// Assigning one would mean inventing a number, not deriving one from the
-// source literature -- the one line this file has not crossed. They keep
-// flat musclesForExercise() credit: Barbell Shrug, Dumbbell Shrug, Cable
-// Shrug. (The loaded carries and Tibialis Raise (ATG Sled Push), which had
-// the same problem, were removed from exerciseDb.js entirely rather than
-// left on flat credit -- see that file's history. Tibialis Raise (Wall Sit)
-// remains, still flat, since a genuine dorsiflexion isolation hold has some
-// standalone value even without a weighting axis.)
+// Genuinely left uncurated, even after phases 5 and 6 above -- not an
+// imperfect-fit judgment call like everything else in this file, but a real
+// absence: no dorsiflexion/tibialis-anterior EMG table exists anywhere in
+// the source literature (the calf-raise table's "tibialis posterior" column
+// is a different muscle, a plantarflexion synergist, not the dorsiflexor
+// Tibialis Raise actually trains). Assigning one would mean inventing a
+// number, not deriving one from the source -- the one line this file has
+// not crossed. Tibialis Raise (Wall Sit) keeps flat musclesForExercise()
+// credit. (The loaded carries and Tibialis Raise (ATG Sled Push), which had
+// the same problem, were removed from exerciseDb.js entirely instead --
+// see that file's history.)
 
 function emgProfileForExercise(name) {
   return EXERCISE_EMG_PROFILES[(name || '').toLowerCase().trim()] || null;

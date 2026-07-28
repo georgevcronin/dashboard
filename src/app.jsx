@@ -820,6 +820,13 @@ const glycogenPct = (elapsedS, totalS) => {
 // app's first version — everything before this had no changelog at all.
 const CHANGELOG = [
   {
+    version: '0.52',
+    date: '2026-07-28',
+    features: [
+      'Shrugs now have curated weighted EMG fatigue profiles — a dedicated scapular-elevation dataset covering upper traps, mid-traps, rhomboids, and forearm/grip demand across the full range of motion. 207 of 211 exercises now curated; Tibialis Raise (Wall Sit) is the only one left on flat credit, since no dorsiflexion EMG literature exists to curate it from.',
+    ],
+  },
+  {
     version: '0.51',
     date: '2026-07-28',
     features: [
