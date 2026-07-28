@@ -822,6 +822,13 @@ const glycogenPct = (elapsedS, totalS) => {
 // app's first version — everything before this had no changelog at all.
 const CHANGELOG = [
   {
+    version: '0.55',
+    date: '2026-07-28',
+    features: [
+      'Added a Compare feature to profiles you mutually follow (both accounts need the comparison visibility toggle on, in Settings): a per-muscle strength-score comparison and a training-stimulus comparison over a 7/14/30-day window, each shown as two side-by-side body diagrams plus a table.',
+    ],
+  },
+  {
     version: '0.54',
     date: '2026-07-28',
     features: [
@@ -5814,6 +5821,131 @@ function PanelOrderEditor({ order, hidden, labels, onChange }) {
   );
 }
 
+// Single anterior-view body diagram, colored per-muscle by a caller-supplied
+// filter function — factored out of S5's fatigue/ranking triptychs (same
+// fetch-and-inject-innerHTML pattern) but deliberately anterior-only rather
+// than a full triptych, since the comparison screen needs two of these
+// (self + other) side by side and a full 3-view-times-2-people layout would
+// be too much on a phone screen. The per-muscle table below covers every
+// muscle regardless, including the ones with no body-map region at all.
+function MiniBodyDiagram({ filterForMuscle }) {
+  const ref = useRef();
+  const [ready, setReady] = useState(false);
+  useEffect(() => {
+    fetch(`${BODY_BASE}/body-anterior.svg`).then(r => r.text()).then(svg => {
+      if (ref.current) ref.current.innerHTML = svg;
+      setReady(true);
+    }).catch(() => {});
+  }, []);
+  useEffect(() => {
+    if (!ready || !ref.current) return;
+    ALL_MUSCLES.forEach(m => {
+      const f = filterForMuscle(m);
+      ref.current.querySelectorAll(`[data-muscle="${m}"]`).forEach(el => el.setAttribute('filter', f));
+    });
+  }, [ready, filterForMuscle]);
+  return <div className="body-view" ref={ref} />;
+}
+
+// Strength/Stimulus comparison against a mutually-followed, mutually-opted
+// -in account — see USERNAME_AND_COMPARISON.md §6. Fetched fresh from
+// GET /compare/:username on open and whenever the metric/window changes;
+// no client caching, matching the backend's own no-caching design.
+function ComparisonScreen({ username, otherDisplayNameFirstHint, onClose }) {
+  const [metric, setMetric] = useState('strength');
+  const [windowDays, setWindowDays] = useState(14);
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    setLoading(true);
+    setError('');
+    api(`compare/${encodeURIComponent(username)}?metric=${metric}${metric === 'stimulus' ? `&window=${windowDays}` : ''}`)
+      .then(r => { if (r.error) setError(r.error); else setData(r); })
+      .catch(() => setError('Connection error — try again.'))
+      .finally(() => setLoading(false));
+  }, [username, metric, windowDays]);
+
+  const selfLevel = m => metric === 'strength' ? (data?.self?.[m]?.score ?? null) : (data?.self?.[m] ?? null);
+  const otherLevel = m => metric === 'strength' ? (data?.other?.[m]?.score ?? null) : (data?.other?.[m] ?? null);
+  // Stimulus has no fixed 0-100 ceiling like a strength score does — scale
+  // its coloring off whichever of the two people's own values is highest
+  // this render, so the diagram stays meaningful regardless of window size.
+  const stimulusMax = metric === 'stimulus'
+    ? Math.max(0.01, ...Object.values(data?.self || {}), ...Object.values(data?.other || {}))
+    : null;
+  const filterFor = getLevel => m => {
+    const v = getLevel(m);
+    if (v == null) return 'url(#fm-dim)';
+    const score = metric === 'strength' ? v : (v / stimulusMax) * 100;
+    return diagramFilterForScore(score);
+  };
+
+  const allMuscles = Array.from(new Set([...Object.keys(data?.self || {}), ...Object.keys(data?.other || {})])).sort();
+  const otherName = data?.otherDisplayNameFirst || otherDisplayNameFirstHint || 'Them';
+
+  return (
+    <div className="onboard-overlay" style={{ zIndex: 10001 }}>
+      <div className="ob-wrap">
+        <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--dim)', fontFamily: "'JetBrains Mono',monospace", fontSize: 9, letterSpacing: '.12em', textTransform: 'uppercase', padding: 0, marginBottom: 20 }}>← Back</button>
+        <div className="ob-h">Compare with {otherName}</div>
+
+        <div style={{ display: 'flex', gap: 6, margin: '14px 0' }}>
+          {['strength', 'stimulus'].map(mm => (
+            <button key={mm} className={`ob-unit-btn${metric === mm ? ' active' : ''}`} onClick={() => setMetric(mm)} style={{ textTransform: 'capitalize' }}>{mm}</button>
+          ))}
+        </div>
+        {metric === 'stimulus' && (
+          <div style={{ display: 'flex', gap: 6, marginBottom: 14 }}>
+            {[7, 14, 30].map(d => (
+              <button key={d} className={`ob-unit-btn${windowDays === d ? ' active' : ''}`} onClick={() => setWindowDays(d)}>{d}d</button>
+            ))}
+          </div>
+        )}
+
+        {loading && <div style={{ fontSize: 12, color: 'var(--dim)' }}>Loading…</div>}
+        {error && <div style={{ fontSize: 12, color: 'var(--red)' }}>{error}</div>}
+
+        {!loading && !error && data && (
+          <>
+            <div style={{ display: 'flex', gap: 16, justifyContent: 'center', margin: '10px 0 18px' }}>
+              <div style={{ textAlign: 'center' }}>
+                <div style={{ fontSize: 9, fontFamily: "'JetBrains Mono',monospace", letterSpacing: '.12em', textTransform: 'uppercase', color: 'var(--dim)', marginBottom: 4 }}>You</div>
+                <MiniBodyDiagram filterForMuscle={filterFor(selfLevel)} />
+              </div>
+              <div style={{ textAlign: 'center' }}>
+                <div style={{ fontSize: 9, fontFamily: "'JetBrains Mono',monospace", letterSpacing: '.12em', textTransform: 'uppercase', color: 'var(--dim)', marginBottom: 4 }}>{otherName}</div>
+                <MiniBodyDiagram filterForMuscle={filterFor(otherLevel)} />
+              </div>
+            </div>
+
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
+              <thead>
+                <tr style={{ borderBottom: '1px solid var(--rule)' }}>
+                  <th style={{ textAlign: 'left', padding: '4px 0', color: 'var(--dim)', fontFamily: "'JetBrains Mono',monospace", fontSize: 9, textTransform: 'uppercase' }}>Muscle</th>
+                  <th style={{ textAlign: 'right', padding: '4px 0', color: 'var(--dim)', fontFamily: "'JetBrains Mono',monospace", fontSize: 9, textTransform: 'uppercase' }}>You</th>
+                  <th style={{ textAlign: 'right', padding: '4px 0', color: 'var(--dim)', fontFamily: "'JetBrains Mono',monospace", fontSize: 9, textTransform: 'uppercase' }}>{otherName}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {allMuscles.map(m => (
+                  <tr key={m} style={{ borderBottom: '1px solid var(--paper2)' }}>
+                    <td style={{ padding: '5px 0', textTransform: 'capitalize' }}>{m}</td>
+                    <td style={{ padding: '5px 0', textAlign: 'right' }}>{selfLevel(m) != null ? Math.round(selfLevel(m) * 10) / 10 : '—'}</td>
+                    <td style={{ padding: '5px 0', textAlign: 'right' }}>{otherLevel(m) != null ? Math.round(otherLevel(m) * 10) / 10 : '—'}</td>
+                  </tr>
+                ))}
+                {!allMuscles.length && <tr><td colSpan={3} style={{ padding: '10px 0', color: 'var(--dim)', textAlign: 'center' }}>No data for either of you yet.</td></tr>}
+              </tbody>
+            </table>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenWiki, setBriefing, onRestartSetup, followBadge, reloadFollowBadge }) {
   const [nameVal, setNameVal] = useState(s?.profile?.name || '');
   const [nameSaving, setNameSaving] = useState(false);
@@ -6076,6 +6208,7 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
   const [searchResults, setSearchResults] = useState([]);
   const [searching, setSearching] = useState(false);
   const [viewingUsername, setViewingUsername] = useState(null);
+  const [comparingUsername, setComparingUsername] = useState(null);
   const [viewedProfile, setViewedProfile] = useState(null);
   const [profileLoading, setProfileLoading] = useState(false);
   const [followingPending, setFollowingPending] = useState({}); // username -> true, while a request is in flight/sent this session
@@ -6852,6 +6985,12 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
                 {viewedProfile.isFollowing && !viewedProfile.workouts && (
                   <div style={{ fontSize: 11, color: 'var(--dim)', marginTop: 12 }}>Workout sessions aren't visible for this account.</div>
                 )}
+                {viewedProfile.canCompare && (
+                  <button className="prof-btn" style={{ marginTop: 12, marginLeft: viewedProfile.isFollowing && !viewedProfile.workouts ? 0 : 8 }}
+                    onClick={() => setComparingUsername(viewedProfile.username)}>
+                    Compare
+                  </button>
+                )}
                 {viewedProfile.workouts && (
                   <div style={{ marginTop: 16 }}>
                     <div className="settings-sh">Recent Workouts</div>
@@ -6866,6 +7005,10 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
             )}
           </div>
         </div>
+      )}
+      {comparingUsername && (
+        <ComparisonScreen username={comparingUsername} otherDisplayNameFirstHint={viewedProfile?.displayNameFirst}
+          onClose={() => setComparingUsername(null)} />
       )}
     </div>
   );

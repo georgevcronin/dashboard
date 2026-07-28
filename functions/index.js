@@ -19,6 +19,7 @@ const {
   normalizeUsername, validateUsername, validateDisplayName, deriveDisplayNameFirst,
   generateUsernameSuggestion, canChangeUsername, usernameChangeAvailableAt,
 } = require('./identity');
+const { computeStimulusContributions } = require('./adaptation');
 
 admin.initializeApp();
 const firestore = admin.firestore();
@@ -1227,8 +1228,83 @@ app.get('/account/:username', async (req, res) => {
 
   const targetDoc = await userDocRef(targetUid).get();
   const targetData = targetDoc.data() || {};
-  if (!isWorkoutSessionsVisible(targetData.profile)) return res.json(base);
-  res.json({ ...base, workouts: targetData.workouts || [] });
+  // canCompare surfaces a "Compare" affordance on the profile view only
+  // when it would actually work — mutual follow both ways, both accounts'
+  // comparison toggle on. Checked here (read-only) rather than making the
+  // frontend guess and hit a 403 from /compare.
+  const themToMe = await firestore.collection('followRequests').doc(followRequestId(targetUid, req.uid)).get();
+  const mutualFollow = themToMe.exists && themToMe.data().status === 'accepted';
+  const canCompare = mutualFollow && isComparisonVisible(db.profile) && isComparisonVisible(targetData.profile);
+
+  const workoutsVisible = isWorkoutSessionsVisible(targetData.profile);
+  res.json({ ...base, canCompare, ...(workoutsVisible ? { workouts: targetData.workouts || [] } : {}) });
+});
+
+// ---------- Muscle comparison ----------
+// Mutual-follow + mutual-comparison-toggle gated (see
+// USERNAME_AND_COMPARISON.md §6). Both metrics are computed fresh on every
+// call, read-only, off both accounts' own data — no caching, matches the
+// "read-only, no save() involved" reasoning already used for the profile
+// view and group-workout features. Cross-user reads here (the target's
+// lift history, weight history, sex) never touch the request-scoped
+// `db`/`save` globals.
+function stimulusInWindow(lifts, windowDays) {
+  const cutoff = Date.now() - windowDays * 24 * 3600 * 1000;
+  const windowedLifts = (lifts || []).filter(l => l.date && new Date(l.date).getTime() >= cutoff);
+  const contributions = computeStimulusContributions(windowedLifts);
+  const result = {};
+  for (const [muscle, entries] of Object.entries(contributions)) {
+    result[muscle] = Math.round(entries.reduce((sum, e) => sum + e.contrib, 0) * 100) / 100;
+  }
+  return result;
+}
+
+function strengthLevelsFor(lifts, weightHistory, sex) {
+  const peaks = musclePeaksFromLifts(lifts);
+  const currentBodyweight = Object.values(weightHistory || {}).at(-1);
+  return computeMuscleLevels(lifts, weightHistory || {}, currentBodyweight, sex, fatigueTimeline(lifts, peaks));
+}
+
+app.get('/compare/:username', async (req, res) => {
+  const username = normalizeUsername(req.params.username);
+  const metric = req.query.metric === 'stimulus' ? 'stimulus' : 'strength';
+  const windowDays = [7, 14, 30].includes(+req.query.window) ? +req.query.window : 14;
+
+  const targetSnap = await firestore.collection('usernames').doc(username).get();
+  if (!targetSnap.exists) return res.status(404).json({ error: 'No account with that username' });
+  const targetUid = targetSnap.data().uid;
+  if (targetUid === req.uid) return res.status(400).json({ error: "Can't compare with yourself" });
+
+  const [meToThem, themToMe] = await Promise.all([
+    firestore.collection('followRequests').doc(followRequestId(req.uid, targetUid)).get(),
+    firestore.collection('followRequests').doc(followRequestId(targetUid, req.uid)).get(),
+  ]);
+  const mutualFollow = meToThem.exists && meToThem.data().status === 'accepted'
+    && themToMe.exists && themToMe.data().status === 'accepted';
+  if (!mutualFollow) return res.status(403).json({ error: 'Comparison requires you to follow each other' });
+
+  const targetDocSnap = await userDocRef(targetUid).get();
+  const targetData = targetDocSnap.data() || {};
+  if (!isComparisonVisible(db.profile) || !isComparisonVisible(targetData.profile)) {
+    return res.status(403).json({ error: 'Comparison requires both accounts to opt in, in Settings → Visibility' });
+  }
+
+  const targetLifts = await loadAllLifts(userDocRef(targetUid));
+  const otherDisplayNameFirst = deriveDisplayNameFirst(targetData.profile?.displayName);
+
+  if (metric === 'stimulus') {
+    return res.json({
+      metric, window: windowDays, otherDisplayNameFirst,
+      self: stimulusInWindow(db.lifts, windowDays),
+      other: stimulusInWindow(targetLifts, windowDays),
+    });
+  }
+
+  res.json({
+    metric, otherDisplayNameFirst,
+    self: strengthLevelsFor(db.lifts, db.weight, db.profile?.sex),
+    other: strengthLevelsFor(targetLifts, targetData.weight, targetData.profile?.sex),
+  });
 });
 
 // Per-user token for open webhook routes (/shortcut, /health) — lets each
