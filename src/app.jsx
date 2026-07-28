@@ -825,7 +825,7 @@ const CHANGELOG = [
     version: '0.57',
     date: '2026-07-29',
     features: [
-      'Group Session no longer opens as a separate page — it\'s now a small tab strip right in the normal workout logger. "You" is just your regular logging screen, unchanged; tapping someone else\'s name (or the new Refresh link) pulls the latest and shows their sets inline, still editable. Also fixed: exercises with a weight/reps typed in (not yet checked off) now actually reach the shared session — previously only checked-off sets did.',
+      'Group Session no longer opens as a separate page — it\'s now a small tab strip right in the normal workout logger. "You" is just your regular logging screen, unchanged; tapping someone else\'s name (or the new Refresh link) pulls the latest and shows their sets inline, still editable, using the exact same exercise search/browser as solo logging when adding something for the whole group. Also fixed: exercises with a weight/reps typed in (not yet checked off) now actually reach the shared session — previously only checked-off sets did.',
     ],
   },
   {
@@ -1822,7 +1822,6 @@ function WorkoutLogger({ planDay, lifts, customExercises, experienceLevel, onClo
   const [groupData, setGroupData] = useState(null); // { code, participants, entries }
   const [activeGroupTab, setActiveGroupTab] = useState(null); // null = "me"
   const [groupBusy, setGroupBusy] = useState(false);
-  const [newGroupExercise, setNewGroupExercise] = useState('');
   const [finishingGroup, setFinishingGroup] = useState(false);
   const inputRef = useRef();
 
@@ -2089,6 +2088,45 @@ function WorkoutLogger({ planDay, lifts, customExercises, experienceLevel, onClo
 
   const myUid = auth.currentUser?.uid;
 
+  // The exact exercise-add UI (search+suggestions, guided browser, angle
+  // builder) — factored out so the group session's "add to everyone" flow
+  // (below) uses this literally, not a separate simplified version. Shares
+  // the same newEx/suggestions state as the solo body since only one of
+  // the two contexts is ever visible at once.
+  const renderExerciseAdd = (onAddFn) => (
+    <>
+      <div style={{ position: 'relative', marginTop: 8, paddingBottom: 40 }}>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <input ref={inputRef} className="ex-input" value={newEx}
+            onChange={e => onSearchChange(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') onAddFn(newEx); if (e.key === 'Escape') { setSuggestions([]); setNewEx(''); } }}
+            placeholder="Search or add exercise…" autoComplete="off" />
+          {newEx.trim() && <button className="ol-btn ol-btn-solid" onClick={() => onAddFn(newEx)}>Add</button>}
+        </div>
+        {suggestions.length > 0 && (
+          <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: 'var(--paper)', border: '1px solid var(--ink)', zIndex: 50, maxHeight: 220, overflowY: 'auto' }}>
+            {suggestions.map(ex => (
+              <div key={ex} onClick={() => onAddFn(ex)}
+                style={{ padding: '9px 12px', fontFamily: "'JetBrains Mono',monospace", fontSize: 11, textTransform: 'capitalize', cursor: 'pointer', borderBottom: '1px solid var(--paper2)', color: 'var(--ink)' }}
+                onMouseEnter={e => e.currentTarget.style.background = 'var(--paper2)'}
+                onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>{ex}</div>
+            ))}
+            {!allExercises.includes(newEx.toLowerCase().trim()) && newEx.trim() && (
+              <div onClick={() => onAddFn(newEx)}
+                style={{ padding: '9px 12px', fontFamily: "'JetBrains Mono',monospace", fontSize: 11, cursor: 'pointer', color: 'var(--gold)', borderTop: '1px solid var(--rule)' }}
+                onMouseEnter={e => e.currentTarget.style.background = 'var(--paper2)'}
+                onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                + Use "{newEx.trim()}"
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+      <ExerciseBrowser onAdd={onAddFn} />
+      <PressRowBuilder onAdd={onAddFn} lifts={lifts} />
+    </>
+  );
+
   const persistGroupSessionId = (id) => {
     setGroupSessionId(id);
     try { if (id) localStorage.setItem(GROUP_SESSION_KEY, id); else localStorage.removeItem(GROUP_SESSION_KEY); } catch {}
@@ -2148,20 +2186,21 @@ function WorkoutLogger({ planDay, lifts, customExercises, experienceLevel, onClo
     return () => clearInterval(t);
   }, [groupSessionId]);
 
-  const addGroupExerciseToEveryone = async () => {
-    const name = newGroupExercise.trim();
-    if (!name || !groupData) return;
+  // Adding an exercise "to everyone" (GROUP_WORKOUT.md §3) uses the exact
+  // same add-exercise path as solo logging for my own copy — addExercise()
+  // below, unchanged — rather than a separate simplified version, so it
+  // gets the same prior-session set prefill, custom-exercise taxonomy
+  // handling, etc. Only the placeholder pushed to everyone else's tab is
+  // group-specific (name only, no numbers — see §3 "empty exercise slot").
+  const addExerciseToEveryone = async (name, custom) => {
+    if (!name.trim() || !groupData) return;
+    const key = name.toLowerCase().trim();
+    addExercise(name, custom);
     setGroupBusy(true);
     const others = groupData.participants.filter(p => p.status === 'active' && p.uid !== myUid);
     for (const p of others) {
-      await api(`session/${groupSessionId}/entries`, { method: 'POST', body: JSON.stringify({ uid: p.uid, exercise: name }) }).catch(() => {});
+      await api(`session/${groupSessionId}/entries`, { method: 'POST', body: JSON.stringify({ uid: p.uid, exercise: key }) }).catch(() => {});
     }
-    // My own copy just joins local state normally, same as typing a new
-    // exercise into the regular add-exercise flow — it'll sync out shortly.
-    if (!exercises.some(ex => ex.name === name)) {
-      setExercises(prev => [...prev, { name, bw: false, targetReps: 8, sets: [{ type: 'N', kg: '', reps: '', rpe: '', done: false }] }]);
-    }
-    setNewGroupExercise('');
     setGroupBusy(false);
     loadGroup();
   };
@@ -2673,36 +2712,7 @@ function WorkoutLogger({ planDay, lifts, customExercises, experienceLevel, onClo
           })}
 
           {/* Exercise search */}
-          <div style={{ position: 'relative', marginTop: 8, paddingBottom: 40 }}>
-            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-              <input ref={inputRef} className="ex-input" value={newEx}
-                onChange={e => onSearchChange(e.target.value)}
-                onKeyDown={e => { if (e.key === 'Enter') addExercise(newEx); if (e.key === 'Escape') { setSuggestions([]); setNewEx(''); } }}
-                placeholder="Search or add exercise…" autoComplete="off" />
-              {newEx.trim() && <button className="ol-btn ol-btn-solid" onClick={() => addExercise(newEx)}>Add</button>}
-            </div>
-            {suggestions.length > 0 && (
-              <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: 'var(--paper)', border: '1px solid var(--ink)', zIndex: 50, maxHeight: 220, overflowY: 'auto' }}>
-                {suggestions.map(ex => (
-                  <div key={ex} onClick={() => addExercise(ex)}
-                    style={{ padding: '9px 12px', fontFamily: "'JetBrains Mono',monospace", fontSize: 11, textTransform: 'capitalize', cursor: 'pointer', borderBottom: '1px solid var(--paper2)', color: 'var(--ink)' }}
-                    onMouseEnter={e => e.currentTarget.style.background = 'var(--paper2)'}
-                    onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>{ex}</div>
-                ))}
-                {!allExercises.includes(newEx.toLowerCase().trim()) && newEx.trim() && (
-                  <div onClick={() => addExercise(newEx)}
-                    style={{ padding: '9px 12px', fontFamily: "'JetBrains Mono',monospace", fontSize: 11, cursor: 'pointer', color: 'var(--gold)', borderTop: '1px solid var(--rule)' }}
-                    onMouseEnter={e => e.currentTarget.style.background = 'var(--paper2)'}
-                    onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
-                    + Use "{newEx.trim()}"
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-
-          <ExerciseBrowser onAdd={addExercise} />
-          <PressRowBuilder onAdd={addExercise} lifts={lifts} />
+          {renderExerciseAdd(addExercise)}
           <PlateCalculator />
         </div>
       )}
@@ -2749,14 +2759,8 @@ function WorkoutLogger({ planDay, lifts, customExercises, experienceLevel, onClo
               </div>
             ))}
 
-            <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 10 }}>
-              <input value={newGroupExercise} onChange={e => setNewGroupExercise(e.target.value)} placeholder="Add exercise for everyone"
-                style={{ flex: 1, border: 'none', borderBottom: '1px solid var(--rule)', background: 'transparent', fontFamily: 'Times New Roman,serif', fontSize: 14, color: 'var(--ink)', padding: '4px 0' }} />
-              <button onClick={addGroupExerciseToEveryone} disabled={groupBusy || !newGroupExercise.trim()}
-                style={{ background: 'none', border: 'none', fontFamily: "'JetBrains Mono',monospace", fontSize: 8, letterSpacing: '.1em', textTransform: 'uppercase', color: 'var(--dim)', cursor: 'pointer', padding: 0 }}>
-                Add
-              </button>
-            </div>
+            <div className="kicker" style={{ margin: '14px 0 6px' }}>Add for everyone</div>
+            {renderExerciseAdd(addExerciseToEveryone)}
           </div>
         );
       })()}
