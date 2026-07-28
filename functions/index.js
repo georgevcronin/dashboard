@@ -1127,9 +1127,15 @@ app.post('/account/username', async (req, res) => {
 app.get('/account/search', async (req, res) => {
   const prefix = normalizeUsername((req.query.prefix || '').toString());
   if (!prefix) return res.json({ results: [] });
+  // '__name__' is Firestore's reserved field name for document ID —
+  // querying it directly avoids depending on admin.firestore.FieldPath
+  // (which threw `Cannot read properties of undefined (reading
+  // 'documentId')` under the Functions emulator during testing, though not
+  // in a bare Node repro — root cause not fully pinned down, but this form
+  // sidesteps it entirely and is the more common idiom anyway).
   const snap = await firestore.collection('usernames')
-    .where(admin.firestore.FieldPath.documentId(), '>=', prefix)
-    .where(admin.firestore.FieldPath.documentId(), '<', prefix + '')
+    .where('__name__', '>=', prefix)
+    .where('__name__', '<', prefix + '')
     .limit(20)
     .get();
   const results = snap.docs
@@ -1913,9 +1919,17 @@ const sessionParticipantSelf = () => ({
   status: 'active',
 });
 
+// participantUids is a flat array mirrored alongside `participants` purely
+// for firestore.rules, which has no lambda/map() support — confirmed by an
+// actual rules-compile failure against the Firestore emulator, not a style
+// preference. Every write to `participants` must go through this so the two
+// never drift apart.
+const participantUidsOf = participants => participants.map(p => p.uid);
+
 async function touchActivity(sessionRef, sessionData, uid) {
   const now = new Date().toISOString();
-  await sessionRef.update({ participants: sessionData.participants.map(p => p.uid === uid ? { ...p, lastActivityAt: now } : p) });
+  const participants = sessionData.participants.map(p => p.uid === uid ? { ...p, lastActivityAt: now } : p);
+  await sessionRef.update({ participants, participantUids: participantUidsOf(participants) });
 }
 
 // Once every participant who was ever in the session has individually left
@@ -1966,7 +1980,7 @@ async function sweepStaleParticipants(sessionRef, sessionData) {
     }
     participants = participants.map(x => x.uid === p.uid ? { ...x, status: 'finished', lastActivityAt: new Date().toISOString() } : x);
   }
-  await sessionRef.update({ participants });
+  await sessionRef.update({ participants, participantUids: participantUidsOf(participants) });
   await deleteSessionIfDone(sessionRef, participants);
   return participants;
 }
@@ -1976,7 +1990,7 @@ app.post('/session', async (req, res) => {
   const now = new Date().toISOString();
   const participant = { ...sessionParticipantSelf(), uid: req.uid, joinedAt: now, lastActivityAt: now };
   const ref = firestore.collection('liveSessions').doc();
-  await ref.set({ code, createdBy: req.uid, createdAt: now, participants: [participant] });
+  await ref.set({ code, createdBy: req.uid, createdAt: now, participants: [participant], participantUids: [req.uid] });
   res.json({ sessionId: ref.id, code });
 });
 
@@ -1995,7 +2009,8 @@ app.post('/session/join', async (req, res) => {
   if (data.participants.filter(p => p.status === 'active').length >= 4) return res.status(409).json({ error: 'Session full' });
   const now = new Date().toISOString();
   const participant = { ...sessionParticipantSelf(), uid: req.uid, joinedAt: now, lastActivityAt: now };
-  await ref.update({ participants: [...data.participants, participant] });
+  const participants = [...data.participants, participant];
+  await ref.update({ participants, participantUids: participantUidsOf(participants) });
   res.json({ sessionId: ref.id });
 });
 
@@ -2137,7 +2152,7 @@ app.post('/session/:id/finish', async (req, res) => {
 
     const now = new Date().toISOString();
     const updatedParticipants = data.participants.map(p => p.uid === req.uid ? { ...p, status: 'finished', lastActivityAt: now } : p);
-    await ref.update({ participants: updatedParticipants });
+    await ref.update({ participants: updatedParticipants, participantUids: participantUidsOf(updatedParticipants) });
     await deleteSessionIfDone(ref, updatedParticipants);
     res.json({ ok: true, setsLogged: sets.length });
   } catch (e) { res.status(500).json({ error: e.message }); }
@@ -2155,7 +2170,7 @@ app.post('/session/:id/leave', async (req, res) => {
   if (!data.participants.find(p => p.uid === req.uid)) return res.status(403).json({ error: 'Not a participant of this session' });
   const now = new Date().toISOString();
   const updatedParticipants = data.participants.map(p => p.uid === req.uid ? { ...p, status: 'left', lastActivityAt: now } : p);
-  await ref.update({ participants: updatedParticipants });
+  await ref.update({ participants: updatedParticipants, participantUids: participantUidsOf(updatedParticipants) });
   await deleteSessionIfDone(ref, updatedParticipants);
   res.json({ ok: true });
 });

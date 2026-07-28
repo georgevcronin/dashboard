@@ -33,15 +33,22 @@ service cloud.firestore {
     // endpoints, which use the Admin SDK and bypass these rules). Written
     // for correctness in case direct client Firestore access is ever added.
     match /liveSessions/{sessionId} {
+      // participantUids is a flat array kept in sync with the richer
+      // `participants` array (functions/index.js) purely so rules can do a
+      // plain `in` check — Firestore's rules language has no lambda/map()
+      // support (confirmed by an actual compile failure against the
+      // Firestore emulator during testing, not just the doc's original
+      // "needs verifying" caveat), so `participants.map(p => p.uid)` is
+      // invalid syntax, not just a style choice.
       allow create: if request.auth != null && request.resource.data.createdBy == request.auth.uid;
-      allow read: if request.auth != null && request.auth.uid in resource.data.participants.map(p => p.uid);
+      allow read: if request.auth != null && request.auth.uid in resource.data.participantUids;
       // Participant-list mutations (join/leave/finish/activity) are meant to
       // go through the Cloud Function endpoints, which enforce the
       // 4-participant cap and that a status change only ever touches the
       // caller's own entry — a direct client write only needs to remain a
       // participant to write here at all, same trust boundary as the rest
       // of this flat-mutual-trust feature.
-      allow update: if request.auth != null && request.auth.uid in resource.data.participants.map(p => p.uid);
+      allow update: if request.auth != null && request.auth.uid in resource.data.participantUids;
 
       match /entries/{entryId} {
         // Full mutual read/write while both the editor and the entry's
@@ -50,9 +57,9 @@ service cloud.firestore {
         // flat trust model), but never open to someone who isn't a current
         // participant at all.
         allow read: if request.auth != null
-          && request.auth.uid in get(/databases/$(database)/documents/liveSessions/$(sessionId)).data.participants.map(p => p.uid);
+          && request.auth.uid in get(/databases/$(database)/documents/liveSessions/$(sessionId)).data.participantUids;
         allow create, update, delete: if request.auth != null
-          && request.auth.uid in get(/databases/$(database)/documents/liveSessions/$(sessionId)).data.participants.map(p => p.uid);
+          && request.auth.uid in get(/databases/$(database)/documents/liveSessions/$(sessionId)).data.participantUids;
       }
     }
   }
