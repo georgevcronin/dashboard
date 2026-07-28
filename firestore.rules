@@ -24,5 +24,36 @@ service cloud.firestore {
         && request.resource.data.uid == request.auth.uid;
       allow delete: if request.auth != null && resource.data.uid == request.auth.uid;
     }
+
+    // liveSessions/{sessionId} — see
+    // .design/feature-brainstorm/GROUP_WORKOUT.md §7. Same caveat as
+    // usernames/ above: not currently load-bearing (all real enforcement —
+    // the 4-participant cap, the mutual-edit/locked-on-exit rules, the
+    // inactivity sweep — lives in functions/index.js's Cloud Function
+    // endpoints, which use the Admin SDK and bypass these rules). Written
+    // for correctness in case direct client Firestore access is ever added.
+    match /liveSessions/{sessionId} {
+      allow create: if request.auth != null && request.resource.data.createdBy == request.auth.uid;
+      allow read: if request.auth != null && request.auth.uid in resource.data.participants.map(p => p.uid);
+      // Participant-list mutations (join/leave/finish/activity) are meant to
+      // go through the Cloud Function endpoints, which enforce the
+      // 4-participant cap and that a status change only ever touches the
+      // caller's own entry — a direct client write only needs to remain a
+      // participant to write here at all, same trust boundary as the rest
+      // of this flat-mutual-trust feature.
+      allow update: if request.auth != null && request.auth.uid in resource.data.participants.map(p => p.uid);
+
+      match /entries/{entryId} {
+        // Full mutual read/write while both the editor and the entry's
+        // owner are still "active" participants — deliberately not scoped
+        // to "only the entry's own uid may write it" (GROUP_WORKOUT.md §3's
+        // flat trust model), but never open to someone who isn't a current
+        // participant at all.
+        allow read: if request.auth != null
+          && request.auth.uid in get(/databases/$(database)/documents/liveSessions/$(sessionId)).data.participants.map(p => p.uid);
+        allow create, update, delete: if request.auth != null
+          && request.auth.uid in get(/databases/$(database)/documents/liveSessions/$(sessionId)).data.participants.map(p => p.uid);
+      }
+    }
   }
 }

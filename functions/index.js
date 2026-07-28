@@ -1783,52 +1783,65 @@ app.post('/exercises/merge', async (req, res) => {
 });
 
 // ---------- Session complete ----------
+// Core "finish a workout" logic, shared by the solo /session/complete route
+// below and the group-workout finish/auto-finish paths (functions/index.js
+// group-session section, further down). Takes the target account's own
+// data/liftsRef/save explicitly rather than closing over the module-level
+// db/save/liftsDocRef globals, so it can run against a DIFFERENT account
+// than the one making the current request — needed for the group session's
+// 1-hour-inactivity auto-finish, which finishes a stale participant's
+// workout on their behalf, not the requester's own. See
+// .design/feature-brainstorm/GROUP_WORKOUT.md §4/§6.
+async function applySessionComplete(data, liftsRef, saveFn, { workout, sets = [], customExercises = [], groupWith = null }) {
+  data.workouts = data.workouts || [];
+  const existing = data.workouts.findIndex(w => w.date === workout.date);
+  const workoutRecord = { name: workout.name || 'Session', date: workout.date, sets: sets.length, ...(groupWith ? { groupWith } : {}) };
+  if (existing >= 0) data.workouts[existing] = { ...data.workouts[existing], ...workoutRecord };
+  else data.workouts.push(workoutRecord);
+
+  // RPE-drift CNS auto-calibration: compare perceived effort on today's big compounds
+  // against the CNS fatigue the model predicted walking in (before this session's lifts
+  // are added). Higher felt effort than predicted nudges cnsSensitivity up, and vice
+  // versa — same gentle 25%-per-log nudge pattern used for muscleSensitivity below.
+  const cnsSetsWithRpe = sets.filter(s => s.rpe && isCompoundExercise(s.exercise || ''));
+  if (cnsSetsWithRpe.length) {
+    const predicted = computeCNSFatigue(data.lifts || [], data.cnsSensitivity || 1.0) / 100;
+    if (predicted > 0.05) {
+      const felt = avg(cnsSetsWithRpe.map(s => +s.rpe)) / 10;
+      const current = data.cnsSensitivity || 1.0;
+      data.cnsSensitivity = Math.round(Math.max(0.3, Math.min(3.0, current * Math.pow(felt / predicted, 0.25))) * 100) / 100;
+    }
+  }
+
+  const newLiftEntries = sets
+    .filter(s => s.exercise && s.kg && s.reps)
+    .map(s => ({
+      exercise: s.exercise, kg: +s.kg, reps: +s.reps, rpe: s.rpe || null, date: workout.date,
+      ...(s.type && s.type !== 'N' ? { type: s.type } : {}),
+      ...(s.machine ? { machine: s.machine } : {}), ...(s.pulleyType ? { pulleyType: s.pulleyType } : {}),
+      ...(s.emgWeights ? { emgWeights: s.emgWeights } : {}),
+    }));
+  const isReplacedToday = l => l.date === workout.date && sets.some(s => s.exercise === l.exercise);
+  await removeLiftsAndAppend(liftsRef, isReplacedToday, newLiftEntries);
+  data.lifts = data.lifts.filter(l => !isReplacedToday(l));
+  data.lifts.push(...newLiftEntries);
+
+  if (customExercises.length) {
+    data.customExercises = data.customExercises || [];
+    customExercises.forEach(ce => {
+      if (!data.customExercises.find(e => e.name === ce.name)) data.customExercises.push(ce);
+    });
+  }
+
+  await saveFn();
+}
+
 app.post('/session/complete', async (req, res) => {
   try {
     const { workout, sets = [], customExercises = [] } = req.body;
     if (!workout?.date) return res.status(400).json({ error: 'workout.date required' });
 
-    db.workouts = db.workouts || [];
-    const existing = db.workouts.findIndex(w => w.date === workout.date);
-    const workoutRecord = { name: workout.name || 'Session', date: workout.date, sets: sets.length };
-    if (existing >= 0) db.workouts[existing] = { ...db.workouts[existing], ...workoutRecord };
-    else db.workouts.push(workoutRecord);
-
-    // RPE-drift CNS auto-calibration: compare perceived effort on today's big compounds
-    // against the CNS fatigue the model predicted walking in (before this session's lifts
-    // are added). Higher felt effort than predicted nudges cnsSensitivity up, and vice
-    // versa — same gentle 25%-per-log nudge pattern used for muscleSensitivity below.
-    const cnsSetsWithRpe = sets.filter(s => s.rpe && isCompoundExercise(s.exercise || ''));
-    if (cnsSetsWithRpe.length) {
-      const predicted = computeCNSFatigue(db.lifts || [], db.cnsSensitivity || 1.0) / 100;
-      if (predicted > 0.05) {
-        const felt = avg(cnsSetsWithRpe.map(s => +s.rpe)) / 10;
-        const current = db.cnsSensitivity || 1.0;
-        db.cnsSensitivity = Math.round(Math.max(0.3, Math.min(3.0, current * Math.pow(felt / predicted, 0.25))) * 100) / 100;
-      }
-    }
-
-    const newLiftEntries = sets
-      .filter(s => s.exercise && s.kg && s.reps)
-      .map(s => ({
-        exercise: s.exercise, kg: +s.kg, reps: +s.reps, rpe: s.rpe || null, date: workout.date,
-        ...(s.type && s.type !== 'N' ? { type: s.type } : {}),
-        ...(s.machine ? { machine: s.machine } : {}), ...(s.pulleyType ? { pulleyType: s.pulleyType } : {}),
-        ...(s.emgWeights ? { emgWeights: s.emgWeights } : {}),
-      }));
-    const isReplacedToday = l => l.date === workout.date && sets.some(s => s.exercise === l.exercise);
-    await removeLiftsAndAppend(liftsDocRef, isReplacedToday, newLiftEntries);
-    db.lifts = db.lifts.filter(l => !isReplacedToday(l));
-    db.lifts.push(...newLiftEntries);
-
-    if (customExercises.length) {
-      db.customExercises = db.customExercises || [];
-      customExercises.forEach(ce => {
-        if (!db.customExercises.find(e => e.name === ce.name)) db.customExercises.push(ce);
-      });
-    }
-
-    await save();
+    await applySessionComplete(db, liftsDocRef, save, { workout, sets, customExercises });
 
     let atlasSummary = null;
     if (process.env.GEMINI_API_KEY && sets.length > 0) {
@@ -1863,6 +1876,288 @@ Write a brief post-session note highlighting what the numbers say — mechanical
 
     res.json({ ok: true, setsLogged: sets.length, atlasSummary });
   } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ---------- Group workout sessions ----------
+// See .design/feature-brainstorm/GROUP_WORKOUT.md for the full design.
+// liveSessions/{sessionId} + an entries/ subcollection — deliberately a
+// separate collection from any user's own per-user document, since this
+// feature needs multiple accounts' data readable/writable in one request,
+// which the per-user wholesale-document pattern (ARCHITECTURE.md) can't do
+// safely. Full mutual read/write on entries while both the editor and the
+// entry's owner are still "active" participants (flat trust model, by
+// design — see §3); locked and removed from others' view the moment a
+// participant finishes or leaves (§4).
+const SESSION_CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // no O/0/I/1 — avoids read-aloud ambiguity
+const SESSION_INACTIVITY_TIMEOUT_MS = 60 * 60 * 1000;
+
+function randomSessionCode() {
+  let out = '';
+  for (let i = 0; i < 4; i++) out += SESSION_CODE_ALPHABET[Math.floor(Math.random() * SESSION_CODE_ALPHABET.length)];
+  return out;
+}
+
+async function generateUniqueSessionCode() {
+  for (let attempt = 0; attempt < 10; attempt++) {
+    const code = randomSessionCode();
+    const existing = await firestore.collection('liveSessions').where('code', '==', code).limit(1).get();
+    if (existing.empty) return code;
+  }
+  throw new Error('Could not generate a unique session code');
+}
+
+const sessionParticipantSelf = () => ({
+  uid: null, // filled by caller
+  username: db.profile?.username || null,
+  displayNameFirst: deriveDisplayNameFirst(db.profile?.displayName),
+  status: 'active',
+});
+
+async function touchActivity(sessionRef, sessionData, uid) {
+  const now = new Date().toISOString();
+  await sessionRef.update({ participants: sessionData.participants.map(p => p.uid === uid ? { ...p, lastActivityAt: now } : p) });
+}
+
+// Once every participant who was ever in the session has individually left
+// or finished, the session's whole temporary footprint (doc + entries) goes
+// away — nothing about anyone's already-saved personal data is touched.
+async function deleteSessionIfDone(sessionRef, participants) {
+  if (!participants.every(p => p.status !== 'active')) return;
+  const entriesSnap = await sessionRef.collection('entries').get();
+  const batch = firestore.batch();
+  entriesSnap.docs.forEach(d => batch.delete(d.ref));
+  batch.delete(sessionRef);
+  await batch.commit();
+}
+
+function sessionEntryToSet(entry) {
+  return { exercise: entry.exercise, kg: entry.kg, reps: entry.reps, rpe: entry.rpe, type: entry.type, machine: entry.machine, pulleyType: entry.pulleyType };
+}
+
+// No real Cloud Scheduler job backs the 1-hour inactivity timeout (that's
+// meaningfully more deploy/IAM plumbing than a solo-dev app needs for this)
+// — instead a lazy sweep runs at the top of the read/write paths a session
+// actually gets touched through (GET for polling, POST entries for live
+// activity), which is enough to make a stale participant's tab disappear
+// within about the next poll cycle after the hour is up, matching the
+// user-visible behavior the design calls for without a standing background
+// job. Auto-finishes a stale participant by reading and writing THEIR OWN
+// users/{uid} document directly via loadForUserDoc/saveDocExcludingLifts —
+// deliberately not the request-scoped db/save globals, which belong to
+// whoever is making the current request, not the stale participant.
+async function sweepStaleParticipants(sessionRef, sessionData) {
+  const now = Date.now();
+  const stale = sessionData.participants.filter(p => p.status === 'active' && now - new Date(p.lastActivityAt).getTime() > SESSION_INACTIVITY_TIMEOUT_MS);
+  if (!stale.length) return sessionData.participants;
+
+  let participants = sessionData.participants;
+  for (const p of stale) {
+    const entriesSnap = await sessionRef.collection('entries').where('uid', '==', p.uid).get();
+    const sets = entriesSnap.docs.map(d => sessionEntryToSet(d.data())).filter(s => s.exercise && s.kg && s.reps);
+    if (sets.length) {
+      const targetRef = userDocRef(p.uid);
+      const targetSnap = await targetRef.get();
+      const targetData = await loadForUserDoc(targetRef, targetSnap, null);
+      const groupWith = participants.filter(o => o.uid !== p.uid).map(o => ({ uid: o.uid, username: o.username, displayNameFirst: o.displayNameFirst }));
+      // Backdated to last activity, not the moment the sweep runs — an idle
+      // hour shouldn't inflate the recorded workout duration.
+      await applySessionComplete(targetData, targetRef, () => saveDocExcludingLifts(targetRef, targetData),
+        { workout: { name: 'Group Session', date: day(p.lastActivityAt) }, sets, customExercises: [], groupWith: groupWith.length ? groupWith : null });
+    }
+    participants = participants.map(x => x.uid === p.uid ? { ...x, status: 'finished', lastActivityAt: new Date().toISOString() } : x);
+  }
+  await sessionRef.update({ participants });
+  await deleteSessionIfDone(sessionRef, participants);
+  return participants;
+}
+
+app.post('/session', async (req, res) => {
+  const code = await generateUniqueSessionCode();
+  const now = new Date().toISOString();
+  const participant = { ...sessionParticipantSelf(), uid: req.uid, joinedAt: now, lastActivityAt: now };
+  const ref = firestore.collection('liveSessions').doc();
+  await ref.set({ code, createdBy: req.uid, createdAt: now, participants: [participant] });
+  res.json({ sessionId: ref.id, code });
+});
+
+app.post('/session/join', async (req, res) => {
+  const code = (req.body?.code || '').toString().trim().toUpperCase();
+  if (!code) return res.status(400).json({ error: 'code required' });
+  const snap = await firestore.collection('liveSessions').where('code', '==', code).limit(1).get();
+  if (snap.empty) return res.status(404).json({ error: 'Session not found' });
+  const ref = snap.docs[0].ref;
+  const data = snap.docs[0].data();
+  const already = data.participants.find(p => p.uid === req.uid);
+  if (already) {
+    if (already.status !== 'active') return res.status(410).json({ error: 'You already left or finished this session' });
+    return res.json({ sessionId: ref.id }); // idempotent rejoin
+  }
+  if (data.participants.filter(p => p.status === 'active').length >= 4) return res.status(409).json({ error: 'Session full' });
+  const now = new Date().toISOString();
+  const participant = { ...sessionParticipantSelf(), uid: req.uid, joinedAt: now, lastActivityAt: now };
+  await ref.update({ participants: [...data.participants, participant] });
+  res.json({ sessionId: ref.id });
+});
+
+// Bulk-copies whatever the caller has already logged in their current
+// in-progress solo workout into their tab in the shared session, the
+// moment they connect (creator starting, or joiner joining) — not
+// forward-only. See GROUP_WORKOUT.md §2 "Merge-on-connect."
+app.post('/session/:id/merge', async (req, res) => {
+  const ref = firestore.collection('liveSessions').doc(req.params.id);
+  const snap = await ref.get();
+  if (!snap.exists) return res.status(404).json({ error: 'Session not found' });
+  const data = snap.data();
+  if (!data.participants.find(p => p.uid === req.uid && p.status === 'active')) {
+    return res.status(403).json({ error: 'Not an active participant of this session' });
+  }
+  const sets = Array.isArray(req.body?.sets) ? req.body.sets : [];
+  const now = new Date().toISOString();
+  const batch = firestore.batch();
+  for (const s of sets) {
+    if (!s.exercise) continue;
+    batch.set(ref.collection('entries').doc(), {
+      uid: req.uid, lastEditedBy: req.uid,
+      exercise: s.exercise, kg: s.kg ?? null, reps: s.reps ?? null, rpe: s.rpe ?? null,
+      type: s.type || null, machine: s.machine || null, pulleyType: s.pulleyType || null,
+      loggedAt: now, updatedAt: now,
+    });
+  }
+  await batch.commit();
+  await touchActivity(ref, data, req.uid);
+  res.json({ ok: true, merged: sets.filter(s => s.exercise).length });
+});
+
+app.get('/session/:id', async (req, res) => {
+  const ref = firestore.collection('liveSessions').doc(req.params.id);
+  const snap = await ref.get();
+  if (!snap.exists) return res.status(404).json({ error: 'Session not found' });
+  await sweepStaleParticipants(ref, snap.data());
+  // Re-fetch: the sweep may have auto-finished the last active participant
+  // and deleted the whole session doc in the process.
+  const freshSnap = await ref.get();
+  if (!freshSnap.exists) return res.json({ ended: true });
+  const data = freshSnap.data();
+  if (!data.participants.find(p => p.uid === req.uid)) return res.status(403).json({ error: 'Not a participant of this session' });
+  const entriesSnap = await ref.collection('entries').get();
+  res.json({
+    sessionId: ref.id, code: data.code, participants: data.participants,
+    entries: entriesSnap.docs.map(d => ({ id: d.id, ...d.data() })),
+  });
+});
+
+app.post('/session/:id/entries', async (req, res) => {
+  const ref = firestore.collection('liveSessions').doc(req.params.id);
+  const snap = await ref.get();
+  if (!snap.exists) return res.status(404).json({ error: 'Session not found' });
+  const data = snap.data();
+  if (!data.participants.find(p => p.uid === req.uid && p.status === 'active')) {
+    return res.status(403).json({ error: 'Not an active participant of this session' });
+  }
+  const owner = data.participants.find(p => p.uid === req.body?.uid);
+  if (!owner || owner.status !== 'active') return res.status(400).json({ error: 'That participant is not active in this session' });
+  const now = new Date().toISOString();
+  const { exercise, kg, reps, rpe, type, machine, pulleyType } = req.body;
+  const entryRef = ref.collection('entries').doc();
+  await entryRef.set({
+    uid: owner.uid, lastEditedBy: req.uid,
+    exercise: exercise || null, kg: kg ?? null, reps: reps ?? null, rpe: rpe ?? null,
+    type: type || null, machine: machine || null, pulleyType: pulleyType || null,
+    loggedAt: now, updatedAt: now,
+  });
+  await touchActivity(ref, data, req.uid);
+  res.json({ id: entryRef.id });
+});
+
+// Full mutual edit — any active participant may edit any other active
+// participant's entry, not just their own (GROUP_WORKOUT.md §3, a
+// deliberate flat trust model for this max-4 code-joined feature).
+app.put('/session/:id/entries/:entryId', async (req, res) => {
+  const ref = firestore.collection('liveSessions').doc(req.params.id);
+  const snap = await ref.get();
+  if (!snap.exists) return res.status(404).json({ error: 'Session not found' });
+  const data = snap.data();
+  if (!data.participants.find(p => p.uid === req.uid && p.status === 'active')) {
+    return res.status(403).json({ error: 'Not an active participant of this session' });
+  }
+  const entryRef = ref.collection('entries').doc(req.params.entryId);
+  const entrySnap = await entryRef.get();
+  if (!entrySnap.exists) return res.status(404).json({ error: 'Entry not found' });
+  const owner = data.participants.find(p => p.uid === entrySnap.data().uid);
+  if (!owner || owner.status !== 'active') return res.status(403).json({ error: "That participant's data is locked — they've already left or finished" });
+  const { exercise, kg, reps, rpe, type, machine, pulleyType } = req.body;
+  const patch = { lastEditedBy: req.uid, updatedAt: new Date().toISOString() };
+  if (exercise !== undefined) patch.exercise = exercise;
+  if (kg !== undefined) patch.kg = kg;
+  if (reps !== undefined) patch.reps = reps;
+  if (rpe !== undefined) patch.rpe = rpe;
+  if (type !== undefined) patch.type = type;
+  if (machine !== undefined) patch.machine = machine;
+  if (pulleyType !== undefined) patch.pulleyType = pulleyType;
+  await entryRef.update(patch);
+  await touchActivity(ref, data, req.uid);
+  res.json({ ok: true });
+});
+
+app.delete('/session/:id/entries/:entryId', async (req, res) => {
+  const ref = firestore.collection('liveSessions').doc(req.params.id);
+  const snap = await ref.get();
+  if (!snap.exists) return res.status(404).json({ error: 'Session not found' });
+  const data = snap.data();
+  if (!data.participants.find(p => p.uid === req.uid && p.status === 'active')) {
+    return res.status(403).json({ error: 'Not an active participant of this session' });
+  }
+  const entryRef = ref.collection('entries').doc(req.params.entryId);
+  const entrySnap = await entryRef.get();
+  if (!entrySnap.exists) return res.status(404).json({ error: 'Entry not found' });
+  const owner = data.participants.find(p => p.uid === entrySnap.data().uid);
+  if (!owner || owner.status !== 'active') return res.status(403).json({ error: "That participant's data is locked — they've already left or finished" });
+  await entryRef.delete();
+  await touchActivity(ref, data, req.uid);
+  res.json({ ok: true });
+});
+
+// Self-scoped only — finishing your own workout. Frontend is expected to
+// have already done the "fresh refresh from the shared session before
+// saving" step (GROUP_WORKOUT.md §4) by fetching GET /session/:id and
+// merging before calling this; the backend just takes whatever final `sets`
+// it's given, same contract as solo /session/complete.
+app.post('/session/:id/finish', async (req, res) => {
+  try {
+    const { workout, sets = [], customExercises = [] } = req.body;
+    if (!workout?.date) return res.status(400).json({ error: 'workout.date required' });
+    const ref = firestore.collection('liveSessions').doc(req.params.id);
+    const snap = await ref.get();
+    if (!snap.exists) return res.status(404).json({ error: 'Session not found' });
+    const data = snap.data();
+    if (!data.participants.find(p => p.uid === req.uid)) return res.status(403).json({ error: 'Not a participant of this session' });
+
+    const groupWith = data.participants.filter(p => p.uid !== req.uid).map(p => ({ uid: p.uid, username: p.username, displayNameFirst: p.displayNameFirst }));
+    await applySessionComplete(db, liftsDocRef, save, { workout, sets, customExercises, groupWith: groupWith.length ? groupWith : null });
+
+    const now = new Date().toISOString();
+    const updatedParticipants = data.participants.map(p => p.uid === req.uid ? { ...p, status: 'finished', lastActivityAt: now } : p);
+    await ref.update({ participants: updatedParticipants });
+    await deleteSessionIfDone(ref, updatedParticipants);
+    res.json({ ok: true, setsLogged: sets.length });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Self-scoped only — exits the shared aspect without finishing/saving your
+// own workout (which keeps going solo on your own device). Same visible
+// effect on other participants as finishing: your tab disappears from their
+// view immediately.
+app.post('/session/:id/leave', async (req, res) => {
+  const ref = firestore.collection('liveSessions').doc(req.params.id);
+  const snap = await ref.get();
+  if (!snap.exists) return res.status(404).json({ error: 'Session not found' });
+  const data = snap.data();
+  if (!data.participants.find(p => p.uid === req.uid)) return res.status(403).json({ error: 'Not a participant of this session' });
+  const now = new Date().toISOString();
+  const updatedParticipants = data.participants.map(p => p.uid === req.uid ? { ...p, status: 'left', lastActivityAt: now } : p);
+  await ref.update({ participants: updatedParticipants });
+  await deleteSessionIfDone(ref, updatedParticipants);
+  res.json({ ok: true });
 });
 
 // ---------- Food ----------

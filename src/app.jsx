@@ -822,6 +822,13 @@ const glycogenPct = (elapsedS, totalS) => {
 // app's first version — everything before this had no changelog at all.
 const CHANGELOG = [
   {
+    version: '0.56',
+    date: '2026-07-28',
+    features: [
+      'Added Group Session (Training tab): start one to get a 4-character join code, or join with someone else\'s — up to 4 people, each logging their own sets while seeing everyone else\'s. Any exercise already logged in your current workout merges in the moment you connect. Sets can be edited or deleted by anyone in the session while it\'s active; a participant\'s data locks and disappears from the others\' view the moment they finish or leave. Finishing tags the saved workout with who else was in it. A stalled participant (an hour with no activity) gets auto-finished so the session doesn\'t hang open indefinitely.',
+    ],
+  },
+  {
     version: '0.55',
     date: '2026-07-28',
     features: [
@@ -2992,6 +2999,235 @@ function StrengthLevelPanel({ muscleLevels, hasSex }) {
   );
 }
 
+const GROUP_SESSION_KEY = 'press_group_session_id';
+
+// A standalone, deliberately simpler set-logging UI, separate from the
+// full WorkoutLogger (fatigue calc, rest timer, plate calculator, coach
+// notes) — those are solo-specific richness this feature doesn't need, and
+// the mutual-edit multi-tab model here is different enough from solo
+// logging to warrant its own UI rather than retrofitting it into an
+// already-large, battle-tested component. See
+// .design/feature-brainstorm/GROUP_WORKOUT.md for the full design this
+// implements: code-based join, merge-on-connect, full mutual edit while
+// active, manual/2-min-poll refresh, self-scoped finish/leave.
+function GroupSessionOverlay({ onClose }) {
+  const [sessionId, setSessionId] = useState(() => { try { return localStorage.getItem(GROUP_SESSION_KEY) || null; } catch { return null; } });
+  const [joinCode, setJoinCode] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const [data, setData] = useState(null);
+  const [activeTabUid, setActiveTabUid] = useState(null);
+  const [newExercise, setNewExercise] = useState('');
+  const [addScope, setAddScope] = useState('mine');
+  const [finishing, setFinishing] = useState(false);
+
+  const myUid = auth.currentUser?.uid;
+
+  const persistSessionId = (id) => {
+    setSessionId(id);
+    try { if (id) localStorage.setItem(GROUP_SESSION_KEY, id); else localStorage.removeItem(GROUP_SESSION_KEY); } catch {}
+  };
+
+  // Merge-on-connect (§2): whatever the caller's already logged in their
+  // current in-progress solo workout (the same ACTIVE_SESSION_KEY the
+  // regular WorkoutLogger persists to) gets copied into their tab the
+  // moment they connect — not forward-only.
+  const mergeExistingSolo = async (newSessionId) => {
+    const restored = loadActiveSession();
+    if (!restored?.exercises?.length) return;
+    const sets = [];
+    restored.exercises.forEach(ex => {
+      (ex.sets || []).forEach(st => {
+        if (st.done && st.kg && st.reps) sets.push({ exercise: ex.name, kg: st.kg, reps: st.reps, rpe: st.rpe || null, type: st.type && st.type !== 'N' ? st.type : null });
+      });
+    });
+    if (sets.length) await api(`session/${newSessionId}/merge`, { method: 'POST', body: JSON.stringify({ sets }) }).catch(() => {});
+  };
+
+  const startSession = async () => {
+    setBusy(true); setError('');
+    try {
+      const r = await api('session', { method: 'POST' });
+      await mergeExistingSolo(r.sessionId);
+      persistSessionId(r.sessionId);
+    } catch { setError('Could not start a session — try again.'); }
+    setBusy(false);
+  };
+
+  const joinSession = async () => {
+    if (!joinCode.trim()) return;
+    setBusy(true); setError('');
+    try {
+      const r = await api('session/join', { method: 'POST', body: JSON.stringify({ code: joinCode.trim().toUpperCase() }) });
+      if (r.error) { setError(r.error); setBusy(false); return; }
+      await mergeExistingSolo(r.sessionId);
+      persistSessionId(r.sessionId);
+    } catch { setError('Could not join — check the code and try again.'); }
+    setBusy(false);
+  };
+
+  const load = () => {
+    if (!sessionId) return;
+    api(`session/${sessionId}`).then(r => {
+      if (r.error || r.ended) { persistSessionId(null); setData(null); return; }
+      setData(r);
+      setActiveTabUid(prev => (prev && r.participants.some(p => p.uid === prev)) ? prev : (r.participants.find(p => p.status === 'active')?.uid || r.participants[0]?.uid || null));
+    }).catch(() => {});
+  };
+
+  useEffect(() => { load(); }, [sessionId]);
+  // Manual refresh (the button below) or an automatic poll every ~2 minutes
+  // while this overlay is open — no polling once it's closed. See §1.
+  useEffect(() => {
+    if (!sessionId) return;
+    const t = setInterval(load, 2 * 60 * 1000);
+    return () => clearInterval(t);
+  }, [sessionId]);
+
+  const addExercise = async () => {
+    const name = newExercise.trim();
+    if (!name || !data) return;
+    const targets = addScope === 'everyone' ? data.participants.filter(p => p.status === 'active') : data.participants.filter(p => p.uid === myUid);
+    setBusy(true);
+    for (const p of targets) {
+      await api(`session/${sessionId}/entries`, { method: 'POST', body: JSON.stringify({ uid: p.uid, exercise: name }) }).catch(() => {});
+    }
+    setNewExercise('');
+    setBusy(false);
+    load();
+  };
+
+  const updateEntry = async (entryId, patch) => {
+    await api(`session/${sessionId}/entries/${entryId}`, { method: 'PUT', body: JSON.stringify(patch) }).catch(() => {});
+    load();
+  };
+  const deleteEntry = async (entryId) => {
+    await api(`session/${sessionId}/entries/${entryId}`, { method: 'DELETE' }).catch(() => {});
+    load();
+  };
+
+  const finishSession = async () => {
+    setFinishing(true);
+    // Refresh-then-submit (§4): pull the freshest shared state right before
+    // saving, so an edit someone else made to my sets in the last couple
+    // minutes isn't silently discarded by a stale local save.
+    const fresh = await api(`session/${sessionId}`).catch(() => null);
+    const myEntries = (fresh?.entries || data?.entries || []).filter(e => e.uid === myUid);
+    const sets = myEntries.filter(e => e.exercise && e.kg && e.reps).map(e => ({ exercise: e.exercise, kg: e.kg, reps: e.reps, rpe: e.rpe, type: e.type, machine: e.machine, pulleyType: e.pulleyType }));
+    await api(`session/${sessionId}/finish`, {
+      method: 'POST',
+      body: JSON.stringify({ workout: { name: 'Group Session', date: todayLocalStr() }, sets, customExercises: [] }),
+    }).catch(() => {});
+    persistSessionId(null); setData(null); setFinishing(false);
+    clearActiveSession(); // avoid an unrelated "resume?" prompt for a solo session this already absorbed
+    onClose();
+  };
+
+  const leaveSession = async () => {
+    setBusy(true);
+    await api(`session/${sessionId}/leave`, { method: 'POST' }).catch(() => {});
+    persistSessionId(null); setData(null); setBusy(false);
+    onClose();
+  };
+
+  const inputStyle = { width: '100%', border: 'none', borderBottom: '2px solid var(--ink)', padding: '8px 0', background: 'transparent', fontFamily: 'Times New Roman,serif', fontSize: 16, outline: 'none', color: 'var(--ink)', boxSizing: 'border-box' };
+
+  // ── Not yet in a session: start or join ──
+  if (!sessionId) {
+    return (
+      <div className="onboard-overlay" style={{ zIndex: 9998 }}>
+        <div className="ob-wrap">
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--dim)', fontFamily: "'JetBrains Mono',monospace", fontSize: 9, letterSpacing: '.12em', textTransform: 'uppercase', padding: 0, marginBottom: 20 }}>← Back</button>
+          <div className="ob-h">Group Session</div>
+          <div className="ob-deck">Log a workout together — up to 4 people, each logs their own sets and can see everyone else's.</div>
+
+          <button className="ob-next" style={{ width: '100%', padding: '14px 0', marginBottom: 24 }} onClick={startSession} disabled={busy}>
+            {busy ? 'Starting…' : 'Start a New Session'}
+          </button>
+
+          <label className="ob-label">Join with a code</label>
+          <input style={inputStyle} value={joinCode} maxLength={4} placeholder="4-character code"
+            onChange={e => { setJoinCode(e.target.value.toUpperCase()); setError(''); }} autoCapitalize="characters" autoCorrect="off" />
+          <button className="ob-next" style={{ width: '100%', padding: '14px 0', marginTop: 14 }} onClick={joinSession} disabled={busy || !joinCode.trim()}>
+            {busy ? 'Joining…' : 'Join'}
+          </button>
+          {error && <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--red)', marginTop: 14 }}>{error}</div>}
+        </div>
+      </div>
+    );
+  }
+
+  // ── In a session ──
+  const activeParticipants = (data?.participants || []).filter(p => p.status === 'active');
+  const activeTab = activeParticipants.find(p => p.uid === activeTabUid) || activeParticipants[0];
+  const tabEntries = (data?.entries || []).filter(e => e.uid === activeTab?.uid);
+  const exercisesForTab = Array.from(new Set(tabEntries.map(e => e.exercise)));
+
+  return (
+    <div className="onboard-overlay" style={{ zIndex: 9998 }}>
+      <div className="ob-wrap">
+        <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--dim)', fontFamily: "'JetBrains Mono',monospace", fontSize: 9, letterSpacing: '.12em', textTransform: 'uppercase', padding: 0, marginBottom: 12 }}>← Close</button>
+        <div className="ob-h">Group Session</div>
+        {data?.code && <div className="ob-deck">Code: <strong style={{ fontFamily: "'JetBrains Mono',monospace", letterSpacing: '.1em' }}>{data.code}</strong> — share it so others can join.</div>}
+
+        <div style={{ display: 'flex', gap: 6, margin: '14px 0', flexWrap: 'wrap' }}>
+          {activeParticipants.map(p => (
+            <button key={p.uid} className={`ob-unit-btn${activeTab?.uid === p.uid ? ' active' : ''}`} onClick={() => setActiveTabUid(p.uid)}>
+              {p.uid === myUid ? 'You' : (p.displayNameFirst || 'Someone')}
+            </button>
+          ))}
+          <button className="prof-btn" onClick={load} style={{ marginLeft: 'auto' }}>Refresh</button>
+        </div>
+
+        {activeTab?.uid === myUid && (
+          <div style={{ display: 'flex', gap: 6, marginBottom: 14 }}>
+            <input style={{ ...inputStyle, flex: 1 }} value={newExercise} onChange={e => setNewExercise(e.target.value)} placeholder="Add exercise" />
+            <select value={addScope} onChange={e => setAddScope(e.target.value)} style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, background: 'var(--paper)', color: 'var(--ink)', border: '1px solid var(--rule)' }}>
+              <option value="mine">Just me</option>
+              <option value="everyone">Everyone</option>
+            </select>
+            <button className="prof-btn solid" onClick={addExercise} disabled={busy || !newExercise.trim()}>Add</button>
+          </div>
+        )}
+
+        {exercisesForTab.length === 0 && <div style={{ fontSize: 11, color: 'var(--dim)', margin: '20px 0' }}>No sets logged yet on this tab.</div>}
+
+        {exercisesForTab.map(exName => (
+          <div key={exName} style={{ marginBottom: 16 }}>
+            <div className="settings-sh">{exName}</div>
+            {tabEntries.filter(e => e.exercise === exName).map(e => (
+              // Keyed on updatedAt too, not just id — these are uncontrolled
+              // inputs (defaultValue), which only apply on mount. Without
+              // this, a poll refresh picking up someone else's edit (or my
+              // own from another device) wouldn't visibly update the field,
+              // silently defeating the whole point of the shared view.
+              <div key={`${e.id}-${e.updatedAt}`} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 0' }}>
+                <input className="prof-input" style={{ width: 60 }} type="number" inputMode="decimal" placeholder="kg" defaultValue={e.kg ?? ''}
+                  onBlur={ev => { const v = ev.target.value ? +ev.target.value : null; if (v !== e.kg) updateEntry(e.id, { kg: v }); }} />
+                <span style={{ fontSize: 10, color: 'var(--dim)' }}>×</span>
+                <input className="prof-input" style={{ width: 50 }} type="number" inputMode="numeric" placeholder="reps" defaultValue={e.reps ?? ''}
+                  onBlur={ev => { const v = ev.target.value ? +ev.target.value : null; if (v !== e.reps) updateEntry(e.id, { reps: v }); }} />
+                <input className="prof-input" style={{ width: 50 }} type="number" inputMode="decimal" placeholder="RPE" defaultValue={e.rpe ?? ''}
+                  onBlur={ev => { const v = ev.target.value ? +ev.target.value : null; if (v !== e.rpe) updateEntry(e.id, { rpe: v }); }} />
+                <button onClick={() => deleteEntry(e.id)} style={{ background: 'none', border: 'none', color: 'var(--dim)', cursor: 'pointer', fontSize: 14, padding: '0 6px' }}>×</button>
+              </div>
+            ))}
+            <button className="prof-btn" style={{ fontSize: 9, padding: '3px 8px', marginTop: 4 }}
+              onClick={() => api(`session/${sessionId}/entries`, { method: 'POST', body: JSON.stringify({ uid: activeTab.uid, exercise: exName }) }).then(load)}>
+              + Set
+            </button>
+          </div>
+        ))}
+
+        <div className="ob-nav" style={{ justifyContent: 'space-between' }}>
+          <button className="ob-back" onClick={leaveSession} disabled={busy}>Leave Group</button>
+          <button className="ob-next" onClick={finishSession} disabled={finishing}>{finishing ? 'Finishing…' : 'Finish My Workout'}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function S3({ s, onStartWorkout, onImport, onHistory, refresh }) {
   const workouts = s?.workouts || [];
   const lifts = s?.lifts || [];
@@ -2999,6 +3235,7 @@ function S3({ s, onStartWorkout, onImport, onHistory, refresh }) {
   const lastSession = workouts[0] || null;
   const sessionLifts = lastSession ? lifts.filter(l => l.date === lastSession.date) : [];
   const [genning, setGenning] = useState(false);
+  const [showGroupSession, setShowGroupSession] = useState(() => { try { return !!localStorage.getItem(GROUP_SESSION_KEY); } catch { return false; } });
 
   const exerciseMap = {};
   sessionLifts.forEach(l => {
@@ -3253,6 +3490,7 @@ function S3({ s, onStartWorkout, onImport, onHistory, refresh }) {
               Start Session
             </button>
             <button className="action-btn" onClick={() => onStartWorkout(null)}>Freestyle</button>
+            <button className="action-btn" onClick={() => setShowGroupSession(true)}>Group Session</button>
             {selectedBucket && <button className="action-btn" onClick={() => setSelectedBucket(null)}>Auto-Pick Freshest</button>}
             <button onClick={generatePlan} disabled={genning}
               style={{ marginLeft: 'auto', background: 'none', border: 'none', fontFamily: "'JetBrains Mono',monospace", fontSize: 9, letterSpacing: '.1em', textTransform: 'uppercase', color: 'var(--dim)', cursor: 'pointer', padding: 0 }}>
@@ -3367,6 +3605,7 @@ function S3({ s, onStartWorkout, onImport, onHistory, refresh }) {
           </div>
         ))}
       </div>
+      {showGroupSession && <GroupSessionOverlay onClose={() => setShowGroupSession(false)} />}
     </section>
   );
 }
