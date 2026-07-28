@@ -825,7 +825,7 @@ const CHANGELOG = [
     version: '0.57',
     date: '2026-07-29',
     features: [
-      'Group Session no longer opens as a separate page — it\'s now a small tab strip right in the normal workout logger. "You" is just your regular logging screen, unchanged; tapping someone else\'s name shows their sets inline, still editable. Also fixed: exercises with a weight/reps typed in (not yet checked off) now actually reach the shared session, and edits sync out continuously instead of only once when you connect.',
+      'Group Session no longer opens as a separate page — it\'s now a small tab strip right in the normal workout logger. "You" is just your regular logging screen, unchanged; tapping someone else\'s name (or the new Refresh link) pulls the latest and shows their sets inline, still editable. Also fixed: exercises with a weight/reps typed in (not yet checked off) now actually reach the shared session — previously only checked-off sets did.',
     ],
   },
   {
@@ -2094,25 +2094,28 @@ function WorkoutLogger({ planDay, lifts, customExercises, experienceLevel, onClo
     try { if (id) localStorage.setItem(GROUP_SESSION_KEY, id); else localStorage.removeItem(GROUP_SESSION_KEY); } catch {}
   };
 
-  // Converts the current local exercises state into the flat set shape the
-  // group-session API (and /session/complete) both use. Includes any set
-  // with a weight+reps typed in, not just ones checked off "done" — a plain
-  // in-progress number is still something worth the rest of the group
-  // seeing, and this is also what fixes exercises silently not showing up
-  // on the other side (the earlier version only sent done sets).
-  const exercisesToGroupSets = () => {
+  // Pull-reconcile-push, always in that strict order within one cycle —
+  // not a separate live push independent of polling. Pulling first means a
+  // push can never fire without having already folded in whatever another
+  // participant added to my tab since the last cycle, which is what
+  // actually removes the race a debounced-on-every-keystroke push would
+  // have (an in-flight push built from stale local state, wiping a
+  // teammate's just-added placeholder before I'd learned about it). This
+  // also matches the original design more literally — "manual refresh or
+  // ~2-minute poll," not continuous live sync — the local cache
+  // (ACTIVE_SESSION_KEY, already mirrored on every exercises change) is
+  // what carries you between cycles, not a per-edit network round trip.
+  const setsToSync = (list) => {
     const sets = [];
-    exercises.forEach(ex => {
-      (ex.sets || []).forEach(st => {
-        if (st.kg && st.reps) {
-          sets.push({
-            exercise: ex.name, kg: st.kg, reps: st.reps, rpe: st.rpe || null,
-            type: st.type && st.type !== 'N' ? st.type : null,
-            machine: ex.machine || null, pulleyType: ex.pulleyType || null,
-          });
-        }
-      });
-    });
+    list.forEach(ex => (ex.sets || []).forEach(st => {
+      if (st.kg && st.reps) {
+        sets.push({
+          exercise: ex.name, kg: st.kg, reps: st.reps, rpe: st.rpe || null,
+          type: st.type && st.type !== 'N' ? st.type : null,
+          machine: ex.machine || null, pulleyType: ex.pulleyType || null,
+        });
+      }
+    }));
     return sets;
   };
 
@@ -2121,44 +2124,29 @@ function WorkoutLogger({ planDay, lifts, customExercises, experienceLevel, onClo
     api(`session/${groupSessionId}`).then(r => {
       if (r.error || r.ended) { persistGroupSessionId(null); setGroupData(null); return; }
       setGroupData(r);
-      // Anything already shared to my tab (e.g. an exercise someone else
-      // added "to everyone") that my local state doesn't know about yet
-      // gets folded in here, so it shows up in my normal exercise list
-      // ready to fill in — otherwise the next local->shared sync below
-      // would silently wipe it right back out.
-      const myNames = new Set(exercises.map(ex => ex.name));
-      const incomingNames = [...new Set((r.entries || []).filter(e => e.uid === myUid).map(e => e.exercise))];
-      const missing = incomingNames.filter(n => n && !myNames.has(n));
-      if (missing.length) {
-        setExercises(prev => [...prev, ...missing.map(name => ({ name, bw: false, targetReps: 8, sets: [{ type: 'N', kg: '', reps: '', rpe: '', done: false }] }))]);
-      }
+      setExercises(prev => {
+        const myNames = new Set(prev.map(ex => ex.name));
+        const incomingNames = [...new Set((r.entries || []).filter(e => e.uid === myUid).map(e => e.exercise))];
+        const missing = incomingNames.filter(n => n && !myNames.has(n));
+        const merged = missing.length
+          ? [...prev, ...missing.map(name => ({ name, bw: false, targetReps: 8, sets: [{ type: 'N', kg: '', reps: '', rpe: '', done: false }] }))]
+          : prev;
+        api(`session/${groupSessionId}/merge`, { method: 'POST', body: JSON.stringify({ sets: setsToSync(merged) }) }).catch(() => {});
+        return merged;
+      });
     }).catch(() => {});
   };
 
   useEffect(() => { loadGroup(); }, [groupSessionId]);
-  // Manual refresh happens implicitly on the next poll tick or tab switch;
-  // ~2-minute automatic poll while a group session is attached — no polling
-  // once it's finished/left. See GROUP_WORKOUT.md §1.
+  // The only two sync triggers: this ~2-minute automatic poll, and manual
+  // refresh (switching to someone else's tab, wired below, or the explicit
+  // pre-finish pull in finish()). No polling once finished/left. See
+  // GROUP_WORKOUT.md §1.
   useEffect(() => {
     if (!groupSessionId) return;
     const t = setInterval(loadGroup, 2 * 60 * 1000);
     return () => clearInterval(t);
   }, [groupSessionId]);
-
-  // Local exercises -> shared session, debounced. This is the "your own tab
-  // IS the normal logging UI" side of the design: every local edit
-  // eventually propagates outward instead of only merging once at connect.
-  // Replace semantics server-side (not additive) so repeated pushes don't
-  // duplicate. See functions/index.js's /session/:id/merge.
-  const groupSyncTimer = useRef(null);
-  useEffect(() => {
-    if (!groupSessionId) return;
-    if (groupSyncTimer.current) clearTimeout(groupSyncTimer.current);
-    groupSyncTimer.current = setTimeout(() => {
-      api(`session/${groupSessionId}/merge`, { method: 'POST', body: JSON.stringify({ sets: exercisesToGroupSets() }) }).catch(() => {});
-    }, 1500);
-    return () => clearTimeout(groupSyncTimer.current);
-  }, [exercises, groupSessionId]);
 
   const addGroupExerciseToEveryone = async () => {
     const name = newGroupExercise.trim();
@@ -2219,7 +2207,7 @@ function WorkoutLogger({ planDay, lifts, customExercises, experienceLevel, onClo
         // the freshest shared data — which may include edits someone else
         // made to my sets — and submit THAT as the final record, not the
         // possibly-stale local `allSets`.
-        await api(`session/${groupSessionId}/merge`, { method: 'POST', body: JSON.stringify({ sets: exercisesToGroupSets() }) }).catch(() => {});
+        await api(`session/${groupSessionId}/merge`, { method: 'POST', body: JSON.stringify({ sets: setsToSync(exercises) }) }).catch(() => {});
         const fresh = await api(`session/${groupSessionId}`).catch(() => null);
         const myEntries = (fresh?.entries || groupData?.entries || []).filter(e => e.uid === myUid && e.exercise && e.kg && e.reps);
         const finalSets = myEntries.map(e => ({ exercise: e.exercise, kg: e.kg, reps: e.reps, rpe: e.rpe, type: e.type, machine: e.machine, pulleyType: e.pulleyType }));
@@ -2299,12 +2287,15 @@ function WorkoutLogger({ planDay, lifts, customExercises, experienceLevel, onClo
                 const isMe = p.uid === myUid;
                 const active = isMe ? activeGroupTab === null : activeGroupTab === p.uid;
                 return (
-                  <button key={p.uid} onClick={() => setActiveGroupTab(isMe ? null : p.uid)}
+                  <button key={p.uid} onClick={() => { setActiveGroupTab(isMe ? null : p.uid); loadGroup(); }}
                     style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontFamily: "'JetBrains Mono',monospace", fontSize: 8, letterSpacing: '.1em', textTransform: 'uppercase', color: active ? 'var(--ink)' : 'var(--dim)', textDecoration: active ? 'underline' : 'none' }}>
                     {isMe ? 'You' : (p.displayNameFirst || 'Someone')}
                   </button>
                 );
               })}
+              <button onClick={loadGroup} style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontFamily: "'JetBrains Mono',monospace", fontSize: 8, letterSpacing: '.1em', textTransform: 'uppercase', color: 'var(--dim)' }}>
+                Refresh
+              </button>
               <button onClick={leaveGroup} disabled={groupBusy} style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontFamily: "'JetBrains Mono',monospace", fontSize: 8, letterSpacing: '.1em', textTransform: 'uppercase', color: 'var(--dim)' }}>
                 Leave
               </button>
