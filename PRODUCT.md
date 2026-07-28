@@ -6,11 +6,32 @@ product
 
 ## Users
 
-George — sole user. Personal health operating system running on his own devices. Data flows in from Apple Health Auto Export, Hevy, and Strava. No multi-user requirements.
+George — sole user today. Personal health operating system running on his own devices. Data flows in from Apple Health Auto Export (via an iOS Shortcut), Hevy, and Strava. A social/multi-user mode (usernames, public profiles, live shared workout sessions) is planned but not yet built — see the roadmap note in Accessibility & Inclusion below.
 
 ## Product Purpose
 
-Press is a personal operating system for the body: sleep, recovery, training, nutrition, finance, and thought. It aggregates data that would otherwise live in five separate apps and surfaces it through a single coherent interface with an AI mentor who knows your numbers. Success looks like George opening it daily and trusting what it tells him.
+Press is a personal operating system for the body: sleep, recovery, training, nutrition, and thought. It aggregates data that would otherwise live in several separate apps and surfaces it through a single coherent interface with an AI mentor ("V") who knows your numbers. Success looks like George opening it daily and trusting what it tells him.
+
+Finance was part of the original purpose statement but was never built — dropped from scope, not hidden.
+
+## What's Actually In The App
+
+Seven main sections (bottom-nav dock), plus Settings and an always-available mentor chat:
+
+1. **Dispatch** (`S1`) — the daily entry point. Morning briefing, afternoon/night newscasts, and a weekly digest, all Gemini-generated in the app's own editorial voices. Surfaces the day's headline stat, a quick "thought" capture, and links into the other sections.
+2. **Sleep** (`S2`) — sleep score (with deep/REM/light stage breakdown), trends, and recovery-relevant sleep metrics pulled from Apple Health.
+3. **Training** (`S3`) — the core workout logger: start/log a session, exercise picker (212+ exercise database with weighted EMG-based muscle-fatigue attribution), the "Build Press/Row" angle-based exercise builder, live Session Stimulus readout per muscle, workout history, and Hevy import/sync.
+4. **Nutrition** (`S4`) — meal logging (including photo-scan entries), macro targets (manual or auto-calculated from a goal), water tracking, recent-foods, CSV export.
+5. **Recovery** (`S5`) — structural/CNS/metabolic fatigue readouts per muscle, ACWR, injury taper, weekly training guidance (advisory, not a locked schedule), staleness/"days since trained" tracking.
+6. **Body** (`S6`) — bodyweight, body-fat, body measurements (neck/chest/waist/hips/limbs), supplement log.
+7. **Records** (`S7`) — PRs and e1RM history per exercise, searchable.
+
+Plus:
+- **Mentor chat ("V")** — Gemini-backed conversational coach with its own persisted memory, referencing live recovery/training/nutrition/thought data.
+- **Settings** — grouped into seven collapsible categories (Profile & Training, Dashboard Layout, Targets & Nutrition, Connected Data, Tools, Account, What's New/Changelog). Includes onboarding wizard (re-runnable via "Restart Setup"), plate calculator, and per-account data controls.
+- **Integrations**: Apple Health (iOS Shortcut → `/shortcut`), Hevy (webhook live-sync + backfill + CSV import), Strava (OAuth + periodic sync), Gemini (all AI-generated copy — briefings, newscasts, weekly reviews, mentor chat).
+
+This list changes often — the `CHANGELOG` array at the top of `src/app.jsx` (shown in Settings → What's New) is the authoritative, dated record of what's shipped; this section is a snapshot, not a spec.
 
 ## Brand Personality
 
@@ -24,6 +45,8 @@ Educated · Sensible · Postmodern
 
 The entire fitness dashboard category: Whoop, Oura, Apple Fitness+, MyFitnessPal, Garmin Connect, Strava, Fitbit. Their shared vocabulary — glowing rings, gradient blobs, congratulatory animations, card grids, progress streaks, coloured achievement badges — is explicitly off the table. Press should be newly structured: a reader who knows this genre should not be able to place it in it.
 
+Note: the in-progress social mode (visible-by-default workout feed, live shared sessions) is a deliberate departure from this stance for that feature specifically — see the roadmap note below. It doesn't relax this principle for the rest of the app.
+
 ## Design Principles
 
 1. **Structure is the argument** — layout and hierarchy are editorial decisions, not scaffolding. The shape of a page should tell you something about what matters on it.
@@ -34,7 +57,7 @@ The entire fitness dashboard category: Whoop, Oura, Apple Fitness+, MyFitnessPal
 
 ## Accessibility & Inclusion
 
-Currently sole-user, with a clear roadmap: friends prototype → commercial product. Build to WCAG AA from the start — retrofitting contrast and keyboard nav is expensive. Specific considerations for the commercial arc:
+Currently sole-user. A social mode is actively being planned (see below) — Google/Apple sign-in, mandatory username on first login, per-category visibility toggles in Settings (workout sessions visible by default; sleep/nutrition/mentor-chat/etc. off by default), and live shared workout sessions where each participant logs their own sets independently while watching the other's progress in real time. Build to WCAG AA from the start — retrofitting contrast and keyboard nav is expensive. Specific considerations:
 
 - **Contrast**: AA minimum throughout; the dark palette and dim text colours are the main risk area
 - **Reduced motion**: health data is viewed in varied states (post-workout, waking up) — honour `prefers-reduced-motion` on all transitions and chart animations
