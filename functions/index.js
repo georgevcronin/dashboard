@@ -15,6 +15,10 @@ const { generateSessionExercises, progressionFor, isLowRepPattern, LOW_REP_THRES
 const { computeSleepScore } = require('./sleepScore');
 const { callGeminiResilient, parseGeminiJSON } = require('./gemini');
 const { unwrapShortcutBody, average, sumForDay, computeSleepMetrics } = require('./shortcutParsing');
+const {
+  normalizeUsername, validateUsername, validateDisplayName, deriveDisplayNameFirst,
+  generateUsernameSuggestion, canChangeUsername, usernameChangeAvailableAt,
+} = require('./identity');
 
 admin.initializeApp();
 const firestore = admin.firestore();
@@ -181,7 +185,17 @@ app.use(async (req, res, next) => {
 });
 
 // ---------- Identity ----------
-app.get('/me', (req, res) => res.json({ uid: req.uid || null }));
+app.get('/me', (req, res) => res.json({
+  uid: req.uid || null,
+  // hasUsername gates the mandatory first-login username/displayName step —
+  // deliberately re-checked on every load (not just "first login") so
+  // accounts that existed before this feature shipped get caught too. See
+  // USERNAME_AND_COMPARISON.md's "every account must have a username" note.
+  hasUsername: !!db?.profile?.username,
+  username: db?.profile?.username || null,
+  displayName: db?.profile?.displayName || null,
+  displayNameFirst: deriveDisplayNameFirst(db?.profile?.displayName),
+}));
 
 // ---------- Health Auto Export webhook ----------
 app.post("/health", async (req, res) => {
@@ -1005,9 +1019,73 @@ app.post("/profile", async (req, res) => {
   // whenever the reported figure changes so it starts accruing fresh from
   // the corrected value.
   if (body.trainingExperienceYears != null) body.trainingExperienceSetAt = new Date().toISOString();
+  // username/displayName go through /account/username only — that's the
+  // only path that runs the uniqueness transaction and the monthly
+  // rate-limit check. Silently dropping them here (rather than erroring)
+  // keeps this generic endpoint safe against a client just including them
+  // in a broader profile-save payload without meaning to bypass anything.
+  delete body.username; delete body.displayName; delete body.lastUsernameChangeAt;
   db.profile = { ...db.profile, ...body };
   await save();
   res.json(db.profile);
+});
+
+// ---------- Username / display name ----------
+// See .design/feature-brainstorm/USERNAME_AND_COMPARISON.md for the design.
+// Uniqueness is enforced via a Firestore transaction against a dedicated
+// usernames/{lowercasedUsername} collection (document ID as the uniqueness
+// key), since the per-user wholesale-document pattern this app otherwise
+// uses (see ARCHITECTURE.md) has no cross-user query/constraint mechanism.
+app.get('/account/username-suggestion', (req, res) => {
+  const name = (req.query.name || '').toString();
+  res.json({ username: generateUsernameSuggestion(name) });
+});
+
+app.post('/account/username', async (req, res) => {
+  const { username, displayName } = req.body || {};
+  const displayNameErr = validateDisplayName(displayName);
+  if (displayNameErr) return res.status(400).json({ error: displayNameErr });
+  const usernameErr = validateUsername(username);
+  if (usernameErr) return res.status(400).json({ error: usernameErr });
+
+  const newUsername = normalizeUsername(username);
+  const currentUsername = db.profile?.username || null;
+  const isChange = !!currentUsername && currentUsername !== newUsername;
+
+  if (isChange && !canChangeUsername(db.profile?.lastUsernameChangeAt)) {
+    return res.status(429).json({
+      error: 'Username can only be changed once a month',
+      availableAt: usernameChangeAvailableAt(db.profile.lastUsernameChangeAt),
+    });
+  }
+
+  if (newUsername !== currentUsername) {
+    try {
+      await firestore.runTransaction(async (tx) => {
+        const newRef = firestore.collection('usernames').doc(newUsername);
+        const newSnap = await tx.get(newRef);
+        if (newSnap.exists && newSnap.data().uid !== req.uid) throw new Error('USERNAME_TAKEN');
+        tx.set(newRef, { uid: req.uid });
+        if (currentUsername) tx.delete(firestore.collection('usernames').doc(currentUsername));
+      });
+    } catch (e) {
+      if (e.message === 'USERNAME_TAKEN') return res.status(409).json({ error: 'That username is already taken' });
+      throw e;
+    }
+  }
+
+  db.profile = {
+    ...db.profile,
+    username: newUsername,
+    displayName: displayName.trim(),
+    ...(isChange ? { lastUsernameChangeAt: new Date().toISOString() } : {}),
+  };
+  await save();
+  res.json({
+    username: db.profile.username,
+    displayName: db.profile.displayName,
+    displayNameFirst: deriveDisplayNameFirst(db.profile.displayName),
+  });
 });
 
 // Per-user token for open webhook routes (/shortcut, /health) — lets each

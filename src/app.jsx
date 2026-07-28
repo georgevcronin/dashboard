@@ -10,6 +10,7 @@ import strengthStandardsPkg from '../functions/strengthStandards.js';
 import machineBrandsPkg from '../functions/machineBrands.js';
 import adaptationPkg from '../functions/adaptation.js';
 import plateCalculatorPkg from '../functions/plateCalculator.js';
+import identityPkg from '../functions/identity.js';
 import weeklyPlannerPkg from '../functions/weeklyPlanner.js';
 import emgActivationPkg from '../functions/emgActivation.js';
 import muscleCapacityPkg from '../functions/muscleCapacity.js';
@@ -37,6 +38,7 @@ const {
   computeAdaptationSeries, estimateAtrophyRate, DEFAULT_ATROPHY_RATE, SECONDARY_MUSCLE_WEIGHT, DEFAULT_RIR,
 } = adaptationPkg;
 const { platesForWeight, STANDARD_PLATES_KG } = plateCalculatorPkg;
+const { validateUsername, validateDisplayName, normalizeUsername, USERNAME_MAX, canChangeUsername, usernameChangeAvailableAt } = identityPkg;
 const { FATIGUE_CEILING } = weeklyPlannerPkg;
 const { ANGLES: EMG_ANGLES, PRESS_ANGLE_DESC, ROW_ANGLE_DESC, classifyMuscles, emgForAngle, frontalCueForProfile, gripCueForProfile, GRIP_ANGLES_BY_EQUIPMENT } = emgActivationPkg;
 
@@ -819,6 +821,13 @@ const glycogenPct = (elapsedS, totalS) => {
 // instead of the list. v0.1 is the first tracked release, not literally the
 // app's first version — everything before this had no changelog at all.
 const CHANGELOG = [
+  {
+    version: '0.53',
+    date: '2026-07-28',
+    features: [
+      'Every account now needs a username — a mandatory (but pre-filled, low-friction) step on first login, and retroactively for existing accounts too. Separate from a freeform display name, of which only the first name is ever shown to anyone else. Both are editable later from Settings; username changes are limited to once a month, display name has no limit.',
+    ],
+  },
   {
     version: '0.52',
     date: '2026-07-28',
@@ -5803,6 +5812,11 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
   const [nameSaving, setNameSaving] = useState(false);
   const [nameSaved, setNameSaved] = useState(false);
   const [nameError, setNameError] = useState('');
+  const [usernameVal, setUsernameVal] = useState(s?.profile?.username || '');
+  const [displayNameVal, setDisplayNameVal] = useState(s?.profile?.displayName || '');
+  const [usernameSaving, setUsernameSaving] = useState(false);
+  const [usernameSaved, setUsernameSaved] = useState(false);
+  const [usernameError, setUsernameError] = useState('');
   const [trainingExpVal, setTrainingExpVal] = useState(s?.profile?.trainingExperienceYears ?? '');
   const [sleepTarget, setSleepTarget] = useState(s?.profile?.sleepTarget || 8);
   const [waterTarget, setWaterTarget] = useState(s?.profile?.waterTarget || 7);
@@ -5949,6 +5963,37 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
     setNameSaving(false);
   };
 
+  // username/displayName go through /account/username, not the generic
+  // /profile save — that's the only endpoint that runs the uniqueness
+  // transaction and the monthly rate-limit check (see functions/index.js).
+  const usernameChangePending = usernameVal !== (s?.profile?.username || '');
+  const usernameCooldownActive = usernameChangePending && !!s?.profile?.username
+    && !canChangeUsername(s?.profile?.lastUsernameChangeAt);
+  const usernameCooldownUntil = usernameCooldownActive ? usernameChangeAvailableAt(s?.profile?.lastUsernameChangeAt) : null;
+  const saveUsername = async () => {
+    const changed = usernameVal !== (s?.profile?.username || '') || displayNameVal !== (s?.profile?.displayName || '');
+    if (!changed) return;
+    const uErr = validateUsername(usernameVal);
+    const dErr = validateDisplayName(displayNameVal);
+    if (uErr) { setUsernameError(uErr); return; }
+    if (dErr) { setUsernameError(dErr); return; }
+    setUsernameSaving(true);
+    setUsernameError('');
+    try {
+      const r = await api('account/username', { method: 'POST', body: JSON.stringify({ username: usernameVal, displayName: displayNameVal }) });
+      if (r.error) {
+        setUsernameError(r.error);
+      } else {
+        refresh({ ...s, profile: { ...s.profile, username: r.username, displayName: r.displayName, lastUsernameChangeAt: r.username !== (s?.profile?.username || '') ? new Date().toISOString() : s?.profile?.lastUsernameChangeAt } });
+        setUsernameSaved(true);
+        setTimeout(() => setUsernameSaved(false), 2000);
+      }
+    } catch {
+      setUsernameError('Save failed — check your connection and try again.');
+    }
+    setUsernameSaving(false);
+  };
+
   const saveDob = () => {
     if (dobVal === (s?.profile?.dob || '')) return;
     const age = dobVal ? Math.floor((Date.now() - new Date(dobVal)) / (365.25 * 24 * 3600 * 1000)) : null;
@@ -6043,6 +6088,33 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
             </div>
           </div>
           {nameError && <div style={{ fontSize: 9, fontFamily: "'JetBrains Mono',monospace", color: 'var(--red)', marginTop: -8, marginBottom: 8 }}>{nameError}</div>}
+          <div className="prof-field">
+            <span className="prof-lbl">Display name <span style={{ fontWeight: 400, textTransform: 'none', fontSize: 9, color: 'var(--dim)' }}>(only your first name is shown to others)</span></span>
+            <div style={{ display: 'flex', gap: 6, flex: 1, minWidth: 0 }}>
+              <input className="prof-input" value={displayNameVal} maxLength={30}
+                onChange={e => { setDisplayNameVal(e.target.value); setUsernameError(''); }}
+                placeholder="Your name" style={{ flex: 1, minWidth: 0 }} />
+            </div>
+          </div>
+          <div className="prof-field">
+            <span className="prof-lbl">Username</span>
+            <div style={{ display: 'flex', gap: 6, flex: 1, minWidth: 0 }}>
+              <input className="prof-input" value={usernameVal} maxLength={USERNAME_MAX}
+                onChange={e => { setUsernameVal(normalizeUsername(e.target.value)); setUsernameError(''); }}
+                placeholder="lowercase-letters-numbers-hyphens" autoCapitalize="none" autoCorrect="off"
+                style={{ flex: 1, minWidth: 0 }} />
+              <button className="prof-btn" onClick={saveUsername}
+                disabled={usernameSaving || (usernameVal === (s?.profile?.username || '') && displayNameVal === (s?.profile?.displayName || '')) || usernameCooldownActive}>
+                {usernameSaving ? 'Saving…' : usernameSaved ? '✓ Saved' : 'Save'}
+              </button>
+            </div>
+          </div>
+          {usernameCooldownActive && (
+            <div style={{ fontSize: 9, fontFamily: "'JetBrains Mono',monospace", color: 'var(--dim)', marginTop: -8, marginBottom: 8 }}>
+              Username can only be changed once a month — next change available {usernameCooldownUntil ? new Date(usernameCooldownUntil).toLocaleDateString() : 'soon'}. Display name has no such limit.
+            </div>
+          )}
+          {usernameError && <div style={{ fontSize: 9, fontFamily: "'JetBrains Mono',monospace", color: 'var(--red)', marginTop: -8, marginBottom: 8 }}>{usernameError}</div>}
           <div className="prof-field">
             <span className="prof-lbl">Goal</span>
             <div style={{ display: 'flex', gap: 6 }}>
@@ -7060,6 +7132,79 @@ function LoginScreen() {
   );
 }
 
+// Mandatory before the rest of the app renders — gated in App() on
+// `!s.profile?.username`, which catches both brand-new signups and
+// accounts that existed before this feature shipped (see
+// .design/feature-brainstorm/USERNAME_AND_COMPARISON.md, "every account
+// must have a username"). Reuses Onboarding's overlay/input styling
+// (onboard-overlay, ob-* classes) rather than inventing new CSS for a
+// single-step form.
+function UsernameSetup({ user, onComplete }) {
+  const [username, setUsername] = useState('');
+  const [displayName, setDisplayName] = useState(user?.displayName || '');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    let cancelled = false;
+    api(`account/username-suggestion?name=${encodeURIComponent(user?.displayName || '')}`)
+      .then(r => { if (!cancelled && r.username) setUsername(r.username); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
+
+  const usernameErr = username ? validateUsername(username) : null;
+  const displayNameErr = displayName ? validateDisplayName(displayName) : null;
+
+  const submit = async () => {
+    if (usernameErr || displayNameErr || !username || !displayName) return;
+    setSaving(true);
+    setError('');
+    try {
+      const r = await api('account/username', {
+        method: 'POST',
+        body: JSON.stringify({ username, displayName }),
+      });
+      if (r.error) { setError(r.error); setSaving(false); return; }
+      onComplete();
+    } catch {
+      setError('Connection error — try again.');
+      setSaving(false);
+    }
+  };
+
+  const inputStyle = { width: '100%', border: 'none', borderBottom: '2px solid var(--ink)', padding: '8px 0', background: 'transparent', fontFamily: 'Times New Roman,serif', fontSize: 16, outline: 'none', color: 'var(--ink)' };
+
+  return (
+    <div className="onboard-overlay">
+      <div className="ob-wrap">
+        <div className="ob-logo">Press</div>
+        <div className="ob-h">Choose a username</div>
+        <div className="ob-deck">Every Press account needs a unique username — we've suggested one below, keep it or change it. Your display name is what other people actually see; only your first name is ever shown to them.</div>
+
+        <label className="ob-label">Display name</label>
+        <input style={inputStyle} value={displayName} maxLength={30}
+          onChange={e => { setDisplayName(e.target.value); setError(''); }} placeholder="Your name" />
+        {displayNameErr && <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--red)', marginTop: 6 }}>{displayNameErr}</div>}
+
+        <label className="ob-label">Username</label>
+        <input style={inputStyle} value={username} maxLength={USERNAME_MAX}
+          onChange={e => { setUsername(normalizeUsername(e.target.value)); setError(''); }}
+          placeholder="lowercase-letters-numbers-hyphens" autoCapitalize="none" autoCorrect="off" />
+        {usernameErr && <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--red)', marginTop: 6 }}>{usernameErr}</div>}
+
+        {error && <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--red)', marginTop: 16 }}>{error}</div>}
+
+        <div className="ob-nav" style={{ justifyContent: 'flex-end' }}>
+          <button className="ob-next" onClick={submit} disabled={saving || !username || !displayName || !!usernameErr || !!displayNameErr}>
+            {saving ? 'Saving…' : 'Continue'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function App() {
   const [user, setUser] = useState(undefined); // undefined = checking, null = signed out
   const [s, setS] = useState(null);
@@ -7338,6 +7483,16 @@ function App() {
   // in place without ever setting it back to null, so switching tabs or
   // pulling to refresh doesn't re-trigger this.
   if (s === null && !summaryError) return <LoadingScreen />;
+
+  // Mandatory for every account, not just brand-new signups — an account
+  // that existed before this feature shipped has no db.profile.username
+  // either, and gets caught here on its next load exactly the same way.
+  // Blocks the whole app shell, not just an overlay on top of it, since a
+  // username is required before anything else is meaningful (follow,
+  // group sessions, etc. all key off it).
+  if (s && !s.profile?.username) {
+    return <UsernameSetup user={user} onComplete={refresh} />;
+  }
 
   const trackingLevel = s?.profile?.trackingLevel || 'full';
   const showSleep = trackingLevel !== 'workout';
