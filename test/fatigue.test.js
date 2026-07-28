@@ -44,7 +44,7 @@ test('computeStructuralFatigue credits a PressRowBuilder exercise by its real em
   // cases -- the only difference is emgWeights crediting 62% instead of
   // musclesForExercise's flat 100%, so any gap is purely from the weighting.
   const weightedLift = [{ date: daysAgo(0), exercise: 'Cable Row — 90°', kg: 100, reps: 8, emgWeights: { lats: 62 } }];
-  const fullCreditLift = [{ date: daysAgo(0), exercise: 'Pull-Up (Wide Grip)', kg: 100, reps: 8 }]; // primary includes lats, full (unweighted) credit
+  const fullCreditLift = [{ date: daysAgo(0), exercise: 'Meadows Row', kg: 100, reps: 8 }]; // primary includes lats, not yet curated -- full (unweighted) credit
   const peaks = { lats: 800 };
   const weightedOut = computeStructuralFatigue(weightedLift, peaks, [], {});
   const fullOut = computeStructuralFatigue(fullCreditLift, peaks, [], {});
@@ -56,6 +56,45 @@ test('computeStructuralFatigue with emgWeights only attributes to muscles presen
   const out = computeStructuralFatigue(lifts, { lats: 620 }, [], {});
   assert.ok('lats' in out);
   assert.equal(out.biceps, undefined, 'a real row would normally credit biceps too, but emgWeights did not include it here, so it should not appear');
+});
+
+test('computeStructuralFatigue uses a curated exerciseEmgProfiles.js weighted profile for an existing exercise, not just PressRowBuilder ones', () => {
+  // "Leg Press" now has a curated profile crediting quads at 75% (not the
+  // flat 100% musclesForExercise gives everything uncurated). Same muscle,
+  // same raw load/peak/decay as a genuinely uncurated exercise (press-
+  // pattern exercises aren't in phase 1's curated set) isolates the effect
+  // to the weighting itself.
+  const curatedLift = [{ date: daysAgo(0), exercise: 'Leg Press', kg: 100, reps: 8 }];
+  const flatLift = [{ date: daysAgo(0), exercise: 'Barbell Bench Press', kg: 100, reps: 8 }]; // press-pattern, not yet curated -- flat credit, chest primary
+  const curatedOut = computeStructuralFatigue(curatedLift, { quads: 800 }, [], {});
+  const flatOut = computeStructuralFatigue(flatLift, { chest: 800 }, [], {});
+  assert.ok(curatedOut.quads < flatOut.chest, 'curated 75% credit should read lower than an uncurated exercise\'s flat 100% credit against the same-magnitude peak');
+});
+
+test('computeMuscleLastTrainedDays classifies a curated exercise\'s primary muscles from its exerciseEmgProfiles.js weights, not just exerciseDb.js\'s flat primary array', () => {
+  // exerciseDb.js's own flat primary for Back Squat is just
+  // ['quads','glutes'] -- no adductors. Its curated profile (functions/
+  // exerciseEmgProfiles.js) credits adductors at 62%, clearing the >=60
+  // primary threshold -- 'adductors' showing up here proves the curated
+  // weighted path is actually being used, not silently falling back to
+  // the flat primary/secondary split.
+  const lifts = [{ date: daysAgo(3), exercise: 'Back Squat', kg: 100, reps: 8 }];
+  const out = computeMuscleLastTrainedDays(lifts);
+  assert.ok('adductors' in out, 'adductors is not in Back Squat\'s flat primary array, so this only appears via the curated profile');
+  assert.ok(Math.abs(out.adductors - 3) < 1);
+});
+
+test('computeStructuralFatigue falls back to the athlete\'s own exerciseAngles.js hand-mapped angle when no curated exerciseEmgProfiles.js entry exists', () => {
+  // "Dumbbell Row" has no exerciseEmgProfiles.js entry (row-pattern
+  // exercises weren't in the phase 1-3 curated set) but IS one of the
+  // athlete's own 34 Angle Mapper mappings (pattern: 'row', angle: 90),
+  // which resolves to lats: 62 via emgForAngle. A flat, uncurated exercise
+  // with the same nominal load/peak should read higher (100% credit).
+  const angleMappedLift = [{ date: daysAgo(0), exercise: 'Dumbbell Row', kg: 100, reps: 8 }];
+  const flatLift = [{ date: daysAgo(0), exercise: 'Meadows Row', kg: 100, reps: 8 }]; // row-pattern, not curated, not angle-mapped -- flat credit
+  const angleMappedOut = computeStructuralFatigue(angleMappedLift, { lats: 800 }, [], {});
+  const flatOut = computeStructuralFatigue(flatLift, { lats: 800 }, [], {});
+  assert.ok(angleMappedOut.lats < flatOut.lats, 'the athlete\'s hand-mapped 62% angle credit should read lower than flat 100% credit for an uncurated, unmapped exercise');
 });
 
 test('musclePeaksFromLifts finds the single highest-volume day per muscle', () => {

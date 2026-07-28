@@ -57,6 +57,146 @@ const ROW_EMG = {
 const PRESS_ANGLE_DESC = '0° = arm at your side · 90° = arm horizontal, straight out in front · 180° = arm straight overhead';
 const ROW_ANGLE_DESC = '0° = a low pull (e.g. straight-arm pulldown) · 90° = a pull from in front (e.g. seated cable row) · 180° = an overhead pull (e.g. pull-up)';
 
+// Frontal-plane companion tables (arm abduction, viewed from behind: 0° =
+// elbow tucked at your side, 90° = elbow flared out to horizontal) —
+// distinct from PRESS_EMG/ROW_EMG above, which are both sagittal-plane
+// (arm moving forward/up in front of the body). These are what actually
+// drive the elbow-flare form cue: sections 1-4 pick WHICH exercise/angle
+// you're doing, sections 5-6 describe HOW to position your elbows during
+// it to hit what that choice already targets. Capped at 90° -- past that
+// point the movement stops being pure glenohumeral abduction and becomes
+// increasingly scapular, a different mechanism.
+const PRESS_FRONTAL_EMG = {
+  0:  { 'front-delt': 10, 'mid-delt': 8,   chest: 8,  biceps: 20, triceps: 15, serratus: 5,  'lower-traps': 3 },
+  15: { 'front-delt': 30, 'mid-delt': 35,  chest: 12, biceps: 25, triceps: 22, serratus: 6,  'lower-traps': 4 },
+  30: { 'front-delt': 50, 'mid-delt': 58,  chest: 15, biceps: 30, triceps: 30, serratus: 8,  'lower-traps': 6 },
+  45: { 'front-delt': 65, 'mid-delt': 75,  chest: 17, biceps: 34, triceps: 38, serratus: 11, 'lower-traps': 9 },
+  60: { 'front-delt': 78, 'mid-delt': 87,  chest: 18, biceps: 37, triceps: 46, serratus: 15, 'lower-traps': 13 },
+  75: { 'front-delt': 88, 'mid-delt': 95,  chest: 18, biceps: 39, triceps: 54, serratus: 22, 'lower-traps': 19 },
+  90: { 'front-delt': 95, 'mid-delt': 100, chest: 17, biceps: 40, triceps: 60, serratus: 32, 'lower-traps': 28 },
+};
+
+const ROW_FRONTAL_EMG = {
+  0:  { lats: 45, biceps: 35, 'rear-delt': 8,  'mid-delt': 10,  'mid-traps': 20, rhomboids: 18, 'teres-major': 40, brachioradialis: 30 },
+  15: { lats: 38, biceps: 42, 'rear-delt': 20, 'mid-delt': 35,  'mid-traps': 30, rhomboids: 28, 'teres-major': 35, brachioradialis: 34 },
+  30: { lats: 32, biceps: 48, 'rear-delt': 35, 'mid-delt': 58,  'mid-traps': 42, rhomboids: 40, 'teres-major': 30, brachioradialis: 38 },
+  45: { lats: 27, biceps: 53, 'rear-delt': 50, 'mid-delt': 75,  'mid-traps': 54, rhomboids: 52, 'teres-major': 26, brachioradialis: 41 },
+  60: { lats: 23, biceps: 57, 'rear-delt': 63, 'mid-delt': 87,  'mid-traps': 65, rhomboids: 63, 'teres-major': 22, brachioradialis: 44 },
+  75: { lats: 20, biceps: 60, 'rear-delt': 75, 'mid-delt': 95,  'mid-traps': 75, rhomboids: 73, 'teres-major': 19, brachioradialis: 46 },
+  90: { lats: 18, biceps: 62, 'rear-delt': 85, 'mid-delt': 100, 'mid-traps': 83, rhomboids: 81, 'teres-major': 17, brachioradialis: 48 },
+};
+
+const FRONTAL_ANGLES = [0, 15, 30, 45, 60, 75, 90];
+
+// Elbow-flare form cue: given the sagittal (which-exercise-and-angle)
+// weighted profile an exercise already carries, finds the frontal-plane
+// angle that best serves the muscle THAT profile already emphasizes most —
+// a "how to execute this correctly" cue, not a suggestion to target a
+// different muscle. Only considers muscles the frontal table itself tracks
+// (chest, for instance, barely moves across abduction and isn't a useful
+// anchor for a flare cue). Returns null if nothing in the sagittal profile
+// overlaps what the frontal table tracks.
+// Elbow-flexion/grip synergists present in both patterns -- present in
+// every press and row regardless of angle, so letting one of these "win"
+// the dominant-muscle pick would produce a technically-true but useless cue
+// (row EMG peaks for biceps at the same angle as its back muscles do, but
+// "flare your elbows for biceps" isn't what a row's elbow position is for).
+const ACCESSORY_MUSCLES = ['biceps', 'triceps', 'brachioradialis'];
+
+function frontalCueForProfile(pattern, sagittalWeights) {
+  const frontalTable = pattern === 'press' ? PRESS_FRONTAL_EMG : pattern === 'row' ? ROW_FRONTAL_EMG : null;
+  if (!frontalTable || !sagittalWeights) return null;
+  const tracked = Object.keys(frontalTable[0]);
+  const candidates = Object.entries(sagittalWeights).filter(([m]) => tracked.includes(m) && !ACCESSORY_MUSCLES.includes(m));
+  if (!candidates.length) return null;
+  candidates.sort((a, b) => b[1] - a[1]);
+  const [muscle] = candidates[0];
+  let bestAngle = FRONTAL_ANGLES[0], bestVal = -Infinity;
+  for (const a of FRONTAL_ANGLES) {
+    const v = frontalTable[a][muscle];
+    if (v > bestVal) { bestVal = v; bestAngle = a; }
+  }
+  return { muscle, angle: bestAngle };
+}
+
+// Grip-rotation companion tables (rotation of the hand/forearm about its
+// own long axis, independent of shoulder angle): 0° = fully pronated
+// (overhand), 90° = neutral (thumb up), 180° = fully supinated (underhand).
+// A third, independent axis from the sagittal (which exercise/angle) and
+// frontal (elbow flare) ones above -- matters far more for the elbow-flexor
+// synergists (biceps, brachioradialis) and, for rows, lower-traps, than for
+// the actual prime movers, which barely move across grip rotation.
+const GRIP_ANGLES = [0, 45, 90, 135, 180];
+
+const PRESS_GRIP_EMG = {
+  0:   { biceps: 55, brachioradialis: 60, brachialis: 60, 'front-delt': 70, triceps: 65 },
+  45:  { biceps: 65, brachioradialis: 63, brachialis: 60, 'front-delt': 68, triceps: 65 },
+  90:  { biceps: 72, brachioradialis: 65, brachialis: 60, 'front-delt': 71, triceps: 64 },
+  135: { biceps: 80, brachioradialis: 68, brachialis: 60, 'front-delt': 65, triceps: 64 },
+  180: { biceps: 85, brachioradialis: 72, brachialis: 60, 'front-delt': 60, triceps: 63 },
+};
+
+const ROW_GRIP_EMG = {
+  0:   { biceps: 45, brachioradialis: 55, lats: 70, 'lower-traps': 80, 'rear-delt': 60 },
+  45:  { biceps: 58, brachioradialis: 60, lats: 74, 'lower-traps': 70, 'rear-delt': 60 },
+  90:  { biceps: 68, brachioradialis: 63, lats: 76, 'lower-traps': 60, 'rear-delt': 61 },
+  135: { biceps: 80, brachioradialis: 68, lats: 80, 'lower-traps': 50, 'rear-delt': 61 },
+  180: { biceps: 90, brachioradialis: 72, lats: 85, 'lower-traps': 40, 'rear-delt': 62 },
+};
+
+const GRIP_LABELS = { 0: 'pronated (overhand)', 45: 'lightly pronated', 90: 'neutral (thumb up)', 135: 'lightly supinated', 180: 'supinated (underhand)' };
+
+// Not every piece of equipment actually lets you choose your grip. A
+// straight barbell only offers pronated or supinated (true neutral needs a
+// specialty bar, not assumed available); a fixed-handle machine offers
+// whatever single grip its handles were built with, not a choice at all;
+// dumbbells and cable attachments genuinely rotate/swap freely, so the full
+// range is fair game. Conservative on purpose -- no per-exercise handle
+// data exists, so 'machine' gets no recommendable grip at all rather than
+// guessing it has one.
+const GRIP_ANGLES_BY_EQUIPMENT = {
+  barbell: [0, 180],
+  dumbbell: GRIP_ANGLES,
+  cable: GRIP_ANGLES,
+  machine: [],
+};
+
+// Grip form cue: unlike frontalCueForProfile, doesn't exclude the
+// elbow-flexor synergists -- they're the whole point of this table. Picks
+// whichever muscle this exercise meaningfully trains (>=SECONDARY_THRESHOLD
+// in its sagittal profile) swings the MOST across grip rotation, since a
+// muscle grip barely affects (front-delt, triceps, rear-delt all move <15
+// points across the whole table) isn't worth a cue even if it's the
+// exercise's dominant target. Returns null if nothing meaningfully swings.
+// `availableAngles` restricts both the "does grip matter" check and the
+// recommendation itself to what's actually achievable on this equipment --
+// defaults to the full range for callers that don't know/care about
+// equipment (e.g. tests exercising the pure EMG logic).
+function gripCueForProfile(pattern, sagittalWeights, availableAngles = GRIP_ANGLES) {
+  const gripTable = pattern === 'press' ? PRESS_GRIP_EMG : pattern === 'row' ? ROW_GRIP_EMG : null;
+  if (!gripTable || !sagittalWeights || !availableAngles.length) return null;
+  const tracked = Object.keys(gripTable[0]);
+  const relevant = tracked.filter(m => (sagittalWeights[m] || 0) >= SECONDARY_THRESHOLD);
+  if (!relevant.length) return null;
+
+  let muscle = null, bestRange = -Infinity;
+  for (const m of relevant) {
+    const vals = availableAngles.map(a => gripTable[a][m]);
+    const range = Math.max(...vals) - Math.min(...vals);
+    if (range > bestRange) { bestRange = range; muscle = m; }
+  }
+  // Also covers the single-grip case (only one achievable angle -- range is
+  // always 0 -- so there's genuinely nothing to recommend between).
+  if (bestRange < 10) return null;
+
+  let angle = availableAngles[0], bestVal = -Infinity;
+  for (const a of availableAngles) {
+    const v = gripTable[a][muscle];
+    if (v > bestVal) { bestVal = v; angle = a; }
+  }
+  return { muscle, angle, grip: GRIP_LABELS[angle] };
+}
+
 // Threshold used to collapse a weighted EMG profile into a normal
 // primary/secondary muscle split for every OTHER consumer of the shared
 // exercise taxonomy (session generation, staleness tracking, PR/strength-
@@ -85,5 +225,7 @@ function emgForAngle(pattern, angle) {
 
 module.exports = {
   ANGLES, PRESS_EMG, ROW_EMG, PRESS_ANGLE_DESC, ROW_ANGLE_DESC,
-  PRIMARY_THRESHOLD, SECONDARY_THRESHOLD, classifyMuscles, emgForAngle,
+  PRESS_FRONTAL_EMG, ROW_FRONTAL_EMG, FRONTAL_ANGLES,
+  PRESS_GRIP_EMG, ROW_GRIP_EMG, GRIP_ANGLES, GRIP_LABELS, GRIP_ANGLES_BY_EQUIPMENT,
+  PRIMARY_THRESHOLD, SECONDARY_THRESHOLD, classifyMuscles, emgForAngle, frontalCueForProfile, gripCueForProfile,
 };

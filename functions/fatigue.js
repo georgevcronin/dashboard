@@ -7,10 +7,28 @@
 
 const { RECOVERY_H, findExercise, musclesForExercise, isCompoundExercise } = require('./muscleTaxonomy');
 const { e1rm: calcE1RM } = require('./strengthStandards');
-const { classifyMuscles } = require('./emgActivation');
+const { classifyMuscles, emgForAngle } = require('./emgActivation');
+const { emgProfileForExercise } = require('./exerciseEmgProfiles');
+const { EXERCISE_ANGLES } = require('./exerciseAngles');
 
 const avg = (a) => (a.length ? a.reduce((x, y) => x + y, 0) / a.length : null);
 const liftTime = (l) => new Date(l.start || l.date).getTime();
+
+// Weighted profile for an existing, non-generated exercise, checked in this
+// order: (1) a curated FIXED profile (functions/exerciseEmgProfiles.js,
+// phase 1-3 categories); (2) the athlete's own hand-mapped angle for a
+// press/row exercise (functions/exerciseAngles.js, from the Angle Mapper
+// tool) -- previously only wired into the frontend form-tips and the
+// cross-exercise capacity regression, never into actual fatigue weighting,
+// which meant the athlete's own 35 angle-mapped exercises still credited
+// flat despite having real weighted data available. Both return null for
+// anything not covered by either, falling through to flat credit.
+function curatedWeightsForExercise(name) {
+  const curated = emgProfileForExercise(name);
+  if (curated) return curated;
+  const angleInfo = EXERCISE_ANGLES[(name || '').toLowerCase().trim()];
+  return angleInfo ? emgForAngle(angleInfo.pattern, angleInfo.angle) : null;
+}
 
 // "Days since this muscle was last a genuine training focus" — a distinct
 // signal from fatigue. Fatigue decays toward 0 regardless of whether that
@@ -29,11 +47,14 @@ function computeMuscleLastTrainedDays(lifts) {
   const now = Date.now();
   const lastSeenMs = {};
   for (const l of (lifts || [])) {
-    // A press/row built from real EMG data (PressRowBuilder) carries its own
-    // per-lift weighted profile and won't resolve via findExercise (it's a
-    // generated identity, not a static exerciseDb.js entry) — classify its
-    // primary muscles from that instead of skipping it entirely.
-    const primary = l.emgWeights ? classifyMuscles(l.emgWeights).primary : findExercise(l.exercise)?.primary;
+    // Priority: (1) a PressRowBuilder-generated exercise's own per-lift
+    // weighted profile (doesn't resolve via findExercise at all — it's a
+    // generated identity, not a static exerciseDb.js entry); (2) a curated
+    // FIXED weighted profile for an existing exerciseDb.js exercise
+    // (functions/exerciseEmgProfiles.js); (3) the flat primary/secondary
+    // fallback for anything not yet curated.
+    const weights = l.emgWeights || curatedWeightsForExercise(l.exercise);
+    const primary = weights ? classifyMuscles(weights).primary : findExercise(l.exercise)?.primary;
     if (!primary) continue;
     const t = liftTime(l);
     if (isNaN(t)) continue;
@@ -58,12 +79,15 @@ function computeStructuralFatigue(lifts, musclePeaks, soreness = [], sensitivity
     const hoursAgo = (now - liftTime(l)) / 3_600_000;
     if (hoursAgo > 336 || hoursAgo < 0) continue;
     const load = (l.kg || 0) * (l.reps || 1);
-    // A PressRowBuilder-generated exercise carries its own real EMG-weighted
-    // profile (% of each muscle's own MVIC at the chosen angle) rather than
-    // crediting every muscle the flat full load musclesForExercise's union
-    // gives everything else — see functions/emgActivation.js.
-    if (l.emgWeights) {
-      for (const [m, pct] of Object.entries(l.emgWeights)) {
+    // A PressRowBuilder-generated exercise carries its own real per-lift
+    // EMG-weighted profile; an existing exerciseDb.js exercise with a
+    // curated FIXED profile (functions/exerciseEmgProfiles.js) uses that
+    // instead — either way, weighted credit (% of MVIC at the relevant
+    // angle) replaces the flat full-load-per-muscle credit
+    // musclesForExercise's union gives everything not yet curated.
+    const weights = l.emgWeights || curatedWeightsForExercise(l.exercise);
+    if (weights) {
+      for (const [m, pct] of Object.entries(weights)) {
         const hl = recoveryHours[m] || RECOVERY_H[m] || 72;
         const decay = Math.exp(-0.693 * hoursAgo / hl);
         scores[m] = (scores[m] || 0) + load * (pct / 100) * decay;

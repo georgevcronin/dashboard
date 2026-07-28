@@ -14,6 +14,7 @@ import weeklyPlannerPkg from '../functions/weeklyPlanner.js';
 import emgActivationPkg from '../functions/emgActivation.js';
 import muscleCapacityPkg from '../functions/muscleCapacity.js';
 import { chestSplitForExercise } from '../functions/chestHeadSplit.js';
+import { EXERCISE_ANGLES } from '../functions/exerciseAngles.js';
 import { EXERCISE_DB, EXERCISE_MUSCLE_GROUPS, EXERCISE_PATTERNS } from '../functions/exerciseDb.js';
 import { PRESS_CSS } from './pressCss.js';
 import { AreaChart, BarChart, Sparkline, AdaptationChart } from './charts.jsx';
@@ -37,7 +38,78 @@ const {
 } = adaptationPkg;
 const { platesForWeight, STANDARD_PLATES_KG } = plateCalculatorPkg;
 const { FATIGUE_CEILING } = weeklyPlannerPkg;
-const { ANGLES: EMG_ANGLES, PRESS_ANGLE_DESC, ROW_ANGLE_DESC, classifyMuscles, emgForAngle } = emgActivationPkg;
+const { ANGLES: EMG_ANGLES, PRESS_ANGLE_DESC, ROW_ANGLE_DESC, classifyMuscles, emgForAngle, frontalCueForProfile, gripCueForProfile, GRIP_ANGLES_BY_EQUIPMENT } = emgActivationPkg;
+
+// Priority-ordered: checked in this order so a compound phrase like "iso-
+// lateral cable machine" resolves to 'cable' (an iso-lateral cable stack),
+// not 'machine' (a fixed-handle selectorized machine) -- the two behave very
+// differently for grip choice, and "cable machine" specifically means the
+// former. Most of the athlete's real logged history (Hevy-imported names)
+// doesn't exact-match exerciseDb.js at all, so this keyword fallback is what
+// actually makes the grip-availability gating apply to real exercises
+// rather than only the ~3 that happen to match a curated DB entry verbatim.
+const EQUIPMENT_NAME_HINTS = [['barbell', 'barbell'], ['dumbbell', 'dumbbell'], ['cable', 'cable'], ['machine', 'machine']];
+function equipmentFromName(name) {
+  for (const [kw, equip] of EQUIPMENT_NAME_HINTS) {
+    if (new RegExp(`\\b${kw}\\b`).test(name)) return equip;
+  }
+  return undefined;
+}
+
+// Resolves the sagittal EMG profile (which muscle(s) this exercise
+// emphasizes) for either a PressRowBuilder-generated exercise (carries its
+// own emgWeights/pattern/equipment once addExercise's customExercises
+// fallback has resolved it) or one of the athlete's pre-existing
+// angle-mapped exercises (functions/exerciseAngles.js, equipment looked up
+// from exerciseDb.js first, then guessed from the name itself) -- one
+// resolver so the form cues work the same way for both, instead of two
+// parallel lookups. `equipment` may still end up undefined (no db match and
+// no equipment word in the name) -- callers treat that as "unknown, don't
+// restrict the grip cue."
+function sagittalProfileForExercise(ex) {
+  if (ex?.emgWeights && ex?.pattern) return { pattern: ex.pattern, weights: ex.emgWeights, equipment: ex.equipment };
+  const key = (ex?.name || '').toLowerCase().trim();
+  const angleInfo = EXERCISE_ANGLES[key];
+  if (!angleInfo) return null;
+  const weights = emgForAngle(angleInfo.pattern, angleInfo.angle);
+  if (!weights) return null;
+  const equipment = EXERCISE_DB.find(e => e.name.toLowerCase() === key)?.equipment || equipmentFromName(key);
+  return { pattern: angleInfo.pattern, weights, equipment };
+}
+
+// Elbow-flare (frontal-plane) and grip-rotation form cues for one exercise.
+// Combined into one resolver (rather than two independent ones) because
+// they can genuinely conflict: a pronated or supinated grip restricts how
+// far you can comfortably abduct/flare the elbow, so if the flare cue wants
+// real width, that's only fully achievable with a neutral grip. When the
+// grip cue recommends something other than neutral AND the flare cue wants
+// meaningful width, the grip line says so rather than presenting two cues
+// that quietly fight each other.
+function formCuesForExercise(ex) {
+  const profile = sagittalProfileForExercise(ex);
+  if (!profile) return [];
+  const tips = [];
+  const flareCue = frontalCueForProfile(profile.pattern, profile.weights);
+  if (flareCue) {
+    const muscleLabel = muscleDisplayLabel(flareCue.muscle);
+    const flareDesc = flareCue.angle >= 60 ? 'flared out toward horizontal' : flareCue.angle <= 15 ? 'tucked close to your torso' : 'roughly halfway out from your torso';
+    tips.push(`Elbows ${flareDesc} (~${flareCue.angle}°) to fully engage ${muscleLabel}, which this ${profile.pattern} already emphasizes.`);
+  }
+  // GRIP_ANGLES_BY_EQUIPMENT[undefined] is undefined, which triggers
+  // gripCueForProfile's own default (full range) -- correct fallback for an
+  // exercise whose equipment isn't known, vs. GRIP_ANGLES_BY_EQUIPMENT's
+  // own [] for 'machine', which correctly yields no cue at all.
+  const gripCue = gripCueForProfile(profile.pattern, profile.weights, GRIP_ANGLES_BY_EQUIPMENT[profile.equipment]);
+  if (gripCue) {
+    const gripMuscleLabel = muscleDisplayLabel(gripCue.muscle);
+    let line = `Use a ${gripCue.grip} grip to fully engage ${gripMuscleLabel}.`;
+    if (flareCue && flareCue.angle >= 45 && gripCue.angle !== 90) {
+      line += ' Note: that grip restricts how far you can comfortably flare your elbows — a neutral grip allows the widest range if both matter here.';
+    }
+    tips.push(line);
+  }
+  return tips;
+}
 const { buildObservations, solveMuscleCapacities, predictExerciseE1RM, suggestedWeightForReps } = muscleCapacityPkg;
 
 const FIREBASE_CONFIG = {
@@ -748,6 +820,22 @@ const glycogenPct = (elapsedS, totalS) => {
 // app's first version — everything before this had no changelog at all.
 const CHANGELOG = [
   {
+    version: '0.47',
+    date: '2026-07-28',
+    features: [
+      'Weighted EMG fatigue attribution now covers 140+ exercises across squats, hinges, lunges, curls, extensions, hip abduction/adduction, calves, core anti-extension/anti-rotation, rotator cuff, lateral raises, pulldowns/pull-ups, dips, and more — not just Build Press/Row exercises. Each credits the muscles it actually trains at literature-backed percentages instead of flat full credit, so fatigue and "days since trained" better reflect a lift\'s real emphasis (e.g. a Leg Press crediting quads less than a Zercher Squat, or a pulldown crediting lats below rear-delt/rhomboids per the source data).',
+      'Your own hand-mapped press/row angles (from Build Press/Row\'s angle picker) now also drive fatigue attribution when logged under an existing exercise name, not just the target-weight suggestion.',
+    ],
+  },
+  {
+    version: '0.46',
+    date: '2026-07-28',
+    features: [
+      'Fixed weighted EMG fatigue for a Build Press/Row exercise only working the session it was created — every later time it was logged via search, its muscle profile silently failed to reattach and fell back to zero fatigue attribution.',
+      'Press/row exercises now show a grip-rotation form cue alongside the elbow-flare one (e.g. "Use a supinated grip to fully engage Biceps") — and flags it when the two cues are in real anatomical tension, since a pronated or supinated grip restricts how far you can comfortably flare your elbows.',
+    ],
+  },
+  {
     version: '0.45',
     date: '2026-07-28',
     features: [
@@ -1439,7 +1527,7 @@ function PressRowBuilder({ onAdd, lifts }) {
     const name = brand.trim()
       ? `${equipLabel} ${patternLabel} — ${angle}° — ${brand.trim()}`
       : `${equipLabel} ${patternLabel} — ${angle}°`;
-    onAdd(name, { primary, secondary, emgWeights: weights, suggestedKg });
+    onAdd(name, { primary, secondary, emgWeights: weights, suggestedKg, pattern, equipment });
     setOpen(false);
     reset();
   };
@@ -1762,17 +1850,26 @@ function WorkoutLogger({ planDay, lifts, customExercises, experienceLevel, onClo
   const addExercise = (name, custom) => {
     if (!name.trim()) return;
     const key = name.toLowerCase().trim();
+    // A generated Press/Row exercise's weighted profile is only ever passed
+    // explicitly the moment it's first built (PressRowBuilder's onAdd) --
+    // every later time it's picked via search/autocomplete, `custom` is
+    // undefined even though the exercise's own record (customExercises,
+    // persisted server-side) still has emgWeights/pattern. Without this
+    // fallback, weighted fatigue attribution and the elbow-flare tip would
+    // silently work only in the session the exercise was first created.
+    const stored = !custom ? customExercises?.find(ce => ce.name === key) : null;
+    const effective = custom || stored || {};
     // suggestedKg is a one-off logging convenience (this session's first-set
     // prefill), not a fact about the exercise itself -- kept out of the
-    // stored customExercises record, unlike primary/secondary/emgWeights.
-    const { suggestedKg, ...taxonomy } = custom || {};
+    // stored customExercises record, unlike primary/secondary/emgWeights/pattern.
+    const { suggestedKg, ...taxonomy } = effective;
     if (!allExercises.includes(key)) {
       setNewCustomExercises(p => p.some(ce => ce.name === key) ? p : [...p, { name: key, ...taxonomy }]);
     }
     const prev = prevData[key];
     const sets = prev?.sets?.map(s => ({ type: s.type || 'N', kg: String(s.kg || ''), reps: String(s.reps || ''), rpe: '', done: false }))
       || [{ type: 'N', kg: suggestedKg ? String(suggestedKg) : '', reps: '', rpe: '', done: false }];
-    setExercises(p => [...p, { name: key, bw: false, targetReps: 8, sets, ...(custom?.emgWeights ? { emgWeights: custom.emgWeights } : {}) }]);
+    setExercises(p => [...p, { name: key, bw: false, targetReps: 8, sets, ...(effective.emgWeights ? { emgWeights: effective.emgWeights, pattern: effective.pattern, equipment: effective.equipment } : {}) }]);
     setNewEx(''); setSuggestions([]);
     setTimeout(() => inputRef.current?.focus(), 50);
     // No progression fetch here — the render below already calls
@@ -2129,6 +2226,18 @@ function WorkoutLogger({ planDay, lifts, customExercises, experienceLevel, onClo
                     </div>
                   );
                 })()}
+
+                {/* Elbow-flare (frontal-plane) and grip-rotation form cues —
+                    companions to the press/row angle already chosen
+                    (functions/emgActivation.js's formCuesForExercise).
+                    Describe how to position elbows/grip to actually hit what
+                    this exercise's angle already targets; don't change
+                    fatigue/stimulus attribution at all. */}
+                {formCuesForExercise(ex).map((tip, ti) => (
+                  <div key={ti} style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, color: 'var(--dim)', marginBottom: 3, fontStyle: 'italic' }}>
+                    {tip}
+                  </div>
+                ))}
 
                 {/* History chart (expanded) */}
                 {isExpanded && <ExHistoryChart name={ex.name} lifts={lifts} />}
@@ -3041,6 +3150,7 @@ function S3({ s, onStartWorkout, onImport, onHistory, refresh }) {
                 // bundled into the frontend, so a lookup here is enough.
                 const primaryMuscles = EXERCISE_DB.find(e => e.name === ex.name)?.primary || [];
                 const chestSplit = chestSplitForExercise(ex.name);
+                const formTips = formCuesForExercise(ex);
                 return (
                   <div key={i} style={{ display: 'flex', alignItems: 'baseline', gap: 8, padding: '3px 0', borderBottom: '1px solid var(--rule)' }}>
                     <div style={{ flex: 1, minWidth: 0 }}>
@@ -3055,6 +3165,11 @@ function S3({ s, onStartWorkout, onImport, onHistory, refresh }) {
                           Lower {chestSplit.lower}% · Mid {chestSplit.mid}% · Upper {chestSplit.upper}%
                         </div>
                       )}
+                      {formTips.map((tip, ti) => (
+                        <div key={ti} style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, color: 'var(--dim)', marginTop: 1, fontStyle: 'italic' }}>
+                          {tip}
+                        </div>
+                      ))}
                     </div>
                     <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)' }}>{workingSets.length || ex.sets?.length || 3} sets · {workingSets[0]?.reps ?? ex.sets?.[0]?.reps ?? 8} reps</span>
                     {workingSets[0]?.kg ? <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--gold)' }}>{workingSets[0].kg}kg</span> : null}
