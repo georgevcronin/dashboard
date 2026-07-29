@@ -1866,7 +1866,6 @@ function WorkoutLogger({ planDay, lifts, customExercises, experienceLevel, onClo
 
     const toExercise = ex => ({
       name: ex.name.toLowerCase().trim(),
-      bw: false,
       targetReps: ex.sets?.[0]?.reps || 8,
       sets: (ex.sets || Array.from({length:3},()=>({type:'N',kg:'',reps:'8'}))).map(s => ({ type: s.type || 'N', kg: String(s.kg || ''), reps: String(s.reps || ''), rpe: '', done: false })),
     });
@@ -1953,7 +1952,7 @@ function WorkoutLogger({ planDay, lifts, customExercises, experienceLevel, onClo
     const prev = prevData[key];
     const sets = prev?.sets?.map(s => ({ type: s.type || 'N', kg: String(s.kg || ''), reps: String(s.reps || ''), rpe: '', done: false }))
       || [{ type: 'N', kg: suggestedKg ? String(suggestedKg) : '', reps: '', rpe: '', done: false }];
-    setExercises(p => [...p, { name: key, bw: false, targetReps: 8, sets, ...(effective.emgWeights ? { emgWeights: effective.emgWeights, pattern: effective.pattern, equipment: effective.equipment } : {}) }]);
+    setExercises(p => [...p, { name: key, targetReps: 8, sets, ...(effective.emgWeights ? { emgWeights: effective.emgWeights, pattern: effective.pattern, equipment: effective.equipment } : {}) }]);
     setNewEx(''); setSuggestions([]);
     setTimeout(() => inputRef.current?.focus(), 50);
     // No progression fetch here — the render below already calls
@@ -2020,7 +2019,7 @@ function WorkoutLogger({ planDay, lifts, customExercises, experienceLevel, onClo
     const exLifts = (lifts || []).filter(l => l.exercise === ex.name && l.date < weekAgo);
     const weekOldMax = exLifts.length ? Math.max(...exLifts.map(l => l.kg || 0)) : null;
     const weekProgressionPct = (weekOldMax && kg) ? ((kg - weekOldMax) / weekOldMax * 100) : 0;
-    const setE1rm = !ex.bw ? e1rm(kg, reps) : null;
+    const setE1rm = e1rm(kg, reps);
     const isNewPR = setE1rm && setE1rm > (prData[ex.name] || 0);
 
     let feedback = null;
@@ -2167,7 +2166,7 @@ function WorkoutLogger({ planDay, lifts, customExercises, experienceLevel, onClo
         const incomingNames = [...new Set((r.entries || []).filter(e => e.uid === myUid).map(e => e.exercise))];
         const missing = incomingNames.filter(n => n && !myNames.has(n));
         const merged = missing.length
-          ? [...prev, ...missing.map(name => ({ name, bw: false, targetReps: 8, sets: [{ type: 'N', kg: '', reps: '', rpe: '', done: false }] }))]
+          ? [...prev, ...missing.map(name => ({ name, targetReps: 8, sets: [{ type: 'N', kg: '', reps: '', rpe: '', done: false }] }))]
           : prev;
         api(`session/${groupSessionId}/merge`, { method: 'POST', body: JSON.stringify({ sets: setsToSync(merged) }) }).catch(() => {});
         return merged;
@@ -2445,7 +2444,7 @@ function WorkoutLogger({ planDay, lifts, customExercises, experienceLevel, onClo
           {/* Exercise blocks */}
           {exercises.map((ex, i) => {
             const prev = prevData[ex.name];
-            const doneE1rms = ex.sets.filter(s => s.done && !ex.bw).map(s => e1rm(+s.kg, +s.reps)).filter(Boolean);
+            const doneE1rms = ex.sets.filter(s => s.done).map(s => e1rm(+s.kg, +s.reps)).filter(Boolean);
             const bestE1rm = doneE1rms.length ? Math.max(...doneE1rms) : null;
             const isPR = bestE1rm && bestE1rm > (prData[ex.name] || 0);
             const vol = ex.sets.filter(s => s.done).reduce((a, s) => a + (+s.kg || 0) * (+s.reps || 1), 0);
@@ -2514,7 +2513,7 @@ function WorkoutLogger({ planDay, lifts, customExercises, experienceLevel, onClo
                 {/* Previous performance */}
                 {prev && (
                   <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)', marginBottom: 3 }}>
-                    {localDateFromYMD(prev.date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })} · {prev.sets.map(s => `${ex.bw ? `BW×${s.reps}` : `${s.kg}×${s.reps}`}${s.type === 'W' ? 'w' : ''}`).join(', ')}
+                    {localDateFromYMD(prev.date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })} · {prev.sets.map(s => `${s.kg}×${s.reps}${s.type === 'W' ? 'w' : ''}`).join(', ')}
                   </div>
                 )}
 
@@ -2549,12 +2548,8 @@ function WorkoutLogger({ planDay, lifts, customExercises, experienceLevel, onClo
                   }
                 </div>
 
-                {/* BW toggle + volume + optional machine/technique tag */}
+                {/* Volume + optional machine/technique tag */}
                 <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8, flexWrap: 'wrap' }}>
-                  <button onClick={() => setExercises(p => p.map((e, j) => j !== i ? e : { ...e, bw: !e.bw }))}
-                    style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, letterSpacing: '.1em', textTransform: 'uppercase', padding: '3px 8px', cursor: 'pointer', border: '1px solid var(--rule)', background: ex.bw ? 'var(--ink)' : 'none', color: ex.bw ? 'var(--paper)' : 'var(--dim)' }}>
-                    BW
-                  </button>
                   {vol > 0 && <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)' }}>{Math.round(vol).toLocaleString()} kg total</span>}
                   {(() => {
                     const equipment = findExercise(ex.name)?.equipment;
@@ -2615,7 +2610,7 @@ function WorkoutLogger({ planDay, lifts, customExercises, experienceLevel, onClo
                     <tr>
                       <th style={{ ...th, textAlign: 'left', width: 26 }}>Set</th>
                       <th style={{ ...th, width: 56 }}>Prev</th>
-                      {!ex.bw && <th style={{ ...th, width: 48 }}>kg</th>}
+                      <th style={{ ...th, width: 48 }}>kg</th>
                       <th style={{ ...th, width: 38 }}>Reps</th>
                       <th style={{ ...th, width: isBeginner ? 58 : 28 }}>{isBeginner ? 'Effort' : 'RPE'}</th>
                       <th style={{ ...th, width: 26 }}>✓</th>
@@ -2625,11 +2620,11 @@ function WorkoutLogger({ planDay, lifts, customExercises, experienceLevel, onClo
                   <tbody>
                     {ex.sets.map((set, j) => {
                       const prevSet = prev?.sets?.[j];
-                      const setE1rm = !ex.bw ? e1rm(+set.kg, +set.reps) : null;
+                      const setE1rm = e1rm(+set.kg, +set.reps);
                       const setIsPR = setE1rm && setE1rm > (prData[ex.name] || 0);
                       const isWorking = set.type !== 'W';
                       const fbColor = set.feedbackType === 'green' ? 'var(--forest)' : set.feedbackType === 'red' ? 'var(--red)' : set.feedbackType === 'amber' ? 'var(--gold)' : 'var(--dim)';
-                      const minRepsForPR = (!ex.bw && !set.done && isWorking && +set.kg > 0) ? repsForPR(+set.kg, prData[ex.name]) : null;
+                      const minRepsForPR = (!set.done && isWorking && +set.kg > 0) ? repsForPR(+set.kg, prData[ex.name]) : null;
                       return (
                         <React.Fragment key={j}>
                         <tr style={{ opacity: set.done ? 0.45 : 1 }}>
@@ -2643,15 +2638,13 @@ function WorkoutLogger({ planDay, lifts, customExercises, experienceLevel, onClo
                             </button>
                           </td>
                           <td style={{ padding: '5px 0', textAlign: 'right', color: 'var(--dim)', fontSize: 10 }}>
-                            {prevSet ? (ex.bw ? `BW×${prevSet.reps}` : `${prevSet.kg}×${prevSet.reps}`) : '—'}
+                            {prevSet ? `${prevSet.kg}×${prevSet.reps}` : '—'}
                           </td>
-                          {!ex.bw && (
-                            <td style={{ padding: '5px 0', textAlign: 'right' }}>
-                              <input className="set-input" value={set.kg} onChange={e => updateSet(i, j, 'kg', e.target.value)}
-                                inputMode="decimal" placeholder="—" disabled={set.done}
-                                style={{ color: setIsPR ? 'var(--gold)' : 'var(--ink)', width: 42 }} />
-                            </td>
-                          )}
+                          <td style={{ padding: '5px 0', textAlign: 'right' }}>
+                            <input className="set-input" value={set.kg} onChange={e => updateSet(i, j, 'kg', e.target.value)}
+                              inputMode="decimal" placeholder="—" disabled={set.done}
+                              style={{ color: setIsPR ? 'var(--gold)' : 'var(--ink)', width: 42 }} />
+                          </td>
                           <td style={{ padding: '5px 0', textAlign: 'right' }}>
                             <input className="set-input" value={set.reps} onChange={e => updateSet(i, j, 'reps', e.target.value)}
                               inputMode="numeric" placeholder="—" disabled={set.done}
@@ -2687,14 +2680,14 @@ function WorkoutLogger({ planDay, lifts, customExercises, experienceLevel, onClo
                         </tr>
                         {set.done && set.feedback && (
                           <tr>
-                            <td colSpan={ex.bw ? 5 : 6} style={{ paddingBottom: 4 }}>
+                            <td colSpan={6} style={{ paddingBottom: 4 }}>
                               <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, letterSpacing: '.09em', color: fbColor }}>↳ {set.feedback}</span>
                             </td>
                           </tr>
                         )}
                         {minRepsForPR != null && (
                           <tr>
-                            <td colSpan={ex.bw ? 5 : 6} style={{ paddingBottom: 4 }}>
+                            <td colSpan={6} style={{ paddingBottom: 4 }}>
                               <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, letterSpacing: '.09em', color: 'var(--dim)' }}>
                                 ↳ PR pace at {set.kg}kg — {minRepsForPR}–{minRepsForPR + 3} reps
                               </span>
