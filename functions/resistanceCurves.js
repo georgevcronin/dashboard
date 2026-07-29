@@ -26,11 +26,16 @@
 //   5 = strongly descending (hardest at the bottom/start of the range)
 //
 // Methodology:
-//   - Free weights / bodyweight / kettlebell: one rating per exercise, no
-//     brand (a barbell has no brand-specific curve — it's a bar). Derived
-//     from exerciseDb.js's own `curve`/`curveNote` fields plus standard
+//   - Free weights / bodyweight / kettlebell: computed via `baseRatingFor()`
+//     (exerciseDb.js's own `curve`/`curveNote` fields plus standard
 //     biomechanics reasoning about where gravity's moment arm is largest
-//     through each movement's range of motion.
+//     through each movement's range of motion), used as the input every
+//     machine/cable/smith rating below derives from — but deliberately NOT
+//     stored in RESISTANCE_CURVES itself. Brand never applies to free
+//     weights (a barbell has no brand-specific curve — it's a bar), so
+//     there's nothing to look up: call `baseRatingFor(exercise)` directly
+//     if a free-weight rating is ever needed, rather than persisting a
+//     lookup entry for something with only one possible value.
 //   - Cable: cable tension is roughly constant (set by the weight stack);
 //     what varies is the angle between cable and limb, which most cable
 //     setups are specifically positioned to keep tension present through
@@ -221,7 +226,15 @@ for (const ex of EXERCISE_DB) {
   const nameKey = normalize(ex.name);
 
   if (ex.equipment === 'barbell' || ex.equipment === 'dumbbell' || ex.equipment === 'bodyweight' || ex.equipment === 'kettlebell') {
-    curves[nameKey] = base;
+    // Deliberately not stored — brand never applies to free weights/
+    // bodyweight/kettlebell (there's nothing to differentiate), so there's
+    // no reason to persist a lookup entry for something with only one
+    // possible value per exercise; `baseRatingFor(ex)` above already
+    // computes it on demand from exerciseDb.js's own curve/curveNote
+    // fields, which is exactly as cheap as a lookup would have been. This
+    // loop still computes `base` for every exercise regardless of
+    // equipment, since machine/cable/smith entries below derive from it.
+    continue;
   } else if (ex.equipment === 'cable') {
     if (NO_CABLE_CURVE_EXERCISES.has(nameKey)) { skipped.push(`${ex.name} (cable)`); continue; }
     // Keyed per-brand like machine/smith (per task scope), but the *value*

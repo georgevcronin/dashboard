@@ -30,15 +30,19 @@ test('no duplicate keys (object literal semantics already guarantee this, but co
 });
 
 test('a substantial dataset was actually produced, not a stub', () => {
-  assert.ok(Object.keys(RESISTANCE_CURVES).length > 1000, 'expected 1000+ entries given the per-brand expansion across machine/cable/smith');
+  assert.ok(Object.keys(RESISTANCE_CURVES).length > 900, 'expected 900+ entries given the per-brand expansion across machine/cable/smith');
 });
 
-test('brand-keyed entries (machine/cable/smith) exist alongside non-brand entries (free weight/bodyweight/kettlebell)', () => {
+// Free weights/bodyweight/kettlebell are deliberately NOT stored here (see
+// the file header) — brand never applies to them, so every key is expected
+// to be brand-keyed. baseRatingFor() (still exported) covers the free-weight
+// case directly instead.
+test('every entry is brand-keyed (machine/cable/smith) — free weights are computed via baseRatingFor(), not stored', () => {
   const keys = Object.keys(RESISTANCE_CURVES);
-  const brandKeyed = keys.filter(k => k.includes('|'));
-  const plainKeyed = keys.filter(k => !k.includes('|'));
-  assert.ok(brandKeyed.length > 0, 'expected at least some brand-keyed entries');
-  assert.ok(plainKeyed.length > 0, 'expected at least some non-brand entries');
+  assert.ok(keys.length > 0, 'expected at least some entries');
+  for (const key of keys) {
+    assert.ok(key.includes('|'), `${key}: expected a brand-keyed "exercise|brand" key, found a plain key`);
+  }
 });
 
 test('SKIPPED is an array of strings, and every skip has a stated reason (not silently dropped)', () => {
