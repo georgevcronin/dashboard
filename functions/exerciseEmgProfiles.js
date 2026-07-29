@@ -169,11 +169,16 @@ const EXERCISE_EMG_PROFILES = {
   // (NECK_EMG's traps column measures traps' role as a neck-extension
   // synergist, not scapular elevation during a shrug -- reusing it would be
   // a genuine misapplication, not just an imperfect proxy), and pullovers.
-  'lateral raise (dumbbell)': { 'mid-delt': 100, 'front-delt': 95 },
-  'lateral raise (cable)': { 'mid-delt': 100, 'front-delt': 95 },
-  'lateral raise (machine)': { 'mid-delt': 100, 'front-delt': 95 },
-  'single-arm cable lateral raise': { 'mid-delt': 100, 'front-delt': 95 },
-  'landmine lateral raise': { 'mid-delt': 100, 'front-delt': 95 },
+  // front-delt corrected from 95 (near-tied with mid-delt) to 22, matching
+  // emgActivation.js's corrected PRESS_FRONTAL_EMG[90] -- the original value
+  // was a snapshot of that table before a bug fix: front-delt is a minor
+  // synergist in a true lateral-raise-plane (90° abduction) movement, not a
+  // near-equal prime mover with mid-delt. See emgActivation.js's PRESS_FRONTAL_EMG comment.
+  'lateral raise (dumbbell)': { 'mid-delt': 100, 'front-delt': 22 },
+  'lateral raise (cable)': { 'mid-delt': 100, 'front-delt': 22 },
+  'lateral raise (machine)': { 'mid-delt': 100, 'front-delt': 22 },
+  'single-arm cable lateral raise': { 'mid-delt': 100, 'front-delt': 22 },
+  'landmine lateral raise': { 'mid-delt': 100, 'front-delt': 22 },
   'cable y-raise': { 'rear-delt': 100, 'mid-traps': 100, 'rhomboids': 91 },
   'incline y-raise (dumbbell)': { 'rear-delt': 100, 'mid-traps': 100, 'rhomboids': 91 },
   'band pull-apart': { 'rear-delt': 95, 'mid-traps': 96, 'rhomboids': 95 },
@@ -367,12 +372,14 @@ const EXERCISE_EMG_PROFILES = {
   'overhead cable face pull': { 'rotator-cuff': 62.33, 'rear-delt': 80 },
 
   // Upright Row: a scaled-up lateral raise with elbows leading -- same
-  // frontal-plane abduction axis and same PRESS_FRONTAL_EMG[90] values
-  // already used for the lateral raise family. Does NOT capture
-  // exerciseDb.js's secondary rhomboids/traps (upright row pulls the bar
-  // higher than a lateral raise, recruiting more upper-trap/scapular-
-  // elevation than pure abduction does -- no axis tracks that difference).
-  'upright row': { 'mid-delt': 100, 'front-delt': 95 },
+  // frontal-plane abduction axis and same corrected PRESS_FRONTAL_EMG[90]
+  // values already used for the lateral raise family (front-delt: 22, a
+  // minor synergist at true 90° abduction, not near-tied with mid-delt).
+  // Does NOT capture exerciseDb.js's secondary rhomboids/traps (upright row
+  // pulls the bar higher than a lateral raise, recruiting more upper-trap/
+  // scapular-elevation than pure abduction does -- no axis tracks that
+  // difference).
+  'upright row': { 'mid-delt': 100, 'front-delt': 22 },
 
   // Hammer Curl / Cross-Body Hammer Curl: exerciseDb.js tags brachialis/
   // brachioradialis as PRIMARY here (biceps secondary) -- the inverse

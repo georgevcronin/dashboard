@@ -66,14 +66,26 @@ const ROW_ANGLE_DESC = '0° = a low pull (e.g. straight-arm pulldown) · 90° = 
 // it to hit what that choice already targets. Capped at 90° -- past that
 // point the movement stops being pure glenohumeral abduction and becomes
 // increasingly scapular, a different mechanism.
+// front-delt previously rose in lockstep with mid-delt, peaking at the same
+// 90° (fully flared to horizontal) as mid-delt -- biomechanically backwards.
+// Anterior deltoid is a flexor/horizontal-adductor: it's most active when the
+// press stays closer to the sagittal plane (elbows in a moderate, not fully
+// flared, position -- the standard "elbows ~30-45° out" pressing cue).
+// Middle deltoid is the abductor, genuinely maximal at full 90° flare (arm in
+// the frontal/lateral-raise plane) -- that value is correct and unchanged.
+// Flaring to 90° for a front-delt-dominant press hands the emphasis to
+// mid-delt and adds real impingement risk, it doesn't "engage front delt
+// harder." front-delt now peaks at 30° and falls off toward 90°, matching
+// that -- a front-delt-dominant profile now recommends a moderate, not
+// fully flared, elbow position.
 const PRESS_FRONTAL_EMG = {
-  0:  { 'front-delt': 10, 'mid-delt': 8,   chest: 8,  biceps: 20, triceps: 15, serratus: 5,  'lower-traps': 3 },
-  15: { 'front-delt': 30, 'mid-delt': 35,  chest: 12, biceps: 25, triceps: 22, serratus: 6,  'lower-traps': 4 },
-  30: { 'front-delt': 50, 'mid-delt': 58,  chest: 15, biceps: 30, triceps: 30, serratus: 8,  'lower-traps': 6 },
-  45: { 'front-delt': 65, 'mid-delt': 75,  chest: 17, biceps: 34, triceps: 38, serratus: 11, 'lower-traps': 9 },
-  60: { 'front-delt': 78, 'mid-delt': 87,  chest: 18, biceps: 37, triceps: 46, serratus: 15, 'lower-traps': 13 },
-  75: { 'front-delt': 88, 'mid-delt': 95,  chest: 18, biceps: 39, triceps: 54, serratus: 22, 'lower-traps': 19 },
-  90: { 'front-delt': 95, 'mid-delt': 100, chest: 17, biceps: 40, triceps: 60, serratus: 32, 'lower-traps': 28 },
+  0:  { 'front-delt': 35, 'mid-delt': 8,   chest: 8,  biceps: 20, triceps: 15, serratus: 5,  'lower-traps': 3 },
+  15: { 'front-delt': 70, 'mid-delt': 35,  chest: 12, biceps: 25, triceps: 22, serratus: 6,  'lower-traps': 4 },
+  30: { 'front-delt': 92, 'mid-delt': 58,  chest: 15, biceps: 30, triceps: 30, serratus: 8,  'lower-traps': 6 },
+  45: { 'front-delt': 82, 'mid-delt': 75,  chest: 17, biceps: 34, triceps: 38, serratus: 11, 'lower-traps': 9 },
+  60: { 'front-delt': 62, 'mid-delt': 87,  chest: 18, biceps: 37, triceps: 46, serratus: 15, 'lower-traps': 13 },
+  75: { 'front-delt': 40, 'mid-delt': 95,  chest: 18, biceps: 39, triceps: 54, serratus: 22, 'lower-traps': 19 },
+  90: { 'front-delt': 22, 'mid-delt': 100, chest: 17, biceps: 40, triceps: 60, serratus: 32, 'lower-traps': 28 },
 };
 
 const ROW_FRONTAL_EMG = {
