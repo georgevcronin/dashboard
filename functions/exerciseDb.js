@@ -596,6 +596,17 @@ const EXERCISE_DB = [
     muscleGroup: "glutes", pattern: "thrust", movementId: "hip-thrust", movementName: "Hip Thrust"
   },
   {
+    id: 'hip-thrust-machine',
+    name: 'Hip Thrust (Machine)',
+    category: 'legs', equipment: 'machine',
+    primary: ['glutes'], secondary: ['hamstrings', 'quads'],
+    curve: 'matching',
+    curveNote: 'Same peak-contraction-meets-peak-moment-arm strength curve as the barbell version, but guided — no bar to pad or balance across the hips, and most machines (e.g. Booty Builder\'s V8/Platinum lines) add a raised-feet or deeper-ROM position the barbell setup cannot replicate.',
+    form: ['Back against the pad, feet on the platform per the machine\'s setup', 'Drive through heels to full hip extension', 'Squeeze glutes hard at the top, avoid lumbar hyperextension', 'Control the descent — the guided path removes balance demand, not tempo discipline'],
+    lesserKnown: false,
+    muscleGroup: "glutes", pattern: "thrust", movementId: "hip-thrust", movementName: "Hip Thrust"
+  },
+  {
     id: 'cable-pull-through',
     name: 'Cable Pull-Through',
     category: 'hinge', equipment: 'cable',

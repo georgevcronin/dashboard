@@ -220,11 +220,12 @@ const NO_CABLE_CURVE_EXERCISES = new Set(['power clean', 'hang clean']);
 // Squat (Machine): moderate confidence — their "V Squat" is a plausible
 // match for the same movement pattern, not a confirmed identical product
 // name, included per the same best-effort standard as the rest of this
-// file. Their actual flagship product (a hip thrust machine) has no
-// corresponding EXERCISE_DB entry to attach to at all — Barbell Hip Thrust
-// and Single-Leg Hip Thrust are both bodyweight/barbell equipment, not
-// 'machine' — so it's absent from this set, not omitted by oversight.
-const BOOTY_BUILDER_EXERCISES = new Set(['adductor machine', 'abductor machine', 'hack squat (machine)']);
+// file. Hip Thrust (Machine): their actual flagship product (V8, Platinum
+// V4, Standing, Dual, Pendulum Hip Press are all real named models) — this
+// exercise didn't exist in EXERCISE_DB when Booty Builder was first added
+// (see .design/feature-brainstorm/EXERCISE_PARAMETERIZATION.md §7), added
+// once the gap was noticed and the exercise itself created.
+const BOOTY_BUILDER_EXERCISES = new Set(['adductor machine', 'abductor machine', 'hack squat (machine)', 'hip thrust (machine)']);
 
 const curves = {};
 const skipped = [];
@@ -287,6 +288,20 @@ for (const ex of EXERCISE_DB) {
 // ---------------------------------------------------------------------------
 // Plate-loaded machine base resistance (kg)
 // ---------------------------------------------------------------------------
+// RECONCILIATION NOTE (functions/limbOptions.js recommends collapsing
+// "Single-Leg Press" into "Leg Press" + a limb flag — see
+// EXERCISE_PARAMETERIZATION.md §9): the 'single-leg press|<brand>' entries
+// below are NOT duplicates of the 'leg press|<brand>' ones and must not be
+// deleted when that collapse eventually ships. They're genuinely different,
+// real values (a single-leg carriage/lever setup has a lighter empty weight
+// than the full bilateral platform — e.g. Hammer Strength: 20kg single-leg
+// vs 32kg leg press). The base-resistance schema doesn't have a limb
+// dimension yet (only exercise+brand), so today "single-leg press" is the
+// only place this second, lighter figure can live. When the actual
+// migration happens, re-key these as the single-leg-specific value under
+// whatever limb-aware schema ships (e.g. 'leg press|<brand>|single') —
+// don't drop the data, carry it forward.
+//
 // Added after the main pass — see .design/feature-brainstorm/
 // EXERCISE_PARAMETERIZATION.md §7. Plate-loaded machines (as opposed to
 // pin/selectorized ones, which select an exact weight-stack number directly)

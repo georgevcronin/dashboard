@@ -39,14 +39,21 @@
 //     independent-per-side. Recorded here as 'shared-default' for the same
 //     reason as cable.
 //
-// Known open conflict, not resolved here (scope guardrail — this task does
-// not modify resistanceCurves.js): "single-leg press" already exists as its
-// own separate key in functions/resistanceCurves.js's PLATE_LOADED_BASE_RESISTANCE_KG
-// and RESISTANCE_CURVES data (from an earlier pass, before this field
-// existed). This file recommends collapsing "Single-Leg Press" into "Leg
-// Press" + a limb flag (see COLLAPSE_MAPPING below) — reconciling that
-// with the already-shipped resistanceCurves.js data is a follow-up, not
-// done as part of this task.
+// Reconciliation with resistanceCurves.js (RESOLVED as a plan, not yet
+// migrated — see that file's own "RECONCILIATION NOTE" above its
+// PLATE_LOADED_BASE_RESISTANCE_KG section): "single-leg press" already
+// exists there as its own separate key, from an earlier pass before this
+// field existed. Collapsing "Single-Leg Press" into "Leg Press" + a limb
+// flag (see COLLAPSE_MAPPING below) is confirmed as the right call — its
+// RESISTANCE_CURVES entry (the curve *shape*) is redundant with "leg
+// press"'s once the collapse ships, but its PLATE_LOADED_BASE_RESISTANCE_KG
+// entries are NOT redundant (a single-leg carriage genuinely has a lighter
+// empty weight than the bilateral platform) and must be re-keyed, not
+// dropped, when the actual exerciseDb.js migration happens. That migration
+// itself (removing the live "Single-Leg Press" entry, wiring the limb field
+// into real logging) hasn't happened yet — consistent with every other
+// collapse recommendation in this file (bench press, curls, etc.) also
+// still being design-only, not yet applied to exerciseDb.js.
 
 const SHARED_DEFAULT = 'shared-default'; // cable/machine: shared-load unless pulleyType/brand says otherwise
 const INDEPENDENT = 'independent-per-side'; // dumbbell always; double-pulley cable, iso-lateral machine brands
@@ -63,7 +70,7 @@ const COLLAPSE_MAPPING = {
     'Single-Arm Cable Row': 'Seated Cable Row',
     'Single-Arm Cable Lateral Raise': 'Lateral Raise (Cable)',
     'Single-Arm Dumbbell Press': 'Dumbbell Bench Press (Flat)',
-    'Single-Leg Press': 'Leg Press', // NOTE: conflicts with resistanceCurves.js's existing separate "single-leg press" key — see file header
+    'Single-Leg Press': 'Leg Press', // NOTE: reconciliation plan confirmed — see this file's header comment and resistanceCurves.js's RECONCILIATION NOTE
     'Single-Arm Cable Pushdown': 'Cable Tricep Pushdown (Bar)', // ambiguous — bar vs. rope attachment already distinguishes the two bilateral entries; picked bar as the closer single-handle match, low confidence
   },
   // Named unilateral, but no clean bilateral counterpart currently exists in
