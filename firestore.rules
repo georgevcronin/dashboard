@@ -62,5 +62,22 @@ service cloud.firestore {
           && request.auth.uid in get(/databases/$(database)/documents/liveSessions/$(sessionId)).data.participantUids;
       }
     }
+
+    // gyms/{gymId} — see .design/feature-brainstorm/GYM_MACHINE_CATALOG.md
+    // §3. Same caveat as usernames/ and liveSessions/ above: not currently
+    // load-bearing (real enforcement — additive-only saves, create-time
+    // proximity dedup — lives in functions/index.js's Admin-SDK endpoints,
+    // which bypass these rules). Written for correctness in case direct
+    // client Firestore access is ever added. Read is open (a shared
+    // directory of physical gyms isn't sensitive); any signed-in user may
+    // create or update, matching the feature's additive-only-by-convention
+    // trust model (§3: "any signed-in user can add ... nobody can remove
+    // another user's entry") — rules can't cheaply express "only append,
+    // never remove" for a map field, so that guarantee stays
+    // server-enforced, same as the 4-participant cap in liveSessions/.
+    match /gyms/{gymId} {
+      allow read: if true;
+      allow create, update: if request.auth != null;
+    }
   }
 }

@@ -20,6 +20,7 @@ const {
   generateUsernameSuggestion, canChangeUsername, usernameChangeAvailableAt,
 } = require('./identity');
 const { computeStimulusContributions } = require('./adaptation');
+const { findNearbyGyms, normalizeExerciseKey, GYM_NEARBY_RADIUS_M } = require('./gyms');
 
 admin.initializeApp();
 const firestore = admin.firestore();
@@ -1802,7 +1803,7 @@ app.post('/exercises/merge', async (req, res) => {
 async function applySessionComplete(data, liftsRef, saveFn, { workout, sets = [], customExercises = [], groupWith = null }) {
   data.workouts = data.workouts || [];
   const existing = data.workouts.findIndex(w => w.date === workout.date);
-  const workoutRecord = { name: workout.name || 'Session', date: workout.date, sets: sets.length, ...(groupWith ? { groupWith } : {}) };
+  const workoutRecord = { name: workout.name || 'Session', date: workout.date, sets: sets.length, ...(groupWith ? { groupWith } : {}), ...(workout.gymId ? { gymId: workout.gymId } : {}) };
   if (existing >= 0) data.workouts[existing] = { ...data.workouts[existing], ...workoutRecord };
   else data.workouts.push(workoutRecord);
 
@@ -2185,6 +2186,84 @@ app.post('/session/:id/leave', async (req, res) => {
   const updatedParticipants = data.participants.map(p => p.uid === req.uid ? { ...p, status: 'left', lastActivityAt: now } : p);
   await ref.update({ participants: updatedParticipants, participantUids: participantUidsOf(updatedParticipants) });
   await deleteSessionIfDone(ref, updatedParticipants);
+  res.json({ ok: true });
+});
+
+// ---------- Gym equipment catalog ----------
+// See .design/feature-brainstorm/GYM_MACHINE_CATALOG.md for the full design.
+// gyms/{gymId} — a shared global directory (not per-user), same reasoning
+// as liveSessions/ above for living outside the per-user wholesale-document
+// pattern: any signed-in user can read/contribute to any gym record.
+// Additive-only by convention (enforced here, in the Admin-SDK endpoints —
+// firestore.rules is not load-bearing, same caveat as liveSessions/): saves
+// only ever add a brand to softBrands or set/replace this gym's own
+// exercise->{brand,model} hard save, never remove another contributor's
+// entry.
+function gymSoftBrandsDefault() { return { cable: [], machine: [], smith: [] }; }
+
+app.post('/gyms', async (req, res) => {
+  const { name, lat, lng, force } = req.body || {};
+  if (!name || typeof lat !== 'number' || typeof lng !== 'number') {
+    return res.status(400).json({ error: 'name, lat, lng required' });
+  }
+  if (!force) {
+    const allSnap = await firestore.collection('gyms').get();
+    const nearby = findNearbyGyms(allSnap.docs.map(d => ({ id: d.id, ...d.data() })), lat, lng, GYM_NEARBY_RADIUS_M);
+    if (nearby.length) return res.json({ matches: nearby });
+  }
+  const now = new Date().toISOString();
+  const ref = firestore.collection('gyms').doc();
+  await ref.set({ name, lat, lng, softBrands: gymSoftBrandsDefault(), hardSaves: {}, createdBy: req.uid, createdAt: now, updatedAt: now });
+  res.json({ gymId: ref.id });
+});
+
+app.get('/gyms/nearby', async (req, res) => {
+  const lat = parseFloat(req.query.lat), lng = parseFloat(req.query.lng);
+  if (Number.isNaN(lat) || Number.isNaN(lng)) return res.status(400).json({ error: 'lat, lng required' });
+  const radius = req.query.radius ? parseFloat(req.query.radius) : GYM_NEARBY_RADIUS_M;
+  const allSnap = await firestore.collection('gyms').get();
+  const nearby = findNearbyGyms(allSnap.docs.map(d => ({ id: d.id, ...d.data() })), lat, lng, radius);
+  res.json({ gyms: nearby });
+});
+
+app.get('/gyms/search', async (req, res) => {
+  const q = (req.query.q || '').toString().trim().toLowerCase();
+  if (!q) return res.json({ gyms: [] });
+  // Simple in-memory substring match, not a prefix-indexed query — fine at
+  // this app's scale (same tradeoff as /food/recent above), and avoids the
+  // FieldPath('__name__') workaround /account/search needed (gymId isn't a
+  // human-typed identifier, so there's no natural doc-ID prefix to query).
+  const allSnap = await firestore.collection('gyms').get();
+  const gyms = allSnap.docs
+    .map(d => ({ id: d.id, ...d.data() }))
+    .filter(g => (g.name || '').toLowerCase().includes(q))
+    .slice(0, 20);
+  res.json({ gyms });
+});
+
+app.get('/gyms/:id', async (req, res) => {
+  const snap = await firestore.collection('gyms').doc(req.params.id).get();
+  if (!snap.exists) return res.status(404).json({ error: 'Gym not found' });
+  res.json({ id: snap.id, ...snap.data() });
+});
+
+app.post('/gyms/:id/save-machine', async (req, res) => {
+  const { equipmentType, brand, exercise, model } = req.body || {};
+  if (!['cable', 'machine', 'smith'].includes(equipmentType) || !brand) {
+    return res.status(400).json({ error: 'equipmentType (cable/machine/smith) and brand required' });
+  }
+  const ref = firestore.collection('gyms').doc(req.params.id);
+  const snap = await ref.get();
+  if (!snap.exists) return res.status(404).json({ error: 'Gym not found' });
+  const data = snap.data();
+  const softBrands = { ...gymSoftBrandsDefault(), ...data.softBrands };
+  if (!softBrands[equipmentType].includes(brand)) softBrands[equipmentType] = [...softBrands[equipmentType], brand];
+
+  const update = { softBrands, updatedAt: new Date().toISOString() };
+  if (exercise) {
+    update[`hardSaves.${normalizeExerciseKey(exercise)}`] = { brand, model: model || null };
+  }
+  await ref.update(update);
   res.json({ ok: true });
 });
 
