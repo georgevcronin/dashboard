@@ -3183,13 +3183,23 @@ function HevyImport({ onClose, refresh }) {
 }
 
 // ── WORKOUT HISTORY ───────────────────────────────────────────────────────────
-function WorkoutHistory({ s, onClose }) {
+function WorkoutHistory({ s, onClose, refresh }) {
   const [expanded, setExpanded] = useState(null);
+  const [confirmDeleteDate, setConfirmDeleteDate] = useState(null);
+  const [deletingDate, setDeletingDate] = useState(null);
   const workouts = useMemo(() => {
     return [...(s?.workouts || [])].sort((a, b) => (b.date || '').localeCompare(a.date || ''));
   }, [s?.workouts]);
 
   const lifts = s?.lifts || [];
+
+  const deleteWorkout = async (date) => {
+    setDeletingDate(date);
+    await api(`workout/${date}`, { method: 'DELETE' });
+    await api('summary').then(refresh);
+    setConfirmDeleteDate(null);
+    setDeletingDate(null);
+  };
 
   const getExerciseSummary = (date) => {
     const dayLifts = lifts.filter(l => l.date === date);
@@ -3226,7 +3236,24 @@ function WorkoutHistory({ s, onClose }) {
                 <span className="hist-date">{w.date}</span>
                 <span className="hist-name">{w.name || 'Session'}</span>
                 {w.duration && <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)' }}>{w.duration}min</span>}
-                <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)', marginLeft: 'auto' }}>{isOpen ? '▲' : '▸'}</span>
+                <span style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }} onClick={e => e.stopPropagation()}>
+                  {confirmDeleteDate === w.date ? (
+                    <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, letterSpacing: '.1em' }}>
+                      Delete?{' '}
+                      <button onClick={() => deleteWorkout(w.date)} disabled={deletingDate === w.date} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--red)', textTransform: 'uppercase', padding: 0 }}>
+                        {deletingDate === w.date ? '…' : 'Yes'}
+                      </button>{' '}
+                      <button onClick={() => setConfirmDeleteDate(null)} disabled={deletingDate === w.date} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--dim)', textTransform: 'uppercase', padding: 0 }}>
+                        No
+                      </button>
+                    </span>
+                  ) : (
+                    <button onClick={() => setConfirmDeleteDate(w.date)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--dim)', fontFamily: "'JetBrains Mono',monospace", fontSize: 8, letterSpacing: '.1em', textTransform: 'uppercase', padding: 0 }}>
+                      Delete
+                    </button>
+                  )}
+                </span>
+                <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)' }}>{isOpen ? '▲' : '▸'}</span>
               </div>
               {isOpen && exercises.length > 0 && (
                 <div className="hist-detail">
@@ -3533,6 +3560,17 @@ function S3({ s, onStartWorkout, onImport, onHistory, refresh }) {
   const sessionLifts = lastSession ? lifts.filter(l => l.date === lastSession.date) : [];
   const [genning, setGenning] = useState(false);
   const [showGroupStart, setShowGroupStart] = useState(false);
+  const [confirmDeleteLast, setConfirmDeleteLast] = useState(false);
+  const [deletingLast, setDeletingLast] = useState(false);
+
+  const deleteLastSession = async () => {
+    if (!lastSession) return;
+    setDeletingLast(true);
+    await api(`workout/${lastSession.date}`, { method: 'DELETE' });
+    await api('summary').then(refresh);
+    setConfirmDeleteLast(false);
+    setDeletingLast(false);
+  };
 
   const exerciseMap = {};
   sessionLifts.forEach(l => {
@@ -3649,7 +3687,26 @@ function S3({ s, onStartWorkout, onImport, onHistory, refresh }) {
         </div>
       )}
       <div className="fade">
-        <div className="kicker">Performance · Strength · {daysAgo != null ? (daysAgo === 0 ? 'Today' : daysAgo === 1 ? 'Yesterday' : `${daysAgo} Days Ago`) : '—'}</div>
+        <div className="kicker" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+          <span>Performance · Strength · {daysAgo != null ? (daysAgo === 0 ? 'Today' : daysAgo === 1 ? 'Yesterday' : `${daysAgo} Days Ago`) : '—'}</span>
+          {lastSession && (
+            confirmDeleteLast ? (
+              <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, letterSpacing: '.1em' }}>
+                Delete this workout?{' '}
+                <button onClick={deleteLastSession} disabled={deletingLast} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--red)', textTransform: 'uppercase', padding: 0 }}>
+                  {deletingLast ? 'Deleting…' : 'Yes'}
+                </button>{' '}
+                <button onClick={() => setConfirmDeleteLast(false)} disabled={deletingLast} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--dim)', textTransform: 'uppercase', padding: 0 }}>
+                  No
+                </button>
+              </span>
+            ) : (
+              <button onClick={() => setConfirmDeleteLast(true)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--dim)', fontFamily: "'JetBrains Mono',monospace", fontSize: 8, letterSpacing: '.1em', textTransform: 'uppercase', padding: 0 }}>
+                Delete
+              </button>
+            )
+          )}
+        </div>
         <div className="headline">
           {topLift ? `${sessionName} Day —` : 'Quiet Gym —'}<br />
           {topLift ? `${topLift.kg > 0 ? `${topLift.kg} kg` : 'BW'} ${topLift.exercise[0].toUpperCase() + topLift.exercise.slice(1)}` : 'Nothing on the Card'}
@@ -8500,7 +8557,7 @@ function App() {
         />
       )}
       {showImport && <HevyImport onClose={() => setShowImport(false)} refresh={setS} />}
-      {showHistory && <WorkoutHistory s={s} onClose={() => setShowHistory(false)} />}
+      {showHistory && <WorkoutHistory s={s} onClose={() => setShowHistory(false)} refresh={setS} />}
     </>
   );
 }

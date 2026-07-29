@@ -1887,6 +1887,22 @@ Write a brief post-session note highlighting what the numbers say — mechanical
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// Deletes an entire saved workout by date -- workouts are one-per-calendar-
+// date (applySessionComplete above overwrites, never appends, a second
+// same-day workoutRecord), so `date` alone is an unambiguous key. Removes
+// both the summary record (db.workouts) and every underlying set logged
+// that day (db.lifts / the liftChunks subcollection) -- leaving the lifts
+// behind after deleting the workout record would silently keep counting
+// them toward fatigue/PRs/strength levels as if the workout still existed.
+app.delete('/workout/:date', async (req, res) => {
+  const { date } = req.params;
+  db.workouts = (db.workouts || []).filter(w => w.date !== date);
+  db.lifts = (db.lifts || []).filter(l => l.date !== date);
+  await removeLiftsAndAppend(liftsDocRef, l => l.date === date, []);
+  await save();
+  res.json({ ok: true });
+});
+
 // ---------- Group workout sessions ----------
 // See .design/feature-brainstorm/GROUP_WORKOUT.md for the full design.
 // liveSessions/{sessionId} + an entries/ subcollection — deliberately a
