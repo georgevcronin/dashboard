@@ -39,6 +39,7 @@ const SELECTORIZED_BRANDS = [
   'Precor', 'Cybex', 'Panatta', 'Nautilus', 'Star Trac',
   'Atlantis Strength', 'Gym80', 'HOIST Fitness', 'SportsArt', 'Keiser',
   'Body-Solid', 'BodyCraft', 'Promaxima', 'TKO',
+  'Booty Builder', // glute/hip-thrust-specialist selectorized machines
 ];
 
 const CABLE_BRANDS = [
