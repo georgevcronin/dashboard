@@ -135,3 +135,17 @@ The existing `functions/emgActivation.js` infrastructure — angle-indexed activ
 
 - **Literal schema** — exact field/property names and shapes (see §6's last bullet).
 - **Table curation sourcing** — where the actual EMG percentages for the elbow-flexion (and eventually row) tables come from, and to what confidence standard, before any recommendation can honestly ship. Separate from and higher-rigor than the resistance-curve data in §7.
+
+## 9. Single-limb / bilateral field
+
+A 6th parameterization field, alongside equipment/angle/rotation (§6), stored the same way (per-exercise-instance, not per-set). Exists to collapse today's separately-named unilateral variants (Single-Arm Dumbbell Press, Single-Leg Press, Single-Arm Lat Pulldown, Single-Leg RDL, Single-Arm Cable Row, etc. — the same shape of proliferation bench press/curls/rows already had) into their bilateral counterpart + a limb flag, rather than leaving them as permanently separate DB entries outside the parameterization model.
+
+### Weight-logging rule
+**Always log whatever's actually set on the equipment — never a value the app computes or transforms.** What differs is what that number *means*, which depends on whether the equipment has one shared load path or an independent one per side:
+
+- **Independent per side (double-pulley cable, iso-lateral machines like Hammer Strength's press/row lines)**: the number is already a per-side reading by construction. Switching single-limb ↔ bilateral never changes it — using one side or both, that side's own resistance is what it is.
+- **Shared load path (single-pulley/single-stack cable, most pin-loaded machines, barbell)**: going bilateral → single-limb roughly **halves** the comparable weight to keep per-limb effort equivalent (one arm alone moving the full stack ≈ two arms sharing double that stack) — and single-limb → bilateral roughly **doubles** it. Worked example: a lat pulldown done bilaterally at 60kg on a single-stack machine ≈ 30kg single-arm on the same machine, since one arm now has to move the whole stack alone that it previously shared with the other.
+- This is a **suggested equivalent weight when switching modes**, not a transformation applied to what gets logged — the athlete still always logs the real number on the equipment; the 2x/0.5x relationship is what the app can *suggest* as a starting point when switching, using the shared-vs-independent distinction already established for `equipment` (§2/§6).
+
+### Scope
+An audit of all 211 exercises is needed to (a) identify which already have a separately-named unilateral variant that should collapse into this model, and (b) judge which of the remaining exercises plausibly support a single-limb option at all (most machine/cable upper-body pulling and pressing movements do; most lower-body compound barbell movements — squats, deadlifts — don't in any normal sense). Not yet done — see next steps.
