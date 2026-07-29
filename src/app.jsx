@@ -2379,6 +2379,7 @@ function WorkoutLogger({ planDay, lifts, customExercises, experienceLevel, onClo
   // sessionPlanner.js's isLowRepPattern for the training-ethos reasoning.
   const hardSetsSoFar = exercises.flatMap(ex => ex.sets.filter(s => s.type !== 'W' && s.done));
   const lowRepPattern = isLowRepPattern(hardSetsSoFar);
+  const hasUncheckedSets = exercises.some(e => e.sets.some(s => !s.done && (s.kg !== '' || s.reps !== '')));
   const th = { fontSize: 8, letterSpacing: '.14em', textTransform: 'uppercase', color: 'var(--dim)', fontWeight: 400, padding: '3px 0', borderBottom: '1px solid var(--rule)', textAlign: 'right' };
 
   return (
@@ -2458,10 +2459,9 @@ function WorkoutLogger({ planDay, lifts, customExercises, experienceLevel, onClo
               const hasData = exercises.some(e => e.sets.some(s => s.done || s.kg !== '' || s.reps !== ''));
               if (hasData) setConfirmAction('discard'); else { clearActiveSession(); onClose(); }
             }}>Discard</button>
-            <button className="ol-btn ol-btn-solid" onClick={() => {
-              const hasUnchecked = exercises.some(e => e.sets.some(s => !s.done && (s.kg !== '' || s.reps !== '')));
-              if (hasUnchecked) setConfirmAction('finish'); else finish();
-            }} disabled={saving}>{finishingGroup ? 'Finishing…' : saving ? 'Saving…' : 'Finish'}</button>
+            <button className="ol-btn ol-btn-solid" onClick={() => setConfirmAction('finish')} disabled={saving}>
+              {finishingGroup ? 'Finishing…' : saving ? 'Saving…' : 'Finish'}
+            </button>
           </div>
         )}
       </div>
@@ -2919,18 +2919,23 @@ function WorkoutLogger({ planDay, lifts, customExercises, experienceLevel, onClo
         </div>
       )}
 
-      {/* Discard/Finish safety prompts — only shown when there's actually
-          something at stake (see the hasData/hasUnchecked checks above). */}
+      {/* Discard/Finish safety prompts. Discard only prompts if there's
+          actually something to lose (hasData check above); Finish now always
+          confirms before ending the session, with a more specific warning
+          layered on top when there's also an unchecked-but-filled-in set
+          about to be silently saved as-is. */}
       {confirmAction && (
         <div style={{ position: 'fixed', inset: 0, zIndex: 1300, background: 'rgba(0,0,0,.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
           <div style={{ background: 'var(--paper)', border: '3px solid var(--ink)', padding: 24, maxWidth: 340, width: '100%' }}>
             <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 17, fontWeight: 700, marginBottom: 10, color: 'var(--ink)' }}>
-              {confirmAction === 'discard' ? 'Discard this workout?' : 'Finish with unchecked sets?'}
+              {confirmAction === 'discard' ? 'Discard this workout?' : hasUncheckedSets ? 'Finish with unchecked sets?' : 'End this workout?'}
             </div>
             <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 11, color: 'var(--dim)', lineHeight: 1.6, marginBottom: 20 }}>
               {confirmAction === 'discard'
                 ? 'Every set you\'ve entered will be lost — this can\'t be undone.'
-                : 'Some sets have a weight or rep count entered but were never checked off. Finishing now will save them as-is without a coaching cue, and they won\'t get another chance to be reviewed.'}
+                : hasUncheckedSets
+                  ? 'Some sets have a weight or rep count entered but were never checked off. Finishing now will save them as-is without a coaching cue, and they won\'t get another chance to be reviewed.'
+                  : 'You\'ll save what\'s logged so far and end this session.'}
             </div>
             <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
               <button className="ol-btn ol-btn-ghost" onClick={() => setConfirmAction(null)}>Cancel</button>
@@ -2938,7 +2943,7 @@ function WorkoutLogger({ planDay, lifts, customExercises, experienceLevel, onClo
                 const action = confirmAction;
                 setConfirmAction(null);
                 if (action === 'discard') { clearActiveSession(); onClose(); } else finish();
-              }}>{confirmAction === 'discard' ? 'Discard' : 'Finish Anyway'}</button>
+              }}>{confirmAction === 'discard' ? 'Discard' : 'Finish'}</button>
             </div>
           </div>
         </div>
