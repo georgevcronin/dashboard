@@ -1827,6 +1827,7 @@ async function applySessionComplete(data, liftsRef, saveFn, { workout, sets = []
       exercise: s.exercise, kg: +s.kg, reps: +s.reps, rpe: s.rpe || null, date: workout.date,
       ...(s.type && s.type !== 'N' ? { type: s.type } : {}),
       ...(s.machine ? { machine: s.machine } : {}), ...(s.pulleyType ? { pulleyType: s.pulleyType } : {}),
+      ...(s.model ? { model: s.model } : {}),
       ...(s.emgWeights ? { emgWeights: s.emgWeights } : {}),
     }));
   const isReplacedToday = l => l.date === workout.date && sets.some(s => s.exercise === l.exercise);
@@ -1947,7 +1948,7 @@ async function deleteSessionIfDone(sessionRef, participants) {
 }
 
 function sessionEntryToSet(entry) {
-  return { exercise: entry.exercise, kg: entry.kg, reps: entry.reps, rpe: entry.rpe, type: entry.type, machine: entry.machine, pulleyType: entry.pulleyType };
+  return { exercise: entry.exercise, kg: entry.kg, reps: entry.reps, rpe: entry.rpe, type: entry.type, machine: entry.machine, pulleyType: entry.pulleyType, model: entry.model };
 }
 
 // No real Cloud Scheduler job backs the 1-hour inactivity timeout (that's
@@ -2048,7 +2049,7 @@ app.post('/session/:id/merge', async (req, res) => {
     batch.set(ref.collection('entries').doc(), {
       uid: req.uid, lastEditedBy: req.uid,
       exercise: s.exercise, kg: s.kg ?? null, reps: s.reps ?? null, rpe: s.rpe ?? null,
-      type: s.type || null, machine: s.machine || null, pulleyType: s.pulleyType || null,
+      type: s.type || null, machine: s.machine || null, pulleyType: s.pulleyType || null, model: s.model || null,
       loggedAt: now, updatedAt: now,
     });
   }
@@ -2086,12 +2087,12 @@ app.post('/session/:id/entries', async (req, res) => {
   const owner = data.participants.find(p => p.uid === req.body?.uid);
   if (!owner || owner.status !== 'active') return res.status(400).json({ error: 'That participant is not active in this session' });
   const now = new Date().toISOString();
-  const { exercise, kg, reps, rpe, type, machine, pulleyType } = req.body;
+  const { exercise, kg, reps, rpe, type, machine, pulleyType, model } = req.body;
   const entryRef = ref.collection('entries').doc();
   await entryRef.set({
     uid: owner.uid, lastEditedBy: req.uid,
     exercise: exercise || null, kg: kg ?? null, reps: reps ?? null, rpe: rpe ?? null,
-    type: type || null, machine: machine || null, pulleyType: pulleyType || null,
+    type: type || null, machine: machine || null, pulleyType: pulleyType || null, model: model || null,
     loggedAt: now, updatedAt: now,
   });
   await touchActivity(ref, data, req.uid);
@@ -2114,7 +2115,7 @@ app.put('/session/:id/entries/:entryId', async (req, res) => {
   if (!entrySnap.exists) return res.status(404).json({ error: 'Entry not found' });
   const owner = data.participants.find(p => p.uid === entrySnap.data().uid);
   if (!owner || owner.status !== 'active') return res.status(403).json({ error: "That participant's data is locked — they've already left or finished" });
-  const { exercise, kg, reps, rpe, type, machine, pulleyType } = req.body;
+  const { exercise, kg, reps, rpe, type, machine, pulleyType, model } = req.body;
   const patch = { lastEditedBy: req.uid, updatedAt: new Date().toISOString() };
   if (exercise !== undefined) patch.exercise = exercise;
   if (kg !== undefined) patch.kg = kg;
@@ -2123,6 +2124,7 @@ app.put('/session/:id/entries/:entryId', async (req, res) => {
   if (type !== undefined) patch.type = type;
   if (machine !== undefined) patch.machine = machine;
   if (pulleyType !== undefined) patch.pulleyType = pulleyType;
+  if (model !== undefined) patch.model = model;
   await entryRef.update(patch);
   await touchActivity(ref, data, req.uid);
   res.json({ ok: true });

@@ -8,6 +8,8 @@ import fatiguePkg from '../functions/fatigue.js';
 import sessionPlannerPkg from '../functions/sessionPlanner.js';
 import strengthStandardsPkg from '../functions/strengthStandards.js';
 import machineBrandsPkg from '../functions/machineBrands.js';
+import machineModelsPkg from '../functions/machineModels.js';
+import resistanceCurvesPkg from '../functions/resistanceCurves.js';
 import adaptationPkg from '../functions/adaptation.js';
 import plateCalculatorPkg from '../functions/plateCalculator.js';
 import progressionPkg from '../functions/progression.js';
@@ -34,6 +36,8 @@ const { computeStructuralFatigue, computeACWR, computePerformanceTrend, computeM
 const { progressionFor, suggestedWorkingSetCount, suggestedRirSequence, isLowRepPattern, LOW_REP_THRESHOLD, estimateSessionDurationMin, capSessionDuration } = sessionPlannerPkg;
 const { e1rm: calcE1RM } = strengthStandardsPkg;
 const { defaultMachineBrands } = machineBrandsPkg;
+const { MACHINE_MODELS } = machineModelsPkg;
+const { normalize: normalizeExerciseKeyPkg } = resistanceCurvesPkg;
 const {
   sessionStimulusScore, adaptationCurve, computeStimulusContributions, computeAdaptationLevel,
   computeAdaptationSeries, estimateAtrophyRate, DEFAULT_ATROPHY_RATE, SECONDARY_MUSCLE_WEIGHT, DEFAULT_RIR,
@@ -823,6 +827,13 @@ const glycogenPct = (elapsedS, totalS) => {
 // instead of the list. v0.1 is the first tracked release, not literally the
 // app's first version — everything before this had no changelog at all.
 const CHANGELOG = [
+  {
+    version: '0.58',
+    date: '2026-07-29',
+    features: [
+      'Added gym equipment presets: starting a workout now silently checks your location against a shared directory of gyms and offers "At [Gym] · change" if it finds one nearby, or "+ Set Gym" to search/add one yourself. With a gym active, the Machine/Brand dropdown shows that gym\'s known brands first (under "In your gym"), and a new Model field lets you tag the exact named machine (e.g. "Life Fitness — Insignia Series Leg Press") — researched against real manufacturer product lines for 29 brands. Whatever you pick while a gym is active saves back to it automatically, so the next person (or you, next visit) sees it prefilled.',
+    ],
+  },
   {
     version: '0.57',
     date: '2026-07-29',
@@ -1813,6 +1824,18 @@ function WorkoutLogger({ planDay, lifts, customExercises, experienceLevel, onClo
   // never checked off, since that's exactly the kind of set easy to
   // overlook walking away from the gym.
   const [confirmAction, setConfirmAction] = useState(null);
+  // ── Gym equipment catalog ────────────────────────────────────────────────
+  // See .design/feature-brainstorm/GYM_MACHINE_CATALOG.md. activeGym/
+  // gymDetectDone are part of the restored-session snapshot (saveActiveSession
+  // below) so "once per workout, at start" survives a mid-workout reload
+  // instead of re-prompting every time. gymDetail (the gym's full soft/hard
+  // save data) is transient — refetched from the id whenever it's missing.
+  const [activeGym, setActiveGym] = useState(() => restored?.activeGym || null); // { id, name }
+  const [gymDetectDone, setGymDetectDone] = useState(() => !!restored?.gymDetectDone);
+  const [gymDetail, setGymDetail] = useState(null); // { softBrands, hardSaves }
+  const [gymCandidates, setGymCandidates] = useState(null); // multiple nearby matches, awaiting a pick
+  const [showGymPicker, setShowGymPicker] = useState(false);
+  const lastCoordsRef = useRef(null);
   // ── Group session (inline, not a separate page) ─────────────────────────
   // See .design/feature-brainstorm/GROUP_WORKOUT.md. "Your own tab" IS this
   // component's normal exercises state/UI, unchanged — no separate view for
@@ -1903,8 +1926,59 @@ function WorkoutLogger({ planDay, lifts, customExercises, experienceLevel, onClo
   // point instead of leaving a finished session's snapshot behind.
   useEffect(() => {
     if (summary || loading) return;
-    saveActiveSession({ planDay, exercises, newCustomExercises, startedAt: start, rest });
-  }, [planDay, exercises, newCustomExercises, start, summary, loading, rest]);
+    saveActiveSession({ planDay, exercises, newCustomExercises, startedAt: start, rest, activeGym, gymDetectDone });
+  }, [planDay, exercises, newCustomExercises, start, summary, loading, rest, activeGym, gymDetectDone]);
+
+  // Auto-detect gym once per workout, at start (GYM_MACHINE_CATALOG.md §4).
+  // gymDetectDone gets set true regardless of outcome (denied, no match,
+  // multiple matches) so this never re-prompts mid-workout on a reload.
+  useEffect(() => {
+    if (gymDetectDone || !navigator.geolocation) { if (!navigator.geolocation) setGymDetectDone(true); return; }
+    navigator.geolocation.getCurrentPosition(
+      async pos => {
+        const { latitude, longitude } = pos.coords;
+        lastCoordsRef.current = { lat: latitude, lng: longitude };
+        try {
+          const r = await api(`gyms/nearby?lat=${latitude}&lng=${longitude}`);
+          const gyms = r.gyms || [];
+          if (gyms.length === 1) setActiveGym({ id: gyms[0].id, name: gyms[0].name });
+          else if (gyms.length > 1) setGymCandidates(gyms);
+        } catch {}
+        setGymDetectDone(true);
+      },
+      () => setGymDetectDone(true),
+      { timeout: 8000 },
+    );
+  }, []);
+
+  useEffect(() => {
+    if (!activeGym) { setGymDetail(null); return; }
+    api(`gyms/${activeGym.id}`).then(setGymDetail).catch(() => setGymDetail(null));
+  }, [activeGym?.id]);
+
+  // Implicit soft/hard save (GYM_MACHINE_CATALOG.md §5) — whatever
+  // brand/model you pick while an active gym is set is saved back to it,
+  // no separate "add a machine" screen. Fire-and-forget: a failed save
+  // shouldn't block logging, and gymDetail is optimistically patched so the
+  // "in your gym"/prefill UI reflects it immediately rather than waiting on
+  // a refetch.
+  const saveToGym = (exerciseName, equipmentType, brand, model) => {
+    if (!activeGym || !brand) return;
+    const key = exerciseName.toLowerCase().trim();
+    api(`gyms/${activeGym.id}/save-machine`, {
+      method: 'POST',
+      body: JSON.stringify({ equipmentType, brand, exercise: exerciseName, model: model || undefined }),
+    }).catch(() => {});
+    setGymDetail(gd => {
+      const base = gd || { softBrands: { cable: [], machine: [], smith: [] }, hardSaves: {} };
+      const list = base.softBrands[equipmentType] || [];
+      return {
+        ...base,
+        softBrands: { ...base.softBrands, [equipmentType]: list.includes(brand) ? list : [...list, brand] },
+        hardSaves: { ...base.hardSaves, [key]: { brand, model: model || null } },
+      };
+    });
+  };
 
   // No countdown/auto-clear effect on purpose — the banner is meant to
   // persist (glycogen capped at 100%) once rest is over, not disappear on
@@ -1954,7 +2028,14 @@ function WorkoutLogger({ planDay, lifts, customExercises, experienceLevel, onClo
     const prev = prevData[key];
     const sets = prev?.sets?.map(s => ({ type: s.type || 'N', kg: String(s.kg || ''), reps: String(s.reps || ''), rpe: '', done: false }))
       || [{ type: 'N', kg: suggestedKg ? String(suggestedKg) : '', reps: '', rpe: '', done: false }];
-    setExercises(p => [...p, { name: key, targetReps: 8, sets, ...(effective.emgWeights ? { emgWeights: effective.emgWeights, pattern: effective.pattern, equipment: effective.equipment } : {}) }]);
+    // Prefill from this gym's hard save (GYM_MACHINE_CATALOG.md §5) if one
+    // exists for this exercise — the whole point of a hard save.
+    const hardSave = activeGym && gymDetail?.hardSaves?.[key];
+    setExercises(p => [...p, {
+      name: key, targetReps: 8, sets,
+      ...(effective.emgWeights ? { emgWeights: effective.emgWeights, pattern: effective.pattern, equipment: effective.equipment } : {}),
+      ...(hardSave ? { machine: hardSave.brand, ...(hardSave.model ? { model: hardSave.model } : {}) } : {}),
+    }]);
     setNewEx(''); setSuggestions([]);
     setTimeout(() => inputRef.current?.focus(), 50);
     // No progression fetch here — the render below already calls
@@ -2151,7 +2232,7 @@ function WorkoutLogger({ planDay, lifts, customExercises, experienceLevel, onClo
         sets.push({
           exercise: ex.name, kg: st.kg, reps: st.reps, rpe: st.rpe || null,
           type: st.type && st.type !== 'N' ? st.type : null,
-          machine: ex.machine || null, pulleyType: ex.pulleyType || null,
+          machine: ex.machine || null, pulleyType: ex.pulleyType || null, model: ex.model || null,
         });
       }
     }));
@@ -2237,6 +2318,7 @@ function WorkoutLogger({ planDay, lifts, customExercises, experienceLevel, onClo
       ...(s.type && s.type !== 'N' ? { type: s.type } : {}),
       ...(ex.machine ? { machine: ex.machine } : {}),
       ...(ex.pulleyType ? { pulleyType: ex.pulleyType } : {}),
+      ...(ex.model ? { model: ex.model } : {}),
       ...(ex.emgWeights ? { emgWeights: ex.emgWeights } : {}),
     })));
     try {
@@ -2250,16 +2332,16 @@ function WorkoutLogger({ planDay, lifts, customExercises, experienceLevel, onClo
         await api(`session/${groupSessionId}/merge`, { method: 'POST', body: JSON.stringify({ sets: setsToSync(exercises) }) }).catch(() => {});
         const fresh = await api(`session/${groupSessionId}`).catch(() => null);
         const myEntries = (fresh?.entries || groupData?.entries || []).filter(e => e.uid === myUid && e.exercise && e.kg && e.reps);
-        const finalSets = myEntries.map(e => ({ exercise: e.exercise, kg: e.kg, reps: e.reps, rpe: e.rpe, type: e.type, machine: e.machine, pulleyType: e.pulleyType }));
+        const finalSets = myEntries.map(e => ({ exercise: e.exercise, kg: e.kg, reps: e.reps, rpe: e.rpe, type: e.type, machine: e.machine, pulleyType: e.pulleyType, model: e.model }));
         r = await api(`session/${groupSessionId}/finish`, {
           method: 'POST',
-          body: JSON.stringify({ workout: { name: planDay?.sessions?.[0]?.title || 'Session', date: today }, sets: finalSets, customExercises: newCustomExercises }),
+          body: JSON.stringify({ workout: { name: planDay?.sessions?.[0]?.title || 'Session', date: today, ...(activeGym ? { gymId: activeGym.id } : {}) }, sets: finalSets, customExercises: newCustomExercises }),
         });
         persistGroupSessionId(null); setGroupData(null); setFinishingGroup(false);
       } else {
         r = await api('session/complete', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ workout: { name: planDay?.sessions?.[0]?.title || 'Session', date: today }, sets: allSets, customExercises: newCustomExercises }),
+          body: JSON.stringify({ workout: { name: planDay?.sessions?.[0]?.title || 'Session', date: today, ...(activeGym ? { gymId: activeGym.id } : {}) }, sets: allSets, customExercises: newCustomExercises }),
         });
       }
       clearActiveSession(); // saved server-side now — stop persisting/offering to restore this one
@@ -2315,6 +2397,32 @@ function WorkoutLogger({ planDay, lifts, customExercises, experienceLevel, onClo
           {!summary && !groupSessionId && (
             <button onClick={() => setShowGroupStart(true)} style={{ marginTop: 4, background: 'none', border: 'none', fontFamily: "'JetBrains Mono',monospace", fontSize: 8, letterSpacing: '.1em', textTransform: 'uppercase', color: 'var(--dim)', cursor: 'pointer', padding: 0 }}>
               + Group Session
+            </button>
+          )}
+          {/* Gym auto-detect indicator/picker (GYM_MACHINE_CATALOG.md §4).
+              Multiple nearby matches don't auto-pick — a short inline
+              chooser instead. Once resolved (or dismissed), the small
+              "At [gym] · change" link is the only entry point back in. */}
+          {!summary && gymCandidates && (
+            <div style={{ marginTop: 4, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', fontFamily: "'JetBrains Mono',monospace", fontSize: 8, letterSpacing: '.1em', textTransform: 'uppercase', color: 'var(--dim)' }}>
+              <span>Which gym?</span>
+              {gymCandidates.map(g => (
+                <button key={g.id} onClick={() => { setActiveGym({ id: g.id, name: g.name }); setGymCandidates(null); }}
+                  style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'var(--ink)', textDecoration: 'underline', textTransform: 'none', letterSpacing: 0 }}>
+                  {g.name}
+                </button>
+              ))}
+              <button onClick={() => setGymCandidates(null)} style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'var(--dim)' }}>None</button>
+            </div>
+          )}
+          {!summary && !gymCandidates && activeGym && (
+            <button onClick={() => setShowGymPicker(true)} style={{ marginTop: 4, background: 'none', border: 'none', fontFamily: "'JetBrains Mono',monospace", fontSize: 8, letterSpacing: '.1em', textTransform: 'uppercase', color: 'var(--dim)', cursor: 'pointer', padding: 0 }}>
+              At {activeGym.name} · change
+            </button>
+          )}
+          {!summary && !gymCandidates && !activeGym && gymDetectDone && (
+            <button onClick={() => setShowGymPicker(true)} style={{ marginTop: 4, background: 'none', border: 'none', fontFamily: "'JetBrains Mono',monospace", fontSize: 8, letterSpacing: '.1em', textTransform: 'uppercase', color: 'var(--dim)', cursor: 'pointer', padding: 0 }}>
+              + Set Gym
             </button>
           )}
           {/* Tab strip appears here once a group session is attached — a
@@ -2572,7 +2680,17 @@ function WorkoutLogger({ planDay, lifts, customExercises, experienceLevel, onClo
                         </>
                       );
                     }
+                    // Gym-scoped brands (GYM_MACHINE_CATALOG.md §5) surface
+                    // first via a labeled <optgroup> — a native, no-JS way to
+                    // get a divider inside a <select> — with the full
+                    // catalog below. saveToGym below is the implicit
+                    // soft/hard-save side effect of picking here; there's no
+                    // separate "add a machine" screen.
+                    const gymBrands = (activeGym && gymDetail?.softBrands?.[equipment]) || [];
+                    const otherBrands = brands.filter(b => !gymBrands.includes(b));
                     const showOther = otherMachineRows.has(i) || (ex.machine && !brands.includes(ex.machine));
+                    const modelKey = ex.machine ? `${normalizeExerciseKeyPkg(ex.name)}|${ex.machine.toLowerCase()}` : null;
+                    const suggestedModel = modelKey ? MACHINE_MODELS[modelKey] : null;
                     return (
                       <>
                         <select value={showOther ? '__other__' : (ex.machine || '')}
@@ -2580,17 +2698,45 @@ function WorkoutLogger({ planDay, lifts, customExercises, experienceLevel, onClo
                             const v = e.target.value;
                             if (v === '__other__') { setOtherMachineRows(p => new Set(p).add(i)); return; }
                             setOtherMachineRows(p => { const n = new Set(p); n.delete(i); return n; });
-                            setExercises(p => p.map((el, j) => j !== i ? el : { ...el, machine: v }));
+                            // A researched-catalog suggestion (MACHINE_MODELS)
+                            // is committed to state here, not just shown as a
+                            // placeholder — otherwise the model input below
+                            // could display a suggestion that silently never
+                            // gets saved if the user never touches it.
+                            const nextModel = ex.model || (v ? MACHINE_MODELS[`${normalizeExerciseKeyPkg(ex.name)}|${v.toLowerCase()}`] : undefined) || '';
+                            setExercises(p => p.map((el, j) => j !== i ? el : { ...el, machine: v, model: nextModel }));
+                            if (v) saveToGym(ex.name, equipment, v, nextModel);
                           }}
                           style={tagStyle}>
                           <option value="">Brand (optional)</option>
-                          {brands.map(b => <option key={b} value={b}>{b}</option>)}
+                          {gymBrands.length > 0 ? (
+                            <>
+                              <optgroup label="In your gym">
+                                {gymBrands.map(b => <option key={b} value={b}>{b}</option>)}
+                              </optgroup>
+                              <optgroup label="All brands">
+                                {otherBrands.map(b => <option key={b} value={b}>{b}</option>)}
+                              </optgroup>
+                            </>
+                          ) : otherBrands.map(b => <option key={b} value={b}>{b}</option>)}
                           <option value="__other__">Other…</option>
                         </select>
                         {showOther && (
                           <input value={ex.machine || ''} placeholder="Gym/brand name" autoFocus
                             onChange={e => setExercises(p => p.map((el, j) => j !== i ? el : { ...el, machine: e.target.value }))}
+                            onBlur={e => e.target.value && saveToGym(ex.name, equipment, e.target.value, ex.model)}
                             style={{ ...tagStyle, width: 120 }} />
+                        )}
+                        {ex.machine && (
+                          <>
+                            <input list={`model-tags-${i}`} value={ex.model || ''} placeholder="Model (optional)"
+                              onChange={e => setExercises(p => p.map((el, j) => j !== i ? el : { ...el, model: e.target.value }))}
+                              onBlur={e => e.target.value && saveToGym(ex.name, equipment, ex.machine, e.target.value)}
+                              style={{ ...tagStyle, width: 150 }} />
+                            <datalist id={`model-tags-${i}`}>
+                              {suggestedModel && <option value={suggestedModel} />}
+                            </datalist>
+                          </>
                         )}
                         {equipment === 'cable' && (
                           <select value={ex.pulleyType || ''}
@@ -2801,6 +2947,15 @@ function WorkoutLogger({ planDay, lifts, customExercises, experienceLevel, onClo
         <GroupSessionStartModal
           onClose={() => setShowGroupStart(false)}
           onStarted={(sessionId) => { persistGroupSessionId(sessionId); setShowGroupStart(false); }}
+        />
+      )}
+      {showGymPicker && (
+        <GymPickerModal
+          activeGym={activeGym}
+          lastCoordsRef={lastCoordsRef}
+          onClose={() => setShowGymPicker(false)}
+          onSelect={g => { setActiveGym(g); setGymCandidates(null); setShowGymPicker(false); }}
+          onClear={() => { setActiveGym(null); setShowGymPicker(false); }}
         />
       )}
     </div>
@@ -3273,6 +3428,97 @@ function GroupSessionStartModal({ onClose, onStarted }) {
         <button className="ob-next" style={{ width: '100%', padding: '14px 0', marginTop: 14 }} onClick={joinSession} disabled={busy || !joinCode.trim()}>
           {busy ? 'Joining…' : 'Join'}
         </button>
+        {error && <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--red)', marginTop: 14 }}>{error}</div>}
+      </div>
+    </div>
+  );
+}
+
+// Manual gym selection/creation — the fallback to auto-detect
+// (GYM_MACHINE_CATALOG.md §4), also how you change/clear a wrong auto-pick.
+// Creating a gym runs the same proximity dedup as auto-detect: if the
+// backend finds existing gyms nearby it returns them as `matches` instead of
+// creating, and this shows them so the user can pick one or force-create.
+function GymPickerModal({ activeGym, lastCoordsRef, onClose, onSelect, onClear }) {
+  const [query, setQuery] = useState('');
+  const [results, setResults] = useState([]);
+  const [searching, setSearching] = useState(false);
+  const [newName, setNewName] = useState('');
+  const [matches, setMatches] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (!query.trim()) { setResults([]); return; }
+    setSearching(true);
+    const t = setTimeout(() => {
+      api(`gyms/search?q=${encodeURIComponent(query.trim())}`)
+        .then(r => setResults(r.gyms || [])).catch(() => setResults([])).finally(() => setSearching(false));
+    }, 300);
+    return () => clearTimeout(t);
+  }, [query]);
+
+  const createGym = async (force) => {
+    if (!newName.trim()) return;
+    setBusy(true); setError('');
+    let coords = lastCoordsRef.current;
+    if (!coords && navigator.geolocation) {
+      coords = await new Promise(resolve => navigator.geolocation.getCurrentPosition(
+        pos => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+        () => resolve(null), { timeout: 8000 },
+      ));
+    }
+    if (!coords) { setError('Location needed to add a gym — allow location access and try again.'); setBusy(false); return; }
+    try {
+      const r = await api('gyms', { method: 'POST', body: JSON.stringify({ name: newName.trim(), lat: coords.lat, lng: coords.lng, force }) });
+      if (r.matches?.length) { setMatches(r.matches); setBusy(false); return; }
+      onSelect({ id: r.gymId, name: newName.trim() });
+    } catch { setError('Could not add gym — try again.'); setBusy(false); }
+  };
+
+  const inputStyle = { width: '100%', border: 'none', borderBottom: '2px solid var(--ink)', padding: '8px 0', background: 'transparent', fontFamily: 'Times New Roman,serif', fontSize: 16, outline: 'none', color: 'var(--ink)', boxSizing: 'border-box' };
+  const rowBtn = { display: 'block', width: '100%', textAlign: 'left', background: 'none', border: 'none', borderBottom: '1px solid var(--rule)', padding: '10px 0', cursor: 'pointer', fontFamily: "'JetBrains Mono',monospace", fontSize: 12, color: 'var(--ink)' };
+
+  return (
+    <div className="onboard-overlay" style={{ zIndex: 9998 }}>
+      <div className="ob-wrap">
+        <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--dim)', fontFamily: "'JetBrains Mono',monospace", fontSize: 9, letterSpacing: '.12em', textTransform: 'uppercase', padding: 0, marginBottom: 20 }}>← Back</button>
+        <div className="ob-h">Gym</div>
+        <div className="ob-deck">Pick your gym to prefill the brands/models you've already tagged there.</div>
+
+        {activeGym && (
+          <div style={{ marginBottom: 24 }}>
+            <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 11, marginBottom: 8 }}>Currently: {activeGym.name}</div>
+            <button className="ob-next" style={{ width: '100%', padding: '10px 0' }} onClick={onClear}>Clear Gym</button>
+          </div>
+        )}
+
+        <label className="ob-label">Search</label>
+        <input style={inputStyle} value={query} placeholder="Gym name" onChange={e => setQuery(e.target.value)} />
+        {searching && <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)', marginTop: 8 }}>Searching…</div>}
+        {results.map(g => (
+          <button key={g.id} onClick={() => onSelect({ id: g.id, name: g.name })} style={rowBtn}>{g.name}</button>
+        ))}
+
+        {matches ? (
+          <div style={{ marginTop: 24 }}>
+            <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, letterSpacing: '.1em', textTransform: 'uppercase', color: 'var(--dim)', marginBottom: 8 }}>Found nearby — is this it?</div>
+            {matches.map(g => (
+              <button key={g.id} onClick={() => onSelect({ id: g.id, name: g.name })} style={rowBtn}>{g.name} · {g.distanceMeters}m away</button>
+            ))}
+            <button className="ob-next" style={{ width: '100%', padding: '14px 0', marginTop: 14 }} onClick={() => createGym(true)} disabled={busy}>
+              {busy ? 'Adding…' : "No, it's a new gym"}
+            </button>
+          </div>
+        ) : (
+          <>
+            <label className="ob-label" style={{ marginTop: 24 }}>Not listed? Add it</label>
+            <input style={inputStyle} value={newName} placeholder="Gym name" onChange={e => setNewName(e.target.value)} />
+            <button className="ob-next" style={{ width: '100%', padding: '14px 0', marginTop: 14 }} onClick={() => createGym(false)} disabled={busy || !newName.trim()}>
+              {busy ? 'Adding…' : 'Add This Gym'}
+            </button>
+          </>
+        )}
         {error && <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--red)', marginTop: 14 }}>{error}</div>}
       </div>
     </div>
