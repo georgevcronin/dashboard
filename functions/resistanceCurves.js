@@ -214,6 +214,18 @@ const SELECTORIZED_TIER_PULL = {
 
 const NO_CABLE_CURVE_EXERCISES = new Set(['power clean', 'hang clean']);
 
+// Booty Builder's real 'machine'-equipment matches against this codebase's
+// current EXERCISE_DB — see the SELECTORIZED_TIER_PULL loop's comment.
+// Adductor/Abductor Machine: directly confirmed against their catalog. Hack
+// Squat (Machine): moderate confidence — their "V Squat" is a plausible
+// match for the same movement pattern, not a confirmed identical product
+// name, included per the same best-effort standard as the rest of this
+// file. Their actual flagship product (a hip thrust machine) has no
+// corresponding EXERCISE_DB entry to attach to at all — Barbell Hip Thrust
+// and Single-Leg Hip Thrust are both bodyweight/barbell equipment, not
+// 'machine' — so it's absent from this set, not omitted by oversight.
+const BOOTY_BUILDER_EXERCISES = new Set(['adductor machine', 'abductor machine', 'hack squat (machine)']);
+
 const curves = {};
 const skipped = [];
 
@@ -250,6 +262,18 @@ for (const ex of EXERCISE_DB) {
     }
   } else if (ex.equipment === 'machine') {
     for (const brand of SELECTORIZED_BRANDS) {
+      // Most brands here are general-purpose commercial-gym manufacturers
+      // with a broad enough range that "makes some version of most machine
+      // exercises" is a reasonable assumption. Booty Builder is a genuine
+      // exception, not a pattern to extend to other brands casually — they
+      // are a real, narrow glute/hip-thrust specialist (verified against
+      // their actual product catalog: hip thrust machines, a V Squat,
+      // adductor/abductor machines — no lat pulldown, pec deck, leg curl,
+      // chest/shoulder press, calf raise, or bicep curl machines exist in
+      // their lineup at all). Generating entries for them on every machine
+      // exercise fabricated 26 of 28 entries; restricted here to the
+      // exercises they're actually confirmed or plausibly likely to make.
+      if (brand === 'Booty Builder' && !BOOTY_BUILDER_EXERCISES.has(nameKey)) continue;
       const pull = SELECTORIZED_TIER_PULL[brand] ?? 1;
       curves[`${nameKey}|${brand.toLowerCase()}`] = pullToward3(base, pull);
     }
