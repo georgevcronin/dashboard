@@ -2380,6 +2380,7 @@ function WorkoutLogger({ planDay, lifts, customExercises, experienceLevel, onClo
   const hardSetsSoFar = exercises.flatMap(ex => ex.sets.filter(s => s.type !== 'W' && s.done));
   const lowRepPattern = isLowRepPattern(hardSetsSoFar);
   const hasUncheckedSets = exercises.some(e => e.sets.some(s => !s.done && (s.kg !== '' || s.reps !== '')));
+  const hasLoggedData = exercises.some(e => e.sets.some(s => s.done || s.kg !== '' || s.reps !== ''));
   const th = { fontSize: 8, letterSpacing: '.14em', textTransform: 'uppercase', color: 'var(--dim)', fontWeight: 400, padding: '3px 0', borderBottom: '1px solid var(--rule)', textAlign: 'right' };
 
   return (
@@ -2456,10 +2457,13 @@ function WorkoutLogger({ planDay, lifts, customExercises, experienceLevel, onClo
         ) : (
           <div style={{ display: 'flex', gap: 8 }}>
             <button className="ol-btn ol-btn-ghost" onClick={() => {
-              const hasData = exercises.some(e => e.sets.some(s => s.done || s.kg !== '' || s.reps !== ''));
-              if (hasData) setConfirmAction('discard'); else { clearActiveSession(); onClose(); }
+              if (hasLoggedData) setConfirmAction('discard'); else { clearActiveSession(); onClose(); }
             }}>Discard</button>
-            <button className="ol-btn ol-btn-solid" onClick={() => setConfirmAction('finish')} disabled={saving}>
+            {/* Nothing logged yet -- Finish is disabled rather than allowed
+                to silently no-op (finish() used to just close with nothing
+                saved). Discard is still the right action for an empty
+                session. */}
+            <button className="ol-btn ol-btn-solid" onClick={() => setConfirmAction('finish')} disabled={saving || !hasLoggedData} title={!hasLoggedData ? 'Log at least one set before finishing' : undefined}>
               {finishingGroup ? 'Finishing…' : saving ? 'Saving…' : 'Finish'}
             </button>
           </div>
