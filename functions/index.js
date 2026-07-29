@@ -1494,7 +1494,7 @@ app.post("/plan/session-exercises", async (req, res) => {
     const exercises = capSessionDuration(generateSessionExercises({
       type, targetMuscles: musclePicks, backboneExerciseNames: backbone.map(e => e.name), lifts, travelMode,
       avoidMuscles, avoidMusclesSecondary, offlineMuscles, cnsFatigue, metabolicFatigue, trainingMonths, favoriteExercises,
-      accessoryCountOverride: uncoveredCount, isolationOnly: isolationLeaning,
+      accessoryCountOverride: uncoveredCount, isolationOnly: isolationLeaning, warmupScheme: db.profile?.warmupScheme,
     }), currentFatigue, maxDurationMin);
     return res.json({
       exercises, targetMuscles, backboneExercises: exercises.map(e => e.name), bucket: 'full body', preferredSplit,
@@ -1528,6 +1528,7 @@ app.post("/plan/session-exercises", async (req, res) => {
   const exercises = capSessionDuration(generateSessionExercises({
     type, targetMuscles, backboneExerciseNames: backboneExercises, lifts, travelMode,
     avoidMuscles, avoidMusclesSecondary, offlineMuscles, cnsFatigue, metabolicFatigue, trainingMonths, favoriteExercises,
+    warmupScheme: db.profile?.warmupScheme,
   }), currentFatigue, maxDurationMin);
   res.json({ exercises, targetMuscles: targetMuscles || [], backboneExercises: backboneExercises || [], bucket, estimatedDurationMin: estimateSessionDurationMin(exercises), currentFatigue });
 });
@@ -1539,7 +1540,7 @@ app.get('/progression/:exercise', async (req, res) => {
   // here silently returned "no history" for anything imported with
   // Title-Case names. progressionFor normalizes both sides before matching.
   const name = decodeURIComponent(req.params.exercise);
-  const prog = progressionFor(db.lifts || [], name);
+  const prog = progressionFor(db.lifts || [], name, db.profile?.warmupScheme);
   res.json({ progression: prog });
 });
 

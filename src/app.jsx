@@ -10,6 +10,7 @@ import strengthStandardsPkg from '../functions/strengthStandards.js';
 import machineBrandsPkg from '../functions/machineBrands.js';
 import adaptationPkg from '../functions/adaptation.js';
 import plateCalculatorPkg from '../functions/plateCalculator.js';
+import progressionPkg from '../functions/progression.js';
 import identityPkg from '../functions/identity.js';
 import weeklyPlannerPkg from '../functions/weeklyPlanner.js';
 import emgActivationPkg from '../functions/emgActivation.js';
@@ -38,6 +39,7 @@ const {
   computeAdaptationSeries, estimateAtrophyRate, DEFAULT_ATROPHY_RATE, SECONDARY_MUSCLE_WEIGHT, DEFAULT_RIR,
 } = adaptationPkg;
 const { platesForWeight, STANDARD_PLATES_KG } = plateCalculatorPkg;
+const { DEFAULT_WARMUP_SCHEME, WARMUP_SCHEME_PRESETS } = progressionPkg;
 const { validateUsername, validateDisplayName, normalizeUsername, USERNAME_MAX, canChangeUsername, usernameChangeAvailableAt } = identityPkg;
 const { FATIGUE_CEILING } = weeklyPlannerPkg;
 const { ANGLES: EMG_ANGLES, PRESS_ANGLE_DESC, ROW_ANGLE_DESC, classifyMuscles, emgForAngle, frontalCueForProfile, gripCueForProfile, GRIP_ANGLES_BY_EQUIPMENT } = emgActivationPkg;
@@ -6262,6 +6264,8 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
   const [waterTarget, setWaterTarget] = useState(s?.profile?.waterTarget || 7);
   const [trainingDays, setTrainingDays] = useState(s?.profile?.trainingDaysPerWeek || 4);
   const [trackingLevel, setTrackingLevel] = useState(s?.profile?.trackingLevel || 'full');
+  const [warmupScheme, setWarmupScheme] = useState(s?.profile?.warmupScheme?.length ? s.profile.warmupScheme : DEFAULT_WARMUP_SCHEME);
+  const [warmupSaving, setWarmupSaving] = useState(false);
   // Everything below mirrors a field originally only ever set once at
   // Onboarding (dob/height/training background/experience/muscle focus) —
   // pre-filled from whatever's already on the profile so re-opening
@@ -6352,6 +6356,24 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
     setSavingTargets(false);
     refresh({ ...s, profile });
   };
+
+  // Warmup ramp: an ordered list of {reps, pct} steps, applied to every
+  // auto-generated session's warmup sets (functions/progression.js). Saved
+  // as one array, not per-field, since the steps only make sense together —
+  // there's no per-step save button, just one Save for the whole scheme.
+  const saveWarmupScheme = async (scheme) => {
+    setWarmupScheme(scheme);
+    setWarmupSaving(true);
+    const profile = await api('profile', { method: 'POST', body: JSON.stringify({ warmupScheme: scheme }) });
+    setWarmupSaving(false);
+    refresh({ ...s, profile });
+  };
+  const updateWarmupStep = (i, field, value) => {
+    const next = warmupScheme.map((step, j) => j !== i ? step : { ...step, [field]: +value || 0 });
+    setWarmupScheme(next);
+  };
+  const addWarmupStep = () => setWarmupScheme([...warmupScheme, { reps: 5, pct: 50 }]);
+  const removeWarmupStep = (i) => setWarmupScheme(warmupScheme.filter((_, j) => j !== i));
 
   const addSupplement = async () => {
     if (!newSuppName.trim()) return;
@@ -6957,6 +6979,38 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
             onClick={saveTargets} disabled={savingTargets}>
             {savingTargets ? 'Saving…' : 'Save Targets'}
           </button>
+        </div>
+
+        {/* ── WARMUP RAMP ── */}
+        <div className="settings-sec">
+          <div className="settings-sh">Warmup Ramp</div>
+          <div style={{ fontSize: 11, color: 'var(--dim)', marginBottom: 10, lineHeight: 1.5 }}>
+            Applied to every auto-generated session's warmup sets, as a percentage of that session's suggested working weight.
+          </div>
+          {warmupScheme.map((step, i) => (
+            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+              <input className="prof-input" style={{ width: 44 }} type="number" inputMode="numeric"
+                value={step.reps} onChange={e => updateWarmupStep(i, 'reps', e.target.value)} />
+              <span style={{ fontSize: 10, color: 'var(--dim)' }}>reps @</span>
+              <input className="prof-input" style={{ width: 44 }} type="number" inputMode="numeric"
+                value={step.pct} onChange={e => updateWarmupStep(i, 'pct', e.target.value)} />
+              <span style={{ fontSize: 10, color: 'var(--dim)' }}>%</span>
+              <button onClick={() => removeWarmupStep(i)} style={{ background: 'none', border: 'none', color: 'var(--dim)', cursor: 'pointer', fontSize: 14, marginLeft: 'auto', padding: '0 4px' }}>×</button>
+            </div>
+          ))}
+          <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+            <button className="prof-btn" style={{ fontSize: 9, padding: '4px 10px' }} onClick={addWarmupStep}>+ Step</button>
+            <button className="prof-btn solid" style={{ fontSize: 9, padding: '4px 10px' }} onClick={() => saveWarmupScheme(warmupScheme)} disabled={warmupSaving || !warmupScheme.length}>
+              {warmupSaving ? 'Saving…' : 'Save Ramp'}
+            </button>
+          </div>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            {WARMUP_SCHEME_PRESETS.map(p => (
+              <button key={p.label} className="prof-btn" style={{ fontSize: 8, padding: '3px 8px' }} onClick={() => saveWarmupScheme(p.scheme)}>
+                {p.label}
+              </button>
+            ))}
+          </div>
         </div>
 
         {/* ── NUTRITION ── */}

@@ -31,7 +31,25 @@ function weightIncrementKg(equipment, isLowerBody) {
   return 2.5;
 }
 
-function computeProgression(lifts, name) {
+// Default warmup ramp, matching this function's previous hardcoded behavior
+// exactly (10 reps @ 60%, 5 reps @ 85%) — the fallback whenever a caller
+// doesn't pass their own profile.warmupScheme. A few named presets are
+// offered in Settings alongside the free-form editor; this is the one used
+// when an athlete has never customized it.
+const DEFAULT_WARMUP_SCHEME = [{ reps: 10, pct: 60 }, { reps: 5, pct: 85 }];
+
+// Other common warmup-ramp conventions, offered as one-tap presets in
+// Settings — not defaults, just starting points an athlete can pick then
+// still edit freely. Percentages are of the session's suggested working
+// weight (prog.suggestKg), same basis DEFAULT_WARMUP_SCHEME uses.
+const WARMUP_SCHEME_PRESETS = [
+  { label: 'Standard (10@60%, 5@85%)', scheme: DEFAULT_WARMUP_SCHEME },
+  { label: 'Fewer, harder (6@60%, 3@90%)', scheme: [{ reps: 6, pct: 60 }, { reps: 3, pct: 90 }] },
+  { label: 'Three-step ramp (8@40%, 5@60%, 2@80%)', scheme: [{ reps: 8, pct: 40 }, { reps: 5, pct: 60 }, { reps: 2, pct: 80 }] },
+  { label: 'Minimal (5@50%)', scheme: [{ reps: 5, pct: 50 }] },
+];
+
+function computeProgression(lifts, name, warmupScheme) {
   // Warmup sets (type: 'W', tagged on ingest — see functions/index.js's
   // hevySetType/ingestWorkout) never carried real progression signal; they
   // were previously just incidentally excluded because Math.max always
@@ -81,10 +99,17 @@ function computeProgression(lifts, name) {
   // suggestKg becomes next session's last.kg, producing e.g.
   // 9.600000000000001kg after enough progression cycles.
   suggestKg = Math.round(suggestKg * 10) / 10;
-  const warmup1kg = Math.round(suggestKg * 0.6 / inc) * inc;
-  const warmup2kg = Math.round(suggestKg * 0.85 / inc) * inc;
+  // Configurable warmup ramp — an athlete's own scheme (profile.warmupScheme,
+  // an array of {reps, pct}) if they've set one, else DEFAULT_WARMUP_SCHEME.
+  // Each step's weight is rounded to this exercise's own real equipment
+  // increment (inc), same as the old fixed warmup1kg/warmup2kg were.
+  const scheme = (warmupScheme && warmupScheme.length) ? warmupScheme : DEFAULT_WARMUP_SCHEME;
+  const warmupSets = scheme.map(step => ({
+    kg: Math.round(suggestKg * (step.pct / 100) / inc) * inc,
+    reps: step.reps,
+  }));
   const recentStr = sessions.slice(-3).map(s => `${s.date}: ${s.kg}kg×${s.reps} (e1RM ${s.e1rm})`).join(', ');
-  return { name, trend, note, suggestKg, suggestReps, warmup1kg, warmup2kg, setCount: last.setCount, recentStr };
+  return { name, trend, note, suggestKg, suggestReps, warmupSets, setCount: last.setCount, recentStr };
 }
 
-module.exports = { computeProgression };
+module.exports = { computeProgression, DEFAULT_WARMUP_SCHEME, WARMUP_SCHEME_PRESETS };

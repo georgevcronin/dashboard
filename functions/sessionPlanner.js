@@ -157,13 +157,13 @@ function pickAccessories(targetMuscles, alreadySelected, excludeNames, avoidMusc
 // lowercase on ingest) or otherwise differently cased. Normalizes matching
 // history onto the canonical name so computeProgression's internal exact
 // match still works, without changing its contract for other callers.
-function progressionFor(lifts, canonicalName) {
+function progressionFor(lifts, canonicalName, warmupScheme) {
   const lower = canonicalName.toLowerCase();
   const matching = (lifts || [])
     .filter(l => (l.exercise || '').toLowerCase() === lower)
     .map(l => ({ ...l, exercise: canonicalName }));
   if (!matching.length) return null;
-  return computeProgression(matching, canonicalName);
+  return computeProgression(matching, canonicalName, warmupScheme);
 }
 
 function exerciseSessionCount(lifts, name) {
@@ -255,8 +255,7 @@ function setsFor(prog, workingSetCount, { failureSolo = false, higherRirPair = f
   }
   const sets = [];
   if (prog.suggestKg > 0) {
-    sets.push({ type: 'W', kg: prog.warmup1kg, reps: 10 });
-    sets.push({ type: 'W', kg: prog.warmup2kg, reps: 5 });
+    for (const w of prog.warmupSets) sets.push({ type: 'W', kg: w.kg, reps: w.reps });
   }
   for (let i = 0; i < workingSetCount; i++) sets.push({ type: workingType, kg: prog.suggestKg, reps: prog.suggestReps });
   let note = prog.note;
@@ -274,7 +273,7 @@ function setsFor(prog, workingSetCount, { failureSolo = false, higherRirPair = f
 // new-lifter fatigue budget. trainingMonths is null for an athlete who
 // hasn't self-reported training experience, in which case the new-lifter
 // budget is skipped entirely rather than assumed.
-function generateSessionExercises({ type, targetMuscles, backboneExerciseNames, lifts, travelMode, avoidMuscles = [], avoidMusclesSecondary = [], offlineMuscles = [], cnsFatigue = 0, metabolicFatigue = 0, trainingMonths = null, skipAccessories = false, accessoryCountOverride = null, isolationOnly = false, favoriteExercises = [], sessionExcludeNames = new Set() }) {
+function generateSessionExercises({ type, targetMuscles, backboneExerciseNames, lifts, travelMode, avoidMuscles = [], avoidMusclesSecondary = [], offlineMuscles = [], cnsFatigue = 0, metabolicFatigue = 0, trainingMonths = null, skipAccessories = false, accessoryCountOverride = null, isolationOnly = false, favoriteExercises = [], sessionExcludeNames = new Set(), warmupScheme = null }) {
   if (type !== 'lift' || !targetMuscles?.length) return [];
 
   const excludeMuscles = [...new Set([...avoidMuscles, ...offlineMuscles])];
@@ -322,7 +321,7 @@ function generateSessionExercises({ type, targetMuscles, backboneExerciseNames, 
   }) : [];
 
   return [...backboneEntries, ...accessories].map(e => {
-    const prog = progressionFor(lifts, e.name);
+    const prog = progressionFor(lifts, e.name, warmupScheme);
     const sessionCount = exerciseSessionCount(lifts, e.name);
     const nlCount = newLifterWorkingSetCount(trainingMonths, sessionCount, fatigueCeiling);
     const workingSetCount = nlCount != null ? nlCount : experimentalSetCount(fatigueCeiling, sessionCount);

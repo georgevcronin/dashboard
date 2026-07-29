@@ -1,6 +1,6 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { computeProgression } = require('../functions/progression');
+const { computeProgression, DEFAULT_WARMUP_SCHEME } = require('../functions/progression');
 
 function mkLifts(name, sessions) {
   return sessions.map(([date, kg, reps]) => ({ date, exercise: name, kg, reps }));
@@ -103,6 +103,29 @@ test('untagged (older) history is unaffected by the warmup filter', () => {
     'Barbell Bench Press',
   );
   assert.equal(prog.suggestKg, 65);
+});
+
+test('warmupSets defaults to DEFAULT_WARMUP_SCHEME (10@60%, 5@85%) when no scheme is passed', () => {
+  const prog = computeProgression(mkLifts('Barbell Bench Press', [['2026-06-01', 100, 8]]), 'Barbell Bench Press');
+  assert.equal(prog.warmupSets.length, 2);
+  assert.equal(prog.warmupSets[0].reps, 10);
+  assert.equal(prog.warmupSets[0].kg, 60); // 100 * 0.6, rounded to the 2.5kg barbell increment
+  assert.equal(prog.warmupSets[1].reps, 5);
+  assert.equal(prog.warmupSets[1].kg, 85); // 100 * 0.85
+});
+
+test('warmupSets honors a custom scheme, any number of steps', () => {
+  const prog = computeProgression(
+    mkLifts('Barbell Bench Press', [['2026-06-01', 100, 8]]),
+    'Barbell Bench Press',
+    [{ reps: 6, pct: 60 }, { reps: 3, pct: 90 }],
+  );
+  assert.deepEqual(prog.warmupSets, [{ kg: 60, reps: 6 }, { kg: 90, reps: 3 }]);
+});
+
+test('an empty custom scheme falls back to the default rather than producing zero warmup sets', () => {
+  const prog = computeProgression(mkLifts('Barbell Bench Press', [['2026-06-01', 100, 8]]), 'Barbell Bench Press', []);
+  assert.deepEqual(prog.warmupSets.map(w => w.reps), DEFAULT_WARMUP_SCHEME.map(w => w.reps));
 });
 
 test('brand calibration prevents a gym/machine switch from reading as a real regression', () => {
