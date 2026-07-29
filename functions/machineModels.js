@@ -318,4 +318,38 @@ for (const [brand, model] of Object.entries(SMITH_BRAND_MODELS)) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Movement-family reuse — NOT additional research, a mechanical consequence
+// of the exerciseDb.js taxonomy: some exercises share a movementId with an
+// already-researched sibling because they're performed on the exact same
+// physical machine, just a different grip/attachment/limb (e.g. every Lat
+// Pulldown grip variant is the same seated pulldown station with a different
+// handle; Single-Leg Press is the same leg-press sled used one leg at a time
+// — the latter equivalence already established in this codebase's own
+// limbOptions.js COLLAPSE_MAPPING). Applying the sibling's real product name
+// here is correct, not a guess — the physical machine, and therefore its
+// brand and model name, genuinely is the same one.
+//
+// Explicitly NOT extended to Standing Leg Curl (Machine) — despite sharing
+// leg-curl's movementId with Lying/Seated Leg Curl, a standing single-leg
+// curl unit is typically a physically distinct product in real gyms, not an
+// attachment swap on the same machine — nor to Reverse Hyperextension,
+// Glute-Ham Raise, Roman Chair Sit-Up, or GHD Sit-Up, which are each their
+// own distinct piece of equipment with no already-researched sibling to
+// reuse from. These remain genuine, uninvestigated gaps.
+// ---------------------------------------------------------------------------
+function reuseFamily(fromExercise, toExercises) {
+  const fromKey = normalize(fromExercise);
+  for (const [key, model] of Object.entries(MACHINE_MODELS)) {
+    const [exercise, brand] = key.split('|');
+    if (exercise !== fromKey) continue;
+    for (const to of toExercises) add(to, brand, model);
+  }
+}
+
+reuseFamily('Lat Pulldown (Wide Grip)', ['Lat Pulldown (Neutral Grip)', 'Lat Pulldown (Reverse / Underhand)']);
+reuseFamily('Close-Grip Lat Pulldown', ['Lat Pulldown (Neutral Grip)', 'Lat Pulldown (Reverse / Underhand)']);
+reuseFamily('Behind-Neck Lat Pulldown', ['Lat Pulldown (Neutral Grip)', 'Lat Pulldown (Reverse / Underhand)']);
+reuseFamily('Leg Press', ['Single-Leg Press']);
+
 module.exports = { MACHINE_MODELS };
