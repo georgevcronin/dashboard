@@ -52,6 +52,11 @@ const SMITH_BRANDS = [
   'Life Fitness', 'Matrix Fitness', 'Technogym', 'Panatta',
   'Watson Gym Equipment', 'Primal Strength', 'BLK BOX', 'Cybex',
   'Major Fitness', 'RitFit', 'MAXUM Fitness', 'Hammer Strength',
+  // Added during the 2026-07 deeper machineModels.js re-pass — each has a
+  // genuinely confirmed, distinctly-named Smith machine product (see
+  // machineModels.js's SMITH_BRAND_MODELS comment for the specific model
+  // names/sources), not previously listed here.
+  'Precor', 'Star Trac', 'SportsArt', 'Body-Solid',
 ];
 
 const BRANDS_BY_EQUIPMENT = {
