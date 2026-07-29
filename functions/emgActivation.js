@@ -68,24 +68,28 @@ const ROW_ANGLE_DESC = '0° = a low pull (e.g. straight-arm pulldown) · 90° = 
 // increasingly scapular, a different mechanism.
 // front-delt previously rose in lockstep with mid-delt, peaking at the same
 // 90° (fully flared to horizontal) as mid-delt -- biomechanically backwards.
-// Anterior deltoid is a flexor/horizontal-adductor: it's most active when the
-// press stays closer to the sagittal plane (elbows in a moderate, not fully
-// flared, position -- the standard "elbows ~30-45° out" pressing cue).
-// Middle deltoid is the abductor, genuinely maximal at full 90° flare (arm in
-// the frontal/lateral-raise plane) -- that value is correct and unchanged.
-// Flaring to 90° for a front-delt-dominant press hands the emphasis to
-// mid-delt and adds real impingement risk, it doesn't "engage front delt
-// harder." front-delt now peaks at 30° and falls off toward 90°, matching
-// that -- a front-delt-dominant profile now recommends a moderate, not
-// fully flared, elbow position.
+// Anterior deltoid is a flexor/horizontal-adductor; its primary driver is the
+// SAGITTAL angle (PRESS_EMG above), not this frontal/abduction axis, which is
+// specifically middle deltoid's own governing plane. That means front-delt's
+// row here shouldn't just be mid-delt's shape flipped and re-maxed toward a
+// new peak either -- each muscle's value is a ratio to THAT muscle's own
+// reference (%MVIC, per this file's header), not a shared 0-100 scale being
+// competed for, so a value only needs to be as high as genuinely reflects its
+// own real sensitivity to this axis. front-delt is a much weaker function of
+// elbow flare than mid-delt is (flare isn't its movement), so its range here
+// is deliberately modest (~30 points, peak 58 at 30° down to 28 at 90°) --
+// comparable to chest's own low-sensitivity range on this same axis (8-18) --
+// rather than an inflated near-max peak invented just to win the argmax
+// against mid-delt. It still correctly favors a moderate elbow position over
+// a full 90° flare, which is what matters for the cue.
 const PRESS_FRONTAL_EMG = {
-  0:  { 'front-delt': 35, 'mid-delt': 8,   chest: 8,  biceps: 20, triceps: 15, serratus: 5,  'lower-traps': 3 },
-  15: { 'front-delt': 70, 'mid-delt': 35,  chest: 12, biceps: 25, triceps: 22, serratus: 6,  'lower-traps': 4 },
-  30: { 'front-delt': 92, 'mid-delt': 58,  chest: 15, biceps: 30, triceps: 30, serratus: 8,  'lower-traps': 6 },
-  45: { 'front-delt': 82, 'mid-delt': 75,  chest: 17, biceps: 34, triceps: 38, serratus: 11, 'lower-traps': 9 },
-  60: { 'front-delt': 62, 'mid-delt': 87,  chest: 18, biceps: 37, triceps: 46, serratus: 15, 'lower-traps': 13 },
-  75: { 'front-delt': 40, 'mid-delt': 95,  chest: 18, biceps: 39, triceps: 54, serratus: 22, 'lower-traps': 19 },
-  90: { 'front-delt': 22, 'mid-delt': 100, chest: 17, biceps: 40, triceps: 60, serratus: 32, 'lower-traps': 28 },
+  0:  { 'front-delt': 40, 'mid-delt': 8,   chest: 8,  biceps: 20, triceps: 15, serratus: 5,  'lower-traps': 3 },
+  15: { 'front-delt': 52, 'mid-delt': 35,  chest: 12, biceps: 25, triceps: 22, serratus: 6,  'lower-traps': 4 },
+  30: { 'front-delt': 58, 'mid-delt': 58,  chest: 15, biceps: 30, triceps: 30, serratus: 8,  'lower-traps': 6 },
+  45: { 'front-delt': 52, 'mid-delt': 75,  chest: 17, biceps: 34, triceps: 38, serratus: 11, 'lower-traps': 9 },
+  60: { 'front-delt': 44, 'mid-delt': 87,  chest: 18, biceps: 37, triceps: 46, serratus: 15, 'lower-traps': 13 },
+  75: { 'front-delt': 35, 'mid-delt': 95,  chest: 18, biceps: 39, triceps: 54, serratus: 22, 'lower-traps': 19 },
+  90: { 'front-delt': 28, 'mid-delt': 100, chest: 17, biceps: 40, triceps: 60, serratus: 32, 'lower-traps': 28 },
 };
 
 const ROW_FRONTAL_EMG = {
@@ -104,16 +108,21 @@ const FRONTAL_ANGLES = [0, 15, 30, 45, 60, 75, 90];
 // weighted profile an exercise already carries, finds the frontal-plane
 // angle that best serves the muscle THAT profile already emphasizes most —
 // a "how to execute this correctly" cue, not a suggestion to target a
-// different muscle. Only considers muscles the frontal table itself tracks
-// (chest, for instance, barely moves across abduction and isn't a useful
-// anchor for a flare cue). Returns null if nothing in the sagittal profile
-// overlaps what the frontal table tracks.
+// different muscle. Returns null if nothing in the sagittal profile overlaps
+// what the frontal table tracks, OR if the dominant muscle's own row barely
+// moves across this axis (chest, for instance, only ranges 8-18 here — real,
+// but not a meaningful axis to hang a cue on). That "does this axis actually
+// matter for this muscle" range check mirrors gripCueForProfile's identical
+// guard below (min range 10) — previously missing here, which meant a
+// flat-for-this-axis muscle could still win an argmax comparison and produce
+// a confident-sounding cue the underlying ratio didn't actually support.
 // Elbow-flexion/grip synergists present in both patterns -- present in
 // every press and row regardless of angle, so letting one of these "win"
 // the dominant-muscle pick would produce a technically-true but useless cue
 // (row EMG peaks for biceps at the same angle as its back muscles do, but
 // "flare your elbows for biceps" isn't what a row's elbow position is for).
 const ACCESSORY_MUSCLES = ['biceps', 'triceps', 'brachioradialis'];
+const FRONTAL_CUE_MIN_RANGE = 11; // chest's own row here ranges exactly 10 (8-18) -- the smallest real case this guard needs to catch
 
 function frontalCueForProfile(pattern, sagittalWeights) {
   const frontalTable = pattern === 'press' ? PRESS_FRONTAL_EMG : pattern === 'row' ? ROW_FRONTAL_EMG : null;
@@ -123,11 +132,13 @@ function frontalCueForProfile(pattern, sagittalWeights) {
   if (!candidates.length) return null;
   candidates.sort((a, b) => b[1] - a[1]);
   const [muscle] = candidates[0];
-  let bestAngle = FRONTAL_ANGLES[0], bestVal = -Infinity;
+  let bestAngle = FRONTAL_ANGLES[0], bestVal = -Infinity, worstVal = Infinity;
   for (const a of FRONTAL_ANGLES) {
     const v = frontalTable[a][muscle];
     if (v > bestVal) { bestVal = v; bestAngle = a; }
+    if (v < worstVal) worstVal = v;
   }
+  if (bestVal - worstVal < FRONTAL_CUE_MIN_RANGE) return null;
   return { muscle, angle: bestAngle };
 }
 
