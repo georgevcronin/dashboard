@@ -51,7 +51,7 @@ const CABLE_BRANDS = [
 const SMITH_BRANDS = [
   'Life Fitness', 'Matrix Fitness', 'Technogym', 'Panatta',
   'Watson Gym Equipment', 'Primal Strength', 'BLK BOX', 'Cybex',
-  'Major Fitness', 'RitFit', 'MAXUM Fitness',
+  'Major Fitness', 'RitFit', 'MAXUM Fitness', 'Hammer Strength',
 ];
 
 const BRANDS_BY_EQUIPMENT = {

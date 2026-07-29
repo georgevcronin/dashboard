@@ -122,12 +122,43 @@ add('Machine Curl', 'Life Fitness', 'Insignia Series Biceps Curl');
 add('Hip Thrust (Machine)', 'Life Fitness', 'Insignia Series Glute Bridge');
 add('Standing Calf Raise (Machine)', 'Life Fitness', 'Insignia Series Calf Extension');
 
-// Hammer Strength — MTS / Plate-Loaded Iso-Lateral
-add('Machine Chest Press', 'Hammer Strength', 'MTS Iso-Lateral Chest Press');
-add('Machine Row (Seated)', 'Hammer Strength', 'MTS Iso-Lateral Row');
-add('Leg Press', 'Hammer Strength', 'Plate-Loaded Iso-Lateral Leg Press');
-add('Lat Pulldown (Wide Grip)', 'Hammer Strength', 'MTS Iso-Lateral Front Pulldown');
-add('Close-Grip Lat Pulldown', 'Hammer Strength', 'MTS Iso-Lateral Front Pulldown');
+// Hammer Strength — mapped against the brand's full published product
+// catalog (plate-loaded Iso-Lateral line, MTS pin-selectorized line, the
+// standard single-stack Select line, and Smith Machines), not just a
+// sampled handful — user-supplied catalog data, more complete than this
+// file's original web-search pass. Plate-loaded Iso-Lateral entries are
+// preferred as the primary match where a Select/MTS equivalent also exists
+// for the same exercise (that line is the brand's actual flagship/most
+// recognizable product), except where the exerciseDb.js exercise name
+// itself specifies a trait (e.g. "Seated") that a different product line
+// matches more precisely.
+add('Pec Deck / Machine Fly', 'Hammer Strength', 'Select Pectoral Fly / Rear Deltoid');
+add('Reverse Pec Deck', 'Hammer Strength', 'Select Pectoral Fly / Rear Deltoid');
+add('Machine Chest Press', 'Hammer Strength', 'Iso-Lateral Bench Press');
+add('Machine Shoulder Press', 'Hammer Strength', 'Iso-Lateral Shoulder Press');
+add('Lateral Raise (Machine)', 'Hammer Strength', 'Plate Loaded Lateral Raise');
+add('Lat Pulldown (Wide Grip)', 'Hammer Strength', 'Iso-Lateral Front Lat Pulldown');
+add('Close-Grip Lat Pulldown', 'Hammer Strength', 'Iso-Lateral Front Lat Pulldown');
+add('Behind-Neck Lat Pulldown', 'Hammer Strength', 'Iso-Lateral Front Lat Pulldown');
+add('Machine Row (Seated)', 'Hammer Strength', 'Select Seated Row');
+add('Machine Curl', 'Hammer Strength', 'Plate Loaded Seated Biceps');
+add('Hip Thrust (Machine)', 'Hammer Strength', 'Plate Loaded Glute Drive');
+add('Hack Squat (Machine)', 'Hammer Strength', 'Plate Loaded Hack Squat');
+add('Leg Press', 'Hammer Strength', 'Plate Loaded Leg Press');
+add('Leg Extension', 'Hammer Strength', 'Iso-Lateral Leg Extension');
+add('Lying Leg Curl', 'Hammer Strength', 'Iso-Lateral Leg Curl');
+add('Seated Leg Curl', 'Hammer Strength', 'MTS Iso-Lateral Leg Curl');
+add('Seated Calf Raise', 'Hammer Strength', 'Plate Loaded Seated Calf Raise');
+add('Calf Raise on Leg Press', 'Hammer Strength', 'Super Horizontal Calf');
+add('Standing Calf Raise (Machine)', 'Hammer Strength', 'Select Standing Calf');
+add('Abductor Machine', 'Hammer Strength', 'Select Hip Abduction');
+add('Adductor Machine', 'Hammer Strength', 'Select Hip Adduction');
+// Not mapped despite being real named products in the catalog: no
+// exerciseDb.js exercise corresponds to Iso-Lateral Incline/Decline Press,
+// Iso-Lateral Wide Chest, the Ground Base power-training line, T-Bar Row,
+// assisted dip/chin, triceps extension, ab/torso-rotation, neck, gripper,
+// or belt-squat/V-squat/super-squat-press machines — left absent rather
+// than force-matched to a non-equivalent exercise.
 
 // Technogym — Pure Strength
 add('Machine Chest Press', 'Technogym', 'Pure Strength Chest Press');
@@ -310,6 +341,7 @@ const SMITH_BRAND_MODELS = {
   'Major Fitness': 'Spirit B52 Smith Machine',
   'RitFit': 'M1 PRO Smith Machine',
   'MAXUM Fitness': 'MAXUM SX2 Smith Machine',
+  'Hammer Strength': 'Hammer Strength Smith Machine',
 };
 
 for (const [brand, model] of Object.entries(SMITH_BRAND_MODELS)) {
