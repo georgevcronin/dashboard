@@ -147,5 +147,15 @@ A 6th parameterization field, alongside equipment/angle/rotation (§6), stored t
 - **Shared load path (single-pulley/single-stack cable, most pin-loaded machines, barbell)**: going bilateral → single-limb roughly **halves** the comparable weight to keep per-limb effort equivalent (one arm alone moving the full stack ≈ two arms sharing double that stack) — and single-limb → bilateral roughly **doubles** it. Worked example: a lat pulldown done bilaterally at 60kg on a single-stack machine ≈ 30kg single-arm on the same machine, since one arm now has to move the whole stack alone that it previously shared with the other.
 - This is a **suggested equivalent weight when switching modes**, not a transformation applied to what gets logged — the athlete still always logs the real number on the equipment; the 2x/0.5x relationship is what the app can *suggest* as a starting point when switching, using the shared-vs-independent distinction already established for `equipment` (§2/§6).
 
-### Scope
-An audit of all 211 exercises is needed to (a) identify which already have a separately-named unilateral variant that should collapse into this model, and (b) judge which of the remaining exercises plausibly support a single-limb option at all (most machine/cable upper-body pulling and pressing movements do; most lower-body compound barbell movements — squats, deadlifts — don't in any normal sense). Not yet done — see next steps.
+### Scope — audit DONE (commit `cd36961`), migration decisions still open
+
+`functions/limbOptions.js` audits all 211 exercises: **45 marked limb-capable** (17 dumbbell — always independent-per-side; 28 cable/machine — shared-load by default, but genuinely depends on `pulleyType`/brand at log time, e.g. Hammer Strength's iso-lateral lines flip this to independent).
+
+Of the 12 existing "Single-Arm"/"Single-Leg"-named exercises:
+- **Recommended to collapse (6)**: Single-Arm Lat Pulldown → Lat Pulldown (Neutral Grip); Single-Arm Cable Row → Seated Cable Row; Single-Arm Cable Lateral Raise → Lateral Raise (Cable); Single-Arm Dumbbell Press → Dumbbell Bench Press (Flat); Single-Leg Press → Leg Press; Single-Arm Cable Pushdown → Cable Tricep Pushdown (Bar).
+- **Recommended to stay separate (4)** — a real balance/stability challenge, not a load-only choice: Single-Leg RDL, Single-Leg Hip Thrust, Single-Leg Calf Raise, Single-Arm Landmine Row.
+- **No clean bilateral target exists yet (2)**: Single-Arm Cable Press, Standing Single-Arm Cable Row.
+
+**Two decisions needed before any actual migration (not yet answered):**
+1. **"Hip Thrust (Machine)" gap** — surfaced while fixing the Booty Builder brand entries (§7): their real flagship product (a hip thrust machine) has no corresponding `EXERCISE_DB` entry at all to attach brand/curve data to. Add it, or leave the gap for now?
+2. **Single-Leg Press collapse conflict** — `functions/resistanceCurves.js` (shipped before this field existed) already treats `"single-leg press"` as its own separate key in both `RESISTANCE_CURVES` and `PLATE_LOADED_BASE_RESISTANCE_KG`. Collapsing it into "Leg Press" + a limb flag (as recommended above) means reconciling/merging those existing entries, not just renaming a DB entry — a real follow-up task, not done yet.
