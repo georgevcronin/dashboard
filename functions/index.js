@@ -1903,6 +1903,39 @@ app.delete('/workout/:date', async (req, res) => {
   res.json({ ok: true });
 });
 
+// Overwrites every logged set for a past date -- used by the History
+// screen's edit mode. Full-replace semantics (delete-then-insert), same as
+// applySessionComplete's isReplacedToday -- an edit replaces that day's
+// sets wholesale, not a merge -- but deliberately skips
+// applySessionComplete's live-session side effects (Atlas summary,
+// CNS-sensitivity auto-calibration from RPE drift), which are tuned for a
+// just-finished session, not a retroactive historical edit. Editing down to
+// zero sets removes the workout record entirely rather than leaving a
+// ghost "0 sets" entry -- same as DELETE /workout/:date.
+app.put('/workout/:date', async (req, res) => {
+  const { date } = req.params;
+  const sets = Array.isArray(req.body?.sets) ? req.body.sets : [];
+  const newLiftEntries = sets
+    .filter(s => s.exercise && s.kg && s.reps)
+    .map(s => ({
+      exercise: s.exercise, kg: +s.kg, reps: +s.reps, rpe: s.rpe || null, date,
+      ...(s.type && s.type !== 'N' ? { type: s.type } : {}),
+      ...(s.machine ? { machine: s.machine } : {}), ...(s.pulleyType ? { pulleyType: s.pulleyType } : {}),
+      ...(s.model ? { model: s.model } : {}),
+    }));
+  await removeLiftsAndAppend(liftsDocRef, l => l.date === date, newLiftEntries);
+  db.lifts = (db.lifts || []).filter(l => l.date !== date).concat(newLiftEntries);
+  if (!newLiftEntries.length) {
+    db.workouts = (db.workouts || []).filter(w => w.date !== date);
+  } else {
+    const idx = (db.workouts || []).findIndex(w => w.date === date);
+    if (idx >= 0) db.workouts[idx] = { ...db.workouts[idx], sets: newLiftEntries.length };
+    else db.workouts = [...(db.workouts || []), { name: 'Session', date, sets: newLiftEntries.length }];
+  }
+  await save();
+  res.json({ ok: true, setsLogged: newLiftEntries.length });
+});
+
 // ---------- Group workout sessions ----------
 // See .design/feature-brainstorm/GROUP_WORKOUT.md for the full design.
 // liveSessions/{sessionId} + an entries/ subcollection — deliberately a

@@ -3196,6 +3196,9 @@ function WorkoutHistory({ s, onClose, refresh }) {
   const [expanded, setExpanded] = useState(null);
   const [confirmDeleteDate, setConfirmDeleteDate] = useState(null);
   const [deletingDate, setDeletingDate] = useState(null);
+  const [editingDate, setEditingDate] = useState(null);
+  const [editRows, setEditRows] = useState([]);
+  const [savingEdit, setSavingEdit] = useState(false);
   const workouts = useMemo(() => {
     return [...(s?.workouts || [])].sort((a, b) => (b.date || '').localeCompare(a.date || ''));
   }, [s?.workouts]);
@@ -3208,6 +3211,30 @@ function WorkoutHistory({ s, onClose, refresh }) {
     await api('summary').then(refresh);
     setConfirmDeleteDate(null);
     setDeletingDate(null);
+  };
+
+  // Edit mode replaces the whole day's set list wholesale on save (see
+  // PUT /workout/:date) -- editRows is seeded from the currently-saved
+  // lifts for that date, freely add/removable, not diffed against the
+  // original.
+  const startEdit = (date) => {
+    const dayLifts = lifts.filter(l => l.date === date);
+    setEditRows(dayLifts.map(l => ({ exercise: l.exercise, kg: String(l.kg ?? ''), reps: String(l.reps ?? ''), rpe: l.rpe != null ? String(l.rpe) : '' })));
+    setEditingDate(date);
+    setExpanded(null);
+  };
+  const updateEditRow = (i, field, value) => setEditRows(p => p.map((r, j) => j !== i ? r : { ...r, [field]: value }));
+  const addEditRow = () => setEditRows(p => [...p, { exercise: '', kg: '', reps: '', rpe: '' }]);
+  const removeEditRow = (i) => setEditRows(p => p.filter((_, j) => j !== i));
+  const saveEdit = async () => {
+    setSavingEdit(true);
+    const sets = editRows
+      .filter(r => r.exercise.trim() && r.kg !== '' && r.reps !== '')
+      .map(r => ({ exercise: r.exercise.trim().toLowerCase(), kg: r.kg, reps: r.reps, rpe: r.rpe || null }));
+    await api(`workout/${editingDate}`, { method: 'PUT', body: JSON.stringify({ sets }) });
+    await api('summary').then(refresh);
+    setSavingEdit(false);
+    setEditingDate(null);
   };
 
   const getExerciseSummary = (date) => {
@@ -3257,26 +3284,70 @@ function WorkoutHistory({ s, onClose, refresh }) {
                       </button>
                     </span>
                   ) : (
-                    <button onClick={() => setConfirmDeleteDate(w.date)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--dim)', fontFamily: "'JetBrains Mono',monospace", fontSize: 8, letterSpacing: '.1em', textTransform: 'uppercase', padding: 0 }}>
-                      Delete
-                    </button>
+                    <>
+                      <button onClick={() => startEdit(w.date)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--dim)', fontFamily: "'JetBrains Mono',monospace", fontSize: 8, letterSpacing: '.1em', textTransform: 'uppercase', padding: 0 }}>
+                        Edit
+                      </button>
+                      <button onClick={() => setConfirmDeleteDate(w.date)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--dim)', fontFamily: "'JetBrains Mono',monospace", fontSize: 8, letterSpacing: '.1em', textTransform: 'uppercase', padding: 0 }}>
+                        Delete
+                      </button>
+                    </>
                   )}
                 </span>
                 <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)' }}>{isOpen ? '▲' : '▸'}</span>
               </div>
-              {isOpen && exercises.length > 0 && (
-                <div className="hist-detail">
-                  {exercises.map(({ ex, sets, maxKg }) => (
-                    <div key={ex} className="hist-ex">
-                      {ex}: {sets} set{sets !== 1 ? 's' : ''}{maxKg > 0 ? ` · ${maxKg}kg peak` : ''}
+              {editingDate === w.date ? (
+                <div className="hist-detail" onClick={e => e.stopPropagation()}>
+                  {editRows.map((r, i) => (
+                    <div key={i} style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 6 }}>
+                      <input value={r.exercise} placeholder="Exercise" list="hist-edit-exercises"
+                        onChange={e => updateEditRow(i, 'exercise', e.target.value)}
+                        style={{ flex: '1 1 120px', minWidth: 0, fontFamily: "'JetBrains Mono',monospace", fontSize: 10, padding: '4px 6px', border: '1px solid var(--rule)', background: 'var(--paper)', color: 'var(--ink)' }} />
+                      <input value={r.kg} placeholder="kg" inputMode="decimal"
+                        onChange={e => updateEditRow(i, 'kg', e.target.value)}
+                        style={{ width: 48, fontFamily: "'JetBrains Mono',monospace", fontSize: 10, padding: '4px 6px', border: '1px solid var(--rule)', background: 'var(--paper)', color: 'var(--ink)' }} />
+                      <input value={r.reps} placeholder="reps" inputMode="numeric"
+                        onChange={e => updateEditRow(i, 'reps', e.target.value)}
+                        style={{ width: 40, fontFamily: "'JetBrains Mono',monospace", fontSize: 10, padding: '4px 6px', border: '1px solid var(--rule)', background: 'var(--paper)', color: 'var(--ink)' }} />
+                      <input value={r.rpe} placeholder="RPE" inputMode="numeric"
+                        onChange={e => updateEditRow(i, 'rpe', e.target.value)}
+                        style={{ width: 36, fontFamily: "'JetBrains Mono',monospace", fontSize: 10, padding: '4px 6px', border: '1px solid var(--rule)', background: 'var(--paper)', color: 'var(--ink)' }} />
+                      <button onClick={() => removeEditRow(i)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--red)', fontSize: 14, lineHeight: 1, padding: '0 4px' }}>×</button>
                     </div>
                   ))}
+                  <datalist id="hist-edit-exercises">
+                    {[...new Set(lifts.map(l => l.exercise))].map(ex => <option key={ex} value={ex} />)}
+                  </datalist>
+                  <div style={{ display: 'flex', gap: 8, marginTop: 8, alignItems: 'center' }}>
+                    <button onClick={addEditRow} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--dim)', fontFamily: "'JetBrains Mono',monospace", fontSize: 8, letterSpacing: '.1em', textTransform: 'uppercase', padding: 0 }}>
+                      + Add Set
+                    </button>
+                    <span style={{ marginLeft: 'auto' }} />
+                    <button onClick={() => setEditingDate(null)} disabled={savingEdit} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--dim)', fontFamily: "'JetBrains Mono',monospace", fontSize: 8, letterSpacing: '.1em', textTransform: 'uppercase', padding: 0 }}>
+                      Cancel
+                    </button>
+                    <button onClick={saveEdit} disabled={savingEdit} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--ink)', fontFamily: "'JetBrains Mono',monospace", fontSize: 8, letterSpacing: '.1em', textTransform: 'uppercase', padding: 0, fontWeight: 700 }}>
+                      {savingEdit ? 'Saving…' : 'Save'}
+                    </button>
+                  </div>
                 </div>
-              )}
-              {isOpen && exercises.length === 0 && (
-                <div className="hist-detail">
-                  <div className="hist-ex" style={{ fontStyle: 'italic' }}>No lift data for this session.</div>
-                </div>
+              ) : (
+                <>
+                  {isOpen && exercises.length > 0 && (
+                    <div className="hist-detail">
+                      {exercises.map(({ ex, sets, maxKg }) => (
+                        <div key={ex} className="hist-ex">
+                          {ex}: {sets} set{sets !== 1 ? 's' : ''}{maxKg > 0 ? ` · ${maxKg}kg peak` : ''}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {isOpen && exercises.length === 0 && (
+                    <div className="hist-detail">
+                      <div className="hist-ex" style={{ fontStyle: 'italic' }}>No lift data for this session.</div>
+                    </div>
+                  )}
+                </>
               )}
             </div>
           );
