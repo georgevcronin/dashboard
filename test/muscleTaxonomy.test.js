@@ -50,6 +50,19 @@ test('isCompoundExercise recognizes non-barbell row variants, not just "barbell 
   assert.equal(isCompoundExercise('Machine Row (Seated)'), true);
 });
 
+// These previously read as false "isolation" (missing from COMPOUND_FALLBACK
+// entirely), which let a full loaded RDL/lunge/swing slip through the
+// isolation-only accessory filter (functions/sessionPlanner.js) as if it
+// were single-joint work.
+test('isCompoundExercise recognizes hip-hinge/lower-body compounds not literally named "deadlift" or "squat"', () => {
+  assert.equal(isCompoundExercise('Single-Leg RDL'), true);
+  assert.equal(isCompoundExercise('Good Morning'), true);
+  assert.equal(isCompoundExercise('Walking Lunge'), true);
+  assert.equal(isCompoundExercise('Reverse Lunge'), true);
+  assert.equal(isCompoundExercise('Step-Up'), true);
+  assert.equal(isCompoundExercise('Kettlebell Swing'), true);
+});
+
 test('isLowerBodyExercise is true for squat/deadlift/hip-thrust family, false for upper body', () => {
   assert.equal(isLowerBodyExercise('Back Squat'), true);
   assert.equal(isLowerBodyExercise('Conventional Deadlift'), true);

@@ -1488,7 +1488,16 @@ app.post("/plan/session-exercises", async (req, res) => {
     const isolationLeaning = db.profile?.compoundIsolationPreference
       ? db.profile.compoundIsolationPreference === 'isolation'
       : autoIsolationLeaning;
-    const backboneCount = Math.max(2, Math.ceil(musclePicks.length / 2));
+    // isolationLeaning previously only reached the accessory picker
+    // (isolationOnly below) -- backbone picking never saw it at all, so a
+    // compound like Back Squat (naturally the top scorer for covering
+    // several target muscles at once, see pickBackboneExercises) still got
+    // force-picked as backbone regardless of the preference. Skipping
+    // backbone selection entirely when isolation-leaning routes every
+    // target muscle through the isolation-aware accessory picker instead
+    // (uncoveredCount below becomes every muscle, since coveredMuscles is
+    // empty with no backbone picks).
+    const backboneCount = isolationLeaning ? 0 : Math.max(2, Math.ceil(musclePicks.length / 2));
     const backbone = pickBackboneExercises(musclePicks, { travelMode, lifts, favoriteExercises, count: backboneCount });
     const coveredMuscles = new Set(backbone.flatMap(e => e.primary));
     const uncoveredCount = musclePicks.filter(m => !coveredMuscles.has(m)).length;

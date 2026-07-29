@@ -162,7 +162,13 @@ function isLowerBodyExercise(name) {
 // pulling compounds, just previously missed because only the literal phrase
 // "barbell row" was listed, silently undercounting session CNS load on any
 // back day built around them instead of the specific barbell variant.
-const COMPOUND_FALLBACK = /\b(squat|deadlift|hack squat|bench press|overhead press|leg press|row|pull up|chin up|hip thrust|power clean|hang clean|push press)\b/;
+// rdl/good morning/lunge/step up/swing added after Single-Leg RDL, Good
+// Morning, Walking/Reverse/Curtsy Lunge, Step-Up, and Kettlebell Swing all
+// surfaced as false "isolation" picks (functions/sessionPlanner.js's
+// isolationOnly accessory filter) despite being genuinely loaded,
+// multi-joint hip-hinge/lower-body compounds — the same undercounting
+// mistake "row" was fixed for above, just for a different movement family.
+const COMPOUND_FALLBACK = /\b(squat|deadlift|rdl|good morning|hack squat|bench press|overhead press|leg press|row|pull up|chin up|hip thrust|power clean|hang clean|push press|lunge|step up|swing)\b/;
 function isCompoundExercise(name) {
   return COMPOUND_FALLBACK.test(normalizeForMatch(name));
 }

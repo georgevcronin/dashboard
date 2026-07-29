@@ -69,6 +69,18 @@ test('pickBackboneExercises prefers compounds covering more target muscles, excl
   for (const p of picks) assert.equal(p.lesserKnown, false);
 });
 
+// count: 0 is how functions/index.js's full-body auto-generator skips
+// backbone/compound picking entirely when the athlete's compound/isolation
+// preference is set to isolation (routing every target muscle through the
+// isolation-aware accessory picker instead) -- previously the loop's
+// boundary check ran AFTER pushing, so count: 0 still returned exactly one
+// exercise instead of none, silently defeating the isolation preference by
+// always keeping one compound in the session (e.g. Back Squat).
+test('pickBackboneExercises returns nothing for count: 0, not one exercise', () => {
+  const picks = pickBackboneExercises(['quads', 'glutes', 'hamstrings'], { count: 0 });
+  assert.deepEqual(picks, []);
+});
+
 test('pickBackboneExercises excludes isometric holds even when not lesserKnown', () => {
   const picks = pickBackboneExercises(['transverse-abs', 'obliques'], { count: 5 });
   assert.ok(!picks.some(p => p.isometric), 'no isometric exercise should ever be picked as a backbone lift');

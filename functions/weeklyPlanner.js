@@ -95,12 +95,17 @@ function pickBackboneExercises(targetMuscles, { travelMode, lifts, favoriteExerc
   // is a redundant pick (e.g. Barbell Overhead Press + Machine Shoulder
   // Press), not real variety. A different pattern on the same muscle (a
   // press plus an isolation raise) is fine and stays allowed.
+  // Boundary checked BEFORE pushing, not after -- with count === 0 (used
+  // when the athlete's isolation-only preference should skip backbone/
+  // compound picking entirely, see functions/index.js's isolationLeaning),
+  // checking after push would still return exactly one exercise (push,
+  // THEN see out.length >= 0 is already true) instead of the intended [].
   const out = [];
   for (const { e } of scored) {
+    if (out.length >= count) break;
     if (out.some(o => o.name === e.name)) continue;
     if (out.some(o => o.pattern === e.pattern && e.primary.some(m => o.primary.includes(m)))) continue;
     out.push(e);
-    if (out.length >= count) break;
   }
   return out;
 }
