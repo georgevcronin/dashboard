@@ -115,7 +115,22 @@ The existing `functions/emgActivation.js` infrastructure — angle-indexed activ
 
 **Still uncurated**: the elbow-flexion table itself (shoulder-angle × hand-rotation × equipment → biceps/brachialis/brachioradialis percentages) doesn't exist yet. The existing tables only have biceps/brachioradialis as *secondary* contributors within the press/row tables, not as the primary movement's own table. Building this table is real EMG-literature curation work, comparable in effort to how the existing press/row tables were built (per prior changelog history: exercise-by-exercise, over multiple sessions, not automated) — not a quick lookup to assemble.
 
-## 6. Still open (not yet drilled)
+## 6. Data model — partially resolved
 
-- **Exact data model** for both the parameterized exercise entries (how equipment/angle/rotation get stored per logged set) and the goal-preference field on `profile` — not designed, only the conceptual shape.
-- **Table curation sourcing** — where the actual EMG percentages for the elbow-flexion (and eventually row) tables come from, and to what confidence standard, before any recommendation can honestly ship.
+- **Storage granularity: per-exercise-instance, not per-set.** Angle and rotation are set once for the whole exercise entry within a session, matching how `machine`/`pulleyType` already work today (`ex.machine`, `ex.pulleyType` on the exercise object, not on each individual set) — you dial in a bench angle once and do all your sets at it, same as you don't re-select a machine brand between sets. Modeling set-level granularity would be over-fitting to a rare edge case (angle-dropsetting) at the cost of matching an established, working pattern.
+- **Exercise name collapses to one canonical string per movement.** "Bench Press" instead of separate `"barbell bench press"`/`"dumbbell bench press (flat)"` strings — equipment becomes real queryable data instead of being buried in the name, which is the whole point of collapsing the proliferation in the first place.
+- **`equipment` is a new field, separate from the existing `machine` field.** `machine` already means *brand* (e.g. "Life Fitness," feeding `brandCalibration.js`'s per-user weight-adjustment system) and stays exactly as-is; `equipment` is the new *type* field: Barbell / Dumbbell / Cable / Plate-Loaded Machine / Pin Machine. They answer different questions and both matter independently — merging them would break the existing brand-calibration system, which already depends on `machine` meaning brand specifically.
+- **Goal-preference field**: single primary-muscle-pick value (not a ranking or weights — see §5), stored per movement family on `profile`, same pattern as the existing `profile.muscleFocus`/`profile.compoundIsolationPreference`/`profile.preferredSplit` durable-preference fields. Set once, editable later, never re-asked per log.
+- **Still not designed**: the literal field/key shapes (exact property names, how a movement-family key is represented on `profile`, how the per-set schema documents equipment/angle/rotation together) — the *shape* of each piece is resolved above, not the literal schema.
+
+## 7. Resistance-curve data collection — in progress
+
+A background research pass is running now (not yet complete) to populate `functions/resistanceCurves.js`:
+- The 1-5 ordinal rating (§2) for every exercise × brand combination across the expanded `machineBrands.js` catalog, plus free-weight/bodyweight/kettlebell exercises (one rating each, no brand).
+- **Base resistance for plate-loaded machines specifically** (added mid-task, not in the original job spec): plate-loaded machines (Hammer Strength's plate-loaded line being the classic example, but also plate-loaded leg presses/chest presses etc. across brands) have a lever/carriage mechanism, so the resistance felt isn't 1:1 with plates loaded — there's an effective starting resistance from the empty carriage/lever arm before any plates go on (analogous to a barbell's 20kg bar weight) that needs its own kg estimate, separate from the 1-5 curve-shape rating. Scoped to combinations the research pass judges to genuinely be plate-loaded (vs. pin/selectorized, which has no such problem — the weight-stack pin selects an exact number directly); the lever ratio itself (how much a given kg of plates gets multiplied by) was explicitly *not* asked for — lower confidence, skipped unless independently obvious.
+- Same best-effort, no-citation-required rigor as the rest of §2 — explicitly lower-rigor than the EMG-sourced `EXERCISE_ANGLES.js`/`emgActivation.js` tables, flagged as such in the new file's own header comment.
+
+## 8. Still open (not yet drilled)
+
+- **Literal schema** — exact field/property names and shapes (see §6's last bullet).
+- **Table curation sourcing** — where the actual EMG percentages for the elbow-flexion (and eventually row) tables come from, and to what confidence standard, before any recommendation can honestly ship. Separate from and higher-rigor than the resistance-curve data in §7.
