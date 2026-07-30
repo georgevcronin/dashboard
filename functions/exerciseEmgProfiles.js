@@ -71,6 +71,12 @@ const EXERCISE_EMG_PROFILES = {
   'single-leg hip thrust': { 'quads': 65, 'glutes': 80, 'hamstrings': 77.5, 'erectors': 80 },
   'frog pump': { 'quads': 65, 'glutes': 80, 'hamstrings': 77.5, 'erectors': 80 },
   'hip thrust (smith machine)': { 'quads': 65, 'glutes': 80, 'hamstrings': 77.5, 'erectors': 80 },
+  // Same movement pattern and muscle involvement as the barbell/Smith
+  // versions -- exerciseDb.js's own curveNote for this entry says as much
+  // ("same peak-contraction-meets-peak-moment-arm strength curve as the
+  // barbell version, but guided"). A guided/dedicated machine changes
+  // stability demand, not which muscles do the work or how much.
+  'hip thrust (machine)': { 'quads': 65, 'glutes': 80, 'hamstrings': 77.5, 'erectors': 80 },
 
   'barbell curl': { 'biceps': 95.5, 'brachialis': 95.5, 'brachioradialis': 95.5 },
   'ez-bar curl': { 'biceps': 95.5, 'brachialis': 95.5, 'brachioradialis': 95.5 },

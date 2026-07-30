@@ -33,12 +33,18 @@ const ISOMETRIC_PENALTY = 15;
 const FOCUS_PENALTY = 6;
 
 // Free-weight/barbell-style compounds carry the highest CNS demand — when CNS
-// fatigue is high, swap them for a machine/cable exercise hitting the same
-// primary muscles, since those let effort go high without technical
+// fatigue is high, swap them for a machine/cable/Smith exercise hitting the
+// same primary muscles, since those let effort go high without technical
 // breakdown becoming the limiter (the same reasoning the training ethos gives
 // for preferring stable movements generally, just triggered here by fatigue).
+// Smith stays in HIGH_CNS_EQUIPMENT too (a heavy Smith lift can still
+// trigger substitution the same as barbell/dumbbell — this axis is about
+// load/effort, not balance) but is ALSO a valid swap TARGET here: its fixed
+// bar path removes the same balance/coordination demand a machine or cable
+// does, matching the stability-preference reasoning (STABLE_EQUIPMENT
+// below) rather than the older, narrower machine/cable-only substitute pool.
 const HIGH_CNS_EQUIPMENT = ['barbell', 'smith', 'dumbbell'];
-const LOW_CNS_EQUIPMENT = ['machine', 'cable'];
+const LOW_CNS_EQUIPMENT = ['machine', 'cable', 'smith'];
 
 // Deliberately a SEPARATE grouping from HIGH/LOW_CNS_EQUIPMENT above, not a
 // reuse -- that split is about load/effort (why Smith sits with barbell/

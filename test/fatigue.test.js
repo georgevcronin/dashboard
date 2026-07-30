@@ -39,16 +39,20 @@ test('computeStructuralFatigue does not misattribute Cable exercises to abs', ()
   assert.equal(out.abs, undefined, 'Cable Crossover should not produce an abs fatigue score');
 });
 
-test('computeStructuralFatigue credits a PressRowBuilder exercise by its real emgWeights %, not full load', () => {
-  // Same muscle (lats), same date/decay, same raw load and peak in both
-  // cases -- the only difference is emgWeights crediting 62% instead of
-  // musclesForExercise's flat 100%, so any gap is purely from the weighting.
-  const weightedLift = [{ date: daysAgo(0), exercise: 'Cable Row — 90°', kg: 100, reps: 8, emgWeights: { lats: 62 } }];
-  const fullCreditLift = [{ date: daysAgo(0), exercise: 'Cable Pullover', kg: 100, reps: 8 }]; // primary includes lats, not yet curated -- full (unweighted) credit
+// One set is treated as ONE fixed stimulus pool (the raw load), divided by
+// each credited muscle's EMG weight normalized against the SUM of every
+// credited muscle's weight -- ratios summing to 1, not each muscle scaled
+// independently by its own absolute %MVIC value. A single-muscle profile's
+// one weight IS the whole pool (ratio 1.0, full credit, unaffected by this
+// change); adding a second muscle to the same profile must shrink the
+// first muscle's share, since they now split the same fixed pool.
+test('computeStructuralFatigue normalizes multi-muscle emgWeights so credit is a true ratio, not each muscle scaled independently', () => {
+  const singleMuscleLift = [{ date: daysAgo(0), exercise: 'Cable Row — 90°', kg: 100, reps: 8, emgWeights: { lats: 62 } }];
+  const multiMuscleLift = [{ date: daysAgo(0), exercise: 'Cable Row — 90°', kg: 100, reps: 8, emgWeights: { lats: 62, biceps: 50 } }];
   const peaks = { lats: 800 };
-  const weightedOut = computeStructuralFatigue(weightedLift, peaks, [], {});
-  const fullOut = computeStructuralFatigue(fullCreditLift, peaks, [], {});
-  assert.ok(weightedOut.lats < fullOut.lats * 0.7, 'weighted (62%) credit should be well under the same raw load credited at full (100%)');
+  const singleOut = computeStructuralFatigue(singleMuscleLift, peaks, [], {});
+  const multiOut = computeStructuralFatigue(multiMuscleLift, peaks, [], {});
+  assert.ok(multiOut.lats < singleOut.lats, 'lats\' share must shrink once biceps shares the same fixed pool, even though lats\' own raw 62 weight did not change');
 });
 
 test('computeStructuralFatigue with emgWeights only attributes to muscles present in the weights, ignoring musclesForExercise entirely', () => {
@@ -58,17 +62,20 @@ test('computeStructuralFatigue with emgWeights only attributes to muscles presen
   assert.equal(out.biceps, undefined, 'a real row would normally credit biceps too, but emgWeights did not include it here, so it should not appear');
 });
 
-test('computeStructuralFatigue uses a curated exerciseEmgProfiles.js weighted profile for an existing exercise, not just PressRowBuilder ones', () => {
-  // "Leg Press" now has a curated profile crediting quads at 75% (not the
-  // flat 100% musclesForExercise gives everything uncurated). Same muscle,
-  // same raw load/peak/decay as a genuinely uncurated exercise (press-
-  // pattern exercises aren't in phase 1's curated set) isolates the effect
-  // to the weighting itself.
+test('computeStructuralFatigue uses a curated exerciseEmgProfiles.js weighted, normalized profile for an existing exercise, not full flat credit', () => {
+  // Leg Press's curated profile is {quads:75, glutes:78, hamstrings:63,
+  // adductors:72, erectors:52} -- normalized, quads gets roughly
+  // 75/340 ≈ 22% of the load. "squat" is a custom name matching only the
+  // keyword fallback (functions/muscleTaxonomy.js's KEYWORD_FALLBACK ->
+  // ['quads','glutes','hamstrings']), which this file's own fallback path
+  // splits evenly (1/3 each, ~33%) since no primary/secondary distinction
+  // exists for an unrecognized name. Same raw load/peak in both, so any
+  // gap is purely from curated-and-normalized vs. flat-fallback weighting.
   const curatedLift = [{ date: daysAgo(0), exercise: 'Leg Press', kg: 100, reps: 8 }];
-  const flatLift = [{ date: daysAgo(0), exercise: 'Barbell Bench Press', kg: 100, reps: 8 }]; // press-pattern, not yet curated -- flat credit, chest primary
+  const fallbackLift = [{ date: daysAgo(0), exercise: 'squat', kg: 100, reps: 8 }];
   const curatedOut = computeStructuralFatigue(curatedLift, { quads: 800 }, [], {});
-  const flatOut = computeStructuralFatigue(flatLift, { chest: 800 }, [], {});
-  assert.ok(curatedOut.quads < flatOut.chest, 'curated 75% credit should read lower than an uncurated exercise\'s flat 100% credit against the same-magnitude peak');
+  const fallbackOut = computeStructuralFatigue(fallbackLift, { quads: 800 }, [], {});
+  assert.ok(curatedOut.quads < fallbackOut.quads, 'curated normalized-ratio credit (~22%) should read lower than the equal-split keyword fallback (~33%) for the same raw load');
 });
 
 test('computeMuscleLastTrainedDays classifies a curated exercise\'s primary muscles from its exerciseEmgProfiles.js weights, not just exerciseDb.js\'s flat primary array', () => {
@@ -97,14 +104,22 @@ test('computeStructuralFatigue falls back to the athlete\'s own exerciseAngles.j
   assert.ok(angleMappedOut.lats < flatOut.lats, 'the athlete\'s hand-mapped 62% angle credit should read lower than flat 100% credit for an uncurated, unmapped exercise');
 });
 
+// Back Squat's curated EMG profile credits quads at a normalized ratio of
+// 70/302 of the set's load (Back Squat also credits glutes/hamstrings/
+// adductors/erectors from the same fixed pool -- see creditedShares'
+// comment in fatigue.js) -- expected raw-load numbers below are scaled by
+// that ratio, not the full kg×reps load a flat/pre-normalization model
+// would have credited quads with.
+const BACK_SQUAT_QUADS_RATIO = 70 / 302;
+
 test('musclePeaksFromLifts finds the single highest-volume day per muscle', () => {
   const lifts = [
-    { date: '2026-01-01', exercise: 'Back Squat', kg: 100, reps: 5 }, // 500
-    { date: '2026-01-01', exercise: 'Back Squat', kg: 100, reps: 5 }, // 500 (same day, sums)
-    { date: '2026-01-08', exercise: 'Back Squat', kg: 80, reps: 5 },  // 400
+    { date: '2026-01-01', exercise: 'Back Squat', kg: 100, reps: 5 }, // 500 load
+    { date: '2026-01-01', exercise: 'Back Squat', kg: 100, reps: 5 }, // 500 load (same day, sums)
+    { date: '2026-01-08', exercise: 'Back Squat', kg: 80, reps: 5 },  // 400 load
   ];
   const peaks = musclePeaksFromLifts(lifts);
-  assert.equal(peaks.quads, 1000);
+  assert.ok(Math.abs(peaks.quads - 1000 * BACK_SQUAT_QUADS_RATIO) < 0.01);
 });
 
 test('musclePeaksFromLifts prefers a recent (90-day) peak over a bigger old one, so an old specialization day cannot permanently suppress fatigue%', () => {
@@ -113,27 +128,32 @@ test('musclePeaksFromLifts prefers a recent (90-day) peak over a bigger old one,
   // in isolation but should still register as meaningfully close to peak
   // for a lifter who now trains full-body, not against a 2-year-old outlier.
   const lifts = [
-    { date: daysAgo(700), exercise: 'Back Squat', kg: 100, reps: 8 },       // 800
-    { date: daysAgo(700), exercise: 'Leg Press', kg: 200, reps: 10 },       // 2000
-    { date: daysAgo(700), exercise: 'Leg Extension', kg: 60, reps: 12 },    // 720
-    { date: daysAgo(700), exercise: 'Hack Squat (Machine)', kg: 80, reps: 10 }, // 800
-    { date: daysAgo(1), exercise: 'Back Squat', kg: 100, reps: 8 },         // 800
+    { date: daysAgo(700), exercise: 'Back Squat', kg: 100, reps: 8 },       // 800 load
+    { date: daysAgo(700), exercise: 'Leg Press', kg: 200, reps: 10 },       // 2000 load
+    { date: daysAgo(700), exercise: 'Leg Extension', kg: 60, reps: 12 },    // 720 load
+    { date: daysAgo(700), exercise: 'Hack Squat (Machine)', kg: 80, reps: 10 }, // 800 load
+    { date: daysAgo(1), exercise: 'Back Squat', kg: 100, reps: 8 },         // 800 load
   ];
   const peaks = musclePeaksFromLifts(lifts);
-  assert.equal(peaks.quads, 800, 'should use the recent 800 peak, not the 2-year-old 4320 total');
+  const expectedRecentPeak = 800 * BACK_SQUAT_QUADS_RATIO;
+  assert.ok(Math.abs(peaks.quads - expectedRecentPeak) < 0.01, 'should use the recent Back Squat day\'s ratio-scaled credit, not the much bigger 2-year-old 4-exercise day');
 
   // Quads' half-life is 24h (evidence-grounded — see RECOVERY_H's comment in
   // muscleTaxonomy.js), so a session at exactly the recent peak load, done
   // ~1 day ago, should read near the midpoint of one half-life, not "still
-  // mostly fresh" the way a 72h half-life would have implied.
+  // mostly fresh" the way a 72h half-life would have implied. Both the
+  // fatigue score and the peak it's normalized against come from the same
+  // exercise (Back Squat) here, so the ratio cancels out — this assertion
+  // is unaffected by the ratio-normalization change above.
   const fatigue = computeStructuralFatigue(lifts, peaks, [], {});
   assert.ok(fatigue.quads > 25 && fatigue.quads < 65, `a full-body session done yesterday should read near one half-life's decay, got ${fatigue.quads}%`);
 });
 
 test('musclePeaksFromLifts falls back to the all-time peak for a muscle with nothing in the last 90 days', () => {
-  const lifts = [{ date: daysAgo(700), exercise: 'Barbell Curl', kg: 40, reps: 8 }]; // 320
+  const lifts = [{ date: daysAgo(700), exercise: 'Barbell Curl', kg: 40, reps: 8 }]; // 320 load
   const peaks = musclePeaksFromLifts(lifts);
-  assert.equal(peaks.biceps, 320, 'a muscle untouched recently should still get a usable (all-time) peak, not undefined/0');
+  const expectedBicepsPeak = 320 * (95.5 / 286.5); // Barbell Curl: biceps/brachialis/brachioradialis credited equally
+  assert.ok(Math.abs(peaks.biceps - expectedBicepsPeak) < 0.01, 'a muscle untouched recently should still get a usable (all-time) peak, not undefined/0');
 });
 
 test('injuryFatiguePenalty tapers linearly from 100 to 0 over the healing window', () => {

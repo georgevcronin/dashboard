@@ -73,6 +73,55 @@ function computeMuscleLastTrainedDays(lifts) {
 // caller from profile data, without this module needing to know anything
 // about profiles. Falls back to the base taxonomy table for any muscle the
 // override doesn't cover.
+// FALLBACK_PRIMARY_SHARE/FALLBACK_SECONDARY_SHARE: only used for the ~2
+// exerciseDb.js exercises with no curated EMG profile at all (checked
+// directly against the live data — see .design notes; effectively none in
+// practice) plus any future custom/unrecognized exercise name. A coarse
+// stand-in for a real ratio (all primary muscles split 80% of the pool
+// equally, all secondary muscles split the remaining 20%), applying the
+// same "one set = one fixed stimulus pool, divided by relative
+// involvement" principle the curated-weights path below uses, rather than
+// full, undiscounted credit to every muscle a name happens to touch.
+const FALLBACK_PRIMARY_SHARE = 0.8;
+const FALLBACK_SECONDARY_SHARE = 0.2;
+
+// [[muscle, ratio], ...] for one lift, ratios summing to 1 -- the "one set =
+// one fixed stimulus pool, divided by relative involvement" muscle-split
+// shared by computeStructuralFatigue, musclePeaksFromLifts, and
+// fatigueTimeline below. All three MUST agree on what a "unit of stimulus"
+// means, or peaks/timeline and the fatigue%/ETA numbers they normalize will
+// drift out of sync with each other. Checked in order: (1) a real per-lift
+// or curated EMG-weighted profile, normalized against the sum of every
+// credited muscle's weight (a genuinely single-muscle profile's one weight
+// IS the whole pool, ratio 1.0, unaffected); (2) exerciseDb.js's flat
+// primary/secondary tags for anything not yet curated (effectively none in
+// practice — see FALLBACK_PRIMARY_SHARE's own comment), primary muscles
+// splitting 80% of the pool, secondary the remaining 20%; (3) an evenly
+// split ratio across whatever a totally unrecognized custom name's keyword
+// fallback (musclesForExercise) found, since no primary/secondary
+// distinction exists to weight by there at all.
+function creditedShares(exerciseName, emgWeights) {
+  const weights = emgWeights || curatedWeightsForExercise(exerciseName);
+  if (weights) {
+    const totalWeight = Object.values(weights).reduce((a, b) => a + b, 0);
+    if (totalWeight <= 0) return [];
+    return Object.entries(weights).map(([m, pct]) => [m, pct / totalWeight]);
+  }
+  const entry = findExercise(exerciseName);
+  if (entry) {
+    const primary = entry.primary || [];
+    const secondary = entry.secondary || [];
+    const primaryShare = secondary.length ? FALLBACK_PRIMARY_SHARE : 1;
+    const secondaryShare = secondary.length ? FALLBACK_SECONDARY_SHARE : 0;
+    return [
+      ...primary.map(m => [m, primary.length ? primaryShare / primary.length : 0]),
+      ...secondary.map(m => [m, secondary.length ? secondaryShare / secondary.length : 0]),
+    ];
+  }
+  const matched = musclesForExercise(exerciseName);
+  return matched.length ? matched.map(m => [m, 1 / matched.length]) : [];
+}
+
 function computeStructuralFatigue(lifts, musclePeaks, soreness = [], sensitivity = {}, recoveryHours = RECOVERY_H) {
   const now = Date.now();
   const scores = {};
@@ -80,25 +129,10 @@ function computeStructuralFatigue(lifts, musclePeaks, soreness = [], sensitivity
     const hoursAgo = (now - liftTime(l)) / 3_600_000;
     if (hoursAgo > 336 || hoursAgo < 0) continue;
     const load = (l.kg || 0) * (l.reps || 1);
-    // A PressRowBuilder-generated exercise carries its own real per-lift
-    // EMG-weighted profile; an existing exerciseDb.js exercise with a
-    // curated FIXED profile (functions/exerciseEmgProfiles.js) uses that
-    // instead — either way, weighted credit (% of MVIC at the relevant
-    // angle) replaces the flat full-load-per-muscle credit
-    // musclesForExercise's union gives everything not yet curated.
-    const weights = l.emgWeights || curatedWeightsForExercise(l.exercise);
-    if (weights) {
-      for (const [m, pct] of Object.entries(weights)) {
-        const hl = recoveryHours[m] || RECOVERY_H[m] || 72;
-        const decay = Math.exp(-0.693 * hoursAgo / hl);
-        scores[m] = (scores[m] || 0) + load * (pct / 100) * decay;
-      }
-      continue;
-    }
-    for (const m of musclesForExercise(l.exercise)) {
+    for (const [m, ratio] of creditedShares(l.exercise, l.emgWeights)) {
       const hl = recoveryHours[m] || RECOVERY_H[m] || 72;
       const decay = Math.exp(-0.693 * hoursAgo / hl);
-      scores[m] = (scores[m] || 0) + load * decay;
+      scores[m] = (scores[m] || 0) + load * ratio * decay;
     }
   }
   const sorenessMap = {};
@@ -140,7 +174,7 @@ function fatigueTimeline(lifts, musclePeaks, recoveryHours = RECOVERY_H) {
   for (const { l, i, t } of sorted) {
     const load = (l.kg || 0) * (l.reps || 1);
     const fatigueBefore = {};
-    for (const m of musclesForExercise(l.exercise)) {
+    for (const [m, ratio] of creditedShares(l.exercise, l.emgWeights)) {
       const hl = recoveryHours[m] || RECOVERY_H[m] || 72;
       const state = acc[m];
       let decayedValue = 0;
@@ -149,7 +183,7 @@ function fatigueTimeline(lifts, musclePeaks, recoveryHours = RECOVERY_H) {
         decayedValue = state.value * Math.exp(-0.693 * hoursSince / hl);
       }
       fatigueBefore[m] = Math.min(100, Math.round(decayedValue / (musclePeaks?.[m] || 2000) * 100));
-      acc[m] = { value: decayedValue + load, lastMs: t };
+      acc[m] = { value: decayedValue + load * ratio, lastMs: t };
     }
     out[i] = fatigueBefore;
   }
@@ -190,7 +224,7 @@ function musclePeaksFromLifts(lifts) {
     const day = {};
     for (const l of dayLifts) {
       const load = (l.kg || 0) * (l.reps || 1);
-      for (const m of musclesForExercise(l.exercise)) day[m] = (day[m] || 0) + load;
+      for (const [m, ratio] of creditedShares(l.exercise, l.emgWeights)) day[m] = (day[m] || 0) + load * ratio;
     }
     for (const [m, v] of Object.entries(day)) {
       if (v > (allTimePeaks[m] || 0)) allTimePeaks[m] = v;
