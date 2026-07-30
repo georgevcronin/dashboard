@@ -25,6 +25,12 @@ const FAVORITE_EXERCISE_BONUS = 15;
 // Press, ...) is disincentivized harder than a merely-novel exercise.
 const OBSCURE_PENALTY = 8;
 const ISOMETRIC_PENALTY = 15;
+// pickDedicatedAccessory only: soft per-extra-primary-muscle penalty biasing
+// toward a genuinely focused exercise over another diffuse compound that
+// happens to rank the target muscle first — see its own comment. Smaller
+// than LOGGED_EXERCISE_BONUS on purpose, so real training history can still
+// win out over this default preference.
+const FOCUS_PENALTY = 6;
 
 // Free-weight/barbell-style compounds carry the highest CNS demand — when CNS
 // fatigue is high, swap them for a machine/cable exercise hitting the same
@@ -33,6 +39,25 @@ const ISOMETRIC_PENALTY = 15;
 // for preferring stable movements generally, just triggered here by fatigue).
 const HIGH_CNS_EQUIPMENT = ['barbell', 'smith', 'dumbbell'];
 const LOW_CNS_EQUIPMENT = ['machine', 'cable'];
+
+// Deliberately a SEPARATE grouping from HIGH/LOW_CNS_EQUIPMENT above, not a
+// reuse -- that split is about load/effort (why Smith sits with barbell/
+// dumbbell there), this one is about balance/stabilizer demand, where a
+// Smith machine's fixed bar path makes it genuinely stable, arguably more
+// so than some cable setups. Used by the stability preference below
+// (functions/index.js's stableLeaning, mirroring compoundIsolationPreference's
+// explicit-setting-else-auto-detected-from-history pattern) — a soft
+// scoring bias, not an equipment filter, so a free-weight exercise can
+// still win when it's clearly the better/only real option.
+const STABLE_EQUIPMENT = ['machine', 'cable', 'smith'];
+const UNSTABLE_EQUIPMENT = ['barbell', 'dumbbell'];
+const STABILITY_BONUS = 10;
+function stabilityScore(e, preferStable) {
+  if (!preferStable) return 0;
+  if (STABLE_EQUIPMENT.includes(e.equipment)) return STABILITY_BONUS;
+  if (UNSTABLE_EQUIPMENT.includes(e.equipment)) return -STABILITY_BONUS;
+  return 0;
+}
 
 function substituteForCNS(entry, avoidMuscles, avoidMusclesSecondary = []) {
   if (!HIGH_CNS_EQUIPMENT.includes(entry.equipment)) return entry;
@@ -99,7 +124,7 @@ function lastAccessoryPick(lifts, targetMuscles, excludeNames) {
 // rotation list from lastAccessoryPick — excluded unless doing so would
 // leave zero candidates (a muscle with exactly one viable exercise shouldn't
 // get artificially starved just to satisfy rotation).
-function pickAccessories(targetMuscles, alreadySelected, excludeNames, avoidMuscles, { travelMode, avoidEquipment = [], avoidNames = [], count, isolationOnly = false, lifts, favoriteExercises = [], avoidMusclesSecondary = [] }) {
+function pickAccessories(targetMuscles, alreadySelected, excludeNames, avoidMuscles, { travelMode, avoidEquipment = [], avoidNames = [], count, isolationOnly = false, lifts, favoriteExercises = [], avoidMusclesSecondary = [], preferStable = false }) {
   const coveredMuscles = new Set(alreadySelected.flatMap(e => e.primary));
   const remainingMuscles = targetMuscles.filter(m => !coveredMuscles.has(m));
   // Same-function guard: skip anything sharing both pattern and an
@@ -134,22 +159,104 @@ function pickAccessories(targetMuscles, alreadySelected, excludeNames, avoidMusc
   const pool = rotatedPool.length ? rotatedPool : scopedPool;
   const logged = loggedExerciseNames(lifts);
   const favorites = new Set(favoriteExercises.map(n => (n || '').toLowerCase()));
+  // Diminishing weight by primary-array position, not a flat count -- same
+  // fix and same reasoning as pickBackboneExercises' identical change (see
+  // its comment): a raw count of muscles touched structurally favors a
+  // diffuse compound over a dedicated single-muscle accessory regardless of
+  // how well either actually trains what it touches.
+  const weightedCoverage = (e, muscleList) => e.primary.reduce((sum, m, i) => muscleList.includes(m) ? sum + 1 / (i + 1) : sum, 0);
   const scored = pool
     .map(e => ({
       e,
-      score: e.primary.filter(m => remainingMuscles.includes(m)).length * 2 + e.primary.filter(m => targetMuscles.includes(m)).length
+      score: weightedCoverage(e, remainingMuscles) * 2 + weightedCoverage(e, targetMuscles)
         + (logged.has(e.name.toLowerCase()) ? LOGGED_EXERCISE_BONUS : 0)
         + (favorites.has(e.name.toLowerCase()) ? FAVORITE_EXERCISE_BONUS : 0)
         - (e.lesserKnown ? OBSCURE_PENALTY : 0)
-        - (e.isometric ? ISOMETRIC_PENALTY : 0),
+        - (e.isometric ? ISOMETRIC_PENALTY : 0)
+        + stabilityScore(e, preferStable),
     }))
     .sort((a, b) => b.score - a.score);
+  // Two passes, not a static top-N slice: nothing previously stopped two
+  // or three accessory picks stacking on whichever single muscle scored
+  // highest overall while another target muscle got skipped entirely (a
+  // real case: rear-delt picked 3x while mid-delt and abs got nothing).
+  // Pass 1 greedily covers every still-uncovered target muscle one at a
+  // time with its best-scoring candidate; pass 2 only fills any leftover
+  // `count` once every target muscle already has at least one accessory.
+  // Same-pattern+overlapping-muscle guard now also applies WITHIN this
+  // list (previously only checked against `alreadySelected`), so two
+  // accessory picks can't be each other's redundant pair either.
   const out = [];
+  const dynamicCovered = new Set(coveredMuscles);
+  const isRedundantWithPicked = e => out.some(o => o.pattern === e.pattern && e.primary.some(m => o.primary.includes(m)));
   for (const { e } of scored) {
     if (out.length >= count) break;
+    if (isRedundantWithPicked(e)) continue;
+    const coversNewMuscle = e.primary.some(m => targetMuscles.includes(m) && !dynamicCovered.has(m));
+    if (!coversNewMuscle) continue;
     out.push(e);
+    e.primary.forEach(m => dynamicCovered.add(m));
+  }
+  if (out.length < count) {
+    for (const { e } of scored) {
+      if (out.length >= count) break;
+      if (out.some(o => o.name === e.name) || isRedundantWithPicked(e)) continue;
+      out.push(e);
+    }
   }
   return out;
+}
+
+// Finds one exercise that gives `muscle` genuinely dedicated treatment --
+// its #1/main-mover primary, not incidental credit from being 2nd or 3rd on
+// someone else's primary list -- for generateSessionExercises' variety-
+// widening step below. Deliberately narrower than pickAccessories: no
+// "already covered" concept at all (the whole point here is muscles that
+// ARE somewhere in an already-picked exercise's primary list but not as the
+// main mover), just the same redundancy guard (no same-pattern-and-
+// overlapping-muscle pick as something already selected, e.g. never
+// re-admits Box Squat after Sumo Deadlift) plus the same logged/favorite/
+// obscure scoring used everywhere else in this file.
+function pickDedicatedAccessory(muscle, alreadySelected, excludeNames, avoidMuscles, { travelMode, avoidEquipment = [], isolationOnly = false, lifts, favoriteExercises = [], avoidMusclesSecondary = [], preferStable = false }) {
+  const isRedundant = e => !isStapleExercise(lifts, e.name) &&
+    alreadySelected.some(a => a.pattern === e.pattern && e.primary.some(m => a.primary.includes(m)));
+  const basePool = EXERCISE_DB.filter(e =>
+    !excludeNames.has(e.name) &&
+    (travelMode ? e.equipment === 'bodyweight' : true) &&
+    !(isBodyweightOnlyExercise(e) && !travelMode) &&
+    !avoidEquipment.includes(e.equipment) &&
+    !e.primary.some(m => avoidMuscles.includes(m)) &&
+    !(e.secondary || []).some(m => avoidMusclesSecondary.includes(m)) &&
+    e.primary[0] === muscle &&
+    !isRedundant(e)
+  );
+  const typePool = isolationOnly ? basePool.filter(e => !isCompoundExercise(e.name)) : basePool;
+  const pool = typePool.length ? typePool : basePool;
+  const logged = loggedExerciseNames(lifts);
+  const favorites = new Set(favoriteExercises.map(n => (n || '').toLowerCase()));
+  const scored = pool
+    .map(e => ({
+      e,
+      // FOCUS_PENALTY: without this, nothing here prefers a genuinely
+      // focused exercise (Lying Leg Curl, primary=[hamstrings]) over
+      // another diffuse compound that just happens to rank the target
+      // muscle first (Conventional Deadlift, primary=[hamstrings,glutes,
+      // erectors]) -- the real case this was found from, where hamstrings
+      // needed dedicating after Box Squat already took quads, and this
+      // function had no reason not to pick another heavy multi-muscle
+      // lift right back. The whole point of "dedicated" is focused work,
+      // not a second diffuse compound. Real logged history (40) or a
+      // stated favorite (15) can still outweigh this soft preference —
+      // it's a bias toward focus, not a hard ban on compounds here.
+      score: (logged.has(e.name.toLowerCase()) ? LOGGED_EXERCISE_BONUS : 0)
+        + (favorites.has(e.name.toLowerCase()) ? FAVORITE_EXERCISE_BONUS : 0)
+        - (e.lesserKnown ? OBSCURE_PENALTY : 0)
+        - (e.isometric ? ISOMETRIC_PENALTY : 0)
+        - (e.primary.length - 1) * FOCUS_PENALTY
+        + stabilityScore(e, preferStable),
+    }))
+    .sort((a, b) => b.score - a.score);
+  return scored[0]?.e || null;
 }
 
 // Case-insensitive wrapper around computeProgression: EXERCISE_DB uses Title
@@ -273,7 +380,7 @@ function setsFor(prog, workingSetCount, { failureSolo = false, higherRirPair = f
 // new-lifter fatigue budget. trainingMonths is null for an athlete who
 // hasn't self-reported training experience, in which case the new-lifter
 // budget is skipped entirely rather than assumed.
-function generateSessionExercises({ type, targetMuscles, backboneExerciseNames, lifts, travelMode, avoidMuscles = [], avoidMusclesSecondary = [], offlineMuscles = [], cnsFatigue = 0, metabolicFatigue = 0, trainingMonths = null, skipAccessories = false, accessoryCountOverride = null, isolationOnly = false, favoriteExercises = [], sessionExcludeNames = new Set(), warmupScheme = null }) {
+function generateSessionExercises({ type, targetMuscles, backboneExerciseNames, lifts, travelMode, avoidMuscles = [], avoidMusclesSecondary = [], offlineMuscles = [], cnsFatigue = 0, metabolicFatigue = 0, trainingMonths = null, skipAccessories = false, accessoryCountOverride = null, isolationOnly = false, favoriteExercises = [], sessionExcludeNames = new Set(), warmupScheme = null, maxDurationMin = null, preferStable = false }) {
   if (type !== 'lift' || !targetMuscles?.length) return [];
 
   const excludeMuscles = [...new Set([...avoidMuscles, ...offlineMuscles])];
@@ -297,7 +404,7 @@ function generateSessionExercises({ type, targetMuscles, backboneExerciseNames, 
   const seen = new Set();
   backboneEntries = backboneEntries.filter(e => (seen.has(e.name) ? false : (seen.add(e.name), true)));
 
-  const fatigueCeiling = metabolicFatigue > 60 ? 2 : metabolicFatigue > 30 ? 3 : 4;
+  const fatigueCeiling = fatigueCeilingFor(metabolicFatigue);
   // skipAccessories: used by the full-body auto-pick path (functions/index.js's
   // /plan/session-exercises), which calls this once per muscle bucket — each
   // bucket already contributes exactly one exercise, so adding accessories
@@ -317,10 +424,10 @@ function generateSessionExercises({ type, targetMuscles, backboneExerciseNames, 
   const lastPick = accessoryCount > 0 ? lastAccessoryPick(lifts, targetMuscles, excludeNames) : null;
   const accessories = accessoryCount > 0 ? pickAccessories(targetMuscles, backboneEntries, excludeNames, excludeMuscles, {
     travelMode, avoidEquipment, avoidNames: lastPick ? [lastPick] : [], count: accessoryCount, isolationOnly, lifts, favoriteExercises,
-    avoidMusclesSecondary: excludeMusclesSecondary,
+    avoidMusclesSecondary: excludeMusclesSecondary, preferStable,
   }) : [];
 
-  return [...backboneEntries, ...accessories].map(e => {
+  const buildEntry = e => {
     const prog = progressionFor(lifts, e.name, warmupScheme);
     const sessionCount = exerciseSessionCount(lifts, e.name);
     const nlCount = newLifterWorkingSetCount(trainingMonths, sessionCount, fatigueCeiling);
@@ -331,7 +438,84 @@ function generateSessionExercises({ type, targetMuscles, backboneExerciseNames, 
       higherRirPair: newLifterPhase && workingSetCount >= 2,
     });
     return { name: e.name, note, sets };
-  });
+  };
+
+  let finalDbEntries = [...backboneEntries, ...accessories];
+  let finalList = finalDbEntries.map(buildEntry);
+
+  // Widen for variety, not just volume: a target muscle can be "covered" on
+  // paper (present in some pick's primary list) without being genuinely
+  // trained -- e.g. triceps/front-delt on Barbell Bench Press, whose main
+  // event is chest (exerciseDb.js's primary array is ordered main-mover-
+  // first, same convention "row" and the Sumo Deadlift/Box Squat fix above
+  // both rely on). Real stimulus, but thin, and stacking more SETS onto the
+  // press (the caller's fillSessionToDuration, which only adds volume) does
+  // nothing to fix that. If genuine session-length budget remains, add one
+  // more non-redundant, genuinely-dedicated exercise per muscle that has no
+  // #1-primary pick anywhere yet, via pickDedicatedAccessory (NOT
+  // pickAccessories -- that function's own "already covered" concept is
+  // any-primary, which would immediately consider triceps/front-delt/etc.
+  // already covered by the press and refuse to add anything for them, the
+  // exact gap being fixed here).
+  if (maxDurationMin) {
+    let guard = 0;
+    while (guard++ < targetMuscles.length + 2) {
+      const dedicatedMuscles = new Set(finalDbEntries.map(e => e.primary[0]));
+      const needsDedicated = targetMuscles.filter(m => !dedicatedMuscles.has(m));
+      if (!needsDedicated.length) break;
+      const widenExcludeNames = new Set([...excludeNames, ...finalDbEntries.map(e => e.name)]);
+      let pick = null;
+      for (const muscle of needsDedicated) {
+        pick = pickDedicatedAccessory(muscle, finalDbEntries, widenExcludeNames, excludeMuscles, {
+          travelMode, avoidEquipment, isolationOnly, lifts, favoriteExercises, avoidMusclesSecondary: excludeMusclesSecondary, preferStable,
+        });
+        if (pick) break;
+      }
+      if (!pick) break;
+      const projected = [...finalList, buildEntry(pick)];
+      if (estimateSessionDurationMin(projected) > maxDurationMin) break;
+      finalDbEntries = [...finalDbEntries, pick];
+      finalList = projected;
+    }
+
+    // Post-widen cleanup: a diffuse multi-muscle pick (Sumo Deadlift: its
+    // own main mover, glutes, isn't even a target muscle here -- quads and
+    // hamstrings are, but only as incidental 2nd/3rd primary) can end up
+    // contributing nothing the widen step above didn't already better-serve
+    // with a real dedicated exercise. Removes any exercise whose own main
+    // mover isn't a target muscle still needing dedication AND every target
+    // muscle it does touch already has its own dedicated exercise
+    // elsewhere -- pure overlap with nothing depending on it. Re-checked
+    // after each removal since dropping one exercise can change whether
+    // another's coverage is still uniquely needed.
+    let removed = true;
+    while (removed) {
+      removed = false;
+      for (const entry of finalDbEntries) {
+        const others = finalDbEntries.filter(e => e !== entry);
+        const dedicatedElsewhere = new Set(others.map(e => e.primary[0]));
+        const ownMoverStillNeeded = targetMuscles.includes(entry.primary[0]) && !dedicatedElsewhere.has(entry.primary[0]);
+        if (ownMoverStillNeeded) continue;
+        const otherTargetMuscles = entry.primary.slice(1).filter(m => targetMuscles.includes(m));
+        if (otherTargetMuscles.every(m => dedicatedElsewhere.has(m))) {
+          finalDbEntries = others;
+          removed = true;
+          break;
+        }
+      }
+    }
+    finalList = finalDbEntries.map(buildEntry);
+  }
+
+  return finalList;
+}
+
+// Per-exercise working-set ceiling, driven by metabolic fatigue -- pulled
+// out to a named function (rather than left inline in generateSessionExercises)
+// so fillSessionToDuration below can use the exact same number rather than
+// risking a second, driftable copy of the same formula at the call site.
+function fatigueCeilingFor(metabolicFatigue) {
+  return metabolicFatigue > 60 ? 2 : metabolicFatigue > 30 ? 3 : 4;
 }
 
 // Session-length estimate/cap, driven by the full-body auto-generator's
@@ -387,8 +571,42 @@ function capSessionDuration(exercises, currentFatigue, maxDurationMin) {
   return list;
 }
 
+// Adds working sets, round-robin across the already-chosen exercises, until
+// the session reaches (or gets as close as possible without exceeding)
+// maxDurationMin -- the counterpart to capSessionDuration's trim-down,
+// for the opposite case: a session that came in well under a requested
+// length (e.g. 23 min against a 90-min max) because backbone+accessory
+// coverage happened to be satisfied with few exercises. Deliberately never
+// invents a new exercise to burn the remaining time -- that would reopen
+// the exact "extra exercise on a muscle without a specific reason" problem
+// pickBackboneExercises/pickAccessories were just fixed for. Extra
+// requested time becomes extra volume on exercises already chosen for a
+// real reason instead, capped per exercise at fatigueCeiling (the same
+// per-exercise working-set ceiling generateSessionExercises itself uses)
+// so it spreads across the session rather than piling onto whichever
+// exercise happens to be first.
+function fillSessionToDuration(exercises, maxDurationMin, fatigueCeiling) {
+  if (!maxDurationMin || !exercises?.length) return exercises;
+  const list = exercises.map(e => ({ ...e, sets: [...e.sets] }));
+  const workingSetCount = ex => ex.sets.filter(s => s.type !== 'W').length;
+  let addedAny = true;
+  while (estimateSessionDurationMin(list) < maxDurationMin && addedAny) {
+    addedAny = false;
+    for (const ex of list) {
+      if (estimateSessionDurationMin(list) >= maxDurationMin) break;
+      if (workingSetCount(ex) >= fatigueCeiling) continue;
+      const lastWorking = [...ex.sets].reverse().find(s => s.type !== 'W');
+      if (!lastWorking) continue;
+      ex.sets.push({ ...lastWorking });
+      addedAny = true;
+    }
+  }
+  return list;
+}
+
 module.exports = {
   generateSessionExercises, progressionFor, suggestedWorkingSetCount, suggestedRirSequence,
   isLowRepPattern, LOW_REP_THRESHOLD, isStapleExercise, STAPLE_SESSION_THRESHOLD,
-  estimateSessionDurationMin, capSessionDuration,
+  estimateSessionDurationMin, capSessionDuration, fillSessionToDuration, fatigueCeilingFor,
+  STABLE_EQUIPMENT, UNSTABLE_EQUIPMENT, stabilityScore,
 };

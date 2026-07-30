@@ -142,11 +142,36 @@ test('pickBackboneExercises prefers a self-reported favorite over an equal-cover
 });
 
 test('pickBackboneExercises never picks two exercises with the same pattern for an overlapping muscle', () => {
-  const picks = pickBackboneExercises(['chest', 'triceps', 'front-delt'], { count: 2 });
+  // Two genuinely distinct muscle needs (chest vs. quads, no shared primary)
+  // -- both get their own backbone pick, and they can't be a same-pattern
+  // overlapping pair since nothing they cover overlaps at all.
+  const picks = pickBackboneExercises(['chest', 'quads'], { count: 2 });
   assert.equal(picks.length, 2);
   const [a, b] = picks;
   const sameFunctionOverlap = a.pattern === b.pattern && a.primary.some(m => b.primary.includes(m));
   assert.ok(!sameFunctionOverlap, `expected genuinely different work, got two ${a.pattern} picks sharing a muscle: ${a.name} + ${b.name}`);
+});
+
+// Sumo Deadlift + Box Squat (both hinge/squat-pattern, both hitting
+// glutes+hamstrings+quads) was the real case this covers: a compound
+// scoring on raw target-muscle count will keep "winning" with near-
+// identical lower-body lifts even though their patterns differ, unless
+// something also checks whether the second pick adds any muscle the first
+// one didn't already cover.
+test('pickBackboneExercises does not pad to count with a second compound that adds no new muscle coverage', () => {
+  const picks = pickBackboneExercises(['chest', 'triceps', 'front-delt'], { count: 2 });
+  assert.equal(picks.length, 1, 'one compound (Barbell Bench Press) already covers every target muscle here -- a second pick would be pure overlap, not real variety');
+  assert.equal(picks[0].name, 'Barbell Bench Press');
+});
+
+// travelMode is the intended exception: bodyweight-only equipment means real
+// alternatives are scarce, so stacking two exercises on the same muscle (no
+// meaningfully different option exists) is the "very specific reason" the
+// no-new-coverage rule above is meant to require, not a violation of it.
+test('pickBackboneExercises still allows overlapping-muscle picks in travelMode, where equipment is too scarce to diversify', () => {
+  const picks = pickBackboneExercises(['abs', 'transverse-abs'], { count: 10, travelMode: true });
+  assert.ok(picks.some(p => p.name === 'Dead Bug'));
+  assert.ok(picks.some(p => p.name === 'Ab Wheel Rollout'));
 });
 
 test('planLiftSessionsTarget caps sessions hard when systemic fatigue is very high', () => {

@@ -33,7 +33,7 @@ import { AreaChart, BarChart, Sparkline, AdaptationChart } from './charts.jsx';
 // needs the full exercise name list rather than a derived lookup.
 const { ALL_MUSCLES, PRIMARY_MUSCLES, musclesForExercise, isCompoundExercise, findExercise } = muscleTaxonomyPkg;
 const { computeStructuralFatigue, computeACWR, computePerformanceTrend, computeMetabolicFatigue, computeCNSFatigue, cnsLoad } = fatiguePkg;
-const { progressionFor, suggestedWorkingSetCount, suggestedRirSequence, isLowRepPattern, LOW_REP_THRESHOLD, estimateSessionDurationMin, capSessionDuration } = sessionPlannerPkg;
+const { progressionFor, suggestedWorkingSetCount, suggestedRirSequence, isLowRepPattern, LOW_REP_THRESHOLD, estimateSessionDurationMin, capSessionDuration, fillSessionToDuration } = sessionPlannerPkg;
 const { e1rm: calcE1RM } = strengthStandardsPkg;
 const { defaultMachineBrands } = machineBrandsPkg;
 const { MACHINE_MODELS } = machineModelsPkg;
@@ -134,6 +134,18 @@ const googleProvider = new GoogleAuthProvider();
 
 
 const API_BASE = "https://europe-west2-pressnewsletter.cloudfunctions.net/api";
+
+// Ceiling of the Max Length slider (S3's sliderDraft) — the initial
+// /plan/session-exercises fetch always requests generation up to this
+// ceiling (not the athlete's current slider position) so the server-side
+// widening (generateSessionExercises' maxDurationMin, which adds real
+// dedicated exercises for thinly-covered muscles) computes against the
+// largest session the slider could ever ask for. The client then trims
+// that maximal list down reactively as the slider moves below 90
+// (capSessionDuration/fillSessionToDuration, no server round-trip per
+// drag) — computing the widened max once and trimming client-side, rather
+// than re-fetching (and re-widening) on every slider tick.
+const SESSION_MAX_DURATION_MIN = 90;
 
 const getToken = () => auth.currentUser ? auth.currentUser.getIdToken() : Promise.resolve(null);
 
@@ -3708,6 +3720,7 @@ function S3({ s, onStartWorkout, onImport, onHistory, refresh }) {
   // via the muscle-focus chips below.
   const [rawExercises, setRawExercises] = useState([]);
   const [currentFatigueMap, setCurrentFatigueMap] = useState({});
+  const [sessionFatigueCeiling, setSessionFatigueCeiling] = useState(4);
   const [pickedBucket, setPickedBucket] = useState(null);
   const [preloading, setPreloading] = useState(false);
   const [splitNeglected, setSplitNeglected] = useState([]);
@@ -3719,14 +3732,15 @@ function S3({ s, onStartWorkout, onImport, onHistory, refresh }) {
     setPreloading(true);
     setRawExercises([]);
     const body = selectedBucket
-      ? { type: 'lift', targetMuscles: selectedBucket.muscles, bucket: selectedBucket.name }
-      : { type: 'lift' };
+      ? { type: 'lift', targetMuscles: selectedBucket.muscles, bucket: selectedBucket.name, maxDurationMin: SESSION_MAX_DURATION_MIN }
+      : { type: 'lift', maxDurationMin: SESSION_MAX_DURATION_MIN };
     authFetch(`${API_BASE}/plan/session-exercises`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     }).then(r => r.json()).then(data => {
       setRawExercises(data.exercises || []);
       setCurrentFatigueMap(data.currentFatigue || {});
+      setSessionFatigueCeiling(data.fatigueCeiling ?? 4);
       setPickedBucket(data.bucket ? { name: data.bucket, muscles: data.targetMuscles, backboneExercises: data.backboneExercises } : null);
       setSplitNeglected(data.neglectedMuscles || []);
       setPreloading(false);
@@ -3734,13 +3748,20 @@ function S3({ s, onStartWorkout, onImport, onHistory, refresh }) {
   }, [selectedBucket?.name]);
 
   // Truly reactive: recomputed instantly as the slider moves, no server
-  // round-trip. capSessionDuration/estimateSessionDurationMin are the exact
-  // same pure functions the backend uses (functions/sessionPlanner.js,
+  // round-trip. capSessionDuration/fillSessionToDuration/estimateSessionDurationMin
+  // are the exact same pure functions the backend uses (functions/sessionPlanner.js,
   // bundled into the frontend via esbuild) — run here against whichever
   // exercise list + fatigue reading was last fetched, not re-fetched.
+  // fillSessionToDuration is the reverse of capSessionDuration: when the
+  // fetched list comes in well under the slider's length (e.g. backbone+
+  // accessory coverage was satisfied with only 3 exercises against a 90-min
+  // slider), it adds working sets to the exercises already chosen rather
+  // than leaving the requested time unused — never invents a new exercise
+  // for this, since that would reopen the "extra exercise on a muscle
+  // without a specific reason" problem the picker functions themselves fix.
   const displayedExercises = useMemo(
-    () => capSessionDuration(rawExercises, currentFatigueMap, sliderDraft),
-    [rawExercises, currentFatigueMap, sliderDraft]
+    () => fillSessionToDuration(capSessionDuration(rawExercises, currentFatigueMap, sliderDraft), sliderDraft, sessionFatigueCeiling),
+    [rawExercises, currentFatigueMap, sliderDraft, sessionFatigueCeiling]
   );
   const estimatedDurationMin = displayedExercises.length ? estimateSessionDurationMin(displayedExercises) : null;
 
@@ -3859,7 +3880,7 @@ function S3({ s, onStartWorkout, onImport, onHistory, refresh }) {
           )}
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
             <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, color: 'var(--dim)', whiteSpace: 'nowrap' }}>Max length</span>
-            <input type="range" min="20" max="90" step="5" value={sliderDraft} onChange={e => setSliderDraft(+e.target.value)}
+            <input type="range" min="20" max={SESSION_MAX_DURATION_MIN} step="5" value={sliderDraft} onChange={e => setSliderDraft(+e.target.value)}
               style={{ flex: 1, accentColor: 'var(--ink)' }} />
             <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, color: 'var(--dim)', minWidth: 44, textAlign: 'right' }}>{sliderDraft} min</span>
           </div>
@@ -6699,6 +6720,13 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
   const compoundIsolationPref = s?.profile?.compoundIsolationPreference || null;
   const compoundIsolationVal = compoundIsolationPref === 'isolation' ? 0 : compoundIsolationPref === 'compound' ? 2 : 1;
 
+  // Same explicit-setting-else-auto-detect pattern as compoundIsolationPref
+  // above (functions/index.js's stableLeaning) — an account that mostly
+  // logs machine/cable/smith work gets that reflected as the default going
+  // forward.
+  const stabilityPref = s?.profile?.stabilityPreference || null;
+  const stabilityVal = stabilityPref === 'free' ? 0 : stabilityPref === 'stable' ? 2 : 1;
+
   const savePanels = async (order, hidden) => {
     setPanelOrder(order); setHiddenPanels(hidden);
     const profile = await api('profile', { method: 'POST', body: JSON.stringify({ panelOrder: order, hiddenPanels: hidden }) });
@@ -7105,6 +7133,24 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
             </div>
             <div style={{ fontSize: 8, color: 'var(--dim)', marginTop: 4, lineHeight: 1.4 }}>
               {compoundIsolationPref ? `Locked to ${compoundIsolationPref} accessories.` : 'Auto — follows whichever you\'ve actually leaned toward over your last 90 days.'} Only affects the accessory slot on freshest-picked muscles; backbone lifts stay compound-first regardless.
+            </div>
+          </div>
+          <div className="prof-field">
+            <span className="prof-lbl">Free-Weight / Stable <span style={{ fontSize: 8, color: 'var(--dim)', textTransform: 'none' }}>(equipment lean in auto-generated sessions)</span></span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, color: 'var(--dim)' }}>Free-weight</span>
+              <input type="range" min="0" max="2" step="1" value={stabilityVal}
+                onChange={e => {
+                  const v = +e.target.value;
+                  const pref = v === 0 ? 'free' : v === 2 ? 'stable' : null;
+                  refresh({ ...s, profile: { ...s.profile, stabilityPreference: pref } });
+                  api('profile', { method: 'POST', body: JSON.stringify({ stabilityPreference: pref }) }).then(profile => refresh({ ...s, profile }));
+                }}
+                style={{ flex: 1, accentColor: 'var(--ink)' }} />
+              <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, color: 'var(--dim)' }}>Stable</span>
+            </div>
+            <div style={{ fontSize: 8, color: 'var(--dim)', marginTop: 4, lineHeight: 1.4 }}>
+              {stabilityPref ? `Locked to ${stabilityPref === 'stable' ? 'machine/cable/Smith' : 'free-weight'}-leaning picks.` : 'Auto — follows whichever you\'ve actually leaned toward over your last 90 days.'} A soft preference, not a hard filter — a free-weight (or machine) exercise can still get picked when it's clearly the best option.
             </div>
           </div>
           <div className="prof-field">

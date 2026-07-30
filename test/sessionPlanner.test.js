@@ -1,6 +1,6 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { generateSessionExercises, progressionFor, suggestedWorkingSetCount, suggestedRirSequence, isLowRepPattern, LOW_REP_THRESHOLD, isStapleExercise, STAPLE_SESSION_THRESHOLD, estimateSessionDurationMin, capSessionDuration } = require('../functions/sessionPlanner');
+const { generateSessionExercises, progressionFor, suggestedWorkingSetCount, suggestedRirSequence, isLowRepPattern, LOW_REP_THRESHOLD, isStapleExercise, STAPLE_SESSION_THRESHOLD, estimateSessionDurationMin, capSessionDuration, fillSessionToDuration, fatigueCeilingFor } = require('../functions/sessionPlanner');
 const daysAgo = (n) => new Date(Date.now() - n * 86400000).toISOString().slice(0, 10);
 const { isCompoundExercise } = require('../functions/muscleTaxonomy');
 
@@ -325,4 +325,46 @@ test('capSessionDuration never trims below one exercise, even under an unreachab
   const exercises = [{ name: 'Barbell Bench Press', sets: [{ type: 'N' }, { type: 'N' }, { type: 'N' }] }];
   const out = capSessionDuration(exercises, { chest: 90 }, 1);
   assert.equal(out.length, 1, 'a cap too tight for even one exercise should still leave that one exercise, not return empty');
+});
+
+test('fatigueCeilingFor mirrors generateSessionExercises\' own internal thresholds', () => {
+  assert.equal(fatigueCeilingFor(0), 4);
+  assert.equal(fatigueCeilingFor(40), 3);
+  assert.equal(fatigueCeilingFor(70), 2);
+});
+
+// A session that came in well under the requested length (e.g. backbone
+// happened to fully cover every target muscle with just 2-3 exercises)
+// previously just... stayed short, even against a 90-min slider. This adds
+// working sets to what's already there instead of leaving requested time
+// on the table -- the counterpart to capSessionDuration's trim-down.
+test('fillSessionToDuration adds working sets, round-robin, until the session reaches maxDurationMin', () => {
+  const exercises = [
+    { name: 'A', sets: [{ type: 'N', kg: 100, reps: 5 }] },
+    { name: 'B', sets: [{ type: 'N', kg: 50, reps: 8 }] },
+  ];
+  const before = estimateSessionDurationMin(exercises);
+  const out = fillSessionToDuration(exercises, before + 10, 4);
+  assert.ok(estimateSessionDurationMin(out) > before, 'should have added volume to close the gap toward maxDurationMin');
+  assert.ok(estimateSessionDurationMin(out) <= before + 10 + 4, 'should not wildly overshoot the target (allowing for one set worth of granularity)');
+});
+
+test('fillSessionToDuration never pushes any exercise past fatigueCeiling working sets', () => {
+  const exercises = [{ name: 'A', sets: [{ type: 'N', kg: 100, reps: 5 }] }];
+  const out = fillSessionToDuration(exercises, 999, 3);
+  assert.equal(out[0].sets.filter(s => s.type !== 'W').length, 3, 'should stop adding sets once fatigueCeiling is hit, even with a huge target length left unfilled');
+});
+
+test('fillSessionToDuration is a no-op when maxDurationMin is unset or the session already meets it', () => {
+  const exercises = [{ name: 'A', sets: [{ type: 'N', kg: 100, reps: 5 }] }];
+  assert.deepEqual(fillSessionToDuration(exercises, null, 4), exercises);
+  assert.deepEqual(fillSessionToDuration(exercises, 0, 4), exercises);
+  const alreadyLong = estimateSessionDurationMin(exercises);
+  assert.deepEqual(fillSessionToDuration(exercises, alreadyLong, 4), exercises);
+});
+
+test('fillSessionToDuration never invents a new exercise, only adds sets to what\'s already chosen', () => {
+  const exercises = [{ name: 'A', sets: [{ type: 'N', kg: 100, reps: 5 }] }];
+  const out = fillSessionToDuration(exercises, 999, 10);
+  assert.equal(out.length, 1, 'should still be exactly one exercise, no matter how much target length is left unfilled');
 });

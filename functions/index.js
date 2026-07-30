@@ -11,7 +11,7 @@ const { computeMuscleLevels, classifyLift, estimate1RM } = require('./strengthSt
 const { loadAllLifts, appendLifts, removeLiftsAndAppend } = require('./liftChunks');
 const { DEFAULTS, loadForUserDoc, saveDocExcludingLifts } = require('./userDoc');
 const { computeProgression } = require('./progression');
-const { generateSessionExercises, progressionFor, isLowRepPattern, LOW_REP_THRESHOLD, estimateSessionDurationMin, capSessionDuration } = require('./sessionPlanner');
+const { generateSessionExercises, progressionFor, isLowRepPattern, LOW_REP_THRESHOLD, estimateSessionDurationMin, capSessionDuration, fillSessionToDuration, fatigueCeilingFor } = require('./sessionPlanner');
 const { computeSleepScore } = require('./sleepScore');
 const { callGeminiResilient, parseGeminiJSON } = require('./gemini');
 const { unwrapShortcutBody, average, sumForDay, computeSleepMetrics } = require('./shortcutParsing');
@@ -56,7 +56,7 @@ const {
   computeStructuralFatigue, computeCurrentFatigueScores, musclePeaksFromLifts, fatigueTimeline,
   INJURY_HEALING_DAYS, injuryFatiguePenalty, applyInjuryTaper,
   computeACWR, computePerformanceTrend, computeMetabolicFatigue, computeCNSFatigue,
-  computeMuscleLastTrainedDays, computeCompoundIsolationSplit,
+  computeMuscleLastTrainedDays, computeCompoundIsolationSplit, computeStabilitySplit,
 } = require('./fatigue');
 const { personalizedRecoveryHours, trainingMonthsIfKnown } = require('./recoveryPersonalization');
 const { alcoholStats, computeDataMaturity, compVerdict, toCsv, weekLiftSessionsCompleted } = require('./analytics');
@@ -1440,6 +1440,19 @@ app.post("/plan/session-exercises", async (req, res) => {
   // no lift history yet; see weeklyPlanner.js's FAVORITE_EXERCISE_BONUS for
   // why it's weighted lower than genuinely logged history.
   const favoriteExercises = db.profile?.trainingBackground?.favoriteExercises || [];
+  // Same explicit-setting-else-auto-detect pattern as
+  // compoundIsolationPreference below, for equipment stability (machine/
+  // cable/smith vs. free-standing barbell/dumbbell) — an account that
+  // mostly logs machine/cable work gets that reflected as the default
+  // going forward. A soft scoring bias (sessionPlanner.js's
+  // stabilityScore), not a filter — free-weight can still win when it's
+  // clearly the better option. Computed once here, shared by both the
+  // full-body auto-pick branch and the single-bucket branch below.
+  const stabilitySplit = computeStabilitySplit(lifts);
+  const autoStableLeaning = stabilitySplit.stable > stabilitySplit.unstable;
+  const stableLeaning = db.profile?.stabilityPreference
+    ? db.profile.stabilityPreference === 'stable'
+    : autoStableLeaning;
 
   if (type === 'lift' && !targetMuscles?.length && !reqBucket) {
     const muscleLastTrainedDays = computeMuscleLastTrainedDays(lifts);
@@ -1498,14 +1511,15 @@ app.post("/plan/session-exercises", async (req, res) => {
     // (uncoveredCount below becomes every muscle, since coveredMuscles is
     // empty with no backbone picks).
     const backboneCount = isolationLeaning ? 0 : Math.max(2, Math.ceil(musclePicks.length / 2));
-    const backbone = pickBackboneExercises(musclePicks, { travelMode, lifts, favoriteExercises, count: backboneCount });
+    const backbone = pickBackboneExercises(musclePicks, { travelMode, lifts, favoriteExercises, count: backboneCount, preferStable: stableLeaning });
     const coveredMuscles = new Set(backbone.flatMap(e => e.primary));
     const uncoveredCount = musclePicks.filter(m => !coveredMuscles.has(m)).length;
-    const exercises = capSessionDuration(generateSessionExercises({
+    const exercises = fillSessionToDuration(capSessionDuration(generateSessionExercises({
       type, targetMuscles: musclePicks, backboneExerciseNames: backbone.map(e => e.name), lifts, travelMode,
       avoidMuscles, avoidMusclesSecondary, offlineMuscles, cnsFatigue, metabolicFatigue, trainingMonths, favoriteExercises,
       accessoryCountOverride: uncoveredCount, isolationOnly: isolationLeaning, warmupScheme: db.profile?.warmupScheme,
-    }), currentFatigue, maxDurationMin);
+      maxDurationMin, preferStable: stableLeaning,
+    }), currentFatigue, maxDurationMin), maxDurationMin, fatigueCeilingFor(metabolicFatigue));
     return res.json({
       exercises, targetMuscles, backboneExercises: exercises.map(e => e.name), bucket: 'full body', preferredSplit,
       neglectedMuscles: neglectedMuscles(preferredSplit, muscleLastTrainedDays),
@@ -1517,6 +1531,13 @@ app.post("/plan/session-exercises", async (req, res) => {
       // already implicitly visible via the freshness percentages shown
       // elsewhere on the same screen.
       currentFatigue,
+      // fatigueCeiling: same reactive-slider reasoning, for fillSessionToDuration
+      // (the reverse of capSessionDuration -- adds volume instead of trimming
+      // when the slider moves UP past what the fetched exercise list already
+      // fills). The frontend never sent maxDurationMin to this endpoint at all
+      // (it's applied entirely client-side against the slider), so without
+      // this the fill logic could never actually run.
+      fatigueCeiling: fatigueCeilingFor(metabolicFatigue),
     });
   }
 
@@ -1532,15 +1553,15 @@ app.post("/plan/session-exercises", async (req, res) => {
   }
 
   if (type === 'lift' && targetMuscles?.length && !backboneExercises?.length) {
-    backboneExercises = pickBackboneExercises(targetMuscles, { travelMode, lifts, favoriteExercises }).map(e => e.name);
+    backboneExercises = pickBackboneExercises(targetMuscles, { travelMode, lifts, favoriteExercises, preferStable: stableLeaning }).map(e => e.name);
   }
 
-  const exercises = capSessionDuration(generateSessionExercises({
+  const exercises = fillSessionToDuration(capSessionDuration(generateSessionExercises({
     type, targetMuscles, backboneExerciseNames: backboneExercises, lifts, travelMode,
     avoidMuscles, avoidMusclesSecondary, offlineMuscles, cnsFatigue, metabolicFatigue, trainingMonths, favoriteExercises,
-    warmupScheme: db.profile?.warmupScheme,
-  }), currentFatigue, maxDurationMin);
-  res.json({ exercises, targetMuscles: targetMuscles || [], backboneExercises: backboneExercises || [], bucket, estimatedDurationMin: estimateSessionDurationMin(exercises), currentFatigue });
+    warmupScheme: db.profile?.warmupScheme, maxDurationMin, preferStable: stableLeaning,
+  }), currentFatigue, maxDurationMin), maxDurationMin, fatigueCeilingFor(metabolicFatigue));
+  res.json({ exercises, targetMuscles: targetMuscles || [], backboneExercises: backboneExercises || [], bucket, estimatedDurationMin: estimateSessionDurationMin(exercises), currentFatigue, fatigueCeiling: fatigueCeilingFor(metabolicFatigue) });
 });
 
 app.get('/progression/:exercise', async (req, res) => {

@@ -16,6 +16,7 @@
 const { EXERCISE_DB } = require('./exerciseDb');
 const { PRIMARY_MUSCLES, MUSCLE_GROUPS, loggedExerciseNames, isBodyweightOnlyExercise } = require('./muscleTaxonomy');
 const { SPLIT_GROUPS } = require('./splitPlanner');
+const { stabilityScore } = require('./sessionPlanner');
 
 // Dominates the small (0-4 point) muscle-coverage score below by design — "a
 // heavy preference for exercises you've done before" means history should
@@ -67,7 +68,7 @@ function muscleWeight(m) { return MAJOR_MUSCLES.has(m) ? 1 : ASSISTOR_WEIGHT; }
 // does. Picks the exercises whose primary muscles best cover the target set,
 // heavily boosted (LOGGED_EXERCISE_BONUS) toward whatever the athlete has
 // actually logged before over something novel.
-function pickBackboneExercises(targetMuscles, { travelMode, lifts, favoriteExercises = [], count = 2, excludeNames = new Set() } = {}) {
+function pickBackboneExercises(targetMuscles, { travelMode, lifts, favoriteExercises = [], count = 2, excludeNames = new Set(), preferStable = false } = {}) {
   const logged = loggedExerciseNames(lifts);
   const favorites = new Set(favoriteExercises.map(n => (n || '').toLowerCase()));
   // Bodyweight exercises excluded from normal selection — see
@@ -82,12 +83,25 @@ function pickBackboneExercises(targetMuscles, { travelMode, lifts, favoriteExerc
     (travelMode ? e.equipment === 'bodyweight' : true) &&
     e.primary.some(m => targetMuscles.includes(m))
   );
+  // Diminishing weight by primary-array position (1, 1/2, 1/3, ...), not a
+  // flat count of target muscles touched -- a raw count structurally
+  // favors any exercise that spreads thin across many muscles over one
+  // that's a dedicated main-mover for a single muscle, regardless of how
+  // adequately either actually trains what it touches (exerciseDb.js's
+  // primary array is ordered main-mover-first, the same convention "row"
+  // and the Sumo Deadlift/Box Squat fix elsewhere in this file rely on).
+  // This was the actual root cause of a whole family of reported issues —
+  // Sumo Deadlift/Box Squat, Bench Press/Weighted Dips, three lat exercises
+  // — all won on the old formula purely for covering more muscles at once,
+  // not for training any of them especially well.
+  const weightedCoverage = e => e.primary.reduce((sum, m, i) => targetMuscles.includes(m) ? sum + 1 / (i + 1) : sum, 0);
   const scored = pool
     .map(e => ({
       e,
-      score: e.primary.filter(m => targetMuscles.includes(m)).length
+      score: weightedCoverage(e)
         + (logged.has(e.name.toLowerCase()) ? LOGGED_EXERCISE_BONUS : 0)
-        + (favorites.has(e.name.toLowerCase()) ? FAVORITE_EXERCISE_BONUS : 0),
+        + (favorites.has(e.name.toLowerCase()) ? FAVORITE_EXERCISE_BONUS : 0)
+        + stabilityScore(e, preferStable),
     }))
     .sort((a, b) => b.score - a.score);
   // Skip anything that's the same function as something already picked —
@@ -100,12 +114,33 @@ function pickBackboneExercises(targetMuscles, { travelMode, lifts, favoriteExerc
   // compound picking entirely, see functions/index.js's isolationLeaning),
   // checking after push would still return exactly one exercise (push,
   // THEN see out.length >= 0 is already true) instead of the intended [].
+  //
+  // Also skips anything that covers NO still-uncovered target muscle,
+  // regardless of pattern -- the same-pattern guard above only catches a
+  // redundant pick when the pattern literally matches (Overhead Press +
+  // Shoulder Press), but a compound scoring purely on "how many target
+  // muscles does this hit" (the score above) will happily stack two
+  // DIFFERENT-pattern lifts that are functionally just as redundant --
+  // Sumo Deadlift (hinge) then Box Squat (squat) both covering
+  // glutes+hamstrings+quads is the real case this was found from. Once
+  // every target muscle already has a backbone pick, count naturally goes
+  // unfilled rather than force-adding a second lift for muscles already
+  // covered -- fewer, more specific exercises over padding to a count.
+  //
+  // travelMode is the one exception: equipment is so scarce there that a
+  // second bodyweight exercise on the same muscle (no real alternative
+  // exists) IS the "very specific reason" the no-new-coverage rule is
+  // meant to require, not a violation of it -- see Dead Bug + Ab Wheel
+  // Rollout both landing on abs/transverse-abs with nothing else on offer.
   const out = [];
+  const covered = new Set();
   for (const { e } of scored) {
     if (out.length >= count) break;
     if (out.some(o => o.name === e.name)) continue;
     if (out.some(o => o.pattern === e.pattern && e.primary.some(m => o.primary.includes(m)))) continue;
+    if (!travelMode && !e.primary.some(m => targetMuscles.includes(m) && !covered.has(m))) continue;
     out.push(e);
+    e.primary.forEach(m => covered.add(m));
   }
   return out;
 }

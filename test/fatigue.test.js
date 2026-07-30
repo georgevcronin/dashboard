@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const {
   computeStructuralFatigue, musclePeaksFromLifts, applyInjuryTaper,
   injuryFatiguePenalty, computeACWR, computePerformanceTrend, computeCNSFatigue,
-  computeMuscleLastTrainedDays, fatigueTimeline, computeCompoundIsolationSplit,
+  computeMuscleLastTrainedDays, fatigueTimeline, computeCompoundIsolationSplit, computeStabilitySplit,
 } = require('../functions/fatigue');
 
 const daysAgo = (n) => new Date(Date.now() - n * 86400000).toISOString().slice(0, 10);
@@ -318,4 +318,41 @@ test('computeCompoundIsolationSplit counts each (date, exercise) once, not once 
   ];
   const split = computeCompoundIsolationSplit(lifts);
   assert.equal(split.isolation, 1, 'three sets of the same exercise on the same day should count once');
+});
+
+test('computeStabilitySplit counts a mostly-machine/cable history as stable-leaning', () => {
+  const lifts = [
+    { date: daysAgo(1), exercise: 'Machine Chest Press', kg: 60, reps: 8 },
+    { date: daysAgo(3), exercise: 'Leg Press', kg: 150, reps: 8 },
+    { date: daysAgo(5), exercise: 'Cable Crunch', kg: 40, reps: 12 },
+    { date: daysAgo(7), exercise: 'Back Squat', kg: 100, reps: 5 },
+  ];
+  const split = computeStabilitySplit(lifts);
+  assert.equal(split.stable, 3);
+  assert.equal(split.unstable, 1);
+  assert.ok(split.stable > split.unstable);
+});
+
+test('computeStabilitySplit counts a mostly-free-weight history as unstable-leaning', () => {
+  const lifts = [
+    { date: daysAgo(1), exercise: 'Back Squat', kg: 100, reps: 5 },
+    { date: daysAgo(3), exercise: 'Barbell Curl', kg: 30, reps: 10 },
+    { date: daysAgo(5), exercise: 'Leg Press', kg: 150, reps: 8 },
+  ];
+  const split = computeStabilitySplit(lifts);
+  assert.equal(split.unstable, 2);
+  assert.equal(split.stable, 1);
+  assert.ok(split.unstable > split.stable);
+});
+
+test('computeStabilitySplit skips lifts that don\'t resolve to a real exerciseDb.js entry, rather than guessing', () => {
+  const lifts = [{ date: daysAgo(1), exercise: 'Some Made Up Exercise Name', kg: 30, reps: 10 }];
+  const split = computeStabilitySplit(lifts);
+  assert.equal(split.total, 0);
+});
+
+test('computeStabilitySplit ignores lifts outside the 90-day window', () => {
+  const lifts = [{ date: daysAgo(200), exercise: 'Leg Press', kg: 150, reps: 8 }];
+  const split = computeStabilitySplit(lifts);
+  assert.equal(split.total, 0);
 });

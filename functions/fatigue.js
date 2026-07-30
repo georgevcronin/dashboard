@@ -10,6 +10,7 @@ const { e1rm: calcE1RM } = require('./strengthStandards');
 const { classifyMuscles, emgForAngle } = require('./emgActivation');
 const { emgProfileForExercise } = require('./exerciseEmgProfiles');
 const { EXERCISE_ANGLES } = require('./exerciseAngles');
+const { STABLE_EQUIPMENT, UNSTABLE_EQUIPMENT } = require('./sessionPlanner');
 
 const avg = (a) => (a.length ? a.reduce((x, y) => x + y, 0) / a.length : null);
 const liftTime = (l) => new Date(l.start || l.date).getTime();
@@ -358,9 +359,37 @@ function computeCompoundIsolationSplit(lifts, windowDays = 90) {
   return { compound, isolation, total: compound + isolation };
 }
 
+// Same shape/reasoning as computeCompoundIsolationSplit above, for the
+// stability preference (functions/index.js's stableLeaning) — "continue
+// doing what you already do" applied to equipment choice: an account that's
+// mostly logged machine/cable/smith work gets that reflected as the default
+// going forward, same explicit-setting-else-auto-detect pattern as the
+// compound/isolation slider. Equipment resolved via findExercise (handles
+// Hevy-imported/aliased names, not just exact exerciseDb.js matches) --
+// lifts with no resolvable entry (custom exercises, typos) are silently
+// skipped rather than guessed at.
+function computeStabilitySplit(lifts, windowDays = 90) {
+  const cutoff = Date.now() - windowDays * 86_400_000;
+  const seen = new Set();
+  let stable = 0, unstable = 0;
+  for (const l of (lifts || [])) {
+    if (!l.exercise) continue;
+    const t = liftTime(l);
+    if (isNaN(t) || t < cutoff) continue;
+    const key = `${l.date}|${l.exercise.toLowerCase()}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const entry = findExercise(l.exercise);
+    if (!entry) continue;
+    if (STABLE_EQUIPMENT.includes(entry.equipment)) stable++;
+    else if (UNSTABLE_EQUIPMENT.includes(entry.equipment)) unstable++;
+  }
+  return { stable, unstable, total: stable + unstable };
+}
+
 module.exports = {
   computeStructuralFatigue, computeCurrentFatigueScores, musclePeaksFromLifts, fatigueTimeline,
   INJURY_HEALING_DAYS, injuryFatiguePenalty, applyInjuryTaper,
   computeACWR, computePerformanceTrend, computeMetabolicFatigue, computeCNSFatigue,
-  cnsLoad, computeMuscleLastTrainedDays, computeCompoundIsolationSplit,
+  cnsLoad, computeMuscleLastTrainedDays, computeCompoundIsolationSplit, computeStabilitySplit,
 };
