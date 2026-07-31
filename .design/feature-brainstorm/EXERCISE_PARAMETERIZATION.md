@@ -245,7 +245,21 @@ Full resolved partition, in 15° steps (confirmed there are no real gaps once yo
 
 **Compatibility with the already-shipped Bench Press pilot**: good news — not a conflict, an extension. The pilot's own values (Flat=0°, Incline=30°, Decline=-15°) fall correctly within this table's Flat/Incline/Decline zones under the same sign convention. What the pilot doesn't yet have: range extending past ±30° to reach Hybrid/Shoulder-Overhead territory on the positive end and Decline/Dip territory on the negative end (it's currently capped at `angleRange: {min:-30, max:60, step:5}` — the +60 cap already technically reaches into Shoulder/Overhead per this table, but the -30 floor stops short of Dip/Tricep entirely), and its 5° step vs. this table's 15° step needs reconciling if Bench Press and Overhead Press are to genuinely share one field going forward.
 
-**Still open — exercise identity / picker UX**: does this mean there's ONE canonical exercise (something like "Press") covering the entire -90° to +90°+ range, with "Bench Press"/"Overhead Press"/"Dip" surviving only as *display labels* that pre-select an approximate starting angle when tapped from the exercise picker (so a lifter can still search/tap "Bench Press" rather than needing to know it's secretly angle 0 of a generic "Press")? That's the natural reading of "these are all one parameterized family," but it's a real UX/data-model decision that goes beyond what's been resolved above, and changes Phase 1's Bench Press from its own canonical `exerciseDb.js` entry into one region of a bigger one. Needs its own pass before building.
+**Exercise identity / picker UX — RESOLVED.** One canonical entry — Phase 1's existing `exerciseDb.js` "Bench Press" row gets extended (wider `angleRange`, reconciled step size) rather than a competing "Overhead Press" entity created alongside it. "Bench Press"/"Overhead Press"/"Shoulder Press"/"Dip"/"Tricep Press" all survive only as *display labels*, matched from the underlying (angle, equipment, stance/support, ...) feature vector per §0 — not separate rows a lifter's set gets filed under.
+
+**The label match isn't angle alone — it also reads Stance/Support (§12/§17).** Confirmed concretely for the Shoulder/Overhead region (new angle ≥ +60°, per §14's table): if Stance/Support = Standing, the matched label is **"Overhead Press"**; if Stance/Support = Seated, the matched label is **"Shoulder Press"** — same angle region, different label, because that's genuinely how lifters distinguish the two in practice. Full label-matching table, by unified-scale region (§14):
+
+| Region | Label |
+|---|---|
+| -90° to -60° | Dip / Tricep Press |
+| -45° to -15° | Decline Press |
+| 0° | Bench Press (flat) |
+| +15° to +30° | Incline Press |
+| +45° | Incline Shoulder Press (Hybrid) |
+| +60° and above, Standing | Overhead Press |
+| +60° and above, Seated | Shoulder Press |
+
+This is the first real instance of the feature-vector-to-name matching direction §0 describes — worth building as the shared, reusable mechanism (`matchExerciseName(pattern, features)`, raised earlier as an open question) rather than a one-off if-chain specific to Press, since Row's own labels (plain Row vs. Pulldown vs. Pull-up, per §15) need the exact same kind of multi-field match.
 
 ## 15. Pull-up/Lat Pulldown family folds into Row, not a separate family — RESOLVED
 
