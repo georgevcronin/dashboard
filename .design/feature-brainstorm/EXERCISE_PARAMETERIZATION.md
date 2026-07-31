@@ -407,4 +407,48 @@ Ships §14 (unified Press angle scale), §15 (Row/pulldown/pull-up fold-in), and
 
 **Decisions this pass made that the doc hadn't fully resolved** (flagged explicitly per this doc's own convention, not silently picked): the Cable Straight-Arm Pulldown carve-out (§15), the Chest/Tricep/Bench/Weighted Dips non-fold-in (§14), the "only the pull-up/pulldown cluster, not the whole ~15-entry Row family" scope boundary (§15), the angle-sourcing methodology for the Overhead Press cluster (§14 — `exerciseEmgProfiles.js` cross-reference instead of `exerciseAngles.js` directly), and Stance/Support's fatigue-crediting mechanism being deferred rather than built (§12).
 
+## 20. Phase 3 — Curl (elbow flexion) Sagittal Angle — CONFIRMED, ready to build
+
+Same move as §14/§15/§18: today's ~18 separately-named curl variants (`barbell-curl` through `overhead-cable-curl`) are one continuous axis — **not elbow flexion** (that's already tracked separately, per rep, by `movementEmg.js`'s `ELBOW_EMG`/`ELBOW_ANGLES`, and isn't an exercise-identity question) but **shoulder position relative to the torso**, viewed from the side. This is exactly what §17 called "Sagittal Angle" for the Curl pattern, flagged there as needing zero new sourcing.
+
+**Zero new sourcing, confirmed**: `movementEmg.js`'s `ELBOW_SHOULDER_MODIFIER` already has this exact data — a biarticular-head modifier table keyed 0/45/90/135/180, built but never wired to anything (its own comment says "kept as reference data, NOT applied to ELBOW_EMG's curated profiles"). Reading its actual values against the codebase's own curveNotes confirms what its key convention means: **0 = full shoulder extension** (arm swung behind the torso plane — biceps long head favored, +10 at this end) and **180 = full shoulder flexion** (arm elevated/overhead — biceps short head favored, +10 at this end), with **90 = neutral, arm hanging at the side** (standing curl, the modifier is exactly 0 at every muscle here). This is a real, if dormant, mechanism — Phase 3 activates it as a per-exercise parameter instead of leaving it unused.
+
+**Proposed scale convention**: signed **-90 (max extension) to +90 (max flexion)**, 0 = neutral/standing, mirroring Press's -90/+90 convention (§14) rather than Row's 0-180 one, since Curl's "neutral" position is a true physical midpoint the same way Press's flat bench is — not an endpoint the way Row's fully-supported seated row is. Maps onto `ELBOW_SHOULDER_MODIFIER`'s existing raw keys via `raw = signed + 90`.
+
+**Proposed placement** (validated against each entry's own existing `curveNote`, not invented from scratch):
+
+| Angle | Exercises | Why |
+|---|---|---|
+| -75° | Decline Curl (Carter Curl) | Decline bench, arm swings furthest behind the torso — the deepest stretch position on the axis. |
+| -45° | Incline Dumbbell Curl | Own curveNote: "Incline position shifts shoulder into extension... arms hang naturally behind torso at bottom." Less extreme than the decline version — less recline, less extension. |
+| -15° | Drag Curl | Own curveNote: elbows travel backward through the rep rather than staying at the side — a mild, dynamic extension bias, not a fixed deep stretch. |
+| 0° (neutral) | Barbell Curl, EZ-Bar Curl, Dumbbell Curl (Standing), Low Cable Curl, Zottman Curl, Reverse Curl, Hammer Curl | Standing, arm hangs straight at the side — the axis's true zero point. |
+| +45° | Preacher Curl (Barbell), Spider Curl, Incline Bench Curl (Scott Curl) | Own curveNotes confirm a braced-in-front, shoulder-flexed position ("elbows fixed in front of torso... shoulder flexion position"). These three are currently already tied at identical EMG values (74.5) — this groups them for the reason their own notes already state, not arbitrarily. |
+| +75° | High Cable Curl, Overhead Cable Curl (Double Bicep) | Own curveNotes: arms elevated to shoulder height or above, curling toward the face — the most shoulder-flexed pair on the axis. Already tied at 99.5 (the profile's peak value) for the same reason. |
+
+**Two data inconsistencies found in the existing (pre-Phase-3) profiles while placing these** — flagging per this doc's own §16 convention, not silently correcting:
+- **Machine Curl** is currently profiled at 95.5 (the neutral/standing value) in `exerciseEmgProfiles.js`, but most curl machines physically brace the arm in front of the torso, preacher-style. If that's true of the machine you actually use, it belongs at +45° with Preacher/Spider/Scott, not at 0° with the standing group. **Needs your call — depends on the specific machine.**
+- **Concentration Curl** is currently profiled at 99.5 (the axis's peak value, tied with the most-flexed High/Overhead Cable Curl group) but its own curveNote says "gravity profile similar to preacher curl" — which would put it at +45°, not +75°. Proposing +45° to match its own stated comparison, flagging the change from its current peak value.
+
+**Carve-outs (not placed on this axis, flagged rather than forced)**:
+- **Cross-Body Hammer Curl** — the "cross-body" part is a transverse-plane deviation (arm sweeps diagonally across the body), which §17 marked N (not modeled) for Curl. Placed at the same 0° as standard Hammer Curl, same approximation Hammer Curl's own entry already makes for its grip.
+- **Zottman Curl / Reverse Curl** — differ from a standing curl by grip rotation, not shoulder position (0° same as the rest of the standing group). Hand Rotation is Curl's other real parameter per §17 — no new mechanism needed, same promotion §11 already did for Press/Row.
+
+## 21. Phase 3 — Extension (elbow extension / triceps) Sagittal Angle — CONFIRMED, ready to build
+
+Same axis concept, same dormant `ELBOW_SHOULDER_MODIFIER` data, applied to the ~9 named triceps-extension entries. Convention kept consistent with §20: 0 = neutral (arm at side, pushdown position), positive = shoulder flexed/elevated (overhead extension). No named extension exercise puts the shoulder in true extension (negative territory) the way Decline Curl does for biceps, so this pattern only actually uses the 0-to-+90(+) half of the shared scale.
+
+| Angle | Exercises | Why |
+|---|---|---|
+| 0° (neutral) | Cable Tricep Pushdown (Rope), Cable Tricep Pushdown (Bar), Single-Arm Cable Pushdown, Reverse Grip Pushdown | Standing, elbows pinned at the side throughout — own curveNotes agree across all four. |
+| +45° | Skullcrusher (Barbell), Skullcrusher (EZ-Bar) | Lying supine, upper arm perpendicular to a horizontal torso — a real, moderate flexion relative to standing, not the extreme of a full overhead reach. |
+| +90° | Overhead Tricep Extension (Cable), Overhead Tricep Extension (Dumbbell) | Own curveNotes: arm raised straight overhead — the standard full-flexion reference point. |
+| +105° | Carter Extension | Own curveNote: decline bench, arms lowered further behind the head than standing overhead extension reaches — proposing a value past the ordinary overhead endpoint, same treatment §14 gave Incline Shoulder Press as a hybrid past Incline Press's own boundary. |
+
+**One correction to §17 itself, found while placing these**: §17's schema table marked Extension's **Hand Rotation as N** ("doesn't apply"). That's contradicted by **Reverse Grip Pushdown**, a real DB entry whose entire identity is a supinated-vs-pronated pushdown grip — the same mechanism Curl's Reverse Curl already uses. Proposing §17's Extension row change to **Hand Rotation = Y** (pushdowns only — Skullcrusher/Overhead Extension grip is fixed by the bar/dumbbell, no real choice there), and folding Reverse Grip Pushdown into Cable Tricep Pushdown (Bar) + a rotation value, same pattern as Curl.
+
+**Carve-out**: Tricep Dips (Parallel Bars) stays separate — a compound bodyweight press variant (already primary triceps/chest/front-delt), not an isolation extension; same reasoning as Press's Dip-family carve-outs in §14 not applying here since this actual entry already lives outside the isolation-extension list.
+
+**Not yet scoped**: which of these (if any) get folded into canonical `curl`/`extension` DB entities the way Press/Row were (§14/§15), vs. staying as named entries with an added angle field the way Stance/Support shipped for Press/Row in Phase 2 (§12, field-only). Recommend the latter for Phase 3's first pass — lower risk, no migration script needed, still unlocks real EMG crediting via the angle field alone — with full collapse as a possible fast-follow, same staged approach §2 used for Bench Press before Overhead Press/Row.
+
 **Left genuinely untouched, on purpose:** `PressRowBuilder`'s own custom-exercise-generator flow (`src/app.jsx`) still uses the native 0-180 vertical-press-arc angle convention for BOTH press and row, unchanged — it's a separate tool from the `exerciseDb.js`-entry picker this phase built out, still useful for one-off exercises that don't fit either canonical entity. Reconciling `PressRowBuilder`'s press-mode angle scale with the unified Press entity's own -90..90 pilot convention (they describe the same physical joint, in two different numberings, for two different UI paths) was raised during this pass and deliberately left as a follow-up rather than expanding scope further — flagged here rather than silently left implicit.
