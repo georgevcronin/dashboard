@@ -198,3 +198,15 @@ Grip rotation (pronated → neutral → supinated, about the hand's own long axi
 
 ### Open — `gripCueForProfile`'s fate
 Once rotation is explicitly chosen at log time for parameterized exercises, the advisory-cue function has nothing left to advise about for those exercises. Does it get retired entirely, or kept alive as a fallback suggestion for exercises that haven't been migrated into the parameterized model yet (so there's still a rotation recommendation for those in the interim)?
+
+## 12. Stance/support field — Press (seated/standing), Row (chest-supported/standing) — RESOLVED as in-scope
+
+An 8th (er, 9th, at this point) parameterization field: a two-value toggle, per pattern — Press gets seated/standing, Row gets chest-supported/standing (free, bent-over). Stored per-exercise-instance, same convention as every other field in §6.
+
+**Mechanism — proposed, needs confirmation: this is NOT another EMG-percentage redistribution table like angle/rotation/width.** Angle/rotation/width all work by shifting *which* prime-mover muscle gets more or less credit at the same total effort. Stance/support is different in kind: the prime movers (delts/triceps/chest for press; lats/rhomboids/rear-delt for row) don't really shift emphasis based on support — what changes is (a) how much of your total effort goes into the lift itself vs. spinal/core stabilization, and (b) whether the erector-spinae/core get credited as real secondary movers at all. That's the same shape of problem `EQUIPMENT_LOAD_FACTOR` (§ muscleCapacity.js precision work) already solves for barbell-vs-dumbbell stabilization tradeoffs — a supported position frees up effort that would otherwise go to stabilizing, similar to how a barbell's fixed bar frees up effort a dumbbell's independent-balancing demand would otherwise consume.
+
+Proposed: model this as (1) a load-factor-style multiplier (standing/unsupported credits *less* absolute load-moved for the same target-muscle effort, same mechanism as the equipment factor, not a separate new mechanism) and (2) a toggle on whether erectors/core appear as secondary muscles at all for that logged set (present when standing/bent-over, dropped or reduced when seated/chest-supported). Needs confirmation before building — this reuses Feature 1's mechanism rather than inventing a third table type, which is why it's flagged as proposed rather than settled.
+
+## 13. T-Bar Row equipment classification — RESOLVED
+
+T-Bar Row is a plate-loaded, fixed-pivot apparatus — closer to Plate-Loaded Machine than free Barbell or a true Machine/Pin category. The lateral freedom of movement a T-bar/landmine setup allows doesn't meaningfully change its stability category. Classify it as **Plate-Loaded Machine** rather than inventing a dedicated landmine/T-bar equipment type.
