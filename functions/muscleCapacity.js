@@ -110,8 +110,18 @@ function solveMuscleCapacities(observations) {
 // real supporting data from the regression -- otherwise 'partial' (some
 // muscles defaulted to 0, understating the true number) so callers can
 // visibly flag a rough estimate instead of presenting false precision.
-function predictExerciseE1RM(pattern, angle, capacityResult) {
-  const weights = emgForAngle(pattern, angle);
+//
+// `weightsOverride` (optional): the sagittal angle alone is no longer the
+// whole picture once PressRowBuilder lets an athlete choose a grip
+// rotation/width for this exercise instance (functions/emgActivation.js's
+// applyGripRotationModifier/applyGripWidthModifier) -- pass the already
+// rotation/width-modified vector here to get a prediction that reflects the
+// specific setup being built, not just its sagittal angle. Falls back to
+// the plain emgForAngle(pattern, angle) lookup when omitted, so every
+// existing caller (and the capacities regression's own internal use, which
+// has no rotation/width concept) is unaffected.
+function predictExerciseE1RM(pattern, angle, capacityResult, weightsOverride) {
+  const weights = weightsOverride || emgForAngle(pattern, angle);
   if (!weights || !capacityResult) return null;
   const { capacities, muscles: knownMuscles } = capacityResult;
   let e1rmTotal = 0;
