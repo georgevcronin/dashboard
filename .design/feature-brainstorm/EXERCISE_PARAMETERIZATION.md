@@ -287,7 +287,7 @@ Scoped via an interactive Y/N pass covering every major pattern family against 8
 | Category | Exercise Type | Sagittal Angle | Frontal-Plane Angle | Transverse/Sweep Angle | Hand Rotation | Grip/Stance Width | Depth/ROM | Stance/Support | Single-Limb/Bilateral | Equipment |
 |---|---|---|---|---|---|---|---|---|---|---|
 | Upper Push | Press (Bench/Overhead/Dip — unified, §14) | Y | Y | N | Y | Y | N | Y | Y | Y |
-| Upper Push | Fly | **OPEN** | **OPEN** | **OPEN** | N | N | N | N | Y | Y |
+| Upper Push | Fly | N | Y | Y | N | N | N | N | Y | Y |
 | Upper Pull | Row (incl. Pulldown/Pull-up, §15) | Y | Y | N | Y | Y | N | Y | Y | Y |
 | Upper Isolation | Curl | Y | N | N | Y | N | N | N | Y | Y |
 | Upper Isolation | Extension (Triceps) | Y | N | N | N | N | N | N | Y | Y |
@@ -306,7 +306,7 @@ Scoped via an interactive Y/N pass covering every major pattern family against 8
 | Other | Hip Abduction/Adduction | N | N | N | N | N | N | N | N | Y |
 
 **Notes on specific rows:**
-- **Fly — the one open item.** By the same logic that moved Lateral Raise from Sagittal to Transverse, Fly's defining motion (arms sweeping horizontally in front of the body, roughly constant shoulder height) looks like it should be Transverse=Y rather than Frontal=Y as first proposed — but this hasn't been explicitly confirmed. Frontal-Plane Angle may end up earning its place in this table *only* for Press/Row's elbow-flare use case, which is where it already existed before this document touched it.
+- **Fly — resolved: both Frontal-Plane AND Transverse/Sweep apply.** Not an either/or with Lateral Raise after all — Fly gets a genuinely 2D angle space (elevation × sweep), since it can vary on both axes independently (an incline cable fly changes elevation; high-to-low vs. low-to-high changes sweep). See §18 for the full Transverse axis this unlocks, unifying Fly with Lateral Raise and Rear Delt Fly into one family.
 - **Curl / Extension — Stance/Support explicitly ruled N.** What "preacher vs. standing" (Curl) or "overhead vs. lying" (Extension) would have meant here is already fully captured by Sagittal Angle itself — that's the literal reason the angle axis exists for these two patterns. Would have been double-counting the same thing under two names.
 - **Leg Curl (Hamstring) — Sagittal=Y**, using the already-sourced Maeo et al. 2020 data (hamstrings rise 75→87→99 across lying-to-seated hip positions) rather than discarding real literature because Leg Extension's own audit correctly found nothing to curate.
 - **Rotator Cuff Rotation† — imperfect column fit, flagged rather than hidden.** None of the 8 original columns cleanly describe shoulder internal/external rotation. Mapped as Sagittal=Y for the primary rotation-degree axis (`ROTATOR_CUFF_ANGLES`/`ROTATOR_CUFF_EMG`) and Stance/Support=Y for the arm-elevation modifier (`ROTATOR_CUFF_ELEVATION_MODIFIER` — 0° arm-at-side vs. 90°-abducted external rotation), reusing existing columns as the closest available fit rather than adding a 10th dimension for one pattern.
@@ -314,4 +314,41 @@ Scoped via an interactive Y/N pass covering every major pattern family against 8
 **New-data implications, ranked by how much sourcing work they actually need:**
 - **Zero new sourcing** — Press, Row, Curl, Extension, Rotator Cuff Rotation: every Y above maps to data that already exists in the codebase (possibly needing promotion from cue to real parameter, per §11, but not new research).
 - **New sourcing, but scoped and named** — Legs (Squat's width/depth, Leg Press's own EMG+angle+depth, Deadlift's width/depth, Hip Thrust's depth): genuinely new work, but the shape of what's needed is already clear from this table.
-- **New sourcing, not yet scoped at all** — Transverse/Sweep Angle's actual EMG data (needed for Lateral Raise, probably Fly, and worth auditing Y-Raise/Rear Delt Fly/Band Pull-Apart against once it exists). Nothing like this axis has been researched yet; it's a real gap, not a wiring task.
+- **New sourcing, not yet scoped at all** — Transverse/Sweep Angle's actual EMG data. Resolved in §18 below via interpolation between existing anchors, not fresh literature — flagged accordingly.
+
+## 18. Transverse/Sweep Angle — unifies Fly, Lateral Raise, and Rear Delt Fly into one family
+
+Same move as §14 (Press) and §15 (Row): Chest Fly, Lateral Raise, and Rear Delt Fly/Y-Raise/Band Pull-Apart aren't separate patterns, they're one continuous arm-sweep-at-roughly-constant-shoulder-height arc, currently expressed as a pile of separately-named, separately-curated exercises with no shared axis between them.
+
+**No literature exists for this axis at all** — unlike Press/Row, where real curated data already existed to audit and correct, this table is a fresh construction, built by interpolating between the three anchor points that *do* already exist in `exerciseEmgProfiles.js` (Chest Fly's flat `chest: 70`, Lateral Raise's `mid-delt: 100, front-delt: 22`, Rear Delt Fly's `rear-delt: 100, mid-traps: 100, rhomboids: 91`). Same construction method the original `PRESS_EMG`/`ROW_EMG` tables used (anchored to real zones, smoothly interpolated between them) — this is a reasoned interpolation between three known points, not independently sourced at every angle, and should be flagged as such wherever it's implemented.
+
+**Convention**: 0° = hands together in front of the chest (Chest Fly's fully-squeezed position) → 90° = arms straight out to the sides, T-pose (Lateral Raise's raised position) → 180°-270° = arms sweeping behind the body (Rear Delt Fly territory, increasing rear-delt/scapular-retraction emphasis toward 270°).
+
+| Angle | Chest | Front-Delt | Mid-Delt | Rear-Delt | Mid-Traps | Rhomboids |
+|---|---|---|---|---|---|---|
+| 0° | 70 | 15 | 5 | 0 | 0 | 0 |
+| 15° | 70 | 16 | 10 | 0 | 0 | 0 |
+| 30° | 68 | 17 | 20 | 0 | 0 | 0 |
+| 45° | 62 | 18 | 38 | 2 | 0 | 0 |
+| 60° | 50 | 20 | 60 | 5 | 5 | 3 |
+| 75° | 30 | 21 | 85 | 12 | 12 | 8 |
+| 90° | 8 | 22 | 100 | 20 | 20 | 15 |
+| 105° | 0 | 18 | 92 | 35 | 35 | 28 |
+| 120° | 0 | 14 | 78 | 52 | 52 | 44 |
+| 135° | 0 | 10 | 60 | 68 | 68 | 58 |
+| 150° | 0 | 6 | 42 | 82 | 82 | 72 |
+| 165° | 0 | 3 | 26 | 92 | 92 | 82 |
+| 180° | 0 | 0 | 14 | 98 | 98 | 88 |
+| 195° | 0 | 0 | 8 | 100 | 100 | 90 |
+| 210° | 0 | 0 | 4 | 100 | 100 | 91 |
+| 225° | 0 | 0 | 2 | 100 | 100 | 91 |
+| 240° | 0 | 0 | 0 | 100 | 100 | 91 |
+| 255° | 0 | 0 | 0 | 98 | 96 | 89 |
+| 270° | 0 | 0 | 0 | 95 | 93 | 86 |
+
+Shape: chest dominates 0°-60° and is essentially gone by 90° (a fly and a lateral raise share zero chest involvement once the arms are straight out to the side); mid-delt climbs to its exact peak at 90° (matching Lateral Raise precisely) and falls off just as hard past 120° (a true rear-delt movement doesn't work mid-delt); rear-delt/mid-traps/rhomboids stay near-zero until ~90°, climb to their peak by ~210°-240°, and hold roughly flat to 270° (with a slight taper reflecting reduced mechanical efficiency at the extreme end).
+
+**Named exercise placement:**
+- **~15° (chest-dominant)**: Cable Fly (High to Low / Low to High), Cable Crossover, Pec Deck/Machine Fly, Incline Cable Fly, Svend Press. These currently share an identical flat value with no differentiation between them — placed together rather than inventing distinctions the data doesn't support. (Upper/lower pec fiber emphasis some of these names imply — e.g. high-to-low vs. low-to-high cable path — is a separate, not-yet-modeled axis, not this one.)
+- **90° (exact)**: Lateral Raise (Dumbbell/Cable/Machine), Single-Arm Cable Lateral Raise, Landmine Lateral Raise.
+- **~240° (rear-delt/scapular-dominant)**: Cable Y-Raise, Incline Y-Raise (Dumbbell), Band Pull-Apart, Rear Delt Fly (Dumbbell/Cable), Reverse Pec Deck. All currently identical or near-identical — a real distinction between a diagonal Y-raise and a horizontal pull-apart would need its own sourcing, not fabricated here.
