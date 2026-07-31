@@ -1,8 +1,13 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { generateSessionExercises, progressionFor, suggestedWorkingSetCount, suggestedRirSequence, isLowRepPattern, LOW_REP_THRESHOLD, isStapleExercise, STAPLE_SESSION_THRESHOLD, estimateSessionDurationMin, capSessionDuration, fillSessionToDuration, fatigueCeilingFor } = require('../functions/sessionPlanner');
+const {
+  generateSessionExercises, progressionFor, suggestedWorkingSetCount, suggestedRirSequence, isLowRepPattern, LOW_REP_THRESHOLD,
+  isStapleExercise, STAPLE_SESSION_THRESHOLD, estimateSessionDurationMin, capSessionDuration, fillSessionToDuration, fatigueCeilingFor,
+  experimentalSetCount, capSessionOvershoot, candidateWorkingSetCount, BASELINE_SET_COUNT, MAX_OVERSHOOT_EXERCISES_PER_SESSION,
+} = require('../functions/sessionPlanner');
 const daysAgo = (n) => new Date(Date.now() - n * 86400000).toISOString().slice(0, 10);
 const { isCompoundExercise } = require('../functions/muscleTaxonomy');
+const { EXERCISE_DB } = require('../functions/exerciseDb');
 
 test('suggestedWorkingSetCount cycles 2/3/4 by how many times this exercise has been logged', () => {
   assert.equal(suggestedWorkingSetCount(0), 2);
@@ -367,4 +372,118 @@ test('fillSessionToDuration never invents a new exercise, only adds sets to what
   const exercises = [{ name: 'A', sets: [{ type: 'N', kg: 100, reps: 5 }] }];
   const out = fillSessionToDuration(exercises, 999, 10);
   assert.equal(out.length, 1, 'should still be exactly one exercise, no matter how much target length is left unfilled');
+});
+
+// --- Session-level overshoot cap (regression: repeating template syncs every
+// exercise's independent 2/3/4 cycle onto the same value in one session) ---
+
+const entryFor = name => EXERCISE_DB.find(e => e.name === name);
+
+test('candidateWorkingSetCount marks an ordinary experiment-mode value as capped-eligible, and a new-lifter budget value as not', () => {
+  const e = entryFor('Barbell Bench Press');
+  const ordinary = candidateWorkingSetCount(e, [], null, 4); // sessionCount 0 -> baseline 2
+  assert.deepEqual(ordinary, { count: 2, capped: true });
+
+  // sessionCount 0, trainingMonths 1 (brand-new lifter) -> new-lifter budget applies instead
+  const newLifter = candidateWorkingSetCount(e, [], 1, 4);
+  assert.equal(newLifter.capped, false, 'the new-lifter budget is a separate, deliberately conservative mechanism, not in scope for the overshoot cap');
+});
+
+test('capSessionOvershoot leaves everything alone when at most MAX_OVERSHOOT_EXERCISES_PER_SESSION candidates overshoot', () => {
+  const entries = [entryFor('Barbell Bench Press'), entryFor('Back Squat')];
+  const candidates = [{ count: 4, capped: true }, { count: 3, capped: true }];
+  const out = capSessionOvershoot(entries, candidates, {});
+  assert.equal(out.get('Barbell Bench Press'), 4);
+  assert.equal(out.get('Back Squat'), 3);
+});
+
+test('capSessionOvershoot never touches a candidate already at baseline', () => {
+  const entries = [entryFor('Barbell Bench Press'), entryFor('Back Squat'), entryFor('Barbell Curl')];
+  const candidates = [{ count: 4, capped: true }, { count: 4, capped: true }, { count: 2, capped: true }];
+  const out = capSessionOvershoot(entries, candidates, {});
+  assert.equal(out.get('Barbell Curl'), 2, 'a baseline candidate was never asking to overshoot, so it is untouched regardless of the cap');
+});
+
+test('capSessionOvershoot never clamps a candidate the new-lifter budget produced (capped: false)', () => {
+  const entries = [entryFor('Barbell Bench Press'), entryFor('Back Squat'), entryFor('Weighted Pull-Up'), entryFor('Barbell Curl')];
+  // 4 candidates all at value 4, but only the first 3 are subject to the cap;
+  // the new-lifter one must survive uncapped even though there are >2 real overshoot candidates.
+  const candidates = [
+    { count: 4, capped: true }, { count: 4, capped: true }, { count: 4, capped: true },
+    { count: 4, capped: false },
+  ];
+  const out = capSessionOvershoot(entries, candidates, {});
+  assert.equal(out.get('Barbell Curl'), 4, 'capped:false candidates are outside the overshoot mechanism entirely');
+});
+
+test('capSessionOvershoot: the specific regression case — 5 exercises whose own independent cycles all land on 4 in the same session should NOT all get 4; at most 2 should', () => {
+  const names = ['Barbell Bench Press', 'Weighted Pull-Up', 'Back Squat', 'Barbell Curl', 'Lateral Raise (Dumbbell)'];
+  const entries = names.map(entryFor);
+  const candidates = names.map(() => ({ count: 4, capped: true }));
+  const out = capSessionOvershoot(entries, candidates, {}); // no trend data at all -- pure tie-break case
+  const overshootWinners = names.filter(n => out.get(n) === 4);
+  const clamped = names.filter(n => out.get(n) === BASELINE_SET_COUNT);
+  assert.equal(overshootWinners.length, MAX_OVERSHOOT_EXERCISES_PER_SESSION, `expected exactly ${MAX_OVERSHOOT_EXERCISES_PER_SESSION} exercises to keep the overshoot value, got ${overshootWinners.length}`);
+  assert.equal(clamped.length, names.length - MAX_OVERSHOOT_EXERCISES_PER_SESSION);
+});
+
+test('capSessionOvershoot prioritizes the muscle with the worst (most stalled/declining) performance trend', () => {
+  const entries = [entryFor('Barbell Bench Press'), entryFor('Back Squat'), entryFor('Barbell Curl')]; // primary[0]: chest, quads, biceps
+  const candidates = entries.map(() => ({ count: 4, capped: true }));
+  const muscleTrends = { chest: 0.5, quads: 0.1, biceps: 0.3 }; // chest most stalled, then biceps, then quads
+  const out = capSessionOvershoot(entries, candidates, muscleTrends);
+  assert.equal(out.get('Barbell Bench Press'), 4, 'chest has the worst trend, should win');
+  assert.equal(out.get('Barbell Curl'), 4, 'biceps is second-worst, should also win');
+  assert.equal(out.get('Back Squat'), BASELINE_SET_COUNT, 'quads has the mildest trend among the three, should be clamped');
+});
+
+test('capSessionOvershoot ranks missing trend data strictly below any real trend value, not as neutral/zero', () => {
+  const entries = [entryFor('Barbell Bench Press'), entryFor('Back Squat'), entryFor('Barbell Curl')]; // chest, quads, biceps
+  const candidates = entries.map(() => ({ count: 4, capped: true }));
+  // chest and biceps both have a mildly IMPROVING trend (negative); quads has no data at all.
+  const muscleTrends = { chest: -0.2, biceps: -0.1 };
+  const out = capSessionOvershoot(entries, candidates, muscleTrends);
+  assert.equal(out.get('Back Squat'), BASELINE_SET_COUNT, 'missing data (quads) should lose to any real trend value, even a negative (improving) one');
+  assert.equal(out.get('Barbell Bench Press'), 4);
+  assert.equal(out.get('Barbell Curl'), 4);
+});
+
+test('capSessionOvershoot breaks ties deterministically by position in the entry list, not randomly', () => {
+  const entries = [entryFor('Barbell Bench Press'), entryFor('Back Squat'), entryFor('Barbell Curl')];
+  const candidates = entries.map(() => ({ count: 4, capped: true }));
+  const runs = Array.from({ length: 5 }, () => capSessionOvershoot(entries, candidates, {})); // all missing trend data -> pure tie
+  const first = [...runs[0].entries()];
+  for (const run of runs) assert.deepEqual([...run.entries()], first, 'repeated calls with identical input must produce identical output');
+  // Earlier-in-the-list entries should win the tie.
+  assert.equal(runs[0].get('Barbell Bench Press'), 4);
+  assert.equal(runs[0].get('Back Squat'), 4);
+  assert.equal(runs[0].get('Barbell Curl'), BASELINE_SET_COUNT);
+});
+
+test('generateSessionExercises end-to-end: a repeating 5-exercise session template whose independent cycles all sync onto 4 gets capped to at most 2 overshooting exercises', () => {
+  const names = ['Barbell Bench Press', 'Weighted Pull-Up', 'Back Squat', 'Barbell Curl', 'Lateral Raise (Dumbbell)'];
+  const lifts = [];
+  // Each exercise logged on the same 2 prior dates -> sessionCount 2 for all
+  // of them -> experimentalSetCount cycle index 2 -> raw candidate 4 for every one.
+  for (let s = 0; s < 2; s++) {
+    const date = daysAgo(30 - s * 10);
+    for (const name of names) lifts.push({ date, exercise: name, kg: 50, reps: 8 });
+  }
+  const out = generateSessionExercises({
+    type: 'lift',
+    targetMuscles: ['chest', 'triceps', 'front-delt', 'lats', 'biceps', 'quads', 'glutes', 'mid-delt'],
+    backboneExerciseNames: names, lifts, skipAccessories: true,
+  });
+  const overshot = out.filter(e => e.sets.filter(s => s.type !== 'W').length > BASELINE_SET_COUNT);
+  assert.ok(overshot.length <= MAX_OVERSHOOT_EXERCISES_PER_SESSION,
+    `at most ${MAX_OVERSHOOT_EXERCISES_PER_SESSION} exercises should keep an overshoot set count in one session, got ${overshot.length}: ${JSON.stringify(out.map(e => ({ name: e.name, sets: e.sets.filter(s => s.type !== 'W').length })))}`);
+});
+
+test('generateSessionExercises: an exercise whose own cycle lands on baseline (2) is never affected by the overshoot cap', () => {
+  // sessionCount 0 -> experimentalSetCount cycle index 0 -> baseline 2 for everyone, nothing to cap.
+  const out = generateSessionExercises({
+    type: 'lift', targetMuscles: ['chest', 'triceps', 'front-delt'],
+    backboneExerciseNames: ['Barbell Bench Press'], lifts: [], skipAccessories: true,
+  });
+  assert.equal(out[0].sets.filter(s => s.type !== 'W').length, 2);
 });

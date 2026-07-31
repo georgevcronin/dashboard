@@ -7,6 +7,7 @@
 const { EXERCISE_DB } = require('./exerciseDb');
 const { computeProgression } = require('./progression');
 const { isCompoundExercise, loggedExerciseNames, isBodyweightOnlyExercise } = require('./muscleTaxonomy');
+const { computeMusclePerformanceTrends } = require('./musclePerformanceTrend');
 
 // Same reasoning/magnitude as weeklyPlanner.js's LOGGED_EXERCISE_BONUS — a
 // heavy preference for whatever the athlete has actually done before,
@@ -295,10 +296,88 @@ function exerciseSessionCount(lifts, name) {
 // predicts — the existing muscleSensitivity mechanism absorbs whatever that
 // probe reveals via ordinary soreness logging afterward, so no separate
 // calibration loop is needed here.
+//
+// "Independent per exercise" only governs each exercise's OWN cycle position
+// (based on its own session count) — it does not mean every exercise that
+// happens to land on an overshoot value (3 or 4) this session actually gets
+// to keep it. A repeating session template logs every one of its exercises
+// together, so their session counts stay in lockstep and their cycles sync
+// up: without a further check, "isolate one variable per movement" degrades
+// into every exercise overshooting at once, a session-wide volume spike
+// instead of a single-movement probe. capSessionOvershoot (below,
+// applied in generateSessionExercises) is that further check.
 function experimentalSetCount(ceiling, sessionCount) {
   const cycle = [2, 3, 4];
   const raw = cycle[sessionCount % cycle.length];
   return Math.min(raw, ceiling + 1);
+}
+
+// experimentalSetCount's own baseline (the cycle's first slot) — a candidate
+// at this value was never asking to overshoot in the first place, so it's
+// never in scope for the cap below.
+const BASELINE_SET_COUNT = 2;
+// However many exercises in ONE session are allowed to actually keep an
+// overshoot (3/4) value at a time — see capSessionOvershoot's comment for why
+// this exists at all, and generateSessionExercises for the wiring.
+const MAX_OVERSHOOT_EXERCISES_PER_SESSION = 2;
+
+// Per-exercise candidate working-set count before any session-wide overshoot
+// cap: the new-lifter budget (newLifterWorkingSetCount) wins outright when it
+// applies — it's already deliberately more conservative than the general
+// system (see its own comment) and was never part of the overshoot problem,
+// so it's flagged `capped: false` and skipped by capSessionOvershoot
+// entirely. Otherwise this is exactly the existing experimentalSetCount cycle
+// (`capped: true`, eligible for the session cap if its value overshoots).
+function candidateWorkingSetCount(e, lifts, trainingMonths, fatigueCeiling) {
+  const sessionCount = exerciseSessionCount(lifts, e.name);
+  const nlCount = newLifterWorkingSetCount(trainingMonths, sessionCount, fatigueCeiling);
+  if (nlCount != null) return { count: nlCount, capped: false };
+  return { count: experimentalSetCount(fatigueCeiling, sessionCount), capped: true };
+}
+
+// The session-level fix for experimentalSetCount's lockstep-sync failure mode
+// (see that function's comment): among exercises whose OWN cycle happens to
+// land on an overshoot value (3/4) this session, at most
+// MAX_OVERSHOOT_EXERCISES_PER_SESSION actually keep it — every other overshoot
+// candidate is clamped back to BASELINE_SET_COUNT for this session only (its
+// own per-exercise cycle position, driven by its own logged session count, is
+// untouched, so it still advances toward its next cycle value the next time
+// it's actually logged).
+//
+// Priority when there are more candidates than the cap allows goes to whichever
+// candidate's main-mover muscle (primary[0] — same "main mover, not incidental
+// credit" convention pickDedicatedAccessory/the post-widen cleanup use
+// elsewhere in this file) is LEAST responding right now per
+// computeMusclePerformanceTrends (musclePerformanceTrend.js): the overshoot
+// experiment is most worth running where recent strength progress has
+// actually stalled, not on a muscle already progressing fine. A muscle with no
+// trend data is ranked strictly below every muscle that has real data — per
+// computeMusclePerformanceTrends' own contract this means "neutral," not
+// "most in need" (an under-logged muscle already gets its own dedicated
+// handling via weeklyPlanner.js's stalenessBoost/computeMusclePriority; this
+// is a different, progress-stalling-despite-being-trained concern, not
+// neglect-by-time). Remaining ties (equal trend, or both missing) break on
+// the candidate's position in `entries` — deterministic and stable, since
+// fatigue/planning logic must never depend on Math.random() or run order.
+function capSessionOvershoot(entries, candidates, muscleTrends) {
+  const overshoot = entries
+    .map((e, index) => ({ e, index, candidate: candidates[index] }))
+    .filter(({ candidate }) => candidate.capped && candidate.count > BASELINE_SET_COUNT);
+
+  const finalCounts = new Map(entries.map((e, i) => [e.name, candidates[i].count]));
+  if (overshoot.length <= MAX_OVERSHOOT_EXERCISES_PER_SESSION) return finalCounts;
+
+  const ranked = [...overshoot].sort((a, b) => {
+    const ta = muscleTrends[a.e.primary[0]];
+    const tb = muscleTrends[b.e.primary[0]];
+    const aHas = ta != null, bHas = tb != null;
+    if (aHas !== bHas) return aHas ? -1 : 1; // real trend data always outranks missing data
+    if (aHas && ta !== tb) return tb - ta; // higher trend (more stalled/declining) = higher priority
+    return a.index - b.index; // deterministic, order-stable tie-break
+  });
+  const clamped = new Set(ranked.slice(MAX_OVERSHOOT_EXERCISES_PER_SESSION).map(r => r.e.name));
+  clamped.forEach(name => finalCounts.set(name, BASELINE_SET_COUNT));
+  return finalCounts;
 }
 
 // Same 2/3/4 rotation experimentalSetCount uses for auto-generated
@@ -433,11 +512,13 @@ function generateSessionExercises({ type, targetMuscles, backboneExerciseNames, 
     avoidMusclesSecondary: excludeMusclesSecondary, preferStable,
   }) : [];
 
-  const buildEntry = e => {
+  // muscleTrends: computed once from lifts (not from the session's own picks),
+  // so every buildFinalList call below across the widen loop ranks overshoot
+  // candidates against the same, stable per-muscle signal.
+  const muscleTrends = computeMusclePerformanceTrends(lifts);
+
+  const buildEntry = (e, workingSetCount) => {
     const prog = progressionFor(lifts, e.name, warmupScheme);
-    const sessionCount = exerciseSessionCount(lifts, e.name);
-    const nlCount = newLifterWorkingSetCount(trainingMonths, sessionCount, fatigueCeiling);
-    const workingSetCount = nlCount != null ? nlCount : experimentalSetCount(fatigueCeiling, sessionCount);
     const newLifterPhase = trainingMonths != null && trainingMonths < 3;
     const { note, sets } = setsFor(prog, workingSetCount, {
       failureSolo: newLifterPhase && workingSetCount === 1,
@@ -446,8 +527,21 @@ function generateSessionExercises({ type, targetMuscles, backboneExerciseNames, 
     return { name: e.name, note, sets };
   };
 
+  // Two-pass working-set resolution, re-run against the full candidate list
+  // every time it changes (initial backbone+accessories, each widen-step
+  // addition, and after post-widen cleanup removes any exercise): first every
+  // entry's own candidateWorkingSetCount (unaffected by what anything else in
+  // the session is doing), then capSessionOvershoot applies the session-wide
+  // cap across whatever's in the list at that moment — see both functions'
+  // comments above.
+  const buildFinalList = dbEntries => {
+    const candidates = dbEntries.map(e => candidateWorkingSetCount(e, lifts, trainingMonths, fatigueCeiling));
+    const counts = capSessionOvershoot(dbEntries, candidates, muscleTrends);
+    return dbEntries.map(e => buildEntry(e, counts.get(e.name)));
+  };
+
   let finalDbEntries = [...backboneEntries, ...accessories];
-  let finalList = finalDbEntries.map(buildEntry);
+  let finalList = buildFinalList(finalDbEntries);
 
   // Widen for variety, not just volume: a target muscle can be "covered" on
   // paper (present in some pick's primary list) without being genuinely
@@ -478,7 +572,7 @@ function generateSessionExercises({ type, targetMuscles, backboneExerciseNames, 
         if (pick) break;
       }
       if (!pick) break;
-      const projected = [...finalList, buildEntry(pick)];
+      const projected = buildFinalList([...finalDbEntries, pick]);
       if (estimateSessionDurationMin(projected) > maxDurationMin) break;
       finalDbEntries = [...finalDbEntries, pick];
       finalList = projected;
@@ -510,7 +604,7 @@ function generateSessionExercises({ type, targetMuscles, backboneExerciseNames, 
         }
       }
     }
-    finalList = finalDbEntries.map(buildEntry);
+    finalList = buildFinalList(finalDbEntries);
   }
 
   return finalList;
@@ -615,4 +709,6 @@ module.exports = {
   isLowRepPattern, LOW_REP_THRESHOLD, isStapleExercise, STAPLE_SESSION_THRESHOLD,
   estimateSessionDurationMin, capSessionDuration, fillSessionToDuration, fatigueCeilingFor,
   STABLE_EQUIPMENT, UNSTABLE_EQUIPMENT, stabilityScore,
+  experimentalSetCount, capSessionOvershoot, candidateWorkingSetCount,
+  BASELINE_SET_COUNT, MAX_OVERSHOOT_EXERCISES_PER_SESSION,
 };
