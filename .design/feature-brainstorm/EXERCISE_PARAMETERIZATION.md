@@ -277,3 +277,41 @@ Same rigor as §4's Bent Over Row/Pendlay Row fix, applied to the rest of the li
 - **Seated row cluster**: Seated Cable Row (Bar Grip), Seated Cable Row (V Grip), Seated Iso-Lateral Row, and Seated Iso-Low-Row Cable Machine (NU) were at 105° despite all being the same basic seated-row movement as Seated Iso-Row Cable Machine, Seated Row (Machine), and Seated Upper Back Iso-Row Cable Machine (NU) — already at 90°, which also matches `ROW_EMG`'s own header comment citing "90° = a pull from in front, e.g. seated cable row" as its defining example. **Corrected default: 90°**, for all of them.
 - **High row cluster**: High Lat Row was at 30° despite being the same category of movement as Iso-Lateral High Cable Row (Machine) and Iso-Lateral High Row (Machine), both at 15°. **Corrected default: 15°.**
 - **Seated/machine shoulder press cluster** (Seated Shoulder Press (Machine) (+TF), Shoulder Press (Hard Machine)) — **not a single-value fix.** Unlike the two above, there's no confident "one correct angle" here: different shoulder-press machines genuinely press on different paths (some dead-vertical, some on a forward-diagonal path closer to Hybrid/incline territory), and guessing a universal constant would just be trading one under-differentiated value for another. **Resolution: don't hardcode it — make angle athlete-specifiable for this cluster** (and, by the same logic, for the seated-row and high-row clusters above too — their corrected values become sensible *pre-fill defaults* in the picker, not new permanently-fixed constants). This is exactly Phase 2's own equipment+angle picker mechanism (§4) — these three clusters are concrete input to that build, not a reason to keep hand-patching `EXERCISE_ANGLES.js` entry by entry the way Bent Over Row was (a reasonable one-off fix, since Pendlay/Bent-Over genuinely only ever have one correct angle between them — not a precedent to repeat for entries whose real angle actually varies by setup).
+
+## 17. Full parameter schema across every exercise pattern — RESOLVED (one item open)
+
+Scoped via an interactive Y/N pass covering every major pattern family against 8 candidate dimensions, then corrected against what's actually built/sourced. This is the definitive cross-pattern reference — supersedes any pattern-specific parameter list stated earlier in this doc where the two disagree.
+
+**A 9th dimension had to be added mid-pass**: the original 8 columns conflated two genuinely different things under "Frontal-Plane Angle" — arm-*elevation* to the side (what `PRESS_FRONTAL_EMG`/`ROW_FRONTAL_EMG` actually measure, viewed from the front) vs. arm-*sweep* forward/backward relative to the torso at roughly constant shoulder height (viewed from above — a true transverse-plane axis). The first is real and already built for Press/Row's elbow-flare cue. The second doesn't exist in the codebase at all, and is what actually differentiates a standard Lateral Raise from a Y-Raise from a Rear Delt Fly from a Band Pull-Apart — currently four separately-named, separately-curated exercises with no shared axis between them, the exact shape of proliferation this whole document exists to collapse. Added as **Transverse/Sweep Angle**, a 9th column.
+
+| Category | Exercise Type | Sagittal Angle | Frontal-Plane Angle | Transverse/Sweep Angle | Hand Rotation | Grip/Stance Width | Depth/ROM | Stance/Support | Single-Limb/Bilateral | Equipment |
+|---|---|---|---|---|---|---|---|---|---|---|
+| Upper Push | Press (Bench/Overhead/Dip — unified, §14) | Y | Y | N | Y | Y | N | Y | Y | Y |
+| Upper Push | Fly | **OPEN** | **OPEN** | **OPEN** | N | N | N | N | Y | Y |
+| Upper Pull | Row (incl. Pulldown/Pull-up, §15) | Y | Y | N | Y | Y | N | Y | Y | Y |
+| Upper Isolation | Curl | Y | N | N | Y | N | N | N | Y | Y |
+| Upper Isolation | Extension (Triceps) | Y | N | N | N | N | N | N | Y | Y |
+| Upper Isolation | Lateral Raise | N | N | Y | N | N | N | N | Y | Y |
+| Upper Isolation | Shrug | Y | N | N | N | N | N | N | Y | Y |
+| Lower Body | Squat | N | N | N | N | Y | Y | Y | Y | Y |
+| Lower Body | Leg Press | Y | N | N | N | Y | Y | N | Y | Y |
+| Lower Body | Leg Curl (Hamstring) | Y | N | N | N | N | N | N | Y | Y |
+| Lower Body | Leg Extension (Quad) | N | N | N | N | N | N | N | Y | Y |
+| Lower Body | Deadlift / Hinge | Y | N | N | N | Y | Y | N | Y | Y |
+| Lower Body | Hip Thrust | N | N | N | N | N | Y | N | Y | Y |
+| Lower Body | Kickback (Glute) | N | Y | N | N | N | N | Y | Y | Y |
+| Lower Body | Calf Raise | N | N | N | N | N | N | Y | Y | Y |
+| Core | Core (Anti-Extension/Anti-Rotation) | N | N | N | N | N | N | Y | N | Y |
+| Other | Rotator Cuff Rotation† | Y | N | N | N | N | N | Y | Y | Y |
+| Other | Hip Abduction/Adduction | N | N | N | N | N | N | N | N | Y |
+
+**Notes on specific rows:**
+- **Fly — the one open item.** By the same logic that moved Lateral Raise from Sagittal to Transverse, Fly's defining motion (arms sweeping horizontally in front of the body, roughly constant shoulder height) looks like it should be Transverse=Y rather than Frontal=Y as first proposed — but this hasn't been explicitly confirmed. Frontal-Plane Angle may end up earning its place in this table *only* for Press/Row's elbow-flare use case, which is where it already existed before this document touched it.
+- **Curl / Extension — Stance/Support explicitly ruled N.** What "preacher vs. standing" (Curl) or "overhead vs. lying" (Extension) would have meant here is already fully captured by Sagittal Angle itself — that's the literal reason the angle axis exists for these two patterns. Would have been double-counting the same thing under two names.
+- **Leg Curl (Hamstring) — Sagittal=Y**, using the already-sourced Maeo et al. 2020 data (hamstrings rise 75→87→99 across lying-to-seated hip positions) rather than discarding real literature because Leg Extension's own audit correctly found nothing to curate.
+- **Rotator Cuff Rotation† — imperfect column fit, flagged rather than hidden.** None of the 8 original columns cleanly describe shoulder internal/external rotation. Mapped as Sagittal=Y for the primary rotation-degree axis (`ROTATOR_CUFF_ANGLES`/`ROTATOR_CUFF_EMG`) and Stance/Support=Y for the arm-elevation modifier (`ROTATOR_CUFF_ELEVATION_MODIFIER` — 0° arm-at-side vs. 90°-abducted external rotation), reusing existing columns as the closest available fit rather than adding a 10th dimension for one pattern.
+
+**New-data implications, ranked by how much sourcing work they actually need:**
+- **Zero new sourcing** — Press, Row, Curl, Extension, Rotator Cuff Rotation: every Y above maps to data that already exists in the codebase (possibly needing promotion from cue to real parameter, per §11, but not new research).
+- **New sourcing, but scoped and named** — Legs (Squat's width/depth, Leg Press's own EMG+angle+depth, Deadlift's width/depth, Hip Thrust's depth): genuinely new work, but the shape of what's needed is already clear from this table.
+- **New sourcing, not yet scoped at all** — Transverse/Sweep Angle's actual EMG data (needed for Lateral Raise, probably Fly, and worth auditing Y-Raise/Rear Delt Fly/Band Pull-Apart against once it exists). Nothing like this axis has been researched yet; it's a real gap, not a wiring task.
