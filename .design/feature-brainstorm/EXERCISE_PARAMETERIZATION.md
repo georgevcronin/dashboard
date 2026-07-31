@@ -6,6 +6,20 @@ This is explicitly the "Parameterized exercise variants (angle/incline)" item fl
 
 ---
 
+## 0. The governing principle — why any of this exists
+
+Everything below (§1-14) is an instance of one idea, and it applies to **every exercise in the database eventually, not just press**:
+
+**An exercise's identity is a feature vector — equipment, angle, width, rotation, stance/support, single-limb/bilateral, and whatever else turns out to matter — not a name.** A name is a *derived label*, computed by matching a specific feature combination against known patterns, not a primary key something else hangs off of.
+
+This inverts how the app currently works. Today, `exerciseDb.js` and everything downstream of it (`fatigue.js`'s muscle crediting, `muscleCapacity.js`'s capacity model, `strengthStandards.js`/`muscleStandards.js`'s PR and standards tracking) key off a literal **name string** — name is primary, and only a few exercises (the ones with curated EMG profiles, or PressRowBuilder-generated ones) get any feature-derived treatment at all, bolted on as secondary metadata. Every decision in this document — Bench Press's collapse (§2), Overhead Press/Row's collapse (§4), grip width/rotation (§10-11), stance/support (§12), the unified press angle scale (§14) — is really the same move applied to a different slice of the database: stop trusting the name, derive everything real (muscle credit, fatigue, capacity, PRs) from the feature vector instead.
+
+**The UX stays name-first, the backend stays feature-first.** A lifter searching the picker still taps "Shoulder Press" — a recognizable name, not a raw feature combination — which pre-fills the features that name typically implies (relevant equipment choices, a sensible starting angle). They adjust from there (equipment, incline, etc.). What actually gets saved is the feature vector; what gets *displayed*, back to the lifter and everywhere else in the app, is whichever name best matches that vector — "Shoulder Press" because that's what it resolves to, not because "Shoulder Press" is a row in a table the set is filed under. If they adjust the angle far enough, the matched name can change (e.g. drifting from Shoulder Press territory into Bench Press territory per §14's unified scale) without the underlying storage model changing at all.
+
+Practical implication for anything built against this document: the *matching* direction (feature vector → best-fit name, for display) is new work, separate from and in addition to the *lookup* direction (name → default feature values, for picker convenience) that `EXERCISE_ANGLES.js` already does today in a narrower form. Both directions need to exist; today only the second one does.
+
+---
+
 ## 1. Selection UI — node-link tree
 
 Validated via a working mockup (`.design/feature-brainstorm/` — see commit history / the artifact from this session) built in Press's own newspaper/ledger design system (`src/pressCss.js` tokens: paper/ink/rule/dim/gold, Playfair Display for group names, JetBrains Mono for pattern/variant labels, italic Times New Roman for movement names).
