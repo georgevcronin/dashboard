@@ -159,3 +159,30 @@ Of the 12 existing "Single-Arm"/"Single-Leg"-named exercises:
 **Both decisions resolved (commit `c4ef786`):**
 1. **"Hip Thrust (Machine)" — added.** New `EXERCISE_DB` entry, joining the existing "hip-thrust" movement family (Barbell Hip Thrust, Hip Thrust (Smith Machine) — a distinct pre-existing equipment type, not a duplicate). Booty Builder's real flagship product now has somewhere to attach data; picked up automatically by the resistance-curve generator.
 2. **Single-Leg Press collapse — confirmed correct, reconciliation plan documented, migration itself still not done.** Its `RESISTANCE_CURVES` entry is redundant with "Leg Press"'s once the collapse ships. Its `PLATE_LOADED_BASE_RESISTANCE_KG` values are **not** redundant — a single-leg carriage genuinely has a lighter empty weight than the bilateral platform (e.g. Hammer Strength 20kg vs 32kg) — so nothing was deleted; the re-keying plan for when the actual `exerciseDb.js` migration happens is documented in both `resistanceCurves.js` and `limbOptions.js`. That migration (removing the live "Single-Leg Press" entry, wiring the limb field into real logging) hasn't happened yet, consistent with every other collapse recommendation (bench press, curls, etc.) also remaining design-only so far.
+
+## 10. Grip-width field
+
+A 7th parameterization field (alongside equipment / angle / rotation / brand / resistance-curve-rating / single-limb — §6, §9), scoped to **Bench Press and Row only**, on **Barbell and Machine equipment specifically**. Not Dumbbell — each hand holds an independent implement, there's no fixed "width" to choose between. Not Cable — the equivalent choice there is attachment type (rope / straight bar / V-handle), a related but distinct parameter, out of scope here.
+
+### Scope — Overhead Press excluded, pending better evidence
+Grip-width literature for overhead pressing is thin and mostly Olympic-lifting/clean-grip-adjacent, not a real hypertrophy-emphasis axis the way bench press and row grip width are. Same evidentiary bar already applied elsewhere in this doc (§2 excludes shoulder press from the goal/note layer for the analogous reason: "the interesting front-vs-lateral-delt tradeoff belongs to raise variants, not press"). Deferred, not ruled out — revisit if better sourcing turns up.
+
+### Precedent already in the codebase
+Not a new premise: `functions/exerciseEmgProfiles.js`'s pull-up/pulldown family already carries real, literature-sourced grip-width differentiation (Close-Grip Lat Pulldown: lats 46; standard/Wide-Grip: lats 27; Behind-Neck: lats 23 — narrower/underhand grips pull closer to the torso and read more lat-favorable, wider/behind-neck grips shift toward rear-delt/rhomboids). Currently implemented as separately-named static entries — exactly the proliferation this whole effort exists to collapse. This field generalizes the same underlying biomechanical premise into a slider instead of a name, for bench/row.
+
+**Not to be confused with the existing grip-*rotation* axis** (`PRESS_GRIP_EMG`/`ROW_GRIP_EMG`, `GRIP_ANGLES` — pronated → neutral → supinated, in `emgActivation.js`). That's rotation of the hand about its own axis, currently advisory-only (`gripCueForProfile` — a coaching cue, doesn't change what's logged or credited). Grip width is a physically different axis (hand spacing along the bar) and, per below, is not advisory.
+
+### Real parameter, not an advisory cue — RESOLVED
+Matches this document's overall direction: stored per-exercise-instance (same convention as equipment/angle, §6), and actually changes the EMG weights credited for that logged set — feeding the capacity/fatigue model the same way angle does, not a coaching tip layered on after the fact.
+
+### Data needed — new curation work, full rigor (not the resistance-curve's best-effort tier)
+Two new tables, same sourcing standard as `EXERCISE_ANGLES.js`/`emgActivation.js` (cited literature):
+- **Bench press**: chest / triceps / front-delt across close / medium / wide grip.
+- **Row**: lats / rear-delt / rhomboids / biceps across close / medium / wide grip.
+
+Discrete keys (close / medium / wide), not a continuous slider — matches how the existing rotation axis is discrete (0/45/90/135/180) rather than continuous, since a barbell only offers a handful of practically distinct hand positions.
+
+### Open — machine grip-width, rigor level undecided
+Barbell is unambiguous: every barbell is the same continuous bar, graspable anywhere along it, so close/medium/wide is universally available. Machines are not — `machineModels.js`/`machineBrands.js` don't track handle configuration at all today, and most selectorized press/row machines only offer a single fixed handle position; whether a given machine even offers a real choice is a machine-by-machine question nothing currently answers. Two ways to handle it, needs a decision before building:
+1. **Full research pass** — audit which specific machine models actually offer multiple handle positions, comparable in shape to the existing brand+model machine catalog research.
+2. **Best-effort reuse** — apply the barbell-derived width values to machine exercises too, as an approximation, flagged at the resistance-curve's lower rigor tier rather than the EMG tables' full-citation standard, on the assumption that a machine's neutral/wide handle setting roughly mirrors the equivalent barbell hand position.
