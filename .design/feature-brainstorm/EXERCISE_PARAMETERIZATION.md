@@ -210,3 +210,24 @@ Proposed: model this as (1) a load-factor-style multiplier (standing/unsupported
 ## 13. T-Bar Row equipment classification — RESOLVED
 
 T-Bar Row is a plate-loaded, fixed-pivot apparatus — closer to Plate-Loaded Machine than free Barbell or a true Machine/Pin category. The lateral freedom of movement a T-bar/landmine setup allows doesn't meaningfully change its stability category. Classify it as **Plate-Loaded Machine** rather than inventing a dedicated landmine/T-bar equipment type.
+
+## 14. Unified Press angle scale — Overhead Press, Bench Press, and Dips are ONE parameterized family — RESOLVED
+
+Bigger than a Phase-2 detail: Overhead Press, Bench Press (§2's pilot), and Dips/Tricep Press are not three separate parameterized exercises with their own scales — they're **one continuous angle axis**, with "Bench Press," "Overhead Press," and "Dip/Tricep Press" as *labels for different regions of the same underlying parameter*, not separate canonical exercises.
+
+**Convention: 0° = Flat Press, positive = toward incline/shoulder/overhead, negative = toward decline/dip** — extending the sign convention the Bench Press pilot already shipped (Flat=0°, Incline=30°, Decline=-15°), rather than the vertical press arc's original native convention (0°=arm at side, 90°=flat, 180°=overhead). This was chosen specifically because it required less rework of already-shipped code and matches how lifters actually talk about bench angle ("a 30° incline," not "120° on an arm-elevation arc").
+
+Full resolved partition, in 15° steps (confirmed there are no real gaps once you account for the grid — everywhere looked like a gap was actually just two adjacent 15°-step values with nothing missing between them; only one true gap existed, at -45°, now assigned to Decline):
+
+| Angle | Category |
+|---|---|
+| -90°, -75°, -60° | Dip / Tricep Press |
+| -45°, -30°, -15° | Decline Press |
+| 0° | Flat Press |
+| +15°, +30° | Incline Press |
+| +45° | Hybrid Shoulder/Incline Press |
+| +60° and above | Shoulder / Overhead Press |
+
+**Compatibility with the already-shipped Bench Press pilot**: good news — not a conflict, an extension. The pilot's own values (Flat=0°, Incline=30°, Decline=-15°) fall correctly within this table's Flat/Incline/Decline zones under the same sign convention. What the pilot doesn't yet have: range extending past ±30° to reach Hybrid/Shoulder-Overhead territory on the positive end and Decline/Dip territory on the negative end (it's currently capped at `angleRange: {min:-30, max:60, step:5}` — the +60 cap already technically reaches into Shoulder/Overhead per this table, but the -30 floor stops short of Dip/Tricep entirely), and its 5° step vs. this table's 15° step needs reconciling if Bench Press and Overhead Press are to genuinely share one field going forward.
+
+**Still open — exercise identity / picker UX**: does this mean there's ONE canonical exercise (something like "Press") covering the entire -90° to +90°+ range, with "Bench Press"/"Overhead Press"/"Dip" surviving only as *display labels* that pre-select an approximate starting angle when tapped from the exercise picker (so a lifter can still search/tap "Bench Press" rather than needing to know it's secretly angle 0 of a generic "Press")? That's the natural reading of "these are all one parameterized family," but it's a real UX/data-model decision that goes beyond what's been resolved above, and changes Phase 1's Bench Press from its own canonical `exerciseDb.js` entry into one region of a bigger one. Needs its own pass before building.
