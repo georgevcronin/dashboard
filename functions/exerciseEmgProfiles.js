@@ -258,6 +258,15 @@ const EXERCISE_EMG_PROFILES = {
   'dumbbell bench press (flat)': { 'front-delt': 85, 'mid-delt': 58, chest: 68.7, biceps: 73, triceps: 58, serratus: 24, 'lower-traps': 19 },
   'dumbbell incline bench press': { 'front-delt': 97, 'mid-delt': 87, chest: 66.7, biceps: 78, triceps: 67, serratus: 42, 'lower-traps': 35 },
   'dumbbell decline bench press': { 'front-delt': 55, 'mid-delt': 28, chest: 49, biceps: 60, triceps: 45, serratus: 14, 'lower-traps': 10 },
+  // 'Bench Press' — the parameterized pilot entry (exerciseDb.js,
+  // EXERCISE_PARAMETERIZATION.md). Static fallback for whenever a logged
+  // instance doesn't carry its own angle-derived emgWeights (typed/imported
+  // directly rather than through the equipment/angle picker, or a history
+  // edit that dropped it — same limitation ex.machine/ex.pulleyType already
+  // have through that same edit path). Defaults to flat (0°), same values as
+  // 'barbell bench press' above — see benchPressEmgProfileForAngle() below
+  // for the angle-aware version the picker actually uses.
+  'bench press': { 'front-delt': 85, 'mid-delt': 58, chest: 68.7, biceps: 73, triceps: 58, serratus: 24, 'lower-traps': 19 },
   'push-up': { 'front-delt': 85, 'mid-delt': 58, chest: 68.7, biceps: 73, triceps: 58, serratus: 24, 'lower-traps': 19 },
   'weighted push-up': { 'front-delt': 85, 'mid-delt': 58, chest: 68.7, biceps: 73, triceps: 58, serratus: 24, 'lower-traps': 19 },
   'machine chest press': { 'front-delt': 85, 'mid-delt': 58, chest: 68.7, biceps: 73, triceps: 58, serratus: 24, 'lower-traps': 19 },
@@ -462,4 +471,27 @@ function emgProfileForExercise(name) {
   return EXERCISE_EMG_PROFILES[(name || '').toLowerCase().trim()] || null;
 }
 
-module.exports = { EXERCISE_EMG_PROFILES, emgProfileForExercise };
+// Angle-aware version for the parameterized 'Bench Press' picker (src/app.jsx)
+// — reuses the three curated flat/incline/decline profiles above rather than
+// duplicating their numbers, and snaps a continuous angle to whichever of the
+// three it's closest to, since the underlying EMG source is only sampled at
+// those three positions (anything finer would be false precision). Barbell
+// and dumbbell share identical values above, so equipment doesn't affect
+// this lookup. Returned object is stored as the logged set's own emgWeights,
+// same transport mechanism PressRowBuilder-generated exercises already use
+// (functions/fatigue.js's curatedWeightsForExercise checks a lift's own
+// emgWeights before falling back to this file's static name-keyed table).
+const BENCH_PRESS_ANGLE_PROFILES = [
+  { angle: -15, profile: EXERCISE_EMG_PROFILES['decline barbell bench press'] },
+  { angle: 0, profile: EXERCISE_EMG_PROFILES['barbell bench press'] },
+  { angle: 30, profile: EXERCISE_EMG_PROFILES['incline barbell bench press'] },
+];
+function benchPressEmgProfileForAngle(angle) {
+  const a = +angle;
+  if (Number.isNaN(a)) return null;
+  return BENCH_PRESS_ANGLE_PROFILES.reduce((best, cur) =>
+    Math.abs(cur.angle - a) < Math.abs(best.angle - a) ? cur : best
+  ).profile;
+}
+
+module.exports = { EXERCISE_EMG_PROFILES, emgProfileForExercise, benchPressEmgProfileForAngle };

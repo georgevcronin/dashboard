@@ -50,6 +50,42 @@ const EXERCISE_PATTERNS = [
 const EXERCISE_DB = [
 
   // ── CHEST ────────────────────────────────────────────────────────────────────
+  // 'Bench Press' is the canonical, parameterized entry — see
+  // .design/feature-brainstorm/EXERCISE_PARAMETERIZATION.md ("Bench Press —
+  // the pilot"). Equipment (Barbell/Dumbbell) and a continuous incline angle
+  // are chosen per logged instance (src/app.jsx's per-exercise picker, same
+  // storage granularity as ex.machine/ex.pulleyType) instead of being baked
+  // into six separate name strings. `equipment` here is the static
+  // exerciseDb.js type field (barbell/dumbbell/cable/machine/etc, unrelated
+  // to the `machine` brand field) — left at 'barbell' as the common-case
+  // default for systems that read it statically (stability/CNS-equipment
+  // classification, resistance-curve free-weight bucketing); barbell and
+  // dumbbell fall in the same bucket in both of those, so this default never
+  // produces a wrong answer regardless of what the athlete actually picks.
+  // `equipmentChoices`/`angleRange` are this entry's own picker config, read
+  // by the frontend, not consumed by anything else.
+  {
+    id: 'bench-press',
+    name: 'Bench Press',
+    category: 'push', equipment: 'barbell',
+    primary: ['chest', 'triceps', 'front-delt'], secondary: ['serratus'],
+    curve: 'partial',
+    curveNote: 'Chest leverage and lockout balance shift with incline — flat/slight-decline keeps mid-range chest leverage highest; steeper incline shifts load toward front-delt. Resistance still drops near lockout regardless of angle.',
+    form: ['Retract and depress scapulae before unracking', 'Bar/dumbbells travel toward the lower chest at 0° and below, upper chest as incline increases', 'Maintain leg drive throughout', 'Elbows 45–75° from torso, not flared to 90°'],
+    lesserKnown: false,
+    muscleGroup: "chest", pattern: "press", movementId: "bench-press", movementName: "Bench Press",
+    parameterized: true, equipmentChoices: ['Barbell', 'Dumbbell'], angleRange: { min: -30, max: 60, step: 5 },
+  },
+  // The following six named entries are superseded by the 'Bench Press'
+  // entry above for NEW logging — kept as real, unmodified EXERCISE_DB
+  // entries (not deleted) purely so existing historical lift documents,
+  // exerciseNameAliases.js's Hevy-import aliases, and strengthStandards.js/
+  // muscleStandards.js's name-keyed lookups keep resolving exactly as they
+  // did before. `supersededBy` is read by src/app.jsx to hide these from the
+  // exercise browser/autocomplete going forward without touching anything
+  // about their identity or historical data. See EXERCISE_PARAMETERIZATION.md
+  // §migration for the (separate, not-yet-run) script that would rewrite old
+  // logs under these names to the canonical one.
   {
     id: 'barbell-bench-press',
     name: 'Barbell Bench Press',
@@ -59,7 +95,8 @@ const EXERCISE_DB = [
     curveNote: 'Chest leverage peaks mid-range; moment arm shortens near lockout where triceps take over. Gravity vector works against horizontal adduction at the top.',
     form: ['Retract and depress scapulae before unracking', 'Bar path slightly diagonal — touch lower chest', 'Maintain leg drive throughout', 'Elbows 45–75° from torso, not flared to 90°'],
     lesserKnown: false,
-    muscleGroup: "chest", pattern: "press", movementId: "bench-press", movementName: "Bench Press"
+    muscleGroup: "chest", pattern: "press", movementId: "bench-press", movementName: "Bench Press",
+    supersededBy: 'bench-press',
   },
   {
     id: 'incline-barbell-bench-press',
@@ -70,7 +107,8 @@ const EXERCISE_DB = [
     curveNote: 'Higher incline shifts load to front-delt; chest leverage partially maintained through mid-range. Upper fibres recruited more but resistance curve still suboptimal at top.',
     form: ['30–45° incline is optimal for upper chest emphasis', 'Bar touches upper chest, not collarbone', 'Keep scapulae pinched throughout', 'Avoid excessive arch — this is a chest exercise, not a hack'],
     lesserKnown: false,
-    muscleGroup: "chest", pattern: "press", movementId: "bench-press", movementName: "Bench Press"
+    muscleGroup: "chest", pattern: "press", movementId: "bench-press", movementName: "Bench Press",
+    supersededBy: 'bench-press',
   },
   {
     id: 'decline-barbell-bench-press',
@@ -81,8 +119,14 @@ const EXERCISE_DB = [
     curveNote: 'Decline shifts resistance vector to better match lower-chest horizontal adduction leverage throughout ROM. Tricep moment arm also improves at lockout vs flat.',
     form: ['Feet secured firmly on pad', 'Bar touches lower chest — natural decline arc', 'Keep elbows tucked slightly more than flat press', 'Full lockout at top — triceps complete the rep'],
     lesserKnown: false,
-    muscleGroup: "chest", pattern: "press", movementId: "bench-press", movementName: "Bench Press"
+    muscleGroup: "chest", pattern: "press", movementId: "bench-press", movementName: "Bench Press",
+    supersededBy: 'bench-press',
   },
+  // Close-Grip Bench Press is a grip-width variant, not an angle variant —
+  // deliberately NOT superseded by / grouped under 'Bench Press' (see
+  // EXERCISE_PARAMETERIZATION.md §2: "stays a separate, non-parameterized
+  // entry ... doesn't belong on the incline slider"). Its own movementId
+  // keeps it out of the parameterized picker's variant grouping entirely.
   {
     id: 'close-grip-bench-press',
     name: 'Close-Grip Bench Press',
@@ -92,7 +136,7 @@ const EXERCISE_DB = [
     curveNote: 'Narrows grip shifts lever arm so triceps are primary mover; chest involvement drops. Triceps work hard through mid-range but moment arm shortens at full extension.',
     form: ['Grip shoulder-width, not too narrow — wrists will suffer', 'Elbows stay close to torso throughout', 'Touch mid-chest, not sternum', 'Full lockout — triceps finish the rep'],
     lesserKnown: false,
-    muscleGroup: "triceps", pattern: "press", movementId: "bench-press", movementName: "Bench Press"
+    muscleGroup: "triceps", pattern: "press", movementId: "close-grip-bench-press", movementName: "Close-Grip Bench Press"
   },
   {
     id: 'dumbbell-flat-bench-press',
@@ -103,7 +147,8 @@ const EXERCISE_DB = [
     curveNote: 'Greater ROM than barbell allows more horizontal adduction but resistance still drops near lockout. Unilateral loading corrects strength imbalances.',
     form: ['Lower to chest level — go deeper than barbell allows', 'Neutral or slight pronation at top', 'Control the eccentric — do not bounce off chest', 'Keep shoulder blades squeezed back throughout'],
     lesserKnown: false,
-    muscleGroup: "chest", pattern: "press", movementId: "bench-press", movementName: "Bench Press"
+    muscleGroup: "chest", pattern: "press", movementId: "bench-press", movementName: "Bench Press",
+    supersededBy: 'bench-press',
   },
   {
     id: 'dumbbell-incline-bench-press',
@@ -114,7 +159,8 @@ const EXERCISE_DB = [
     curveNote: 'Similar to incline barbell but extended ROM; upper chest fibres better recruited. Resistance still favours mid-range.',
     form: ['30–45° bench angle', 'Dumbbells travel in arc, not straight line', 'Slight wrist rotation at bottom for shoulder safety', 'Squeeze chest hard at top before lowering'],
     lesserKnown: false,
-    muscleGroup: "chest", pattern: "press", movementId: "bench-press", movementName: "Bench Press"
+    muscleGroup: "chest", pattern: "press", movementId: "bench-press", movementName: "Bench Press",
+    supersededBy: 'bench-press',
   },
   {
     id: 'dumbbell-decline-bench-press',
@@ -125,7 +171,8 @@ const EXERCISE_DB = [
     curveNote: 'Decline angle improves resistance curve alignment for lower chest fibres. Greater ROM than barbell version adds value at the bottom.',
     form: ['Secure feet before lowering dumbbells', 'Wide arc path mimics pec-deck motion', 'Full stretch at bottom within pain-free range', 'Squeeze hard at top'],
     lesserKnown: false,
-    muscleGroup: "chest", pattern: "press", movementId: "bench-press", movementName: "Bench Press"
+    muscleGroup: "chest", pattern: "press", movementId: "bench-press", movementName: "Bench Press",
+    supersededBy: 'bench-press',
   },
   {
     id: 'cable-fly-high-to-low',

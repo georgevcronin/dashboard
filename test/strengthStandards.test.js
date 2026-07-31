@@ -47,6 +47,24 @@ test('classifyLift is an allowlist — only the exact canonical exercise per cat
   assert.equal(classifyLift('Bent-Over Dumbbell Row (Bilateral)'), null, 'dumbbell row should not be ranked against barbell standards');
 });
 
+// Bench Press pilot (EXERCISE_PARAMETERIZATION.md) — the parameterized
+// 'Bench Press' entry can be logged as either Barbell or Dumbbell equipment,
+// unlike every other allowlisted name (unambiguous by name alone), so it
+// needs the caller to confirm equipment before comparing against the
+// barbell-calibrated 'bench' standard.
+test('classifyLift only classifies "Bench Press" as bench when the logged equipment was confirmed Barbell', () => {
+  assert.equal(classifyLift('Bench Press', 'Barbell'), 'bench');
+  assert.equal(classifyLift('Bench Press', 'barbell'), 'bench', 'case-insensitive equipment');
+  assert.equal(classifyLift('Bench Press', 'Dumbbell'), null, 'dumbbell should not be ranked against barbell standards');
+  assert.equal(classifyLift('Bench Press'), null, 'missing/unknown equipment should be excluded, not assumed barbell');
+  assert.equal(classifyLift('Bench Press', ''), null);
+});
+
+test('classifyLift for every other allowlisted name ignores the equipment argument entirely (unambiguous by name)', () => {
+  assert.equal(classifyLift('Barbell Bench Press', 'Dumbbell'), 'bench', 'name alone already says barbell; a stray equipment arg should not change that');
+  assert.equal(classifyLift('Back Squat', 'Dumbbell'), 'squat');
+});
+
 test('classifyLift correctly categorizes each canonical lift, including both allowed deadlift/row variants', () => {
   assert.equal(classifyLift('Back Squat'), 'squat');
   assert.equal(classifyLift('Conventional Deadlift'), 'deadlift');
