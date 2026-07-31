@@ -246,3 +246,26 @@ Full resolved partition, in 15° steps (confirmed there are no real gaps once yo
 **Compatibility with the already-shipped Bench Press pilot**: good news — not a conflict, an extension. The pilot's own values (Flat=0°, Incline=30°, Decline=-15°) fall correctly within this table's Flat/Incline/Decline zones under the same sign convention. What the pilot doesn't yet have: range extending past ±30° to reach Hybrid/Shoulder-Overhead territory on the positive end and Decline/Dip territory on the negative end (it's currently capped at `angleRange: {min:-30, max:60, step:5}` — the +60 cap already technically reaches into Shoulder/Overhead per this table, but the -30 floor stops short of Dip/Tricep entirely), and its 5° step vs. this table's 15° step needs reconciling if Bench Press and Overhead Press are to genuinely share one field going forward.
 
 **Still open — exercise identity / picker UX**: does this mean there's ONE canonical exercise (something like "Press") covering the entire -90° to +90°+ range, with "Bench Press"/"Overhead Press"/"Dip" surviving only as *display labels* that pre-select an approximate starting angle when tapped from the exercise picker (so a lifter can still search/tap "Bench Press" rather than needing to know it's secretly angle 0 of a generic "Press")? That's the natural reading of "these are all one parameterized family," but it's a real UX/data-model decision that goes beyond what's been resolved above, and changes Phase 1's Bench Press from its own canonical `exerciseDb.js` entry into one region of a bigger one. Needs its own pass before building.
+
+## 15. Pull-up/Lat Pulldown family folds into Row, not a separate family — RESOLVED
+
+`emgActivation.js`'s own row-axis definition already cites both extremes as pull-up/pulldown examples ("0° = a low pull, e.g. straight-arm pulldown... 180° = an overhead pull, e.g. pull-up") — this was never a separate pattern needing its own model, it's the existing Row axis's own upper (and one lower) anchor. Confirmed numerically: every existing named pull-up/pulldown entry's `lats` value in `exerciseEmgProfiles.js` matches `ROW_EMG`'s angle table exactly:
+
+| Existing named entry | lats value | Matches `ROW_EMG` angle |
+|---|---|---|
+| Cable Straight-Arm Pulldown | 95 | 0° |
+| Close-Grip Lat Pulldown | 46 | 120° |
+| Chin-up, Pull-up (Neutral), Lat Pulldown (Neutral/Underhand) | 38 | 135° |
+| Single-Arm Lat Pulldown | 32 | 150° |
+| Pull-up (Wide), Weighted Pull-up, Lat Pulldown (Wide) | 27 | 165° |
+| Behind-Neck Lat Pulldown | 23 | 180° |
+
+These were already derived from `ROW_EMG` by whoever curated them (matches that file's own comment: narrower/underhand grips pull closer to the torso, wide/behind-neck grips sit closer to true overhead) — just never connected back to Row's own parameterization.
+
+**Grip-width becomes angle-dependent in its mechanism, not its data:**
+- **Below ~105° (seated/bent-over row territory)**: width is a genuine independent dimension from angle — you can grip narrow or wide at the same pulling angle — so it stays a real delta-modifier (`ROW_GRIP_WIDTH_EMG`, the seated-row-study-sourced table already built).
+- **At 120° and above (pulldown/pull-up territory)**: width and angle collapse into the *same* choice — picking a grip width mechanically determines how close to true-overhead the pull is. No new modifier needed here; the existing angle table already encodes it exactly, per the table above. Width just becomes an alternate, more familiar UI label for selecting a specific angle in this region, not a second axis multiplying against it.
+
+**New equipment value needed**: Row's equipment choices must include **Bodyweight** for Chin-up/Pull-up/Weighted Pull-up (self-powered, not barbell/dumbbell/cable/machine) — cable/machine covers every lat pulldown variant.
+
+**Single-Arm Lat Pulldown is not its own width category** — it's Neutral-Grip Lat Pulldown (135°) plus the single-limb/bilateral flag (§9), sitting at a slightly adjusted curated angle (150°) to reflect the real stability/mechanics shift unilateral loading causes, not a fourth grip-width option alongside close/neutral/wide/behind-neck.
