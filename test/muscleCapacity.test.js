@@ -59,7 +59,7 @@ test('solveMuscleCapacities + predictExerciseE1RM recovers a sane prediction for
   // angle range, holding out angle 90 (iso-lateral row / dumbbell row /
   // seated row's mapped angle) as the prediction target.
   const trainingExercises = [
-    ['Bent Over Row (Barbell)', 'row', 15],
+    ['Bent Over Row (Barbell)', 'row', 105],
     ['High Lat Row', 'row', 15],
     ['T Bar Row', 'row', 75],
     ['Chest-Supported Barbell Row', 'row', 105],

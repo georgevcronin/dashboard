@@ -25,7 +25,9 @@ const EXERCISE_ANGLES = {
   'shoulder press (machine plates)': { pattern: 'press', angle: 30 },
   'shoulder press incline (machine plates)': { pattern: 'press', angle: 45 },
   'standing military press (barbell)': { pattern: 'press', angle: 0 },
-  'bent over row (barbell)': { pattern: 'row', angle: 15 },
+  // Matches Pendlay Row's angle -- same movement, the dead-stop reset doesn't
+  // change which muscles do the work.
+  'bent over row (barbell)': { pattern: 'row', angle: 105 },
   'chest supported incline row (dumbbell)': { pattern: 'row', angle: 120 },
   'chest-supported barbell row': { pattern: 'row', angle: 105 },
   'dumbbell row': { pattern: 'row', angle: 90 },
