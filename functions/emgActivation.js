@@ -356,6 +356,22 @@ const GRIP_WIDTH_BY_EQUIPMENT = {
   cable: [],
 };
 
+// Pulldown/pull-up "handle style" -> angle, per
+// .design/feature-brainstorm/EXERCISE_PARAMETERIZATION.md §15: at/above
+// ROW_PULLDOWN_ANGLE region (functions/exerciseLabelMatching.js), grip width
+// stops being an independent delta-modifier (ROW_GRIP_WIDTH_EMG above) and
+// starts DIRECTLY SELECTING the angle instead -- picking a handle style IS
+// picking how close to true-overhead the pull is. Not a new EMG table: these
+// are exactly the angles §15 confirmed against every existing named pull-up/
+// pulldown entry's own lats value in exerciseEmgProfiles.js. 'close' here is
+// a close/underhand-style grip (Close-Grip Lat Pulldown), distinct from the
+// close/medium/wide row-width vocabulary below 120° -- offered as a
+// convenience label over the same angle slider, not a second parallel axis.
+const PULLDOWN_HANDLE_ANGLES = { close: 120, neutral: 135, wide: 165, 'behind-neck': 180 };
+const PULLDOWN_HANDLE_LABELS = {
+  close: 'Close-Grip Pulldown', neutral: 'Neutral / Chin-Up Grip', wide: 'Wide-Grip Pulldown / Pull-Up', 'behind-neck': 'Behind-Neck',
+};
+
 // Row-only counterpart to applyGripRotationModifier -- identical "delta
 // from the table's own mean, subset of a base vector" mechanism (see that
 // function's comment for the full reasoning). All four tracked muscles
@@ -411,6 +427,7 @@ module.exports = {
   PRESS_FRONTAL_EMG, ROW_FRONTAL_EMG, FRONTAL_ANGLES,
   PRESS_GRIP_EMG, ROW_GRIP_EMG, GRIP_ANGLES, GRIP_LABELS, GRIP_ANGLES_BY_EQUIPMENT,
   GRIP_WIDTHS, GRIP_WIDTH_LABELS, ROW_GRIP_WIDTH_EMG, GRIP_WIDTH_BY_EQUIPMENT,
+  PULLDOWN_HANDLE_ANGLES, PULLDOWN_HANDLE_LABELS,
   PRIMARY_THRESHOLD, SECONDARY_THRESHOLD, classifyMuscles, emgForAngle, frontalCueForProfile, gripCueForProfile,
   applyGripRotationModifier, applyGripWidthModifier,
 };

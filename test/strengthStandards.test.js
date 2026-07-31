@@ -60,6 +60,20 @@ test('classifyLift only classifies "Bench Press" as bench when the logged equipm
   assert.equal(classifyLift('Bench Press', ''), null);
 });
 
+// §14 widened 'Bench Press' to cover Overhead/Shoulder Press too (folding in
+// "Barbell Overhead Press", previously its own unambiguous allowlist name)
+// — classifyLift must keep routing a high-angle instance to 'overheadPress',
+// not silently stop recognizing it as either classic lift.
+test('classifyLift routes "Bench Press" to overheadPress vs bench by angle, once equipment is confirmed Barbell', () => {
+  assert.equal(classifyLift('Bench Press', 'Barbell', 0), 'bench', 'flat');
+  assert.equal(classifyLift('Bench Press', 'Barbell', 30), 'bench', 'incline still bench');
+  assert.equal(classifyLift('Bench Press', 'Barbell', 59), 'bench', 'just under the threshold');
+  assert.equal(classifyLift('Bench Press', 'Barbell', 60), 'overheadPress', 'the threshold itself');
+  assert.equal(classifyLift('Bench Press', 'Barbell', 75), 'overheadPress');
+  assert.equal(classifyLift('Bench Press', 'Barbell'), 'bench', 'no angle given defaults to the pre-existing bench behavior');
+  assert.equal(classifyLift('Bench Press', 'Dumbbell', 75), null, 'still excluded for non-barbell equipment regardless of angle');
+});
+
 test('classifyLift for every other allowlisted name ignores the equipment argument entirely (unambiguous by name)', () => {
   assert.equal(classifyLift('Barbell Bench Press', 'Dumbbell'), 'bench', 'name alone already says barbell; a stray equipment arg should not change that');
   assert.equal(classifyLift('Back Squat', 'Dumbbell'), 'squat');

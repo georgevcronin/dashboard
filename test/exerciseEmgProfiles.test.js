@@ -135,16 +135,31 @@ test('benchPressEmgProfileForAngle snaps to the nearest curated position and mat
   assert.deepEqual(benchPressEmgProfileForAngle(-15), emgProfileForExercise('Decline Barbell Bench Press'));
 });
 
-test('benchPressEmgProfileForAngle snaps in-between and out-of-range angles to the nearest of the three sampled positions', () => {
-  assert.deepEqual(benchPressEmgProfileForAngle(10), emgProfileForExercise('Barbell Bench Press'), '10° is closer to flat (0°) than incline (30°)');
-  assert.deepEqual(benchPressEmgProfileForAngle(20), emgProfileForExercise('Incline Barbell Bench Press'), '20° is closer to incline (30°) than flat (0°)');
-  assert.deepEqual(benchPressEmgProfileForAngle(60), emgProfileForExercise('Incline Barbell Bench Press'), 'steep incline should still snap to the closest sampled position, not extrapolate');
-  assert.deepEqual(benchPressEmgProfileForAngle(-30), emgProfileForExercise('Decline Barbell Bench Press'), 'steep decline should still snap to the closest sampled position, not extrapolate');
+test('benchPressEmgProfileForAngle snaps in-between angles to the nearest sampled position', () => {
+  assert.deepEqual(benchPressEmgProfileForAngle(10), emgProfileForExercise('Incline Barbell Bench Press'), '10° is closer to the 15° incline anchor than flat (0°)');
+  assert.deepEqual(benchPressEmgProfileForAngle(20), emgProfileForExercise('Incline Barbell Bench Press'), '20° is closer to the 15° incline anchor than 30°, but both share the same profile');
+  assert.deepEqual(benchPressEmgProfileForAngle(-30), emgProfileForExercise('Decline Barbell Bench Press'));
 });
 
 test('benchPressEmgProfileForAngle returns null for a non-numeric angle', () => {
   assert.equal(benchPressEmgProfileForAngle(undefined), null);
   assert.equal(benchPressEmgProfileForAngle('not a number'), null);
+});
+
+// §14 (Phase 2) widened the picker's range from ±30/60° to the full unified
+// -90..90 Press scale — these anchors are new; a steep incline no longer
+// falsely snaps back to a 30° incline profile, it resolves to whatever
+// region it's actually in.
+test('benchPressEmgProfileForAngle covers the full §14 unified range, not just the original ±30/60° pilot span', () => {
+  assert.deepEqual(benchPressEmgProfileForAngle(-90), emgProfileForExercise('Bench Dips'), 'deep Dip/Tricep Press territory');
+  assert.deepEqual(benchPressEmgProfileForAngle(-60), emgProfileForExercise('Tricep Dips (Parallel Bars)'));
+  assert.deepEqual(benchPressEmgProfileForAngle(45), emgProfileForExercise('Arnold Press'), 'Incline Shoulder Press hybrid point');
+  assert.deepEqual(benchPressEmgProfileForAngle(75), emgProfileForExercise('Barbell Overhead Press'), 'Overhead/Shoulder Press territory');
+  assert.deepEqual(benchPressEmgProfileForAngle(90), emgProfileForExercise('Z-Press'), 'deepest overhead extreme');
+  // A genuine overhead-press angle should read as clearly front-delt/
+  // triceps-dominant, not still chest-dominant like a flat/incline press.
+  const overhead = benchPressEmgProfileForAngle(75);
+  assert.ok(overhead['front-delt'] > overhead.chest, 'overhead territory should be front-delt dominant, not chest dominant');
 });
 
 test('the static "bench press" fallback profile (used when a logged instance has no per-angle emgWeights) matches the flat/0° profile', () => {

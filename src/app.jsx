@@ -21,6 +21,10 @@ import { chestSplitForExercise } from '../functions/chestHeadSplit.js';
 import { EXERCISE_ANGLES } from '../functions/exerciseAngles.js';
 import { EXERCISE_DB, EXERCISE_MUSCLE_GROUPS, EXERCISE_PATTERNS } from '../functions/exerciseDb.js';
 import { benchPressEmgProfileForAngle } from '../functions/exerciseEmgProfiles.js';
+import {
+  matchExerciseName, PRESS_STANCE_OPTIONS, PRESS_STANCE_LABELS,
+  ROW_STANCE_OPTIONS, ROW_STANCE_LABELS, ROW_PULLDOWN_ANGLE_THRESHOLD,
+} from '../functions/exerciseLabelMatching.js';
 import { PRESS_CSS } from './pressCss.js';
 import { AreaChart, BarChart, Sparkline, AdaptationChart } from './charts.jsx';
 
@@ -49,7 +53,7 @@ const { validateUsername, validateDisplayName, normalizeUsername, USERNAME_MAX, 
 const { FATIGUE_CEILING } = weeklyPlannerPkg;
 const {
   ANGLES: EMG_ANGLES, PRESS_ANGLE_DESC, ROW_ANGLE_DESC, classifyMuscles, emgForAngle, frontalCueForProfile, gripCueForProfile,
-  GRIP_LABELS, GRIP_ANGLES_BY_EQUIPMENT, GRIP_WIDTHS, GRIP_WIDTH_BY_EQUIPMENT,
+  GRIP_LABELS, GRIP_ANGLES_BY_EQUIPMENT, GRIP_WIDTHS, GRIP_WIDTH_BY_EQUIPMENT, GRIP_WIDTH_LABELS,
   applyGripRotationModifier, applyGripWidthModifier,
 } = emgActivationPkg;
 
@@ -861,6 +865,15 @@ const glycogenPct = (elapsedS, totalS) => {
 // instead of the list. v0.1 is the first tracked release, not literally the
 // app's first version — everything before this had no changelog at all.
 const CHANGELOG = [
+  {
+    version: '0.60',
+    date: '2026-07-31',
+    features: [
+      'Bench Press now covers the full press range, not just flat/incline/decline: the same equipment+angle picker now spans down into Dip/Tricep Press territory and up through Incline Shoulder Press into Overhead Press (standing) or Shoulder Press (seated) — one continuous exercise instead of separate named entries for each. Barbell Overhead Press, Dumbbell Overhead Press, Machine Shoulder Press, Seated Dumbbell Overhead Press, Smith Machine Overhead Press, and Behind-Neck Press (Smith Machine) have been replaced for new logging by this same "Bench Press" entry — your existing history under those names is untouched. Arnold Press, Push Press, Z-Press, Half-Kneeling Press, and JM Press are unaffected — real distinct techniques, not angle points on this scale.',
+      'Row now works the same way: pick "Row" and dial in equipment, angle (0°–180°), and — for Barbell/Machine below seated-row range — grip width, the same picker mechanism as Bench Press. Pull-ups and lat pulldowns are part of the same axis, not a separate exercise family: Chin-Up, Pull-Up (all grips), Weighted Pull-Up, Lat Pulldown (all grips), Close-Grip Lat Pulldown, Behind-Neck Lat Pulldown, and Single-Arm Lat Pulldown have been replaced for new logging by this "Row" entry (added a Bodyweight equipment choice for the pull-up/chin-up end of the axis). Single-Arm Lat Pulldown specifically becomes Neutral-Grip + a new Single-Arm/Bilateral choice, not its own grip-width option. Existing history under the old names is untouched.',
+      'Added a Stance field (Standing/Seated for Press, Standing/Chest-Supported for Row) — mainly so the picker can correctly tell Overhead Press (standing) apart from Shoulder Press (seated) at the same angle. Doesn\'t yet change fatigue/capacity crediting (that\'s flagged for later); it\'s a real stored choice and drives the displayed name today.',
+    ],
+  },
   {
     version: '0.59',
     date: '2026-07-31',
@@ -2153,20 +2166,31 @@ function WorkoutLogger({ planDay, lifts, customExercises, experienceLevel, onClo
     // Prefill from this gym's hard save (GYM_MACHINE_CATALOG.md §5) if one
     // exists for this exercise — the whole point of a hard save.
     const hardSave = activeGym && gymDetail?.hardSaves?.[key];
-    // Parameterized exercises (currently just 'Bench Press' — see
+    // Parameterized exercises (Bench Press §14, Row §15 — see
     // EXERCISE_PARAMETERIZATION.md) default equipment/angle from the most
     // recently logged instance of this same exercise, same "continue what
     // you did last time" prefill already used for `sets` above, falling
-    // back to the entry's first equipment choice at 0° (flat) for a genuine
-    // first-ever log. emgWeights is derived here (not just angle/equipment)
-    // so live-session fatigue/stimulus display is correct immediately,
-    // before the athlete ever touches the picker.
+    // back to the entry's first equipment choice for a genuine first-ever
+    // log. Default angle is 0° (flat) for Press, matching the pilot's own
+    // convention, but 90° for Row — Row's native scale has no "flat"; 90°
+    // ("a pull from in front," ROW_EMG's own header example) is the least
+    // surprising generic starting point, not 0° (a low/straight-arm pull).
+    // emgWeights is derived here (not just angle/equipment) so live-session
+    // fatigue/stimulus display is correct immediately, before the athlete
+    // ever touches the picker.
     const paramDef = findExercise(key);
     const paramDefaults = paramDef?.parameterized ? (() => {
       const priorEquipment = prev?.sets?.[0]?.equipment;
       const equipment = paramDef.equipmentChoices.includes(priorEquipment) ? priorEquipment : paramDef.equipmentChoices[0];
-      const angle = prev?.sets?.[0]?.angle ?? 0;
-      return { equipment, angle, emgWeights: benchPressEmgProfileForAngle(angle) };
+      const defaultAngle = paramDef.pattern === 'row' ? 90 : 0;
+      const angle = prev?.sets?.[0]?.angle ?? defaultAngle;
+      const emgWeights = paramDef.pattern === 'row' ? emgForAngle('row', angle) : benchPressEmgProfileForAngle(angle);
+      // pattern stamped alongside emgWeights so sagittalProfileForExercise
+      // (elbow-flare/grip-rotation form cues) recognizes this as a real
+      // weighted profile instead of falling through to its EXERCISE_ANGLES.js
+      // name lookup, which doesn't cover 'bench press'/'row' at all (a
+      // pre-existing gap from the Phase 1 pilot — this closes it for both).
+      return { equipment, angle, pattern: paramDef.pattern, emgWeights };
     })() : {};
     setExercises(p => [...p, {
       name: key, targetReps: 8, sets,
@@ -2465,6 +2489,8 @@ function WorkoutLogger({ planDay, lifts, customExercises, experienceLevel, onClo
       ...(ex.emgWeights ? { emgWeights: ex.emgWeights } : {}),
       ...(ex.rotation != null ? { rotation: ex.rotation } : {}),
       ...(ex.gripWidth ? { gripWidth: ex.gripWidth } : {}),
+      ...(ex.stance ? { stance: ex.stance } : {}),
+      ...(ex.limb ? { limb: ex.limb } : {}),
     })));
     try {
       let r;
@@ -2902,35 +2928,98 @@ function WorkoutLogger({ planDay, lifts, customExercises, experienceLevel, onClo
                 </div>
 
                 {/* Equipment + continuous angle picker for parameterized
-                    exercises (currently just Bench Press — see
-                    .design/feature-brainstorm/EXERCISE_PARAMETERIZATION.md's
-                    pilot). Stored per-exercise-instance, same as
+                    exercises (Bench Press §14, Row §15 — see
+                    .design/feature-brainstorm/EXERCISE_PARAMETERIZATION.md).
+                    Stored per-exercise-instance, same as
                     ex.machine/ex.pulleyType above, not per-set — dialed in
                     once, applies to every set logged under this exercise
                     this session. Recomputes emgWeights on every change so
                     live fatigue/stimulus and the chest-head split above stay
-                    in sync with whatever's actually picked. */}
+                    in sync with whatever's actually picked. The displayed
+                    name chip is matchExerciseName's feature-vector-to-label
+                    match (§0/§14/§15), not a one-off if-chain — the same
+                    (angle, equipment) can read "Bench Press" or "Overhead
+                    Press" or "Lat Pulldown" depending on where it lands. */}
                 {(() => {
                   const paramDef = findExercise(ex.name);
                   if (!paramDef?.parameterized) return null;
+                  const pattern = paramDef.pattern; // 'press' | 'row'
+                  const equipment = ex.equipment || paramDef.equipmentChoices[0];
                   const angle = ex.angle ?? 0;
-                  const angleLabel = angle === 0 ? 'Flat' : angle < 0 ? 'Decline' : 'Incline';
+                  const stanceOptions = pattern === 'press' ? PRESS_STANCE_OPTIONS : ROW_STANCE_OPTIONS;
+                  const stanceLabels = pattern === 'press' ? PRESS_STANCE_LABELS : ROW_STANCE_LABELS;
+                  const stance = ex.stance || stanceOptions[0];
+                  const label = matchExerciseName(pattern, { angle, equipment, stance });
+                  // Row-only: below the pulldown threshold, width is a real
+                  // independent delta-modifier; at/above it, width selects
+                  // the angle instead (§15) — the athlete just drags the
+                  // angle slider itself there, so the width dropdown isn't
+                  // shown (nothing left for it to modify independently).
+                  const availableWidths = (pattern === 'row' && angle < ROW_PULLDOWN_ANGLE_THRESHOLD)
+                    ? (GRIP_WIDTH_BY_EQUIPMENT[equipment.toLowerCase()] || []) : [];
                   const paramTagStyle = { fontFamily: "'JetBrains Mono',monospace", fontSize: 8, letterSpacing: '.03em', padding: '3px 6px', border: '1px solid var(--rule)', background: 'none', color: 'var(--dim)' };
+
+                  const emgWeightsFor = (nextEquipment, nextAngle, nextGripWidth) => {
+                    if (pattern === 'press') return benchPressEmgProfileForAngle(nextAngle);
+                    let w = emgForAngle('row', nextAngle);
+                    if (w && nextGripWidth && nextAngle < ROW_PULLDOWN_ANGLE_THRESHOLD) w = applyGripWidthModifier(w, nextGripWidth);
+                    return w;
+                  };
+
+                  const updateEx = patch => setExercises(p => p.map((el, j) => j !== i ? el : { ...el, ...patch }));
+
                   return (
                     <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8, flexWrap: 'wrap' }}>
-                      <select value={ex.equipment || paramDef.equipmentChoices[0]}
-                        onChange={e => setExercises(p => p.map((el, j) => j !== i ? el : { ...el, equipment: e.target.value }))}
+                      <select value={equipment}
+                        onChange={e => {
+                          const nextEquipment = e.target.value;
+                          // §16: the Seated/Machine Shoulder Press cluster has
+                          // no single correct angle, but a bare 0° default
+                          // (this entity's generic starting point) would read
+                          // as a flat bench press for a machine that's really
+                          // a shoulder press — 75° is a far more sensible
+                          // pre-fill the athlete can still drag away from.
+                          const angleStillAtDefault = angle === 0;
+                          const nextAngle = (pattern === 'press' && nextEquipment === 'Machine' && angleStillAtDefault) ? 75 : angle;
+                          updateEx({ equipment: nextEquipment, angle: nextAngle, emgWeights: emgWeightsFor(nextEquipment, nextAngle, ex.gripWidth) });
+                        }}
                         style={paramTagStyle}>
                         {paramDef.equipmentChoices.map(opt => <option key={opt} value={opt}>{opt}</option>)}
                       </select>
                       <input type="range" min={paramDef.angleRange.min} max={paramDef.angleRange.max} step={paramDef.angleRange.step}
-                        value={angle} aria-label="Bench angle"
+                        value={angle} aria-label={`${label} angle`}
                         onChange={e => {
                           const next = +e.target.value;
-                          setExercises(p => p.map((el, j) => j !== i ? el : { ...el, angle: next, emgWeights: benchPressEmgProfileForAngle(next) }));
+                          updateEx({ angle: next, emgWeights: emgWeightsFor(equipment, next, ex.gripWidth) });
                         }}
                         style={{ width: 110 }} />
-                      <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)' }}>{angleLabel} ({angle > 0 ? '+' : ''}{angle}°)</span>
+                      <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)' }}>{label} ({angle > 0 ? '+' : ''}{angle}°)</span>
+                      {!!availableWidths.length && (
+                        <select value={ex.gripWidth || ''} aria-label="Grip width"
+                          onChange={e => {
+                            const nextWidth = e.target.value || undefined;
+                            updateEx({ gripWidth: nextWidth, emgWeights: emgWeightsFor(equipment, angle, nextWidth) });
+                          }}
+                          style={paramTagStyle}>
+                          <option value="">Width (optional)</option>
+                          {availableWidths.map(w => <option key={w} value={w}>{GRIP_WIDTH_LABELS[w]}</option>)}
+                        </select>
+                      )}
+                      {!!stanceOptions.length && (
+                        <select value={stance} aria-label="Stance"
+                          onChange={e => updateEx({ stance: e.target.value })}
+                          style={paramTagStyle}>
+                          {stanceOptions.map(s => <option key={s} value={s}>{stanceLabels[s]}</option>)}
+                        </select>
+                      )}
+                      {pattern === 'row' && (
+                        <select value={ex.limb || 'bilateral'} aria-label="Single-limb"
+                          onChange={e => updateEx({ limb: e.target.value === 'single' ? 'single' : undefined })}
+                          style={paramTagStyle}>
+                          <option value="bilateral">Bilateral</option>
+                          <option value="single">Single-Arm</option>
+                        </select>
+                      )}
                     </div>
                   );
                 })()}

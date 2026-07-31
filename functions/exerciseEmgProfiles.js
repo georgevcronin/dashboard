@@ -472,19 +472,43 @@ function emgProfileForExercise(name) {
 }
 
 // Angle-aware version for the parameterized 'Bench Press' picker (src/app.jsx)
-// — reuses the three curated flat/incline/decline profiles above rather than
-// duplicating their numbers, and snaps a continuous angle to whichever of the
-// three it's closest to, since the underlying EMG source is only sampled at
-// those three positions (anything finer would be false precision). Barbell
-// and dumbbell share identical values above, so equipment doesn't affect
-// this lookup. Returned object is stored as the logged set's own emgWeights,
-// same transport mechanism PressRowBuilder-generated exercises already use
+// — reuses curated profiles above rather than duplicating their numbers, and
+// snaps a continuous angle to whichever sampled position it's closest to,
+// since the underlying EMG source is only sampled at a handful of positions
+// (anything finer would be false precision). Barbell and dumbbell share
+// identical values above, so equipment doesn't affect this lookup. Returned
+// object is stored as the logged set's own emgWeights, same transport
+// mechanism PressRowBuilder-generated exercises already use
 // (functions/fatigue.js's curatedWeightsForExercise checks a lift's own
 // emgWeights before falling back to this file's static name-keyed table).
+//
+// Extended per §14 (Phase 2) when 'Bench Press' widened from ±30/60° to the
+// full -90..90 unified Press scale (Dip/Tricep Press through Overhead/
+// Shoulder Press) — the three original flat/incline/decline anchors only
+// covered -15..30. Every new anchor below reuses an EXISTING curated
+// profile for a named exercise that already sits in the relevant labeled
+// region (see functions/exerciseLabelMatching.js's PRESS_LABEL_TABLE),
+// rather than inventing new EMG numbers: Bench Dips/Tricep Dips for the
+// Dip/Tricep Press end, Arnold Press for the Incline Shoulder Press hybrid
+// point, Barbell Overhead Press/Z-Press for the Overhead/Shoulder Press
+// end. One entry per 15° grid point (matching the picker's own step) so the
+// nearest-anchor snap is exact at every value the slider can actually
+// produce, not dependent on reduce()'s tie-breaking between equidistant
+// anchors.
 const BENCH_PRESS_ANGLE_PROFILES = [
+  { angle: -90, profile: EXERCISE_EMG_PROFILES['bench dips'] },
+  { angle: -75, profile: EXERCISE_EMG_PROFILES['bench dips'] },
+  { angle: -60, profile: EXERCISE_EMG_PROFILES['tricep dips (parallel bars)'] },
+  { angle: -45, profile: EXERCISE_EMG_PROFILES['decline barbell bench press'] },
+  { angle: -30, profile: EXERCISE_EMG_PROFILES['decline barbell bench press'] },
   { angle: -15, profile: EXERCISE_EMG_PROFILES['decline barbell bench press'] },
   { angle: 0, profile: EXERCISE_EMG_PROFILES['barbell bench press'] },
+  { angle: 15, profile: EXERCISE_EMG_PROFILES['incline barbell bench press'] },
   { angle: 30, profile: EXERCISE_EMG_PROFILES['incline barbell bench press'] },
+  { angle: 45, profile: EXERCISE_EMG_PROFILES['arnold press'] },
+  { angle: 60, profile: EXERCISE_EMG_PROFILES['barbell overhead press'] },
+  { angle: 75, profile: EXERCISE_EMG_PROFILES['barbell overhead press'] },
+  { angle: 90, profile: EXERCISE_EMG_PROFILES['z-press'] },
 ];
 function benchPressEmgProfileForAngle(angle) {
   const a = +angle;

@@ -86,14 +86,73 @@ test('every exercise sharing a movementId shares the same movementName (family n
 });
 
 // Bench Press pilot — see .design/feature-brainstorm/EXERCISE_PARAMETERIZATION.md.
-test('Bench Press is a real, parameterized EXERCISE_DB entry with equipment/angle picker config', () => {
+// Widened per §14 (Phase 2) to the unified Press angle scale (Dip through
+// Overhead/Shoulder Press) — see test/exerciseLabelMatching.test.js for the
+// label-matching table this range feeds.
+test('Bench Press is a real, parameterized EXERCISE_DB entry with equipment/angle/stance picker config', () => {
   const bench = EXERCISE_DB.find(e => e.id === 'bench-press');
   assert.ok(bench, 'expected a bench-press entry');
   assert.equal(bench.name, 'Bench Press');
   assert.equal(bench.parameterized, true);
-  assert.deepEqual(bench.equipmentChoices, ['Barbell', 'Dumbbell']);
-  assert.ok(bench.angleRange.min < 0 && bench.angleRange.max > 0, 'angle range should span decline through incline');
+  assert.deepEqual(bench.equipmentChoices, ['Barbell', 'Dumbbell', 'Machine', 'Bodyweight']);
+  assert.deepEqual(bench.angleRange, { min: -90, max: 90, step: 15 }, '§14\'s full unified scale, 15° step');
+  assert.deepEqual(bench.stanceOptions, ['Standing', 'Seated']);
   assert.deepEqual(bench.primary, ['chest', 'triceps', 'front-delt']);
+});
+
+// §14: Overhead/Shoulder Press cluster folds into the unified Press entity.
+test('the overhead/shoulder press cluster is superseded by Bench Press but still fully resolvable', () => {
+  const LEGACY_IDS = [
+    'barbell-overhead-press', 'dumbbell-overhead-press', 'machine-shoulder-press',
+    'seated-dumbbell-press', 'seated-overhead-press-smith', 'seated-behind-neck-press',
+  ];
+  for (const id of LEGACY_IDS) {
+    const e = EXERCISE_MAP[id];
+    assert.ok(e, `expected legacy entry ${id} to still exist`);
+    assert.equal(e.supersededBy, 'bench-press', `${id} should be marked supersededBy 'bench-press'`);
+    assert.ok(e.name && e.primary?.length, `${id} should still be a fully-formed entry`);
+  }
+});
+
+test('Arnold Press, Push Press, Z-Press, Half-Kneeling Press, and JM Press stay separate — distinct techniques, not angle points', () => {
+  const DISTINCT_TECHNIQUE_IDS = ['arnold-press', 'push-press', 'z-press', 'half-kneeling-press', 'jm-press'];
+  for (const id of DISTINCT_TECHNIQUE_IDS) {
+    const e = EXERCISE_MAP[id];
+    assert.ok(e, `expected ${id} to still exist`);
+    assert.equal(e.supersededBy, undefined, `${id} should NOT be folded into Bench Press`);
+  }
+});
+
+// §15: Row is the new canonical entity for the whole vertical-pull axis.
+test('Row is a real, parameterized EXERCISE_DB entry spanning the full 0-180 axis', () => {
+  const row = EXERCISE_DB.find(e => e.id === 'row');
+  assert.ok(row, 'expected a row entry');
+  assert.equal(row.name, 'Row');
+  assert.equal(row.pattern, 'row');
+  assert.equal(row.parameterized, true);
+  assert.deepEqual(row.equipmentChoices, ['Barbell', 'Dumbbell', 'Cable', 'Machine', 'Bodyweight']);
+  assert.deepEqual(row.angleRange, { min: 0, max: 180, step: 15 });
+  assert.deepEqual(row.stanceOptions, ['Standing', 'Chest-Supported']);
+});
+
+test('the pull-up/lat-pulldown cluster is superseded by Row but still fully resolvable (§15)', () => {
+  const LEGACY_IDS = [
+    'pull-up-wide', 'pull-up-neutral', 'chin-up', 'weighted-pull-up',
+    'lat-pulldown-wide', 'lat-pulldown-neutral', 'lat-pulldown-reverse',
+    'single-arm-pulldown', 'close-grip-lat-pulldown', 'lat-pulldown-behind-neck',
+  ];
+  for (const id of LEGACY_IDS) {
+    const e = EXERCISE_MAP[id];
+    assert.ok(e, `expected legacy entry ${id} to still exist`);
+    assert.equal(e.supersededBy, 'row', `${id} should be marked supersededBy 'row'`);
+    assert.ok(e.name && e.primary?.length, `${id} should still be a fully-formed entry`);
+  }
+});
+
+test('Cable Straight-Arm Pulldown deliberately stays separate despite sharing the Row angle axis at 0°', () => {
+  const e = EXERCISE_MAP['cable-straight-arm-pulldown'];
+  assert.ok(e);
+  assert.equal(e.supersededBy, undefined);
 });
 
 test('the six legacy bench-press-family entries are superseded by Bench Press but still fully resolvable', () => {

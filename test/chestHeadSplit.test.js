@@ -63,3 +63,16 @@ test('chestSplitForExercise("Bench Press", angle) prefers the supplied angle ove
 test('an explicit angle is ignored for every other (fixed-angle) name in the table', () => {
   assert.deepEqual(chestSplitForExercise('Barbell Bench Press', 30), chestSplitForExercise('Barbell Bench Press'));
 });
+
+// §14 widened 'Bench Press' past this table's own -30..60 sampled range
+// (Dip/Tricep Press and Overhead/Shoulder Press territory) -- chest is no
+// longer the primary mover out there, so there's no honest split to show.
+test('chestSplitForExercise("Bench Press", angle) returns null outside the table\'s sampled -30..60 range, not a snapped extreme', () => {
+  assert.equal(chestSplitForExercise('Bench Press', 75), null, 'Overhead Press territory');
+  assert.equal(chestSplitForExercise('Bench Press', 90), null);
+  assert.equal(chestSplitForExercise('Bench Press', -75), null, 'Dip/Tricep Press territory');
+  assert.equal(chestSplitForExercise('Bench Press', -90), null);
+  // The boundary itself is still valid.
+  assert.deepEqual(chestSplitForExercise('Bench Press', 60), CHEST_SPLIT_BY_ANGLE['60']);
+  assert.deepEqual(chestSplitForExercise('Bench Press', -30), CHEST_SPLIT_BY_ANGLE['-30']);
+});
