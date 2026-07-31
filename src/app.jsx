@@ -5438,6 +5438,11 @@ function S5({ s, refresh }) {
             </div>
           </div>
         )}
+
+        {/* Per-muscle score/exercise/ETA detail, moved here from the Records
+            page — this is what "ranking" actually means, the diagram above
+            is just its visual summary. */}
+        <StrengthLevelPanel muscleLevels={s?.muscleLevels} hasSex={!!s?.profile?.sex} />
       </>}
 
       {tab === 'types' && (
@@ -6058,7 +6063,6 @@ function S7({ s }) {
         <div className="deck">{prs.length} exercise{prs.length !== 1 ? 's' : ''} tracked</div>
       </div>
       <div className="fade" style={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>
-        <StrengthLevelPanel muscleLevels={s?.muscleLevels} hasSex={!!s?.profile?.sex} />
         <div style={{ marginTop: 12 }}>
           <input className="pr-search" placeholder="Filter exercise…" value={search} onChange={e => setSearch(e.target.value)} />
         </div>
