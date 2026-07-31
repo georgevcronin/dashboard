@@ -94,9 +94,11 @@ test('computeMuscleLastTrainedDays classifies a curated exercise\'s primary musc
 test('computeStructuralFatigue falls back to the athlete\'s own exerciseAngles.js hand-mapped angle when no curated exerciseEmgProfiles.js entry exists', () => {
   // "Dumbbell Row" has no exerciseEmgProfiles.js entry (row-pattern
   // exercises weren't in the phase 1-3 curated set) but IS one of the
-  // athlete's own 34 Angle Mapper mappings (pattern: 'row', angle: 90),
-  // which resolves to lats: 62 via emgForAngle. A flat, uncurated exercise
-  // with the same nominal load/peak should read higher (100% credit).
+  // athlete's own Angle Mapper mappings (pattern: 'row', angle: 105 --
+  // matches Bent Over Row/Pendlay Row's angle, same bent-over pulling
+  // motion), which resolves to lats: 54 via emgForAngle. A flat, uncurated
+  // exercise with the same nominal load/peak should read higher (100%
+  // credit).
   const angleMappedLift = [{ date: daysAgo(0), exercise: 'Dumbbell Row', kg: 100, reps: 8 }];
   const flatLift = [{ date: daysAgo(0), exercise: 'Cable Pullover', kg: 100, reps: 8 }]; // lats-primary, not curated, not angle-mapped -- flat credit
   const angleMappedOut = computeStructuralFatigue(angleMappedLift, { lats: 800 }, [], {});

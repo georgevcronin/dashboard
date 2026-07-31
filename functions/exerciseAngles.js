@@ -30,21 +30,34 @@ const EXERCISE_ANGLES = {
   'bent over row (barbell)': { pattern: 'row', angle: 105 },
   'chest supported incline row (dumbbell)': { pattern: 'row', angle: 120 },
   'chest-supported barbell row': { pattern: 'row', angle: 105 },
-  'dumbbell row': { pattern: 'row', angle: 90 },
-  'high lat row': { pattern: 'row', angle: 30 },
+  // Same bent-over pulling motion as Bent Over Row/Pendlay Row above --
+  // matches their angle for the same reason.
+  'dumbbell row': { pattern: 'row', angle: 105 },
+  // Matches the Iso-Lateral High Row entries below -- "high" here means a
+  // high pulley position, which reads as a low-angle, lat-dominant pull on
+  // this axis, not upper-back emphasis (see Seated Upper Back Row below for
+  // the entry that actually means that).
+  'high lat row': { pattern: 'row', angle: 15 },
   'iso-lateral high cable row (machine) (verde)': { pattern: 'row', angle: 15 },
   'iso-lateral high row (machine)': { pattern: 'row', angle: 15 },
   'iso-lateral row (machine)': { pattern: 'row', angle: 90 },
   'pendlay row (barbell)': { pattern: 'row', angle: 105 },
-  'rear delt row': { pattern: 'row', angle: 90 },
-  'seated cable row - bar grip': { pattern: 'row', angle: 105 },
-  'seated cable row - v grip (cable)': { pattern: 'row', angle: 105 },
-  'seated iso-lateral row': { pattern: 'row', angle: 105 },
-  'seated iso-low-row cable machine (nu)': { pattern: 'row', angle: 105 },
+  // Matches ROW_EMG's own header comment ("90 = a pull from in front, e.g.
+  // seated cable row") -- these four were inconsistently at 105, out of
+  // step with the rest of the seated-row cluster below.
+  'seated cable row - bar grip': { pattern: 'row', angle: 90 },
+  'seated cable row - v grip (cable)': { pattern: 'row', angle: 90 },
+  'seated iso-lateral row': { pattern: 'row', angle: 90 },
+  'seated iso-low-row cable machine (nu)': { pattern: 'row', angle: 90 },
   'seated iso-row cable machine': { pattern: 'row', angle: 90 },
   'seated iso-row cable machine (verde)': { pattern: 'row', angle: 90 },
   'seated row (machine)': { pattern: 'row', angle: 90 },
-  'seated upper back iso-row cable machine (nu)': { pattern: 'row', angle: 90 },
+  // Genuinely different from the plain seated-row cluster above -- "upper
+  // back" means real rhomboid/mid-traps/rear-delt emphasis, which this axis
+  // puts well above the generic 90 default, not the low-angle "high row"
+  // cluster's territory (that's a high pulley POSITION, a different thing --
+  // see High Lat Row's comment above).
+  'seated upper back iso-row cable machine (nu)': { pattern: 'row', angle: 120 },
   't bar row': { pattern: 'row', angle: 75 },
   'underhand smith machine press': { pattern: 'press', angle: 75 },
   'supine press': { pattern: 'press', angle: 90 },

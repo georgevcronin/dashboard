@@ -56,8 +56,8 @@ test('solveMuscleCapacities + predictExerciseE1RM recovers a sane prediction for
     return Object.entries(w).reduce((sum, [m, pct]) => sum + (pct / 100) * trueCapacities[m], 0);
   };
   // Use 6 distinct logged (angle-mapped) row exercises spanning a wide
-  // angle range, holding out angle 90 (iso-lateral row / dumbbell row /
-  // seated row's mapped angle) as the prediction target.
+  // angle range, holding out angle 90 (iso-lateral row / seated row's
+  // mapped angle) as the prediction target.
   const trainingExercises = [
     ['Bent Over Row (Barbell)', 'row', 105],
     ['High Lat Row', 'row', 15],
