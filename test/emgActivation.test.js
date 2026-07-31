@@ -5,6 +5,8 @@ const {
   PRIMARY_THRESHOLD, SECONDARY_THRESHOLD,
   PRESS_FRONTAL_EMG, ROW_FRONTAL_EMG, FRONTAL_ANGLES, frontalCueForProfile,
   PRESS_GRIP_EMG, ROW_GRIP_EMG, GRIP_ANGLES, gripCueForProfile, GRIP_ANGLES_BY_EQUIPMENT,
+  GRIP_WIDTHS, GRIP_WIDTH_LABELS, ROW_GRIP_WIDTH_EMG, GRIP_WIDTH_BY_EQUIPMENT,
+  applyGripRotationModifier, applyGripWidthModifier,
 } = require('../functions/emgActivation');
 
 test('ANGLES covers 0-180 in 15deg steps, matching every table key', () => {
@@ -187,4 +189,116 @@ test('gripCueForProfile defaults to the full GRIP_ANGLES range when no available
   const withDefault = gripCueForProfile('row', ROW_EMG[90]);
   const withExplicitFull = gripCueForProfile('row', ROW_EMG[90], GRIP_ANGLES);
   assert.deepEqual(withDefault, withExplicitFull);
+});
+
+// ---------------------------------------------------------------------
+// applyGripRotationModifier / applyGripWidthModifier -- rotation and width
+// promoted from advisory-cue-only to real modifiers on a logged set's
+// credited weight vector.
+
+test('applyGripRotationModifier leaves muscles the grip table does not track completely untouched', () => {
+  const base = PRESS_EMG[90]; // front-delt, mid-delt, chest, biceps, triceps, serratus, lower-traps
+  const modified = applyGripRotationModifier('press', base, 180);
+  assert.equal(modified['mid-delt'], base['mid-delt']);
+  assert.equal(modified.chest, base.chest);
+  assert.equal(modified.serratus, base.serratus);
+});
+
+test('applyGripRotationModifier nudges a tracked-and-in-base muscle up/down from its own grip-table mean, not to the raw grip-table value', () => {
+  const base = { biceps: 50 }; // synthetic, isolates the delta math
+  const meanAcrossGrip = GRIP_ANGLES.reduce((s, a) => s + PRESS_GRIP_EMG[a].biceps, 0) / GRIP_ANGLES.length;
+  const atSupinated = applyGripRotationModifier('press', base, 180);
+  assert.equal(atSupinated.biceps, Math.max(0, 50 + (PRESS_GRIP_EMG[180].biceps - meanAcrossGrip)));
+  assert.notEqual(atSupinated.biceps, PRESS_GRIP_EMG[180].biceps, 'should not just overwrite with the raw grip-table value');
+});
+
+test('applyGripRotationModifier credits a muscle the sagittal table never tracked at all (brachioradialis for press) directly from the grip table', () => {
+  const base = PRESS_EMG[90];
+  assert.ok(!('brachioradialis' in base));
+  const modified = applyGripRotationModifier('press', base, 90);
+  assert.equal(modified.brachioradialis, PRESS_GRIP_EMG[90].brachioradialis);
+});
+
+test('applyGripRotationModifier is a no-op (returns baseWeights) for an unrecognized pattern, null rotation, or unknown angle', () => {
+  const base = ROW_EMG[90];
+  assert.equal(applyGripRotationModifier('fly', base, 90), base);
+  assert.equal(applyGripRotationModifier('row', base, null), base);
+  assert.equal(applyGripRotationModifier('row', base, 37), base);
+});
+
+test('applyGripRotationModifier never produces a negative credited weight', () => {
+  const base = { biceps: 1 }; // small enough that a big downward nudge could go negative without the floor
+  const modified = applyGripRotationModifier('row', base, 0); // pronated: biceps grip value is the lowest of the table
+  assert.ok(modified.biceps >= 0);
+});
+
+test('GRIP_WIDTHS / GRIP_WIDTH_LABELS / ROW_GRIP_WIDTH_EMG all agree on the same three keys', () => {
+  assert.deepEqual(GRIP_WIDTHS, ['close', 'medium', 'wide']);
+  for (const w of GRIP_WIDTHS) {
+    assert.ok(w in GRIP_WIDTH_LABELS, `GRIP_WIDTH_LABELS missing ${w}`);
+    assert.ok(w in ROW_GRIP_WIDTH_EMG, `ROW_GRIP_WIDTH_EMG missing ${w}`);
+  }
+});
+
+test('ROW_GRIP_WIDTH_EMG tracks exactly lats/rear-delt/rhomboids/biceps at every width', () => {
+  const expected = ['lats', 'rear-delt', 'rhomboids', 'biceps'].sort();
+  for (const w of GRIP_WIDTHS) {
+    assert.deepEqual(Object.keys(ROW_GRIP_WIDTH_EMG[w]).sort(), expected);
+  }
+});
+
+test('ROW_GRIP_WIDTH_EMG: close grip favors lats over wide, wide favors rhomboids over close (Padovan et al. narrow-vs-wide seated row direction)', () => {
+  assert.ok(ROW_GRIP_WIDTH_EMG.close.lats > ROW_GRIP_WIDTH_EMG.wide.lats);
+  assert.ok(ROW_GRIP_WIDTH_EMG.wide.rhomboids > ROW_GRIP_WIDTH_EMG.close.rhomboids);
+});
+
+test('GRIP_WIDTH_BY_EQUIPMENT scopes width to barbell/machine only, not dumbbell/cable', () => {
+  assert.deepEqual(GRIP_WIDTH_BY_EQUIPMENT.barbell, GRIP_WIDTHS);
+  assert.deepEqual(GRIP_WIDTH_BY_EQUIPMENT.machine, GRIP_WIDTHS);
+  assert.deepEqual(GRIP_WIDTH_BY_EQUIPMENT.dumbbell, []);
+  assert.deepEqual(GRIP_WIDTH_BY_EQUIPMENT.cable, []);
+});
+
+test('applyGripWidthModifier leaves an untracked muscle (e.g. mid-traps) completely untouched', () => {
+  const base = ROW_EMG[90];
+  const modified = applyGripWidthModifier(base, 'wide');
+  assert.equal(modified['mid-traps'], base['mid-traps']);
+  assert.equal(modified['teres-major'], base['teres-major']);
+});
+
+test('applyGripWidthModifier nudges lats down for a wide grip and up for a close grip relative to a shared base', () => {
+  const base = ROW_EMG[90];
+  const close = applyGripWidthModifier(base, 'close');
+  const wide = applyGripWidthModifier(base, 'wide');
+  assert.ok(close.lats > base.lats, 'close grip should push lats above the plain sagittal baseline');
+  assert.ok(wide.lats < base.lats, 'wide grip should push lats below the plain sagittal baseline');
+  assert.ok(close.lats > wide.lats);
+});
+
+test('applyGripWidthModifier is a no-op for an unrecognized width key or missing base weights', () => {
+  const base = ROW_EMG[90];
+  assert.equal(applyGripWidthModifier(base, 'super-wide'), base);
+  assert.equal(applyGripWidthModifier(null, 'wide'), null);
+});
+
+test('applyGripWidthModifier never produces a negative credited weight', () => {
+  const base = { 'rear-delt': 1 };
+  const modified = applyGripWidthModifier(base, 'close'); // close grip is rear-delt's lowest column
+  assert.ok(modified['rear-delt'] >= 0);
+});
+
+test('rotation and width modifiers compose additively without interfering with each other', () => {
+  const base = ROW_EMG[90];
+  const rotationOnly = applyGripRotationModifier('row', base, 180); // touches biceps/brachioradialis/lats/lower-traps/rear-delt
+  const both = applyGripWidthModifier(rotationOnly, 'wide'); // additionally touches lats/rear-delt/rhomboids/biceps
+  // rhomboids is width-only (not in ROW_GRIP_EMG at all) -- rotation alone
+  // must leave it untouched, width must still move it.
+  assert.equal(rotationOnly.rhomboids, base.rhomboids);
+  assert.notEqual(both.rhomboids, base.rhomboids);
+  // lower-traps is rotation-only (not in ROW_GRIP_WIDTH_EMG at all) -- width
+  // must leave whatever rotation already set it to untouched.
+  assert.equal(both['lower-traps'], rotationOnly['lower-traps']);
+  // lats is touched by both axes -- the combined value should differ from
+  // applying rotation alone, since width layers its own additional nudge.
+  assert.notEqual(both.lats, rotationOnly.lats);
 });

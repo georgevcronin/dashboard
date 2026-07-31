@@ -108,6 +108,33 @@ test('suggestedWeightForReps returns null for missing inputs', () => {
   assert.equal(suggestedWeightForReps(100, 0), null);
 });
 
+test('predictExerciseE1RM uses weightsOverride instead of emgForAngle when provided (grip rotation/width applied at log time)', () => {
+  const lifts = [
+    { date: '2026-01-01', exercise: 'Bent Over Row (Barbell)', kg: 80, reps: 8 },
+    { date: '2026-01-02', exercise: 'T Bar Row', kg: 80, reps: 8 },
+    { date: '2026-01-03', exercise: 'Chest-Supported Barbell Row', kg: 70, reps: 8 },
+  ];
+  const result = solveMuscleCapacities(buildObservations(lifts));
+  const plain = predictExerciseE1RM('row', 90, result);
+  const override = { ...emgForAngle('row', 90), lats: emgForAngle('row', 90).lats + 20 };
+  const modified = predictExerciseE1RM('row', 90, result, override);
+  assert.ok(plain != null && modified != null);
+  assert.notEqual(modified.e1rm, plain.e1rm, 'a heavier lats weight in the override should change the predicted e1RM');
+  assert.deepEqual(modified.breakdown.find(b => b.muscle === 'lats').pct, override.lats);
+});
+
+test('predictExerciseE1RM falls back to emgForAngle(pattern, angle) when weightsOverride is omitted (backward compatible)', () => {
+  const lifts = [
+    { date: '2026-01-01', exercise: 'Bent Over Row (Barbell)', kg: 80, reps: 8 },
+    { date: '2026-01-02', exercise: 'T Bar Row', kg: 80, reps: 8 },
+    { date: '2026-01-03', exercise: 'Chest-Supported Barbell Row', kg: 70, reps: 8 },
+  ];
+  const result = solveMuscleCapacities(buildObservations(lifts));
+  const withUndefined = predictExerciseE1RM('row', 90, result, undefined);
+  const withNothing = predictExerciseE1RM('row', 90, result);
+  assert.deepEqual(withUndefined, withNothing);
+});
+
 test('predictExerciseE1RM breakdown lists every contributing muscle, sums to the total, and sorts by contribution descending', () => {
   const lifts = [
     { date: '2026-01-01', exercise: 'Bent Over Row (Barbell)', kg: 80, reps: 8 },

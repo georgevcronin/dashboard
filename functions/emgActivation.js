@@ -220,6 +220,166 @@ function gripCueForProfile(pattern, sagittalWeights, availableAngles = GRIP_ANGL
   return { muscle, angle, grip: GRIP_LABELS[angle] };
 }
 
+// Applies the grip-rotation axis (PRESS_GRIP_EMG/ROW_GRIP_EMG) on top of an
+// already-resolved sagittal (angle) weight vector -- promotes rotation from
+// an advisory cue (gripCueForProfile above) to a real modifier on what gets
+// credited, once a rotation is actually chosen at log time (see
+// PressRowBuilder in src/app.jsx). The grip tables track only a SUBSET of
+// muscles the sagittal tables do (biceps/brachioradialis/brachialis/
+// front-delt/triceps for press; biceps/brachioradialis/lats/lower-traps/
+// rear-delt for row), not the full PRESS_EMG/ROW_EMG set (chest, mid-delt,
+// serratus, rhomboids, mid-traps, teres-major, etc.) -- so this can only
+// ever be a MODIFIER on the subset it tracks, never a full replacement
+// vector. Same "secondary axis adjusts a subset of a primary table"
+// architecture as movementEmg.js's CALF_SEATED_MODIFIER/
+// SHRUG_BAR_PATH_MODIFIER/ROTATOR_CUFF_ELEVATION_MODIFIER, adapted to be
+// applied programmatically here (those are all hand-baked into a fixed
+// per-exercise static profile at curation time; rotation instead needs to
+// combine with whichever angle a given exercise instance actually used,
+// which isn't known until log time).
+//
+// The delta applied for a tracked muscle at a given rotation is that
+// muscle's grip-table value AT that rotation minus its own MEAN across
+// GRIP_ANGLES -- not the raw grip-table value itself. The grip table was
+// curated purely as a function of rotation, with no sagittal angle held
+// constant, so its numbers can't be read as "the muscle's true % at this
+// rotation" the way PRESS_EMG/ROW_EMG's numbers can; centering on the
+// table's own mean turns each entry into a directional nudge ("this
+// rotation trains this muscle more/less than a typical rotation would")
+// without asserting a false absolute reading. For a muscle the sagittal
+// table doesn't track at all (brachioradialis/brachialis for press;
+// lower-traps for row), there's no base value to nudge -- the grip table's
+// own value is credited directly instead, since any credit here is
+// strictly new information (that muscle wasn't part of the vector at all
+// before an explicit rotation was chosen).
+function applyGripRotationModifier(pattern, baseWeights, rotationAngle) {
+  const gripTable = pattern === 'press' ? PRESS_GRIP_EMG : pattern === 'row' ? ROW_GRIP_EMG : null;
+  if (!gripTable || !baseWeights || rotationAngle == null || !gripTable[rotationAngle]) return baseWeights;
+  const tracked = Object.keys(gripTable[GRIP_ANGLES[0]]);
+  const out = { ...baseWeights };
+  for (const muscle of tracked) {
+    const acrossRotation = GRIP_ANGLES.map(a => gripTable[a][muscle]);
+    const mean = acrossRotation.reduce((a, b) => a + b, 0) / acrossRotation.length;
+    const atRotation = gripTable[rotationAngle][muscle];
+    out[muscle] = muscle in baseWeights ? Math.max(0, baseWeights[muscle] + (atRotation - mean)) : atRotation;
+  }
+  return out;
+}
+
+// ---------------------------------------------------------------------
+// Row grip-WIDTH (hand spacing along the bar -- close/medium/wide) --
+// physically distinct from grip ROTATION above (rotation is the hand
+// turning about its own long axis; width is lateral hand spacing). Row
+// only, per .design/feature-brainstorm/EXERCISE_PARAMETERIZATION.md §10 --
+// Bench Press's own grip-width work is separate, ongoing elsewhere in this
+// codebase and not built here. Barbell and Machine equipment only --
+// Dumbbell has no fixed "width" (each hand holds an independent implement,
+// nothing to space along a shared bar), Cable's analogous choice is
+// attachment type (rope/straight bar/V-handle), a related but distinct
+// parameter, out of scope here.
+//
+// Sources:
+// - Padovan, Cè, Longo, Tornatore, Trentin, Esposito & Coratella,
+//   "High-Density Surface Electromyography Excitation of Prime Movers in
+//   the Narrow vs. Wide Grip Seated Row Exercise," Journal of Human
+//   Kinetics (Univ. of Milan biomechanics/exercise-physiology group) -- 14
+//   resistance-trained men, 8RM narrow vs. wide seated cable row, HD-sEMG,
+//   concentric+eccentric phases. Narrow grip showed greater latissimus
+//   dorsi amplitude in both phases (large effect, ES≈1.08); wide grip
+//   showed greater upper/middle/lower trapezius (ES 0.90-2.79 -- the
+//   largest effects in the whole study) and lateral deltoid (ES 1.03/0.58)
+//   amplitude. This directly grounds this table's lats (close > wide) and
+//   rhomboids (wide > close -- proxy, see below) columns. Same research
+//   group and HD-sEMG methodology as this codebase's existing close/wide
+//   lat-pulldown grip numbers (functions/exerciseEmgProfiles.js) and their
+//   companion lat-pulldown grip-variation replication (PMC12452428,
+//   "Electromyographic Analysis of Back Muscle Activation During Lat
+//   Pulldown Exercise: Effects of Grip Variations and Forearm
+//   Orientation") -- converging support for the same close-favors-lats/
+//   wide-favors-scapular-retractors pattern across this whole exercise
+//   family, not a one-off finding.
+// - The study itself is two-point (narrow vs. wide); this table's 'medium'
+//   column is this codebase's own interpolated midpoint -- same convention
+//   PRESS_EMG/ROW_EMG themselves already use (their own header notes
+//   they're "anchored to real data at three zones," not raw continuous
+//   study data).
+//
+// Approximations flagged honestly, not hidden:
+// - rhomboids has no real surface-EMG measurement in the source study --
+//   it's a deep muscle under trapezius, not reliably isolable by surface
+//   electrodes. Its column here tracks the same direction and rough
+//   magnitude as the study's measured mid-trapezius (a synergist in the
+//   same scapular-retraction action) -- the same taxonomy-proxy principle
+//   movementEmg.js already uses throughout for muscles this app's 31-
+//   muscle taxonomy has no dedicated surface-measurable head for.
+// - rear-delt's column is a smaller, lower-confidence swing than lats/
+//   rhomboids -- the study's own significant-effect list names LATERAL
+//   deltoid (this taxonomy's `mid-delt`), not posterior deltoid
+//   specifically, as swinging with grip width. Posterior deltoid is
+//   plausibly a smaller, same-direction synergist (recruited alongside the
+//   trapezius/rhomboid retraction group), not a muscle this specific study
+//   reported a confident number for -- kept modest rather than invented.
+// - biceps' column is a modest, reasoned width-only estimate, deliberately
+//   NOT copied from the larger close/wide lat-pulldown biceps swing already
+//   in exerciseEmgProfiles.js (73 vs. 50) -- those numbers are confounded
+//   with a simultaneous forearm-ROTATION change (close-grip pulldown is
+//   typically neutral/underhand, wide-grip typically pronated), a confound
+//   Signorile et al. (2002) -- the original source behind those numbers --
+//   explicitly flagged in their own discussion as unresolved. This table's
+//   biceps swing reflects width alone, rotation held constant, matching
+//   the isolation the Padovan et al. row study's own two-grip design (same
+//   handle, same orientation, width only) actually achieves.
+const GRIP_WIDTHS = ['close', 'medium', 'wide'];
+const GRIP_WIDTH_LABELS = { close: 'close grip', medium: 'medium (shoulder-width) grip', wide: 'wide grip' };
+
+const ROW_GRIP_WIDTH_EMG = {
+  close:  { lats: 88, 'rear-delt': 58, rhomboids: 62, biceps: 78 },
+  medium: { lats: 74, 'rear-delt': 63, rhomboids: 73, biceps: 70 },
+  wide:   { lats: 58, 'rear-delt': 68, rhomboids: 85, biceps: 62 },
+};
+
+// Machine reuse -- design doc §10 "approach 2" (best-effort), not the full
+// per-model research pass "approach 1" would require. No per-exercise
+// handle-position catalog exists (machineModels.js/machineBrands.js don't
+// track handle configuration at all), but unlike grip rotation's 'machine'
+// -> [] above -- where a fixed-handle machine genuinely offers no choice at
+// all -- most plate-loaded/selectorized row machines DO offer multiple
+// handle positions along a fixed bar/frame, structurally the same kind of
+// choice a barbell offers. Applying the barbell-derived table here is an
+// approximation flagged at functions/resistanceCurves.js's lower,
+// best-effort rigor tier, not the full-citation confidence the barbell
+// numbers above carry for barbell specifically.
+const GRIP_WIDTH_BY_EQUIPMENT = {
+  barbell: GRIP_WIDTHS,
+  machine: GRIP_WIDTHS,
+  dumbbell: [],
+  cable: [],
+};
+
+// Row-only counterpart to applyGripRotationModifier -- identical "delta
+// from the table's own mean, subset of a base vector" mechanism (see that
+// function's comment for the full reasoning). All four tracked muscles
+// (lats, rear-delt, rhomboids, biceps) already appear in ROW_EMG's own key
+// set, so there's no "new muscle absent from the base vector" case here
+// the way rotation has for brachioradialis/brachialis/lower-traps.
+// Deliberately independent of applyGripRotationModifier -- both are
+// additive nudges off the same base vector, not a combined interaction
+// term, matching this file's general "each axis is estimated separately"
+// approach rather than modeling how rotation and width might interact.
+function applyGripWidthModifier(baseWeights, widthKey) {
+  const widthProfile = ROW_GRIP_WIDTH_EMG[widthKey];
+  if (!baseWeights || !widthProfile) return baseWeights;
+  const out = { ...baseWeights };
+  for (const muscle of Object.keys(widthProfile)) {
+    const acrossWidths = GRIP_WIDTHS.map(w => ROW_GRIP_WIDTH_EMG[w][muscle]);
+    const mean = acrossWidths.reduce((a, b) => a + b, 0) / acrossWidths.length;
+    out[muscle] = muscle in baseWeights
+      ? Math.max(0, baseWeights[muscle] + (widthProfile[muscle] - mean))
+      : widthProfile[muscle];
+  }
+  return out;
+}
+
 // Threshold used to collapse a weighted EMG profile into a normal
 // primary/secondary muscle split for every OTHER consumer of the shared
 // exercise taxonomy (session generation, staleness tracking, PR/strength-
@@ -250,5 +410,7 @@ module.exports = {
   ANGLES, PRESS_EMG, ROW_EMG, PRESS_ANGLE_DESC, ROW_ANGLE_DESC,
   PRESS_FRONTAL_EMG, ROW_FRONTAL_EMG, FRONTAL_ANGLES,
   PRESS_GRIP_EMG, ROW_GRIP_EMG, GRIP_ANGLES, GRIP_LABELS, GRIP_ANGLES_BY_EQUIPMENT,
+  GRIP_WIDTHS, GRIP_WIDTH_LABELS, ROW_GRIP_WIDTH_EMG, GRIP_WIDTH_BY_EQUIPMENT,
   PRIMARY_THRESHOLD, SECONDARY_THRESHOLD, classifyMuscles, emgForAngle, frontalCueForProfile, gripCueForProfile,
+  applyGripRotationModifier, applyGripWidthModifier,
 };

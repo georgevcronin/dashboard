@@ -47,7 +47,11 @@ const { platesForWeight, STANDARD_PLATES_KG } = plateCalculatorPkg;
 const { DEFAULT_WARMUP_SCHEME, WARMUP_SCHEME_PRESETS } = progressionPkg;
 const { validateUsername, validateDisplayName, normalizeUsername, USERNAME_MAX, canChangeUsername, usernameChangeAvailableAt } = identityPkg;
 const { FATIGUE_CEILING } = weeklyPlannerPkg;
-const { ANGLES: EMG_ANGLES, PRESS_ANGLE_DESC, ROW_ANGLE_DESC, classifyMuscles, emgForAngle, frontalCueForProfile, gripCueForProfile, GRIP_ANGLES_BY_EQUIPMENT } = emgActivationPkg;
+const {
+  ANGLES: EMG_ANGLES, PRESS_ANGLE_DESC, ROW_ANGLE_DESC, classifyMuscles, emgForAngle, frontalCueForProfile, gripCueForProfile,
+  GRIP_LABELS, GRIP_ANGLES_BY_EQUIPMENT, GRIP_WIDTHS, GRIP_WIDTH_BY_EQUIPMENT,
+  applyGripRotationModifier, applyGripWidthModifier,
+} = emgActivationPkg;
 
 // Priority-ordered: checked in this order so a compound phrase like "iso-
 // lateral cable machine" resolves to 'cable' (an iso-lateral cable stack),
@@ -104,11 +108,17 @@ function formCuesForExercise(ex) {
     const flareDesc = flareCue.angle >= 60 ? 'flared out toward horizontal' : flareCue.angle <= 15 ? 'tucked close to your torso' : 'roughly halfway out from your torso';
     tips.push(`Elbows ${flareDesc} (~${flareCue.angle}°) to fully engage ${muscleLabel}, which this ${profile.pattern} already emphasizes.`);
   }
+  // Once a rotation has been explicitly chosen for this exercise instance
+  // (PressRowBuilder's rotation step, stored as ex.rotation), it's already a
+  // real fact about what's being credited, not something left to recommend
+  // -- gripCueForProfile stays a fallback for exercises that haven't been
+  // built through that flow (older logged data, or anything outside it),
+  // matching its documented fate in EXERCISE_PARAMETERIZATION.md §11.
   // GRIP_ANGLES_BY_EQUIPMENT[undefined] is undefined, which triggers
   // gripCueForProfile's own default (full range) -- correct fallback for an
   // exercise whose equipment isn't known, vs. GRIP_ANGLES_BY_EQUIPMENT's
   // own [] for 'machine', which correctly yields no cue at all.
-  const gripCue = gripCueForProfile(profile.pattern, profile.weights, GRIP_ANGLES_BY_EQUIPMENT[profile.equipment]);
+  const gripCue = ex?.rotation == null ? gripCueForProfile(profile.pattern, profile.weights, GRIP_ANGLES_BY_EQUIPMENT[profile.equipment]) : null;
   if (gripCue) {
     const gripMuscleLabel = muscleDisplayLabel(gripCue.muscle);
     let line = `Use a ${gripCue.grip} grip to fully engage ${gripMuscleLabel}.`;
@@ -856,6 +866,7 @@ const CHANGELOG = [
     date: '2026-07-31',
     features: [
       'Bench Press is now one exercise instead of six: Barbell Bench Press, Incline/Decline Barbell, and Dumbbell Flat/Incline/Decline have been replaced for new logging by a single "Bench Press" entry with an equipment choice (Barbell/Dumbbell) and a continuous incline slider (decline through incline), picked once per exercise the same way Machine/Brand already works. The old six names still work fine for anything already logged under them — nothing about your existing history changed — they just won\'t come up again when adding a fresh Bench Press. Close-Grip Bench Press is unaffected; it\'s a grip-width exercise, not an angle one.',
+      'Build Press/Row now asks for grip rotation (pronated/neutral/supinated, restricted to what your equipment actually allows — just two choices on a barbell, none on a fixed-handle machine) and, for Row specifically on Barbell/Machine, grip width (close/medium/wide) — both are real logged choices now, not just a coaching tip, and change which muscles actually get credited for that set. The old "use a supinated grip to hit biceps harder"-style tip still shows up for exercises you haven\'t set an explicit rotation on.',
     ],
   },
   {
@@ -1620,10 +1631,18 @@ function PressRowBuilder({ onAdd, lifts }) {
   const [pattern, setPattern] = useState(null);
   const [equipment, setEquipment] = useState(null);
   const [angle, setAngle] = useState(null);
+  const [rotation, setRotation] = useState(null);
+  const [gripWidth, setGripWidth] = useState(null);
   const [brand, setBrand] = useState('');
   const [brandPicked, setBrandPicked] = useState(false);
 
-  const reset = () => { setPattern(null); setEquipment(null); setAngle(null); setBrand(''); setBrandPicked(false); };
+  const reset = () => { setPattern(null); setEquipment(null); setAngle(null); setRotation(null); setGripWidth(null); setBrand(''); setBrandPicked(false); };
+  // Clicking an earlier breadcrumb rewinds every step after it, same as the
+  // pre-existing equipment/angle breadcrumbs already did for brand.
+  const rewindToEquipment = () => { setEquipment(null); setAngle(null); setRotation(null); setGripWidth(null); setBrand(''); setBrandPicked(false); };
+  const rewindToAngle = () => { setAngle(null); setRotation(null); setGripWidth(null); setBrand(''); setBrandPicked(false); };
+  const rewindToRotation = () => { setRotation(null); setGripWidth(null); setBrand(''); setBrandPicked(false); };
+  const rewindToWidth = () => { setGripWidth(null); setBrand(''); setBrandPicked(false); };
 
   const needsBrand = equipment === 'cable' || equipment === 'machine';
   const brands = needsBrand ? defaultMachineBrands(equipment) : [];
@@ -1631,33 +1650,68 @@ function PressRowBuilder({ onAdd, lifts }) {
   const pickBrand = b => { setBrand(b); setBrandPicked(true); };
   const skipBrand = () => { setBrand(''); setBrandPicked(true); };
 
+  // Per-equipment availability for both real parameters -- GRIP_ANGLES_BY_
+  // EQUIPMENT/GRIP_WIDTH_BY_EQUIPMENT (functions/emgActivation.js) are the
+  // single source of truth for what's achievable, e.g. no rotation choice
+  // at all for machine (no per-exercise handle data), no width choice for
+  // dumbbell/cable (no fixed bar to space hands along). An empty list means
+  // the step is skipped entirely, not offered-then-defaulted.
+  const availableRotations = equipment ? (GRIP_ANGLES_BY_EQUIPMENT[equipment] || []) : [];
+  const rotationApplicable = availableRotations.length > 0;
+  const rotationDone = !rotationApplicable || rotation != null;
+  const availableWidths = (pattern === 'row' && equipment) ? (GRIP_WIDTH_BY_EQUIPMENT[equipment] || []) : [];
+  const widthApplicable = availableWidths.length > 0;
+  const widthDone = !widthApplicable || gripWidth != null;
+
   // Cross-exercise target-weight prediction (functions/muscleCapacity.js):
   // solves per-muscle "capacity" from the athlete's real history on OTHER
   // press/row exercises they've angle-mapped, then predicts this exact,
   // possibly-never-logged angle's expected e1RM from those capacities. Only
   // recomputed when lifts actually change, not on every angle click.
   const capacityResult = useMemo(() => solveMuscleCapacities(buildObservations(lifts)), [lifts]);
-  const prediction = angle != null ? predictExerciseE1RM(pattern, angle, capacityResult) : null;
+  // Rotation/width are modifiers layered on top of the sagittal base vector
+  // (see applyGripRotationModifier's comment for why this can't just be a
+  // second table lookup) -- combinedWeights is what actually gets credited
+  // and predicted against, baseWeights only still exists for the `!weights`
+  // guard below and to detect "nothing chosen yet".
+  const baseWeights = angle != null ? emgForAngle(pattern, angle) : null;
+  let combinedWeights = baseWeights;
+  if (combinedWeights && rotation != null) combinedWeights = applyGripRotationModifier(pattern, combinedWeights, rotation);
+  if (combinedWeights && pattern === 'row' && gripWidth) combinedWeights = applyGripWidthModifier(combinedWeights, gripWidth);
+  const prediction = angle != null ? predictExerciseE1RM(pattern, angle, capacityResult, combinedWeights) : null;
   const suggestedKg = prediction ? suggestedWeightForReps(prediction.e1rm, 8) : null;
 
   const build = () => {
-    const weights = emgForAngle(pattern, angle);
-    if (!weights) return;
-    const { primary, secondary } = classifyMuscles(weights);
+    if (!combinedWeights) return;
+    const { primary, secondary } = classifyMuscles(combinedWeights);
     const equipLabel = equipment[0].toUpperCase() + equipment.slice(1);
     const patternLabel = pattern === 'press' ? 'Press' : 'Row';
-    const name = brand.trim()
-      ? `${equipLabel} ${patternLabel} — ${angle}° — ${brand.trim()}`
+    // Rotation/width both need to be part of the generated name, same as
+    // angle/brand already are -- this app's custom-exercise identity is
+    // keyed by name (addExercise/customExercises in WorkoutLogger), so two
+    // different rotations of "otherwise the same" exercise sharing one name
+    // would silently overwrite each other's stored taxonomy.
+    const rotationLabel = rotation != null ? GRIP_LABELS[rotation].split(' (')[0] : '';
+    const widthLabel = gripWidth ? `${gripWidth[0].toUpperCase()}${gripWidth.slice(1)} Grip` : '';
+    const suffix = [rotationLabel, widthLabel, brand.trim()].filter(Boolean).join(' — ');
+    const name = suffix
+      ? `${equipLabel} ${patternLabel} — ${angle}° — ${suffix}`
       : `${equipLabel} ${patternLabel} — ${angle}°`;
-    onAdd(name, { primary, secondary, emgWeights: weights, suggestedKg, pattern, equipment });
+    onAdd(name, {
+      primary, secondary, emgWeights: combinedWeights, suggestedKg, pattern, equipment,
+      ...(rotation != null ? { rotation } : {}),
+      ...(gripWidth ? { gripWidth } : {}),
+    });
     setOpen(false);
     reset();
   };
 
   const tileStyle = { padding: '9px 12px', fontFamily: "'JetBrains Mono',monospace", fontSize: 11, textTransform: 'capitalize', cursor: 'pointer', border: '1px solid var(--rule)', background: 'var(--paper)', color: 'var(--ink)', textAlign: 'left' };
   const showAngleStep = pattern && equipment && angle == null;
-  const showBrandStep = pattern && equipment && angle != null && needsBrand && !brandPicked;
-  const showConfirm = pattern && equipment && angle != null && (!needsBrand || brandPicked);
+  const showRotationStep = pattern && equipment && angle != null && !rotationDone;
+  const showWidthStep = pattern && equipment && angle != null && rotationDone && !widthDone;
+  const showBrandStep = pattern && equipment && angle != null && rotationDone && widthDone && needsBrand && !brandPicked;
+  const showConfirm = pattern && equipment && angle != null && rotationDone && widthDone && (!needsBrand || brandPicked);
 
   return (
     <div style={{ marginTop: 10, borderTop: '1px solid var(--rule)', paddingTop: 10 }}>
@@ -1668,8 +1722,10 @@ function PressRowBuilder({ onAdd, lifts }) {
         <div style={{ marginTop: 10 }}>
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', marginBottom: 8, fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)', textTransform: 'capitalize' }}>
             {pattern && <button onClick={() => reset()} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--dim)', textTransform: 'capitalize', padding: 0 }}>{pattern}</button>}
-            {equipment && <><span>›</span><button onClick={() => { setEquipment(null); setAngle(null); setBrand(''); setBrandPicked(false); }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--dim)', textTransform: 'capitalize', padding: 0 }}>{equipment}</button></>}
-            {angle != null && <><span>›</span><button onClick={() => { setAngle(null); setBrand(''); setBrandPicked(false); }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--dim)', padding: 0 }}>{angle}°</button></>}
+            {equipment && <><span>›</span><button onClick={rewindToEquipment} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--dim)', textTransform: 'capitalize', padding: 0 }}>{equipment}</button></>}
+            {angle != null && <><span>›</span><button onClick={rewindToAngle} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--dim)', padding: 0 }}>{angle}°</button></>}
+            {rotation != null && <><span>›</span><button onClick={rewindToRotation} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--dim)', textTransform: 'none', padding: 0 }}>{GRIP_LABELS[rotation]}</button></>}
+            {gripWidth && <><span>›</span><button onClick={rewindToWidth} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--dim)', padding: 0 }}>{gripWidth}</button></>}
             {brandPicked && brand && <><span>›</span><span>{brand}</span></>}
           </div>
 
@@ -1701,6 +1757,32 @@ function PressRowBuilder({ onAdd, lifts }) {
             </div>
           )}
 
+          {showRotationStep && (
+            <div>
+              <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)', lineHeight: 1.6, marginBottom: 10 }}>
+                Rotation of your hand about its own axis (independent of the angle above) — changes what gets credited for this set.
+              </div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                {availableRotations.map(a => (
+                  <button key={a} style={{ ...tileStyle, flex: '0 0 auto', padding: '7px 10px', textTransform: 'none' }} onClick={() => setRotation(a)}>{GRIP_LABELS[a]}</button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {showWidthStep && (
+            <div>
+              <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)', lineHeight: 1.6, marginBottom: 10 }}>
+                Hand spacing along the bar (a different axis from rotation above) — closer favors lats, wider favors rear-delt/rhomboids.
+              </div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                {availableWidths.map(w => (
+                  <button key={w} style={{ ...tileStyle, flex: '0 0 auto', padding: '7px 10px' }} onClick={() => setGripWidth(w)}>{w}</button>
+                ))}
+              </div>
+            </div>
+          )}
+
           {showBrandStep && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
               {brands.map(b => (
@@ -1713,7 +1795,10 @@ function PressRowBuilder({ onAdd, lifts }) {
           {showConfirm && (
             <div>
               <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 11, color: 'var(--ink)', marginBottom: 8 }}>
-                {equipment[0].toUpperCase() + equipment.slice(1)} {pattern === 'press' ? 'Press' : 'Row'} — {angle}°{brand.trim() ? ` — ${brand.trim()}` : ''}
+                {equipment[0].toUpperCase() + equipment.slice(1)} {pattern === 'press' ? 'Press' : 'Row'} — {angle}°
+                {rotation != null ? ` — ${GRIP_LABELS[rotation]}` : ''}
+                {gripWidth ? ` — ${gripWidth} grip` : ''}
+                {brand.trim() ? ` — ${brand.trim()}` : ''}
               </div>
               <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)', lineHeight: 1.6, marginBottom: suggestedKg ? 6 : 10 }}>
                 {suggestedKg
@@ -2087,6 +2172,8 @@ function WorkoutLogger({ planDay, lifts, customExercises, experienceLevel, onClo
       name: key, targetReps: 8, sets,
       ...(effective.emgWeights ? { emgWeights: effective.emgWeights, pattern: effective.pattern, equipment: effective.equipment } : {}),
       ...paramDefaults,
+      ...(effective.rotation != null ? { rotation: effective.rotation } : {}),
+      ...(effective.gripWidth ? { gripWidth: effective.gripWidth } : {}),
       ...(hardSave ? { machine: hardSave.brand, ...(hardSave.model ? { model: hardSave.model } : {}) } : {}),
     }]);
     setNewEx(''); setSuggestions([]);
@@ -2376,6 +2463,8 @@ function WorkoutLogger({ planDay, lifts, customExercises, experienceLevel, onClo
       ...(ex.equipment ? { equipment: ex.equipment } : {}),
       ...(ex.angle != null ? { angle: ex.angle } : {}),
       ...(ex.emgWeights ? { emgWeights: ex.emgWeights } : {}),
+      ...(ex.rotation != null ? { rotation: ex.rotation } : {}),
+      ...(ex.gripWidth ? { gripWidth: ex.gripWidth } : {}),
     })));
     try {
       let r;
