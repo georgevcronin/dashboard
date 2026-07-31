@@ -1,6 +1,6 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { EXERCISE_EMG_PROFILES, emgProfileForExercise } = require('../functions/exerciseEmgProfiles');
+const { EXERCISE_EMG_PROFILES, emgProfileForExercise, benchPressEmgProfileForAngle } = require('../functions/exerciseEmgProfiles');
 const { EXERCISE_DB } = require('../functions/exerciseDb');
 const { ALL_MUSCLES } = require('../functions/muscleTaxonomy');
 
@@ -124,4 +124,29 @@ test('Kelso Shrug variants shift from lat/teres-major-dominant (low pulley) to r
   for (const variant of [low, emgProfileForExercise('Kelso Shrug (Mid Pulley)'), high]) {
     assert.ok(!('biceps' in variant) && !('brachioradialis' in variant), 'straight-arm retraction should not carry elbow-flexor synergist credit');
   }
+});
+
+// Bench Press pilot (EXERCISE_PARAMETERIZATION.md) — angle-aware lookup for
+// the parameterized entry, reusing the three curated flat/incline/decline
+// profiles above rather than duplicating their numbers.
+test('benchPressEmgProfileForAngle snaps to the nearest curated position and matches the named-variant profiles exactly', () => {
+  assert.deepEqual(benchPressEmgProfileForAngle(0), emgProfileForExercise('Barbell Bench Press'));
+  assert.deepEqual(benchPressEmgProfileForAngle(30), emgProfileForExercise('Incline Barbell Bench Press'));
+  assert.deepEqual(benchPressEmgProfileForAngle(-15), emgProfileForExercise('Decline Barbell Bench Press'));
+});
+
+test('benchPressEmgProfileForAngle snaps in-between and out-of-range angles to the nearest of the three sampled positions', () => {
+  assert.deepEqual(benchPressEmgProfileForAngle(10), emgProfileForExercise('Barbell Bench Press'), '10° is closer to flat (0°) than incline (30°)');
+  assert.deepEqual(benchPressEmgProfileForAngle(20), emgProfileForExercise('Incline Barbell Bench Press'), '20° is closer to incline (30°) than flat (0°)');
+  assert.deepEqual(benchPressEmgProfileForAngle(60), emgProfileForExercise('Incline Barbell Bench Press'), 'steep incline should still snap to the closest sampled position, not extrapolate');
+  assert.deepEqual(benchPressEmgProfileForAngle(-30), emgProfileForExercise('Decline Barbell Bench Press'), 'steep decline should still snap to the closest sampled position, not extrapolate');
+});
+
+test('benchPressEmgProfileForAngle returns null for a non-numeric angle', () => {
+  assert.equal(benchPressEmgProfileForAngle(undefined), null);
+  assert.equal(benchPressEmgProfileForAngle('not a number'), null);
+});
+
+test('the static "bench press" fallback profile (used when a logged instance has no per-angle emgWeights) matches the flat/0° profile', () => {
+  assert.deepEqual(emgProfileForExercise('Bench Press'), emgProfileForExercise('Barbell Bench Press'));
 });

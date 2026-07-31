@@ -20,6 +20,7 @@ import muscleCapacityPkg from '../functions/muscleCapacity.js';
 import { chestSplitForExercise } from '../functions/chestHeadSplit.js';
 import { EXERCISE_ANGLES } from '../functions/exerciseAngles.js';
 import { EXERCISE_DB, EXERCISE_MUSCLE_GROUPS, EXERCISE_PATTERNS } from '../functions/exerciseDb.js';
+import { benchPressEmgProfileForAngle } from '../functions/exerciseEmgProfiles.js';
 import { PRESS_CSS } from './pressCss.js';
 import { AreaChart, BarChart, Sparkline, AdaptationChart } from './charts.jsx';
 
@@ -760,7 +761,18 @@ function S2({ s, refresh }) {
 // one of those meant zero fatigue tracking and no equipment-aware
 // progression rounding for that exercise. Deriving from EXERCISE_DB directly
 // keeps the suggestion list and the actual data in permanent sync.
-const BASE_EXERCISES = EXERCISE_DB.map(e => e.name.toLowerCase());
+//
+// `supersededBy` (exerciseDb.js) marks the flat-proliferation named entries
+// a parameterized entry has replaced for NEW logging (currently just the six
+// Barbell/Dumbbell bench variants -> 'Bench Press' — see
+// .design/feature-brainstorm/EXERCISE_PARAMETERIZATION.md). Excluded here so
+// they stop being offered as a fresh pick, without touching the underlying
+// EXERCISE_DB entries at all — historical logs under those names keep
+// resolving exactly as before (findExercise doesn't filter on this field),
+// and `allExercises` below still surfaces them via real logged history
+// (fromLifts), just not as a first-time suggestion.
+const BROWSABLE_EXERCISE_DB = EXERCISE_DB.filter(e => !e.supersededBy);
+const BASE_EXERCISES = BROWSABLE_EXERCISE_DB.map(e => e.name.toLowerCase());
 
 // Colloquial terms that don't appear anywhere in EXERCISE_DB's own
 // primary/secondary muscle names, so the plain muscle-tag match above can't
@@ -839,6 +851,13 @@ const glycogenPct = (elapsedS, totalS) => {
 // instead of the list. v0.1 is the first tracked release, not literally the
 // app's first version — everything before this had no changelog at all.
 const CHANGELOG = [
+  {
+    version: '0.59',
+    date: '2026-07-31',
+    features: [
+      'Bench Press is now one exercise instead of six: Barbell Bench Press, Incline/Decline Barbell, and Dumbbell Flat/Incline/Decline have been replaced for new logging by a single "Bench Press" entry with an equipment choice (Barbell/Dumbbell) and a continuous incline slider (decline through incline), picked once per exercise the same way Machine/Brand already works. The old six names still work fine for anything already logged under them — nothing about your existing history changed — they just won\'t come up again when adding a fresh Bench Press. Close-Grip Bench Press is unaffected; it\'s a grip-width exercise, not an angle one.',
+    ],
+  },
   {
     version: '0.58',
     date: '2026-07-29',
@@ -1476,11 +1495,17 @@ function ExerciseBrowser({ onAdd }) {
 
   const reset = () => { setGroup(null); setPattern(null); setMovementId(null); };
 
-  const groups = useMemo(() => EXERCISE_MUSCLE_GROUPS.filter(g => EXERCISE_DB.some(e => e.muscleGroup === g)), []);
+  // BROWSABLE_EXERCISE_DB (excludes exerciseDb.js's `supersededBy` entries)
+  // throughout this component -- see its own definition for why: a
+  // parameterized movement's legacy named variants (currently just the six
+  // bench-press entries) shouldn't appear as a fresh pick in the guided
+  // tree, even though they remain valid, fully-resolving EXERCISE_DB entries
+  // for historical data.
+  const groups = useMemo(() => EXERCISE_MUSCLE_GROUPS.filter(g => BROWSABLE_EXERCISE_DB.some(e => e.muscleGroup === g)), []);
 
   const patterns = useMemo(() => {
     if (!group) return [];
-    const present = new Set(EXERCISE_DB.filter(e => e.muscleGroup === group).map(e => e.pattern));
+    const present = new Set(BROWSABLE_EXERCISE_DB.filter(e => e.muscleGroup === group).map(e => e.pattern));
     return EXERCISE_PATTERNS.filter(p => present.has(p) && !HIDDEN_PATTERNS.has(p));
   }, [group]);
 
@@ -1490,7 +1515,7 @@ function ExerciseBrowser({ onAdd }) {
   const hiddenMovements = useMemo(() => {
     if (!group) return [];
     const byId = new Map();
-    for (const e of EXERCISE_DB) {
+    for (const e of BROWSABLE_EXERCISE_DB) {
       if (e.muscleGroup !== group || !HIDDEN_PATTERNS.has(e.pattern)) continue;
       if (!byId.has(e.movementId)) byId.set(e.movementId, { movementId: e.movementId, movementName: e.movementName, count: 0 });
       byId.get(e.movementId).count++;
@@ -1501,7 +1526,7 @@ function ExerciseBrowser({ onAdd }) {
   const movements = useMemo(() => {
     if (!group || !pattern) return [];
     const byId = new Map();
-    for (const e of EXERCISE_DB) {
+    for (const e of BROWSABLE_EXERCISE_DB) {
       if (e.muscleGroup !== group || e.pattern !== pattern) continue;
       if (!byId.has(e.movementId)) byId.set(e.movementId, { movementId: e.movementId, movementName: e.movementName, count: 0 });
       byId.get(e.movementId).count++;
@@ -1511,7 +1536,7 @@ function ExerciseBrowser({ onAdd }) {
 
   const variants = useMemo(() => {
     if (!movementId) return [];
-    return EXERCISE_DB.filter(e => e.movementId === movementId).sort((a, b) => a.name.localeCompare(b.name));
+    return BROWSABLE_EXERCISE_DB.filter(e => e.movementId === movementId).sort((a, b) => a.name.localeCompare(b.name));
   }, [movementId]);
 
   const pick = ex => {
@@ -1521,7 +1546,7 @@ function ExerciseBrowser({ onAdd }) {
 
   const selectMovement = m => {
     if (m.count === 1) {
-      pick(EXERCISE_DB.find(e => e.movementId === m.movementId));
+      pick(BROWSABLE_EXERCISE_DB.find(e => e.movementId === m.movementId));
     } else {
       setMovementId(m.movementId);
     }
@@ -2043,9 +2068,25 @@ function WorkoutLogger({ planDay, lifts, customExercises, experienceLevel, onClo
     // Prefill from this gym's hard save (GYM_MACHINE_CATALOG.md §5) if one
     // exists for this exercise — the whole point of a hard save.
     const hardSave = activeGym && gymDetail?.hardSaves?.[key];
+    // Parameterized exercises (currently just 'Bench Press' — see
+    // EXERCISE_PARAMETERIZATION.md) default equipment/angle from the most
+    // recently logged instance of this same exercise, same "continue what
+    // you did last time" prefill already used for `sets` above, falling
+    // back to the entry's first equipment choice at 0° (flat) for a genuine
+    // first-ever log. emgWeights is derived here (not just angle/equipment)
+    // so live-session fatigue/stimulus display is correct immediately,
+    // before the athlete ever touches the picker.
+    const paramDef = findExercise(key);
+    const paramDefaults = paramDef?.parameterized ? (() => {
+      const priorEquipment = prev?.sets?.[0]?.equipment;
+      const equipment = paramDef.equipmentChoices.includes(priorEquipment) ? priorEquipment : paramDef.equipmentChoices[0];
+      const angle = prev?.sets?.[0]?.angle ?? 0;
+      return { equipment, angle, emgWeights: benchPressEmgProfileForAngle(angle) };
+    })() : {};
     setExercises(p => [...p, {
       name: key, targetReps: 8, sets,
       ...(effective.emgWeights ? { emgWeights: effective.emgWeights, pattern: effective.pattern, equipment: effective.equipment } : {}),
+      ...paramDefaults,
       ...(hardSave ? { machine: hardSave.brand, ...(hardSave.model ? { model: hardSave.model } : {}) } : {}),
     }]);
     setNewEx(''); setSuggestions([]);
@@ -2245,6 +2286,7 @@ function WorkoutLogger({ planDay, lifts, customExercises, experienceLevel, onClo
           exercise: ex.name, kg: st.kg, reps: st.reps, rpe: st.rpe || null,
           type: st.type && st.type !== 'N' ? st.type : null,
           machine: ex.machine || null, pulleyType: ex.pulleyType || null, model: ex.model || null,
+          equipment: ex.equipment || null, angle: ex.angle ?? null,
         });
       }
     }));
@@ -2331,6 +2373,8 @@ function WorkoutLogger({ planDay, lifts, customExercises, experienceLevel, onClo
       ...(ex.machine ? { machine: ex.machine } : {}),
       ...(ex.pulleyType ? { pulleyType: ex.pulleyType } : {}),
       ...(ex.model ? { model: ex.model } : {}),
+      ...(ex.equipment ? { equipment: ex.equipment } : {}),
+      ...(ex.angle != null ? { angle: ex.angle } : {}),
       ...(ex.emgWeights ? { emgWeights: ex.emgWeights } : {}),
     })));
     try {
@@ -2344,7 +2388,7 @@ function WorkoutLogger({ planDay, lifts, customExercises, experienceLevel, onClo
         await api(`session/${groupSessionId}/merge`, { method: 'POST', body: JSON.stringify({ sets: setsToSync(exercises) }) }).catch(() => {});
         const fresh = await api(`session/${groupSessionId}`).catch(() => null);
         const myEntries = (fresh?.entries || groupData?.entries || []).filter(e => e.uid === myUid && e.exercise && e.kg && e.reps);
-        const finalSets = myEntries.map(e => ({ exercise: e.exercise, kg: e.kg, reps: e.reps, rpe: e.rpe, type: e.type, machine: e.machine, pulleyType: e.pulleyType, model: e.model }));
+        const finalSets = myEntries.map(e => ({ exercise: e.exercise, kg: e.kg, reps: e.reps, rpe: e.rpe, type: e.type, machine: e.machine, pulleyType: e.pulleyType, model: e.model, equipment: e.equipment, angle: e.angle }));
         r = await api(`session/${groupSessionId}/finish`, {
           method: 'POST',
           body: JSON.stringify({ workout: { name: planDay?.sessions?.[0]?.title || 'Session', date: today, ...(activeGym ? { gymId: activeGym.id } : {}) }, sets: finalSets, customExercises: newCustomExercises }),
@@ -2613,7 +2657,7 @@ function WorkoutLogger({ planDay, lifts, customExercises, experienceLevel, onClo
                     every other unsplit muscle; inside one, you can see which
                     head this specific exercise is actually emphasizing. */}
                 {(() => {
-                  const split = chestSplitForExercise(ex.name);
+                  const split = chestSplitForExercise(ex.name, ex.angle);
                   return split && (
                     <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, color: 'var(--dim)', marginBottom: 3 }}>
                       Lower {split.lower}% · Mid {split.mid}% · Upper {split.upper}%
@@ -2767,6 +2811,40 @@ function WorkoutLogger({ planDay, lifts, customExercises, experienceLevel, onClo
                     );
                   })()}
                 </div>
+
+                {/* Equipment + continuous angle picker for parameterized
+                    exercises (currently just Bench Press — see
+                    .design/feature-brainstorm/EXERCISE_PARAMETERIZATION.md's
+                    pilot). Stored per-exercise-instance, same as
+                    ex.machine/ex.pulleyType above, not per-set — dialed in
+                    once, applies to every set logged under this exercise
+                    this session. Recomputes emgWeights on every change so
+                    live fatigue/stimulus and the chest-head split above stay
+                    in sync with whatever's actually picked. */}
+                {(() => {
+                  const paramDef = findExercise(ex.name);
+                  if (!paramDef?.parameterized) return null;
+                  const angle = ex.angle ?? 0;
+                  const angleLabel = angle === 0 ? 'Flat' : angle < 0 ? 'Decline' : 'Incline';
+                  const paramTagStyle = { fontFamily: "'JetBrains Mono',monospace", fontSize: 8, letterSpacing: '.03em', padding: '3px 6px', border: '1px solid var(--rule)', background: 'none', color: 'var(--dim)' };
+                  return (
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8, flexWrap: 'wrap' }}>
+                      <select value={ex.equipment || paramDef.equipmentChoices[0]}
+                        onChange={e => setExercises(p => p.map((el, j) => j !== i ? el : { ...el, equipment: e.target.value }))}
+                        style={paramTagStyle}>
+                        {paramDef.equipmentChoices.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                      </select>
+                      <input type="range" min={paramDef.angleRange.min} max={paramDef.angleRange.max} step={paramDef.angleRange.step}
+                        value={angle} aria-label="Bench angle"
+                        onChange={e => {
+                          const next = +e.target.value;
+                          setExercises(p => p.map((el, j) => j !== i ? el : { ...el, angle: next, emgWeights: benchPressEmgProfileForAngle(next) }));
+                        }}
+                        style={{ width: 110 }} />
+                      <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)' }}>{angleLabel} ({angle > 0 ? '+' : ''}{angle}°)</span>
+                    </div>
+                  );
+                })()}
 
                 {/* Sets table */}
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontFamily: "'JetBrains Mono',monospace", fontSize: 11, marginBottom: 8 }}>

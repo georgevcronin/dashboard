@@ -814,7 +814,7 @@ app.get("/trends", async (req, res) => {
   } else if (["squat", "bench", "deadlift", "overheadPress", "row"].includes(metric)) {
     const byDate = {};
     for (const l of (db.lifts || [])) {
-      if (!l.date || l.date < cutoff || classifyLift(l.exercise || "") !== metric) continue;
+      if (!l.date || l.date < cutoff || classifyLift(l.exercise || "", l.equipment) !== metric) continue;
       const e1 = estimate1RM(l.kg, l.reps);
       if (e1 == null) continue;
       if (!byDate[l.date] || e1 > byDate[l.date]) byDate[l.date] = e1;
@@ -1858,6 +1858,7 @@ async function applySessionComplete(data, liftsRef, saveFn, { workout, sets = []
       ...(s.type && s.type !== 'N' ? { type: s.type } : {}),
       ...(s.machine ? { machine: s.machine } : {}), ...(s.pulleyType ? { pulleyType: s.pulleyType } : {}),
       ...(s.model ? { model: s.model } : {}),
+      ...(s.equipment ? { equipment: s.equipment } : {}), ...(s.angle != null ? { angle: s.angle } : {}),
       ...(s.emgWeights ? { emgWeights: s.emgWeights } : {}),
     }));
   const isReplacedToday = l => l.date === workout.date && sets.some(s => s.exercise === l.exercise);
@@ -1952,6 +1953,7 @@ app.put('/workout/:date', async (req, res) => {
       ...(s.type && s.type !== 'N' ? { type: s.type } : {}),
       ...(s.machine ? { machine: s.machine } : {}), ...(s.pulleyType ? { pulleyType: s.pulleyType } : {}),
       ...(s.model ? { model: s.model } : {}),
+      ...(s.equipment ? { equipment: s.equipment } : {}), ...(s.angle != null ? { angle: s.angle } : {}),
     }));
   await removeLiftsAndAppend(liftsDocRef, l => l.date === date, newLiftEntries);
   db.lifts = (db.lifts || []).filter(l => l.date !== date).concat(newLiftEntries);
@@ -2027,7 +2029,7 @@ async function deleteSessionIfDone(sessionRef, participants) {
 }
 
 function sessionEntryToSet(entry) {
-  return { exercise: entry.exercise, kg: entry.kg, reps: entry.reps, rpe: entry.rpe, type: entry.type, machine: entry.machine, pulleyType: entry.pulleyType, model: entry.model };
+  return { exercise: entry.exercise, kg: entry.kg, reps: entry.reps, rpe: entry.rpe, type: entry.type, machine: entry.machine, pulleyType: entry.pulleyType, model: entry.model, equipment: entry.equipment, angle: entry.angle };
 }
 
 // No real Cloud Scheduler job backs the 1-hour inactivity timeout (that's
@@ -2129,6 +2131,7 @@ app.post('/session/:id/merge', async (req, res) => {
       uid: req.uid, lastEditedBy: req.uid,
       exercise: s.exercise, kg: s.kg ?? null, reps: s.reps ?? null, rpe: s.rpe ?? null,
       type: s.type || null, machine: s.machine || null, pulleyType: s.pulleyType || null, model: s.model || null,
+      equipment: s.equipment || null, angle: s.angle ?? null,
       loggedAt: now, updatedAt: now,
     });
   }
@@ -2166,12 +2169,13 @@ app.post('/session/:id/entries', async (req, res) => {
   const owner = data.participants.find(p => p.uid === req.body?.uid);
   if (!owner || owner.status !== 'active') return res.status(400).json({ error: 'That participant is not active in this session' });
   const now = new Date().toISOString();
-  const { exercise, kg, reps, rpe, type, machine, pulleyType, model } = req.body;
+  const { exercise, kg, reps, rpe, type, machine, pulleyType, model, equipment, angle } = req.body;
   const entryRef = ref.collection('entries').doc();
   await entryRef.set({
     uid: owner.uid, lastEditedBy: req.uid,
     exercise: exercise || null, kg: kg ?? null, reps: reps ?? null, rpe: rpe ?? null,
     type: type || null, machine: machine || null, pulleyType: pulleyType || null, model: model || null,
+    equipment: equipment || null, angle: angle ?? null,
     loggedAt: now, updatedAt: now,
   });
   await touchActivity(ref, data, req.uid);
@@ -2194,7 +2198,7 @@ app.put('/session/:id/entries/:entryId', async (req, res) => {
   if (!entrySnap.exists) return res.status(404).json({ error: 'Entry not found' });
   const owner = data.participants.find(p => p.uid === entrySnap.data().uid);
   if (!owner || owner.status !== 'active') return res.status(403).json({ error: "That participant's data is locked — they've already left or finished" });
-  const { exercise, kg, reps, rpe, type, machine, pulleyType, model } = req.body;
+  const { exercise, kg, reps, rpe, type, machine, pulleyType, model, equipment, angle } = req.body;
   const patch = { lastEditedBy: req.uid, updatedAt: new Date().toISOString() };
   if (exercise !== undefined) patch.exercise = exercise;
   if (kg !== undefined) patch.kg = kg;
@@ -2204,6 +2208,8 @@ app.put('/session/:id/entries/:entryId', async (req, res) => {
   if (machine !== undefined) patch.machine = machine;
   if (pulleyType !== undefined) patch.pulleyType = pulleyType;
   if (model !== undefined) patch.model = model;
+  if (equipment !== undefined) patch.equipment = equipment;
+  if (angle !== undefined) patch.angle = angle;
   await entryRef.update(patch);
   await touchActivity(ref, data, req.uid);
   res.json({ ok: true });
@@ -2573,8 +2579,8 @@ async function generateWeeklyReview(db) {
   const weightEnd = db.weight[weightKeysThis.at(-1)];
 
   const prLifts = ['squat', 'bench', 'deadlift', 'overheadPress', 'row'].filter(cat => {
-    const priorBest = Math.max(0, ...db.lifts.filter(l => l.date < cutoffThis && classifyLift(l.exercise || '') === cat).map(l => estimate1RM(l.kg, l.reps) || 0));
-    const thisBest = Math.max(0, ...thisWeekLifts.filter(l => classifyLift(l.exercise || '') === cat).map(l => estimate1RM(l.kg, l.reps) || 0));
+    const priorBest = Math.max(0, ...db.lifts.filter(l => l.date < cutoffThis && classifyLift(l.exercise || '', l.equipment) === cat).map(l => estimate1RM(l.kg, l.reps) || 0));
+    const thisBest = Math.max(0, ...thisWeekLifts.filter(l => classifyLift(l.exercise || '', l.equipment) === cat).map(l => estimate1RM(l.kg, l.reps) || 0));
     return thisBest > priorBest && thisBest > 0;
   });
 

@@ -93,8 +93,22 @@ for (const [name, cat] of Object.entries(CLASSIFY_ALIASES)) {
   CLASSIFY_BY_NAME.set(name, cat);
 }
 
-function classifyLift(name) {
-  return CLASSIFY_BY_NAME.get((name || '').toLowerCase()) || null;
+// The parameterized 'Bench Press' entry (exerciseDb.js,
+// EXERCISE_PARAMETERIZATION.md) can be logged as either Barbell or Dumbbell
+// equipment, unlike every allowlisted name above (each unambiguously one
+// piece of equipment by name alone) — comparing a dumbbell set against these
+// barbell-calibrated standards would be exactly the wrong-equipment mistake
+// CLASSIFY_ALLOWLIST exists to prevent (see its own comment). Only classify
+// it when the caller can confirm the logged equipment was Barbell; anything
+// else (Dumbbell, or unknown/missing equipment) is conservatively excluded,
+// same as every other non-canonical bench variant already is.
+const AMBIGUOUS_EQUIPMENT_ALLOWLIST = { 'bench press': { category: 'bench', requiredEquipment: 'barbell' } };
+
+function classifyLift(name, equipment) {
+  const key = (name || '').toLowerCase();
+  const ambiguous = AMBIGUOUS_EQUIPMENT_ALLOWLIST[key];
+  if (ambiguous) return (equipment || '').toLowerCase() === ambiguous.requiredEquipment ? ambiguous.category : null;
+  return CLASSIFY_BY_NAME.get(key) || null;
 }
 
 // Two-exponential 1RM model (replaces the earlier Epley formula everywhere

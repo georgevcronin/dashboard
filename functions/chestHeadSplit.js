@@ -60,16 +60,35 @@ const CHEST_EXERCISE_ANGLES = {
   'dumbbell pullover': 0,
   'single-arm dumbbell press': 0,
   'hex press (floor)': 0,
+  // 'Bench Press' — the parameterized pilot entry (exerciseDb.js,
+  // EXERCISE_PARAMETERIZATION.md). Unlike every other name above, its real
+  // angle varies per logged instance rather than being fixed by name; 0
+  // (flat) here is only the fallback for a name-only lookup with no angle
+  // supplied (a chest-coverage-test call, an import, a typed/search-added
+  // instance with no picker angle set yet). See chestSplitForExercise's own
+  // angle-aware branch below for the version the picker actually uses.
+  'bench press': 0,
 };
+
+const ANGLE_BUCKETS = Object.keys(CHEST_SPLIT_BY_ANGLE).map(Number);
+function nearestAngleBucket(angle) {
+  return ANGLE_BUCKETS.reduce((best, b) => Math.abs(b - angle) < Math.abs(best - angle) ? b : best);
+}
 
 // Returns { lower, mid, upper } (always summing to 100) for a recognized
 // chest exercise, or null for anything else (including chest exercises not
 // yet in the map above -- absence here is not a crash, just no breakdown).
-function chestSplitForExercise(name) {
+// `angle` is optional and only meaningful for 'Bench Press' (see above) --
+// when given, it takes priority over that entry's flat (0°) table default,
+// snapped to the nearest of CHEST_SPLIT_BY_ANGLE's sampled positions.
+function chestSplitForExercise(name, angle) {
   const key = (name || '').toLowerCase().trim();
-  const angle = CHEST_EXERCISE_ANGLES[key];
-  if (angle == null) return null;
-  return CHEST_SPLIT_BY_ANGLE[String(angle)] || null;
+  if (key === 'bench press' && angle != null && !Number.isNaN(+angle)) {
+    return CHEST_SPLIT_BY_ANGLE[String(nearestAngleBucket(+angle))] || null;
+  }
+  const mappedAngle = CHEST_EXERCISE_ANGLES[key];
+  if (mappedAngle == null) return null;
+  return CHEST_SPLIT_BY_ANGLE[String(mappedAngle)] || null;
 }
 
 module.exports = { CHEST_SPLIT_BY_ANGLE, CHEST_EXERCISE_ANGLES, chestSplitForExercise };

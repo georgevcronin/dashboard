@@ -85,6 +85,39 @@ test('every exercise sharing a movementId shares the same movementName (family n
   }
 });
 
+// Bench Press pilot — see .design/feature-brainstorm/EXERCISE_PARAMETERIZATION.md.
+test('Bench Press is a real, parameterized EXERCISE_DB entry with equipment/angle picker config', () => {
+  const bench = EXERCISE_DB.find(e => e.id === 'bench-press');
+  assert.ok(bench, 'expected a bench-press entry');
+  assert.equal(bench.name, 'Bench Press');
+  assert.equal(bench.parameterized, true);
+  assert.deepEqual(bench.equipmentChoices, ['Barbell', 'Dumbbell']);
+  assert.ok(bench.angleRange.min < 0 && bench.angleRange.max > 0, 'angle range should span decline through incline');
+  assert.deepEqual(bench.primary, ['chest', 'triceps', 'front-delt']);
+});
+
+test('the six legacy bench-press-family entries are superseded by Bench Press but still fully resolvable', () => {
+  const LEGACY_IDS = [
+    'barbell-bench-press', 'incline-barbell-bench-press', 'decline-barbell-bench-press',
+    'dumbbell-flat-bench-press', 'dumbbell-incline-bench-press', 'dumbbell-decline-bench-press',
+  ];
+  for (const id of LEGACY_IDS) {
+    const e = EXERCISE_MAP[id];
+    assert.ok(e, `expected legacy entry ${id} to still exist`);
+    assert.equal(e.supersededBy, 'bench-press', `${id} should be marked supersededBy 'bench-press'`);
+    // Untouched identity/taxonomy — historical logs under this exact name
+    // must keep resolving exactly as before.
+    assert.ok(e.name && e.primary?.length, `${id} should still be a fully-formed entry`);
+  }
+});
+
+test('Close-Grip Bench Press is NOT superseded and has its own movementId, separate from the Bench Press family', () => {
+  const closeGrip = EXERCISE_MAP['close-grip-bench-press'];
+  assert.ok(closeGrip);
+  assert.equal(closeGrip.supersededBy, undefined, 'a grip-width variant, not an angle variant — should stay independently selectable');
+  assert.notEqual(closeGrip.movementId, 'bench-press');
+});
+
 test('EXERCISE_MUSCLE_GROUPS is a distinct list, not the same object as muscleTaxonomy.js\'s MUSCLE_GROUPS', () => {
   // Deliberate naming distinction (different concept, different shape) --
   // this app has been burned before by two same-named-but-different things

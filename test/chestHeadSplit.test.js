@@ -43,3 +43,23 @@ test('cable fly direction mirrors the equivalent press angle (high-to-low ~ decl
   assert.deepEqual(chestSplitForExercise('Cable Fly (High to Low)'), chestSplitForExercise('Decline Barbell Bench Press'));
   assert.deepEqual(chestSplitForExercise('Cable Fly (Low to High)'), chestSplitForExercise('Incline Barbell Bench Press'));
 });
+
+// Bench Press pilot (EXERCISE_PARAMETERIZATION.md) — 'Bench Press' is the
+// one name in this table whose real angle varies per logged instance.
+test('chestSplitForExercise("Bench Press") without an angle falls back to the flat (0°) default', () => {
+  assert.deepEqual(chestSplitForExercise('Bench Press'), chestSplitForExercise('Barbell Bench Press'));
+});
+
+test('chestSplitForExercise("Bench Press", angle) prefers the supplied angle over the flat default, snapped to the nearest sampled position', () => {
+  assert.deepEqual(chestSplitForExercise('Bench Press', 30), chestSplitForExercise('Incline Barbell Bench Press'));
+  assert.deepEqual(chestSplitForExercise('Bench Press', -15), chestSplitForExercise('Decline Barbell Bench Press'));
+  // CHEST_SPLIT_BY_ANGLE samples every 15° (-30..60), unlike the coarser
+  // 3-point exerciseEmgProfiles.js table -- 25° is closer to the 30° bucket
+  // than 15°, so it should snap there.
+  assert.deepEqual(chestSplitForExercise('Bench Press', 25), CHEST_SPLIT_BY_ANGLE['30']);
+  assert.deepEqual(chestSplitForExercise('Bench Press', 0), chestSplitForExercise('Barbell Bench Press'));
+});
+
+test('an explicit angle is ignored for every other (fixed-angle) name in the table', () => {
+  assert.deepEqual(chestSplitForExercise('Barbell Bench Press', 30), chestSplitForExercise('Barbell Bench Press'));
+});

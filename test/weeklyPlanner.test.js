@@ -160,8 +160,14 @@ test('pickBackboneExercises never picks two exercises with the same pattern for 
 // one didn't already cover.
 test('pickBackboneExercises does not pad to count with a second compound that adds no new muscle coverage', () => {
   const picks = pickBackboneExercises(['chest', 'triceps', 'front-delt'], { count: 2 });
-  assert.equal(picks.length, 1, 'one compound (Barbell Bench Press) already covers every target muscle here -- a second pick would be pure overlap, not real variety');
-  assert.equal(picks[0].name, 'Barbell Bench Press');
+  assert.equal(picks.length, 1, 'one compound (Bench Press) already covers every target muscle here -- a second pick would be pure overlap, not real variety');
+  // 'Bench Press' (the parameterized canonical entry — see
+  // EXERCISE_PARAMETERIZATION.md) has the same chest/triceps/front-delt
+  // coverage as the legacy 'Barbell Bench Press' entry it supersedes, so
+  // with no logged history or favorite to break the tie, it correctly wins
+  // by coming first in exerciseDb.js -- exactly the intended effect of
+  // adding a canonical replacement ahead of the names it replaces.
+  assert.equal(picks[0].name, 'Bench Press');
 });
 
 // travelMode is the intended exception: bodyweight-only equipment means real
