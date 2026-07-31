@@ -814,7 +814,7 @@ app.get("/trends", async (req, res) => {
   } else if (["squat", "bench", "deadlift", "overheadPress", "row"].includes(metric)) {
     const byDate = {};
     for (const l of (db.lifts || [])) {
-      if (!l.date || l.date < cutoff || classifyLift(l.exercise || "", l.equipment) !== metric) continue;
+      if (!l.date || l.date < cutoff || classifyLift(l.exercise || "", l.equipment, l.angle) !== metric) continue;
       const e1 = estimate1RM(l.kg, l.reps);
       if (e1 == null) continue;
       if (!byDate[l.date] || e1 > byDate[l.date]) byDate[l.date] = e1;
@@ -2579,8 +2579,8 @@ async function generateWeeklyReview(db) {
   const weightEnd = db.weight[weightKeysThis.at(-1)];
 
   const prLifts = ['squat', 'bench', 'deadlift', 'overheadPress', 'row'].filter(cat => {
-    const priorBest = Math.max(0, ...db.lifts.filter(l => l.date < cutoffThis && classifyLift(l.exercise || '', l.equipment) === cat).map(l => estimate1RM(l.kg, l.reps) || 0));
-    const thisBest = Math.max(0, ...thisWeekLifts.filter(l => classifyLift(l.exercise || '', l.equipment) === cat).map(l => estimate1RM(l.kg, l.reps) || 0));
+    const priorBest = Math.max(0, ...db.lifts.filter(l => l.date < cutoffThis && classifyLift(l.exercise || '', l.equipment, l.angle) === cat).map(l => estimate1RM(l.kg, l.reps) || 0));
+    const thisBest = Math.max(0, ...thisWeekLifts.filter(l => classifyLift(l.exercise || '', l.equipment, l.angle) === cat).map(l => estimate1RM(l.kg, l.reps) || 0));
     return thisBest > priorBest && thisBest > 0;
   });
 

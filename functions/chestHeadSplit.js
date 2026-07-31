@@ -75,6 +75,15 @@ function nearestAngleBucket(angle) {
   return ANGLE_BUCKETS.reduce((best, b) => Math.abs(b - angle) < Math.abs(best - angle) ? b : best);
 }
 
+// Table only samples -30..60 (decline through high-incline) -- the range
+// 'Bench Press' actually covered before §14's unified Press angle scale
+// widened it to -90..90 (Dip/Tricep Press through Overhead/Shoulder Press).
+// Past this range, chest isn't the primary mover anymore (front-delt/
+// triceps take over) -- a "chest-head split" stops being a meaningful
+// concept there, so this returns null rather than silently snapping a true
+// overhead press to the same bucket as a 60° incline press.
+const CHEST_SPLIT_ANGLE_MIN = -30, CHEST_SPLIT_ANGLE_MAX = 60;
+
 // Returns { lower, mid, upper } (always summing to 100) for a recognized
 // chest exercise, or null for anything else (including chest exercises not
 // yet in the map above -- absence here is not a crash, just no breakdown).
@@ -84,7 +93,9 @@ function nearestAngleBucket(angle) {
 function chestSplitForExercise(name, angle) {
   const key = (name || '').toLowerCase().trim();
   if (key === 'bench press' && angle != null && !Number.isNaN(+angle)) {
-    return CHEST_SPLIT_BY_ANGLE[String(nearestAngleBucket(+angle))] || null;
+    const a = +angle;
+    if (a < CHEST_SPLIT_ANGLE_MIN || a > CHEST_SPLIT_ANGLE_MAX) return null;
+    return CHEST_SPLIT_BY_ANGLE[String(nearestAngleBucket(a))] || null;
   }
   const mappedAngle = CHEST_EXERCISE_ANGLES[key];
   if (mappedAngle == null) return null;

@@ -104,10 +104,26 @@ for (const [name, cat] of Object.entries(CLASSIFY_ALIASES)) {
 // same as every other non-canonical bench variant already is.
 const AMBIGUOUS_EQUIPMENT_ALLOWLIST = { 'bench press': { category: 'bench', requiredEquipment: 'barbell' } };
 
-function classifyLift(name, equipment) {
+// §14 widened 'Bench Press' into ONE unified angle scale spanning Dip
+// through Overhead/Shoulder Press (previously "Barbell Overhead Press" was
+// its own separate, unambiguous CLASSIFY_ALLOWLIST name, folded into
+// 'Bench Press' by supersededBy — see exerciseDb.js). Without this,
+// classifyLift would silently stop recognizing ANY future overhead-press
+// set (logged as 'Bench Press' + a high angle) as the 'overheadPress'
+// classic-lift category, a real regression the fold-in would otherwise
+// cause. Angle threshold matches matchExerciseName's own Overhead/Shoulder
+// Press boundary (functions/exerciseLabelMatching.js) so "which of the 5
+// classic lifts is this" and "what label does the picker show" never
+// disagree about where flat bench ends and overhead press begins.
+const OVERHEAD_PRESS_ANGLE_THRESHOLD = 60;
+
+function classifyLift(name, equipment, angle) {
   const key = (name || '').toLowerCase();
   const ambiguous = AMBIGUOUS_EQUIPMENT_ALLOWLIST[key];
-  if (ambiguous) return (equipment || '').toLowerCase() === ambiguous.requiredEquipment ? ambiguous.category : null;
+  if (ambiguous) {
+    if ((equipment || '').toLowerCase() !== ambiguous.requiredEquipment) return null;
+    return angle != null && +angle >= OVERHEAD_PRESS_ANGLE_THRESHOLD ? 'overheadPress' : ambiguous.category;
+  }
   return CLASSIFY_BY_NAME.get(key) || null;
 }
 

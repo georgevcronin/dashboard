@@ -7,7 +7,9 @@ const {
   PRESS_GRIP_EMG, ROW_GRIP_EMG, GRIP_ANGLES, gripCueForProfile, GRIP_ANGLES_BY_EQUIPMENT,
   GRIP_WIDTHS, GRIP_WIDTH_LABELS, ROW_GRIP_WIDTH_EMG, GRIP_WIDTH_BY_EQUIPMENT,
   applyGripRotationModifier, applyGripWidthModifier,
+  PULLDOWN_HANDLE_ANGLES, PULLDOWN_HANDLE_LABELS,
 } = require('../functions/emgActivation');
+const { ROW_PULLDOWN_ANGLE_THRESHOLD } = require('../functions/exerciseLabelMatching');
 
 test('ANGLES covers 0-180 in 15deg steps, matching every table key', () => {
   assert.deepEqual(ANGLES, [0, 15, 30, 45, 60, 75, 90, 105, 120, 135, 150, 165, 180]);
@@ -301,4 +303,17 @@ test('rotation and width modifiers compose additively without interfering with e
   // lats is touched by both axes -- the combined value should differ from
   // applying rotation alone, since width layers its own additional nudge.
   assert.notEqual(both.lats, rotationOnly.lats);
+});
+
+// §15: pulldown/pull-up "handle style" directly selects an angle at/above
+// the Row/Pulldown label-matching threshold, rather than being a delta
+// modifier — these two files' constants must agree on where that boundary
+// is and what values live inside it.
+test('PULLDOWN_HANDLE_ANGLES values all sit at/above matchRowLabel\'s pulldown threshold and are real ROW_EMG angles', () => {
+  for (const [style, angle] of Object.entries(PULLDOWN_HANDLE_ANGLES)) {
+    assert.ok(angle >= ROW_PULLDOWN_ANGLE_THRESHOLD, `${style} (${angle}°) should be at/above the pulldown threshold`);
+    assert.ok(angle in ROW_EMG, `${style} (${angle}°) should be a real angle ROW_EMG tracks`);
+    assert.ok(PULLDOWN_HANDLE_LABELS[style], `${style} should have a display label`);
+  }
+  assert.deepEqual(PULLDOWN_HANDLE_ANGLES, { close: 120, neutral: 135, wide: 165, 'behind-neck': 180 });
 });

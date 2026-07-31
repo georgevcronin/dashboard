@@ -52,29 +52,45 @@ const EXERCISE_DB = [
   // ── CHEST ────────────────────────────────────────────────────────────────────
   // 'Bench Press' is the canonical, parameterized entry — see
   // .design/feature-brainstorm/EXERCISE_PARAMETERIZATION.md ("Bench Press —
-  // the pilot"). Equipment (Barbell/Dumbbell) and a continuous incline angle
-  // are chosen per logged instance (src/app.jsx's per-exercise picker, same
+  // the pilot", extended by §14 into ONE unified angle scale spanning Dip
+  // through Overhead/Shoulder Press). Equipment and a continuous angle are
+  // chosen per logged instance (src/app.jsx's per-exercise picker, same
   // storage granularity as ex.machine/ex.pulleyType) instead of being baked
-  // into six separate name strings. `equipment` here is the static
+  // into separate name strings; the display name shown for a given instance
+  // is derived from its (angle, stance) via matchExerciseName (§14), not
+  // this entry's own static `name` field, which stays 'Bench Press' as the
+  // canonical/fallback identity. `equipment` here is the static
   // exerciseDb.js type field (barbell/dumbbell/cable/machine/etc, unrelated
   // to the `machine` brand field) — left at 'barbell' as the common-case
   // default for systems that read it statically (stability/CNS-equipment
   // classification, resistance-curve free-weight bucketing); barbell and
   // dumbbell fall in the same bucket in both of those, so this default never
   // produces a wrong answer regardless of what the athlete actually picks.
-  // `equipmentChoices`/`angleRange` are this entry's own picker config, read
-  // by the frontend, not consumed by anything else.
+  // `equipmentChoices`/`angleRange`/`stanceOptions` are this entry's own
+  // picker config, read by the frontend, not consumed by anything else.
+  // Step widened from the pilot's 5° to §14's own 15° grid (this doc's own
+  // call to make, per §14: "your call... but the labeled regions must land
+  // exactly on the boundaries") — the pilot's already-shipped values
+  // (-30/-15/0/30/60) are all multiples of 15, so no existing logged angle
+  // is orphaned by the coarser step. 'Machine' added so the Seated/Machine
+  // Shoulder Press cluster (§16) is reachable without its own DB entry;
+  // 'Bodyweight' added so the Dip/Tricep Press region (§14, -90° to -60°) is
+  // reachable by equipment that can actually get there — a barbell/dumbbell
+  // bench doesn't decline to -90°, dip bars do.
   {
     id: 'bench-press',
     name: 'Bench Press',
     category: 'push', equipment: 'barbell',
     primary: ['chest', 'triceps', 'front-delt'], secondary: ['serratus'],
     curve: 'partial',
-    curveNote: 'Chest leverage and lockout balance shift with incline — flat/slight-decline keeps mid-range chest leverage highest; steeper incline shifts load toward front-delt. Resistance still drops near lockout regardless of angle.',
+    curveNote: 'Chest leverage and lockout balance shift with incline — flat/slight-decline keeps mid-range chest leverage highest; steeper incline shifts load toward front-delt. Past ~+45° the movement is shoulder-dominant (Incline Shoulder/Overhead Press territory), and below ~-60° it is triceps-dominant (Dip/Tricep Press territory) — resistance still drops near lockout regardless of angle.',
     form: ['Retract and depress scapulae before unracking', 'Bar/dumbbells travel toward the lower chest at 0° and below, upper chest as incline increases', 'Maintain leg drive throughout', 'Elbows 45–75° from torso, not flared to 90°'],
     lesserKnown: false,
     muscleGroup: "chest", pattern: "press", movementId: "bench-press", movementName: "Bench Press",
-    parameterized: true, equipmentChoices: ['Barbell', 'Dumbbell'], angleRange: { min: -30, max: 60, step: 5 },
+    parameterized: true,
+    equipmentChoices: ['Barbell', 'Dumbbell', 'Machine', 'Bodyweight'],
+    angleRange: { min: -90, max: 90, step: 15 },
+    stanceOptions: ['Standing', 'Seated'],
   },
   // The following six named entries are superseded by the 'Bench Press'
   // entry above for NEW logging — kept as real, unmodified EXERCISE_DB
@@ -275,6 +291,12 @@ const EXERCISE_DB = [
   },
 
   // ── BACK — VERTICAL PULL ─────────────────────────────────────────────────────
+  // Per §15: Pull-up/Lat Pulldown is the Row axis's own upper anchor
+  // (0°-180°), not a separate pattern — every entry below except Cable
+  // Straight-Arm Pulldown (which keeps its own distinct identity, see its
+  // own comment) is superseded by the new canonical 'row' entity, at the
+  // exact angle §15 confirmed against ROW_EMG's own table (documented in
+  // functions/pressRowMigration.js, not re-derived here).
   {
     id: 'pull-up-wide',
     name: 'Pull-Up (Wide Grip)',
@@ -284,7 +306,8 @@ const EXERCISE_DB = [
     curveNote: 'Wide grip reduces bicep contribution; lat lever is strongest when humerus is at ~30° from vertical. Gravity provides maximum resistance mid-range — lighter at top and bottom of ROM.',
     form: ['Dead hang start — full lat stretch', 'Lead with chest, not chin', 'Elbows drive down and back', 'Full extension at bottom on every rep'],
     lesserKnown: false,
-    muscleGroup: "back", pattern: "pulldown", movementId: "pull-up", movementName: "Pull-Up"
+    muscleGroup: "back", pattern: "pulldown", movementId: "pull-up", movementName: "Pull-Up",
+    supersededBy: 'row',
   },
   {
     id: 'pull-up-neutral',
@@ -295,7 +318,8 @@ const EXERCISE_DB = [
     curveNote: 'Neutral grip puts brachialis in optimal supination; combined lat/bicep recruitment provides most balanced loading. Typically allows most weight of pull-up variations.',
     form: ['Parallel handles shoulder-width', 'Full dead hang at bottom', 'Chest to bar at top', 'No kipping — pure strength'],
     lesserKnown: false,
-    muscleGroup: "back", pattern: "pulldown", movementId: "pull-up", movementName: "Pull-Up"
+    muscleGroup: "back", pattern: "pulldown", movementId: "pull-up", movementName: "Pull-Up",
+    supersededBy: 'row',
   },
   {
     id: 'chin-up',
@@ -306,7 +330,8 @@ const EXERCISE_DB = [
     curveNote: 'Supinated grip maximises bicep supination strength — more total load possible, but shifts emphasis from lats. Biceps strongest around 90° elbow which coincides with mid-pull.',
     form: ['Supinated grip, shoulder-width', 'Full dead hang to start', 'Chin clears bar — not just nose', 'Keep core tight to avoid swing'],
     lesserKnown: false,
-    muscleGroup: "back", pattern: "pulldown", movementId: "chin-up", movementName: "Chin-Up"
+    muscleGroup: "back", pattern: "pulldown", movementId: "chin-up", movementName: "Chin-Up",
+    supersededBy: 'row',
   },
   {
     id: 'weighted-pull-up',
@@ -317,7 +342,8 @@ const EXERCISE_DB = [
     curveNote: 'Adding load via belt maintains same mechanics as bodyweight pull-up but pushes intensity beyond bodyweight limit. Most effective strength builder in vertical pull category.',
     form: ['Weight belt or dumbbell between legs', 'Still achieve full dead hang and chest to bar', 'Do not sacrifice ROM for load', 'Neutral or overhand grip depending on goal'],
     lesserKnown: false,
-    muscleGroup: "back", pattern: "pulldown", movementId: "pull-up", movementName: "Pull-Up"
+    muscleGroup: "back", pattern: "pulldown", movementId: "pull-up", movementName: "Pull-Up",
+    supersededBy: 'row',
   },
   {
     id: 'lat-pulldown-wide',
@@ -328,7 +354,8 @@ const EXERCISE_DB = [
     curveNote: 'Cable maintains constant tension unlike bodyweight pull-ups. Wide grip reduces bicep contribution. Resistance consistent from top through mid-range; decreases as bar reaches chest.',
     form: ['Slight lean back, chest up', 'Pull bar to upper chest, not behind neck', 'Full stretch at top — do not short-ROM', 'Drive elbows down and back'],
     lesserKnown: false,
-    muscleGroup: "back", pattern: "pulldown", movementId: "lat-pulldown", movementName: "Lat Pulldown"
+    muscleGroup: "back", pattern: "pulldown", movementId: "lat-pulldown", movementName: "Lat Pulldown",
+    supersededBy: 'row',
   },
   {
     id: 'lat-pulldown-neutral',
@@ -339,7 +366,8 @@ const EXERCISE_DB = [
     curveNote: 'Neutral/parallel grip allows strongest pull position for most users due to supination neutrality. Combined lat and bicep engagement.',
     form: ['V-bar or parallel handle attachment', 'Full arm extension at top', 'Pull to upper chest level', 'Lean back slightly — not excessively'],
     lesserKnown: false,
-    muscleGroup: "back", pattern: "pulldown", movementId: "lat-pulldown", movementName: "Lat Pulldown"
+    muscleGroup: "back", pattern: "pulldown", movementId: "lat-pulldown", movementName: "Lat Pulldown",
+    supersededBy: 'row',
   },
   {
     id: 'lat-pulldown-reverse',
@@ -350,8 +378,16 @@ const EXERCISE_DB = [
     curveNote: 'Supinated grip mirrors chin-up mechanics; biceps contribute more which typically allows heavier loading. Lat recruitment still strong, especially lower portion.',
     form: ['Shoulder-width supinated grip', 'Elbows stay close to body throughout', 'Pull bar to upper chest', 'Squeeze lats hard at bottom of pull'],
     lesserKnown: false,
-    muscleGroup: "back", pattern: "pulldown", movementId: "lat-pulldown", movementName: "Lat Pulldown"
+    muscleGroup: "back", pattern: "pulldown", movementId: "lat-pulldown", movementName: "Lat Pulldown",
+    supersededBy: 'row',
   },
+  // Cable Straight-Arm Pulldown deliberately keeps its own separate identity
+  // (NOT supersededBy 'row') despite sharing the same angle axis (§15: its
+  // lats value matches ROW_EMG at 0° exactly) -- it's a straight-arm
+  // shoulder-extension motion, mechanically distinct from a bent-elbow row
+  // pull in a way the simple angle+equipment vector doesn't capture, the
+  // same carve-out reasoning as JM Press/Close-Grip Bench Press staying
+  // separate from their own families.
   {
     id: 'cable-straight-arm-pulldown',
     name: 'Cable Straight-Arm Pulldown',
@@ -372,7 +408,11 @@ const EXERCISE_DB = [
     curveNote: 'Unilateral loading corrects imbalances. Cable provides consistent tension; single arm allows greater ROM and rotation at bottom for full lat contraction.',
     form: ['Reach fully at top — get the lat stretch', 'Pull elbow down and back past hip', 'Slight lean away from the cable', 'Avoid rotating the torso excessively'],
     lesserKnown: false,
-    muscleGroup: "back", pattern: "pulldown", movementId: "lat-pulldown", movementName: "Lat Pulldown"
+    muscleGroup: "back", pattern: "pulldown", movementId: "lat-pulldown", movementName: "Lat Pulldown",
+    // Per §9/§15: not its own grip-width category -- Neutral-Grip Lat
+    // Pulldown (135°) + the single-limb flag, at a slightly adjusted 150° to
+    // reflect the real stability/mechanics shift unilateral loading causes.
+    supersededBy: 'row',
   },
   {
     id: 'cable-pullover',
@@ -384,6 +424,45 @@ const EXERCISE_DB = [
     form: ['Lie on flat bench perpendicular to cable', 'Slight bend in elbows, locked position', 'Full overhead stretch — do not limit ROM', 'Sweep to hip level, squeeze lats and chest'],
     lesserKnown: false,
     muscleGroup: "back", pattern: "pullover", movementId: "cable-pullover", movementName: "Cable Pullover"
+  },
+
+  // 'Row' is the canonical, parameterized entry for the whole vertical pull
+  // axis (0°-180°, unchanged from ROW_EMG/functions/emgActivation.js) --
+  // see .design/feature-brainstorm/EXERCISE_PARAMETERIZATION.md §15. Angle,
+  // equipment, grip rotation/width, and single-limb are chosen per logged
+  // instance (same picker mechanism as 'bench-press', reusing
+  // GRIP_ANGLES_BY_EQUIPMENT/GRIP_WIDTH_BY_EQUIPMENT/applyGripRotation
+  // Modifier/applyGripWidthModifier already built for PressRowBuilder); the
+  // display name for a given instance is derived from (angle, equipment)
+  // via matchExerciseName (§15: 'Row' below 120°, 'Lat Pulldown' or
+  // 'Pull-up' at/above it depending on equipment), not this entry's own
+  // static `name`. Per §15, grip width becomes angle-DIRECTLY-SELECTING
+  // (not a delta-modifier) at/above 120° -- see functions/emgActivation.js's
+  // ROW_GRIP_WIDTH_EMG comment and functions/pressRowMigration.js's handle-
+  // angle table for the exact close/neutral/wide/behind-neck angles.
+  //
+  // Scope note: only the pull-up/lat-pulldown cluster (§15's explicit,
+  // numerically-confirmed table) is superseded into this entity in this
+  // pass. The broader existing row family (Bent-Over Row, Seated Cable Row,
+  // T-Bar Row, etc.) already had pattern:'row' + its own curated
+  // functions/exerciseAngles.js default before this phase and is
+  // deliberately left as-is here -- see this project's own task notes for
+  // why folding the *entire* family wasn't attempted in the same pass as
+  // the genuinely new pulldown/pull-up insight.
+  {
+    id: 'row',
+    name: 'Row',
+    category: 'pull', equipment: 'cable',
+    primary: ['lats', 'rhomboids', 'mid-traps'], secondary: ['rear-delt', 'biceps', 'brachioradialis'],
+    curve: 'partial',
+    curveNote: 'Muscle emphasis shifts continuously with pull angle — low/straight-arm pulls favor lats, pulls from directly in front favor a balanced lats/upper-back mix, and overhead pulls (pulldown/pull-up territory) shift toward rhomboids/rear-delt. Resistance profile depends on equipment (barbell/dumbbell/cable/machine/bodyweight).',
+    form: ['Retract scapulae before initiating the pull', 'Elbow path follows the chosen angle — low and back for a lat-dominant pull, higher and wider for an upper-back-dominant one', 'Control the eccentric — do not let the weight/bodyweight free-fall', 'Full stretch at the top of every rep'],
+    lesserKnown: false,
+    muscleGroup: "back", pattern: "row", movementId: "row", movementName: "Row",
+    parameterized: true,
+    equipmentChoices: ['Barbell', 'Dumbbell', 'Cable', 'Machine', 'Bodyweight'],
+    angleRange: { min: 0, max: 180, step: 15 },
+    stanceOptions: ['Standing', 'Chest-Supported'],
   },
 
   // ── BACK — HORIZONTAL PULL ───────────────────────────────────────────────────
@@ -666,6 +745,15 @@ const EXERCISE_DB = [
   },
 
   // ── SHOULDERS ────────────────────────────────────────────────────────────────
+  // The following entries fold into the unified 'bench-press' entity per §14
+  // (Overhead/Shoulder Press is the same angle axis's +60°-and-above region,
+  // not a separate parameterized family). supersededBy hides them from new
+  // logging (src/app.jsx) while keeping them fully resolving for historical
+  // data, strengthStandards.js's CLASSIFY_ALLOWLIST, and exerciseNameAliases.js
+  // — same non-destructive pattern as the Bench Press pilot's own six.
+  // Migration angle/equipment/stance are documented in
+  // functions/pressRowMigration.js (not derived here — this comment only
+  // states the fold-in decision, not the specific migration values).
   {
     id: 'barbell-overhead-press',
     name: 'Barbell Overhead Press',
@@ -675,7 +763,8 @@ const EXERCISE_DB = [
     curveNote: 'Gravity provides maximum resistance at 90° abduction — strongest mid-range — but resistance drops near lockout where front delt is fully shortened. Heaviest of all shoulder pressing movements.',
     form: ['Bar rests on clavicle/front delts in rack position', 'Press in straight line over ears', 'Lock out hard at top', 'Brace core and glutes — this is a full body lift'],
     lesserKnown: false,
-    muscleGroup: "shoulders", pattern: "press", movementId: "overhead-press", movementName: "Overhead Press"
+    muscleGroup: "shoulders", pattern: "press", movementId: "overhead-press", movementName: "Overhead Press",
+    supersededBy: 'bench-press',
   },
   {
     id: 'dumbbell-overhead-press',
@@ -686,7 +775,8 @@ const EXERCISE_DB = [
     curveNote: 'Greater ROM than barbell and independent arm movement. Neutral grip option reduces shoulder impingement risk. Same resistance profile — peak at 90°.',
     form: ['Start with dumbbells at ear level', 'Press to directly overhead, not in front', 'Slight arc inward at top is natural', 'Seated or standing — both effective'],
     lesserKnown: false,
-    muscleGroup: "shoulders", pattern: "press", movementId: "overhead-press", movementName: "Overhead Press"
+    muscleGroup: "shoulders", pattern: "press", movementId: "overhead-press", movementName: "Overhead Press",
+    supersededBy: 'bench-press',
   },
   {
     id: 'machine-shoulder-press',
@@ -697,7 +787,8 @@ const EXERCISE_DB = [
     curveNote: 'Cam profile varies; consistent loading without stabiliser demand allows higher shoulder-specific volume. Handles reduce wrist and shoulder stress vs barbell.',
     form: ['Adjust seat so handles are at shoulder height', 'Press to full extension — do not short-ROM', 'Control the descent', 'Elbows at 90° or slight forward cant at start'],
     lesserKnown: false,
-    muscleGroup: "shoulders", pattern: "press", movementId: "overhead-press", movementName: "Overhead Press"
+    muscleGroup: "shoulders", pattern: "press", movementId: "overhead-press", movementName: "Overhead Press",
+    supersededBy: 'bench-press',
   },
   {
     id: 'arnold-press',
@@ -1686,7 +1777,8 @@ const EXERCISE_DB = [
     curveNote: 'Seated position removes leg drive variable — more strict shoulder stimulus. Same resistance profile as standing; backrest can assist for heavier loading.',
     form: ['90° back support or slight recline', 'Dumbbells at ear height to start', 'Press directly overhead', 'Do not arch lower back excessively'],
     lesserKnown: false,
-    muscleGroup: "shoulders", pattern: "press", movementId: "overhead-press", movementName: "Overhead Press"
+    muscleGroup: "shoulders", pattern: "press", movementId: "overhead-press", movementName: "Overhead Press",
+    supersededBy: 'bench-press',
   },
   {
     id: 'pike-push-up',
@@ -1774,7 +1866,8 @@ const EXERCISE_DB = [
     curveNote: 'Behind-neck position increases mid-delt recruitment by changing bar path. Higher shoulder impingement risk — only appropriate for those with good mobility. Smith machine provides safety.',
     form: ['Head forward, bar behind neck to ear level', 'Elbows wide at 90° before pressing', 'Do not press if shoulder pain occurs', 'Light-moderate weight only'],
     lesserKnown: false,
-    muscleGroup: "shoulders", pattern: "press", movementId: "behind-neck-press", movementName: "Behind-Neck Press"
+    muscleGroup: "shoulders", pattern: "press", movementId: "behind-neck-press", movementName: "Behind-Neck Press",
+    supersededBy: 'bench-press',
   },
 
   // ── ADDITIONAL ARMS ──────────────────────────────────────────────────────────
@@ -2082,7 +2175,7 @@ const EXERCISE_DB = [
     muscleGroup: "quads", pattern: "hinge", movementId: "deadlift", movementName: "Deadlift"
   },
   // ── FINAL ADDITIONS ──────────────────────────────────────────────────────────
-  { id: 'close-grip-lat-pulldown', name: 'Close-Grip Lat Pulldown', category: 'pull', equipment: 'machine', primary: ['lats', 'biceps'], secondary: ['rhomboids'], curve: 'partial', curveNote: 'Narrow supinated or neutral grip shifts emphasis to lower lats and biceps. Elbow path more vertical — good variation from wide grip.', form: ['V-bar or close attachment', 'Pull to upper chest', 'Full stretch at top', 'Elbows travel close to body'], lesserKnown: false, muscleGroup: "back", pattern: "pulldown", movementId: "lat-pulldown", movementName: "Lat Pulldown" },
+  { id: 'close-grip-lat-pulldown', name: 'Close-Grip Lat Pulldown', category: 'pull', equipment: 'machine', primary: ['lats', 'biceps'], secondary: ['rhomboids'], curve: 'partial', curveNote: 'Narrow supinated or neutral grip shifts emphasis to lower lats and biceps. Elbow path more vertical — good variation from wide grip.', form: ['V-bar or close attachment', 'Pull to upper chest', 'Full stretch at top', 'Elbows travel close to body'], lesserKnown: false, muscleGroup: "back", pattern: "pulldown", movementId: "lat-pulldown", movementName: "Lat Pulldown", supersededBy: 'row' },
   { id: 'rack-row', name: 'Rack Row (Barbell Inverted)', category: 'pull', equipment: 'barbell', primary: ['lats', 'rhomboids', 'biceps'], secondary: ['rear-delt', 'core'], curve: 'partial', curveNote: 'Bodyweight inverted row with barbell in rack. Horizontal pulling pattern with bodyweight load — easier than pull-ups. Chest stays up throughout.', form: ['Bar at hip height in rack', 'Lie under bar, overhand grip', 'Pull chest to bar', 'Body plank-rigid throughout'], lesserKnown: false, muscleGroup: "back", pattern: "row", movementId: "rack-row", movementName: "Rack Row" },
   { id: 'inverted-row', name: 'Inverted Row (TRX/Rings)', category: 'pull', equipment: 'bodyweight', primary: ['lats', 'rhomboids'], secondary: ['biceps', 'rear-delt'], curve: 'partial', curveNote: 'Suspension inverted row allows wrist rotation and increases instability. Greater ROM than bar-based version; adjustable difficulty via body angle.', form: ['Angle body 20–60° from floor', 'Pull chest to handles', 'Full arm extension at bottom', 'Squeeze back hard at top'], lesserKnown: false, muscleGroup: "back", pattern: "row", movementId: "inverted-row", movementName: "Inverted Row" },
   { id: 'snatch-grip-deadlift', name: 'Snatch-Grip Deadlift', category: 'hinge', equipment: 'barbell', primary: ['hamstrings', 'glutes', 'erectors'], secondary: ['traps', 'lats'], curve: 'partial', curveNote: 'Wide grip lowers starting hip position and increases ROM — more upper back and hamstring demand than conventional. Excellent for posterior chain development.', form: ['Very wide overhand grip — snatch width', 'Lower hips than conventional deadlift', 'Bar close throughout', 'Full lockout'], lesserKnown: false, muscleGroup: "hamstrings", pattern: "hinge", movementId: "deadlift", movementName: "Deadlift" },
@@ -2101,12 +2194,12 @@ const EXERCISE_DB = [
   { id: 'dumbbell-row-pronated', name: 'Dumbbell Row (Pronated)', category: 'pull', equipment: 'dumbbell', primary: ['lats', 'rhomboids'], secondary: ['rear-delt', 'brachioradialis'], curve: 'partial', curveNote: 'Pronated grip shifts emphasis from biceps to brachioradialis and increases rhomboid/mid-trap recruitment. Varied grip for complete back development.', form: ['Overhand grip on dumbbell', 'Pull to lower ribcage area', 'Elbow more flared than supinated version', 'Control the descent'], lesserKnown: false, muscleGroup: "back", pattern: "row", movementId: "dumbbell-row", movementName: "Dumbbell Row" },
   { id: 'cable-row-wide', name: 'Wide-Grip Cable Row', category: 'pull', equipment: 'cable', primary: ['rhomboids', 'mid-traps', 'rear-delt'], secondary: ['lats', 'biceps'], curve: 'matching', curveNote: 'Wide bar attachment on seated row shifts emphasis to upper back — elbows flare and pull to upper chest. More mid-trap and rhomboid, less lat than close-grip version.', form: ['Wide pronated grip on straight bar', 'Pull to upper chest', 'Elbows flare to 90° at end', 'Squeeze upper back hard'], lesserKnown: false, muscleGroup: "back", pattern: "row", movementId: "wide-grip-row", movementName: "Wide-Grip Row" },
   { id: 'chest-supported-row-barbell', name: 'Chest-Supported Barbell Row', category: 'pull', equipment: 'barbell', primary: ['lats', 'rhomboids', 'mid-traps'], secondary: ['biceps'], curve: 'partial', curveNote: 'Chest on incline bench completely removes lower back demand. Honest mid-back loading without erector fatigue limiting the set.', form: ['Prone on incline at 45°', 'Barbell hanging below', 'Pull to sternum level', 'Squeeze rhomboids hard at top'], lesserKnown: false, muscleGroup: "back", pattern: "row", movementId: "chest-supported-row", movementName: "Chest-Supported Row" },
-  { id: 'seated-overhead-press-smith', name: 'Smith Machine Overhead Press', category: 'shoulders', equipment: 'smith', primary: ['front-delt', 'mid-delt'], secondary: ['triceps'], curve: 'partial', curveNote: 'Fixed path removes stabiliser demand — allows focus on pure deltoid overload. Useful when shoulder injury requires guided movement.', form: ['Set up so bar is in front of face', 'Press to full extension', 'Full ROM — do not short stroke', 'Control descent'], lesserKnown: false, muscleGroup: "shoulders", pattern: "press", movementId: "overhead-press", movementName: "Overhead Press" },
+  { id: 'seated-overhead-press-smith', name: 'Smith Machine Overhead Press', category: 'shoulders', equipment: 'smith', primary: ['front-delt', 'mid-delt'], secondary: ['triceps'], curve: 'partial', curveNote: 'Fixed path removes stabiliser demand — allows focus on pure deltoid overload. Useful when shoulder injury requires guided movement.', form: ['Set up so bar is in front of face', 'Press to full extension', 'Full ROM — do not short stroke', 'Control descent'], lesserKnown: false, muscleGroup: "shoulders", pattern: "press", movementId: "overhead-press", movementName: "Overhead Press", supersededBy: 'bench-press' },
   { id: 'dumbbell-pullover', name: 'Dumbbell Pullover', category: 'pull', equipment: 'dumbbell', primary: ['lats', 'chest'], secondary: ['teres-major', 'abs'], curve: 'opposing', curveNote: 'Dumbbell overhead — maximum load where lats are lengthened (overhead), decreasing as arm returns to chest. Opposite of ideal but unique cross-body lat/chest loader.', form: ['Shoulders on bench, hips off', 'Lower dumbbell behind head', 'Keep slight bend in elbow', 'Return by driving through lats and chest'], lesserKnown: false, muscleGroup: "back", pattern: "pullover", movementId: "dumbbell-pullover", movementName: "Dumbbell Pullover" },
   { id: 'band-pull-apart', name: 'Band Pull-Apart', category: 'pull', equipment: 'bodyweight', primary: ['rear-delt', 'rhomboids', 'mid-traps'], secondary: ['rotator-cuff'], curve: 'matching', curveNote: 'Band maintains resistance through full horizontal abduction — peak load right where rear delt is strongest. One of the best shoulder health exercises with consistent tension profile.', form: ['Hold band at shoulder height, arms straight', 'Pull apart to chest level', 'Squeeze shoulder blades', 'Control return — eccentric is where the benefit is'], lesserKnown: false, muscleGroup: "shoulders", pattern: "raise", movementId: "band-pull-apart", movementName: "Band Pull-Apart" },
   { id: 'incline-curl', name: 'Incline Bench Curl (Scott Curl)', category: 'arms', equipment: 'dumbbell', primary: ['biceps'], secondary: ['brachialis'], curve: 'partial', curveNote: 'Arms braced on incline — similar to preacher but on incline side. Short head bicep fully loaded; cheating eliminated by bench support.', form: ['Arms over incline, elbows fixed on bench', 'Full extension at bottom', 'Curl to peak', 'Do not bounce at bottom'], lesserKnown: false, muscleGroup: "biceps", pattern: "curl", movementId: "incline-curl", movementName: "Incline Curl" },
   { id: 'overhead-cable-curl', name: 'Overhead Cable Curl (Double Bicep)', category: 'arms', equipment: 'cable', primary: ['biceps'], secondary: ['front-delt'], curve: 'matching', curveNote: 'Arms extended at shoulder height with high cables — mimics double-bicep pose. Shoulder-flexed position places both bicep heads under tension. Loads peak contraction from an extended position.', form: ['High cables at each side', 'Curl toward temples simultaneously', 'Hold peak flex', 'Return slowly against cable resistance'], lesserKnown: true, muscleGroup: "biceps", pattern: "curl", movementId: "overhead-cable-curl", movementName: "Overhead Cable Curl" },
-  { id: 'lat-pulldown-behind-neck', name: 'Behind-Neck Lat Pulldown', category: 'pull', equipment: 'machine', primary: ['lats'], secondary: ['rhomboids', 'biceps'], curve: 'partial', curveNote: 'Bar pulled to behind neck increases mid-trap and rhomboid activation at the expense of increased cervical spine load. Only for those with good mobility and no shoulder issues.', form: ['Head forward, bar behind neck', 'Wide grip', 'Touch back of neck lightly — no force', 'Contraindicated for shoulder impingement'], lesserKnown: false, muscleGroup: "back", pattern: "pulldown", movementId: "lat-pulldown", movementName: "Lat Pulldown" },
+  { id: 'lat-pulldown-behind-neck', name: 'Behind-Neck Lat Pulldown', category: 'pull', equipment: 'machine', primary: ['lats'], secondary: ['rhomboids', 'biceps'], curve: 'partial', curveNote: 'Bar pulled to behind neck increases mid-trap and rhomboid activation at the expense of increased cervical spine load. Only for those with good mobility and no shoulder issues.', form: ['Head forward, bar behind neck', 'Wide grip', 'Touch back of neck lightly — no force', 'Contraindicated for shoulder impingement'], lesserKnown: false, muscleGroup: "back", pattern: "pulldown", movementId: "lat-pulldown", movementName: "Lat Pulldown", supersededBy: 'row' },
   { id: 'single-arm-dumbbell-press', name: 'Single-Arm Dumbbell Press', category: 'push', equipment: 'dumbbell', primary: ['chest', 'triceps'], secondary: ['front-delt', 'core', 'serratus'], curve: 'partial', curveNote: 'Unilateral press creates rotational demand on core — anti-rotation adds TVA engagement. Reveals chest imbalances. Core benefit makes this more than just a chest exercise.', form: ['Lay flat, one dumbbell', 'Other arm extended or on chest', 'Press and resist rotation', 'Full ROM as normal press'], lesserKnown: false, muscleGroup: "chest", pattern: "press", movementId: "single-arm-bench-press", movementName: "Single-Arm Bench Press" },
   { id: 'hex-press', name: 'Hex Press (Floor)', category: 'push', equipment: 'dumbbell', primary: ['chest', 'triceps'], secondary: ['front-delt'], curve: 'partial', curveNote: 'Dumbbells pressed together throughout floor press — constant adduction tension from squeezing. Similar to Svend press but in a press pattern. Unusual inner chest loading.', form: ['Flat on floor', 'Hold hex/flat-faced dumbbells pressed together', 'Press without letting them separate', 'Full extension and squeeze at top'], lesserKnown: true, muscleGroup: "chest", pattern: "press", movementId: "hex-press", movementName: "Hex Press" },
   { id: 'push-press', name: 'Push Press', category: 'shoulders', equipment: 'barbell', primary: ['front-delt', 'mid-delt', 'triceps'], secondary: ['quads', 'glutes', 'core'], curve: 'matching', curveNote: 'Dip and drive uses leg momentum to initiate the press — allows supramaximal load overhead. True power development in the press pattern. Loads delts through full range with more weight than strict press.', form: ['Small dip then explosive drive', 'Bar goes overhead in one movement', 'Lock out hard at top', 'Reset before each rep or continuous touch-and-go'], lesserKnown: false, muscleGroup: "shoulders", pattern: "press", movementId: "push-press", movementName: "Push Press" },
