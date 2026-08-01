@@ -52,7 +52,7 @@ const { DEFAULT_WARMUP_SCHEME, WARMUP_SCHEME_PRESETS } = progressionPkg;
 const { validateUsername, validateDisplayName, normalizeUsername, USERNAME_MAX, canChangeUsername, usernameChangeAvailableAt } = identityPkg;
 const { FATIGUE_CEILING } = weeklyPlannerPkg;
 const {
-  ANGLES: EMG_ANGLES, PRESS_ANGLE_DESC, ROW_ANGLE_DESC, classifyMuscles, emgForAngle, frontalCueForProfile, gripCueForProfile,
+  ANGLES: EMG_ANGLES, ROW_ANGLE_DESC, classifyMuscles, emgForAngle, frontalCueForProfile, gripCueForProfile,
   GRIP_LABELS, GRIP_ANGLES_BY_EQUIPMENT, GRIP_WIDTHS, GRIP_WIDTH_BY_EQUIPMENT, GRIP_WIDTH_LABELS,
   applyGripRotationModifier, applyGripWidthModifier,
 } = emgActivationPkg;
@@ -865,6 +865,14 @@ const glycogenPct = (elapsedS, totalS) => {
 // instead of the list. v0.1 is the first tracked release, not literally the
 // app's first version — everything before this had no changelog at all.
 const CHANGELOG = [
+  {
+    version: '0.64',
+    date: '2026-08-01',
+    features: [
+      'Fixed "Build Press/Row" (the custom-exercise builder) crediting Press exercises against the wrong angle scale — it was still using Press\'s old 0°-arm-at-side/180°-overhead arc, while every other Press picker in the app (Bench Press, and everywhere that name gets displayed) has used the -90° Dip/+90° Overhead scale since Overhead Press and Row were unified. A custom press built here now uses the same scale and gets the same muscle credit a built-in Bench Press entry at that angle would. Row was already on the right scale and is unaffected.',
+      'The custom-exercise builder now shows the resolved common name (e.g. "Incline Shoulder Press") as you pick an angle, and bakes it into the exercise\'s own name, instead of leaving every custom Press/Row exercise looking like an indistinguishable "Barbell Press — 45°" in your history.',
+    ],
+  },
   {
     version: '0.63',
     date: '2026-08-01',
@@ -1709,7 +1717,19 @@ function PressRowBuilder({ onAdd, lifts }) {
   // second table lookup) -- combinedWeights is what actually gets credited
   // and predicted against, baseWeights only still exists for the `!weights`
   // guard below and to detect "nothing chosen yet".
-  const baseWeights = angle != null ? emgForAngle(pattern, angle) : null;
+  //
+  // Press and Row use DIFFERENT angle conventions here, matching the
+  // canonical Bench Press/Row picker (paramDef.parameterized block below) so
+  // the same numeric angle means the same thing wherever it's typed in this
+  // app -- Row's canonical -90..180 scale already IS ROW_EMG's own native
+  // domain (emgForAngle('row', angle) directly), but Press's canonical -90..
+  // 90 scale (Dip through Overhead, §14) is NOT emgForAngle('press', angle)'s
+  // native domain (PRESS_EMG's own 0=arm-at-side/180=overhead arc) --
+  // benchPressEmgProfileForAngle is the same anchor-snapping translation the
+  // canonical picker already uses, reused here rather than building a
+  // custom Press exercise whose stored muscle credit silently meant
+  // something different from every other Press entry in the app.
+  const baseWeights = angle == null ? null : pattern === 'press' ? benchPressEmgProfileForAngle(angle) : emgForAngle('row', angle);
   let combinedWeights = baseWeights;
   if (combinedWeights && rotation != null) combinedWeights = applyGripRotationModifier(pattern, combinedWeights, rotation);
   if (combinedWeights && pattern === 'row' && gripWidth) combinedWeights = applyGripWidthModifier(combinedWeights, gripWidth);
@@ -1720,7 +1740,14 @@ function PressRowBuilder({ onAdd, lifts }) {
     if (!combinedWeights) return;
     const { primary, secondary } = classifyMuscles(combinedWeights);
     const equipLabel = equipment[0].toUpperCase() + equipment.slice(1);
-    const patternLabel = pattern === 'press' ? 'Press' : 'Row';
+    // The resolved name (matchExerciseName, §0/§14/§15) rather than a bare
+    // "Press"/"Row" -- otherwise every custom exercise built here would show
+    // up in history as indistinguishable "Barbell Press — 45°" entries no
+    // matter how differently they actually trained you, the exact
+    // comprehension gap the canonical Bench Press/Row picker's own live
+    // label (paramDef.parameterized block above) already solves for its
+    // two named entries.
+    const patternLabel = matchExerciseName(pattern, { angle, equipment });
     // Rotation/width both need to be part of the generated name, same as
     // angle/brand already are -- this app's custom-exercise identity is
     // keyed by name (addExercise/customExercises in WorkoutLogger), so two
@@ -1782,10 +1809,18 @@ function PressRowBuilder({ onAdd, lifts }) {
           {showAngleStep && (
             <div>
               <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)', lineHeight: 1.6, marginBottom: 10 }}>
-                {pattern === 'press' ? PRESS_ANGLE_DESC : ROW_ANGLE_DESC}
+                {pattern === 'press'
+                  ? '−90° = Dip / Tricep Press · 0° = flat Bench Press · +90° = Overhead / Shoulder Press — same scale as the Bench Press picker.'
+                  : ROW_ANGLE_DESC}
               </div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-                {EMG_ANGLES.map(a => (
+                {/* Press's canonical scale (§14) is -90..90, the SAME 13-point
+                    step-15 grid EMG_ANGLES already provides just shifted by
+                    -90 -- reused rather than a second hardcoded list, so the
+                    two can never drift apart. Row's canonical scale already
+                    IS EMG_ANGLES' own 0-180 domain (see baseWeights above),
+                    no shift needed. */}
+                {(pattern === 'press' ? EMG_ANGLES.map(a => a - 90) : EMG_ANGLES).map(a => (
                   <button key={a} style={{ ...tileStyle, flex: '0 0 auto', padding: '7px 10px' }} onClick={() => setAngle(a)}>{a}°</button>
                 ))}
               </div>
@@ -1831,6 +1866,12 @@ function PressRowBuilder({ onAdd, lifts }) {
             <div>
               <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 11, color: 'var(--ink)', marginBottom: 8 }}>
                 {equipment[0].toUpperCase() + equipment.slice(1)} {pattern === 'press' ? 'Press' : 'Row'} — {angle}°
+                {/* No stance step here (unlike the canonical Bench Press/Row
+                    picker) -- matchPressLabel/matchRowLabel default to their
+                    standing-equivalent read without one, a reasonable
+                    assumption to preview by, not a claim this is the only
+                    possible name at this angle. */}
+                {` (${matchExerciseName(pattern, { angle, equipment })})`}
                 {rotation != null ? ` — ${GRIP_LABELS[rotation]}` : ''}
                 {gripWidth ? ` — ${gripWidth} grip` : ''}
                 {brand.trim() ? ` — ${brand.trim()}` : ''}
