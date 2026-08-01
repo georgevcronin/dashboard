@@ -866,6 +866,13 @@ const glycogenPct = (elapsedS, totalS) => {
 // app's first version — everything before this had no changelog at all.
 const CHANGELOG = [
   {
+    version: '0.62',
+    date: '2026-08-01',
+    features: [
+      'Build Press/Row\'s cross-exercise weight prediction is more accurate: a muscle with too little data to solve confidently now shrinks toward your own average capacity instead of being clamped to a flat 0, the ridge-regression penalty is now tuned per-account (leave-one-out cross-validation) instead of a fixed constant, and machine-equipment predictions now correct for the specific machine brand+model when you\'ve logged enough on it.',
+    ],
+  },
+  {
     version: '0.61',
     date: '2026-07-31',
     features: [
