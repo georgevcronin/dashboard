@@ -102,7 +102,22 @@ for (const [name, cat] of Object.entries(CLASSIFY_ALIASES)) {
 // it when the caller can confirm the logged equipment was Barbell; anything
 // else (Dumbbell, or unknown/missing equipment) is conservatively excluded,
 // same as every other non-canonical bench variant already is.
-const AMBIGUOUS_EQUIPMENT_ALLOWLIST = { 'bench press': { category: 'bench', requiredEquipment: 'barbell' } };
+const AMBIGUOUS_EQUIPMENT_ALLOWLIST = {
+  'bench press': { category: 'bench', requiredEquipment: 'barbell' },
+  // The Row-family fold-in (see exerciseDb.js's supersededBy: 'row' tags)
+  // retired "Barbell Row (Overhand / Pendlay)"/"Barbell Row (Underhand /
+  // Yates)" from new logging the same way Bench Press retired "Barbell
+  // Overhead Press" — see that comment below for the exact failure mode
+  // this prevents. Row's canonical entry isn't one angle continuum split
+  // into two named categories the way Press is, though — it's a single
+  // classic-lift point (bent-over barbell row) inside a much wider
+  // equipment+angle space that also covers cable/machine/bodyweight rows,
+  // seated rows, pulldowns, etc. — none of which are the classic lift
+  // these standards are calibrated on. requiredAngle (exact match, not a
+  // threshold) keeps this as narrow as the two literal names it replaces:
+  // both are now migrated to angle 60 (functions/pressRowMigration.js).
+  'row': { category: 'row', requiredEquipment: 'barbell', requiredAngle: 60 },
+};
 
 // §14 widened 'Bench Press' into ONE unified angle scale spanning Dip
 // through Overhead/Shoulder Press (previously "Barbell Overhead Press" was
@@ -122,6 +137,9 @@ function classifyLift(name, equipment, angle) {
   const ambiguous = AMBIGUOUS_EQUIPMENT_ALLOWLIST[key];
   if (ambiguous) {
     if ((equipment || '').toLowerCase() !== ambiguous.requiredEquipment) return null;
+    if (ambiguous.requiredAngle != null) {
+      return angle != null && +angle === ambiguous.requiredAngle ? ambiguous.category : null;
+    }
     return angle != null && +angle >= OVERHEAD_PRESS_ANGLE_THRESHOLD ? 'overheadPress' : ambiguous.category;
   }
   return CLASSIFY_BY_NAME.get(key) || null;
