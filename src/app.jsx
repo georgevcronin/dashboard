@@ -2191,6 +2191,7 @@ function WorkoutLogger({ planDay, lifts, customExercises, experienceLevel, onClo
   const [newEx, setNewEx] = useState('');
   const [suggestions, setSuggestions] = useState([]);
   const [start] = useState(() => restored?.startedAt || Date.now());
+  const workoutDate = new Date().toISOString().split('T')[0];
   const [elapsed, setElapsed] = useState(() => Math.floor((Date.now() - (restored?.startedAt || Date.now())) / 1000));
   // Stored as an absolute end timestamp (survives a backgrounded-tab reload
   // the same way `start`/elapsed does — see the elapsed-timer comment below)
