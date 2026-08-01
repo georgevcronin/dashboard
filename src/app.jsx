@@ -2222,6 +2222,10 @@ function WorkoutLogger({ planDay, lifts, customExercises, experienceLevel, onClo
   // never checked off, since that's exactly the kind of set easy to
   // overlook walking away from the gym.
   const [confirmAction, setConfirmAction] = useState(null);
+  const [showTypeHelp, setShowTypeHelp] = useState(false);
+  const [currentSetIndex, setCurrentSetIndex] = useState(null); // Track which set to fill next
+  const [sessionPaused, setSessionPaused] = useState(false);
+  const [pausedTime, setPausedTime] = useState(null);
   // ── Gym equipment catalog ────────────────────────────────────────────────
   // See .design/feature-brainstorm/GYM_MACHINE_CATALOG.md. activeGym/
   // gymDetectDone are part of the restored-session snapshot (saveActiveSession
@@ -2878,6 +2882,9 @@ function WorkoutLogger({ planDay, lifts, customExercises, experienceLevel, onClo
             <button className="ol-btn ol-btn-ghost" onClick={() => {
               if (hasLoggedData) setConfirmAction('discard'); else { clearActiveSession(); onClose(); }
             }}>Discard</button>
+            <button className="ol-btn ol-btn-ghost" onClick={() => { setSessionPaused(!sessionPaused); setPausedTime(sessionPaused ? null : Date.now()); }} title={sessionPaused ? 'Resume session' : 'Pause for a break'}>
+              {sessionPaused ? 'Resume' : 'Pause'}
+            </button>
             {/* Nothing logged yet -- Finish is disabled rather than allowed
                 to silently no-op (finish() used to just close with nothing
                 saved). Discard is still the right action for an empty
@@ -3369,9 +3376,28 @@ function WorkoutLogger({ planDay, lifts, customExercises, experienceLevel, onClo
           confirms before ending the session, with a more specific warning
           layered on top when there's also an unchecked-but-filled-in set
           about to be silently saved as-is. */}
+      {/* Type legend help modal */}
+      {showTypeHelp && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 1300, background: 'rgba(0,0,0,.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+          <div style={{ background: 'var(--paper)', border: '3px solid var(--ink)', padding: 24, maxWidth: 360, width: '100%' }}>
+            <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 17, fontWeight: 700, marginBottom: 14, color: 'var(--ink)' }}>Set Type</div>
+            <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 11, color: 'var(--ink)', lineHeight: 2, marginBottom: 20 }}>
+              <div><span style={{ fontWeight: 600 }}>N</span> = Normal set</div>
+              <div><span style={{ fontWeight: 600 }}>W</span> = Warmup (lighter, preparatory)</div>
+              <div><span style={{ fontWeight: 600 }}>R</span> = Rest-pause (take reps, rest 15s, more reps)</div>
+              <div><span style={{ fontWeight: 600 }}>S</span> = Straight set (as written, no variation)</div>
+              <div><span style={{ fontWeight: 600 }}>T</span> = Drop set (heavy, then drop weight and continue)</div>
+            </div>
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+              <button className="ol-btn ol-btn-solid" onClick={() => setShowTypeHelp(false)}>Got it</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {confirmAction && (
         <div style={{ position: 'fixed', inset: 0, zIndex: 1300, background: 'rgba(0,0,0,.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
-          <div style={{ background: 'var(--paper)', border: '3px solid var(--ink)', padding: 24, maxWidth: 340, width: '100%' }}>
+          <div style={{ background: 'var(--paper)', border: '3px solid var(--ink)', padding: 24, maxWidth: 360, width: '100%' }}>
             <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 17, fontWeight: 700, marginBottom: 10, color: 'var(--ink)' }}>
               {confirmAction === 'discard' ? 'Discard this workout?' : hasUncheckedSets ? 'Finish with unchecked sets?' : 'End this workout?'}
             </div>
@@ -3380,7 +3406,7 @@ function WorkoutLogger({ planDay, lifts, customExercises, experienceLevel, onClo
                 ? 'Every set you\'ve entered will be lost — this can\'t be undone.'
                 : hasUncheckedSets
                   ? 'Some sets have a weight or rep count entered but were never checked off. Finishing now will save them as-is without a coaching cue, and they won\'t get another chance to be reviewed.'
-                  : 'You\'ll save what\'s logged so far and end this session.'}
+                  : `You'll save ${exercises.length} exercises with ${exercises.reduce((sum, e) => sum + e.sets.filter(s => s.done).length, 0)} completed sets and end this session.`}
             </div>
             <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
               <button className="ol-btn ol-btn-ghost" onClick={() => setConfirmAction(null)}>Cancel</button>
