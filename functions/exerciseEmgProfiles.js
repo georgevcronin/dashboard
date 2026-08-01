@@ -87,15 +87,37 @@ const EXERCISE_EMG_PROFILES = {
   'decline curl (carter curl)': { 'biceps': 74.5, 'brachialis': 74.5, 'brachioradialis': 74.5 },
   'low cable curl': { 'biceps': 95.5, 'brachialis': 95.5, 'brachioradialis': 95.5 },
   'drag curl': { 'biceps': 93, 'brachialis': 93, 'brachioradialis': 93 },
-  'concentration curl': { 'biceps': 99.5, 'brachialis': 99.5, 'brachioradialis': 99.5 },
+  // Corrected per EXERCISE_PARAMETERIZATION.md §20: was 99.5 (this table's
+  // own peak value, tied with High/Overhead Cable Curl's +75° group) --
+  // this entry's own curveNote above ("gravity profile similar to preacher
+  // curl") matches the +45° Preacher/Spider/Scott group's 74.5 instead.
+  // See exerciseDb.js's 'concentration-curl' entry (`angle: 45`) for the
+  // real, per-exercise-angle-driven successor to this flat lookup.
+  'concentration curl': { 'biceps': 74.5, 'brachialis': 74.5, 'brachioradialis': 74.5 },
   'zottman curl': { 'biceps': 95.5, 'brachialis': 95.5, 'brachioradialis': 95.5 },
   'reverse curl': { 'biceps': 95.5, 'brachialis': 95.5, 'brachioradialis': 95.5 },
   'high cable curl': { 'biceps': 99.5, 'brachialis': 99.5, 'brachioradialis': 99.5 },
-  'machine curl': { 'biceps': 95.5, 'brachialis': 95.5, 'brachioradialis': 95.5 },
+  // Corrected per EXERCISE_PARAMETERIZATION.md §20: was 95.5 (this table's
+  // neutral/standing value) -- most cambered curl machines physically
+  // brace the arm in front of the torso, preacher-style, which belongs
+  // with the +45° Preacher/Spider/Scott group's 74.5 instead. See
+  // exerciseDb.js's 'machine-curl' entry (`angle: 45`) for the real,
+  // per-exercise-angle-driven successor to this flat lookup.
+  'machine curl': { 'biceps': 74.5, 'brachialis': 74.5, 'brachioradialis': 74.5 },
   'incline bench curl (scott curl)': { 'biceps': 74.5, 'brachialis': 74.5, 'brachioradialis': 74.5 },
   'overhead cable curl (double bicep)': { 'biceps': 99.5, 'brachialis': 99.5, 'brachioradialis': 99.5 },
 
   'cable tricep pushdown (rope)': { 'triceps': 94.33 },
+  // Flat value kept as-is -- Reverse Grip Pushdown's grip distinction now
+  // folds into this entry as a `rotation` field (exerciseDb.js's
+  // 'cable-pushdown-bar', per §21) rather than changing this baseline
+  // number. functions/emgActivation.js's new applyGripRotationModifier/
+  // EXTENSION_GRIP_EMG is the mechanism THAT would layer the rotation
+  // on top of a base vector as an additive modifier, mirroring how
+  // rotation is meant to combine with angle throughout this doc -- not yet
+  // called from anywhere that consumes this flat lookup (field-only this
+  // pass, same posture as the new `angle` field above), so this number is
+  // still exactly what gets credited for either grip today.
   'cable tricep pushdown (bar)': { 'triceps': 94.33 },
   'skullcrusher (barbell)': { 'triceps': 98 },
   'skullcrusher (ez-bar)': { 'triceps': 98 },
@@ -104,6 +126,9 @@ const EXERCISE_EMG_PROFILES = {
   'carter extension': { 'triceps': 98 },
   'tate press': { 'triceps': 94.33 },
   'single-arm cable pushdown': { 'triceps': 94.33 },
+  // Superseded by 'cable-pushdown-bar' + rotation: 180 for NEW logging
+  // (exerciseDb.js's `supersededBy`, §21) -- kept here unmodified so any
+  // already-logged set under this name still resolves to the same value.
   'reverse grip pushdown': { 'triceps': 94.33 },
 
   'lying leg curl': { 'hamstrings': 96 },
