@@ -37,6 +37,8 @@ section.visible .fade:nth-child(4){transition-delay:.32s}
 section.visible .fade:nth-child(5){transition-delay:.45s}
 section.visible .fade:nth-child(6){transition-delay:.56s}
 @media(prefers-reduced-motion:reduce){.fade,.ticker-track{animation:none;transition:none}.fade{opacity:1;transform:none}}
+.hide-scrollbar{-ms-overflow-style:none;scrollbar-width:none}
+.hide-scrollbar::-webkit-scrollbar{display:none}
 .kicker{font-size:8px;letter-spacing:.22em;text-transform:uppercase;color:var(--dim);border-bottom:1px solid var(--ink);display:inline-block;padding-bottom:2px;margin-bottom:8px}
 .headline{font-family:'Playfair Display',Georgia,serif;font-weight:900;font-size:clamp(26px,6.5vw,44px);line-height:1.0;letter-spacing:-.01em;color:var(--ink);margin-bottom:10px}
 .deck{font-size:12px;font-style:italic;color:var(--dim);line-height:1.5;border-left:2px solid var(--gold);padding-left:10px;margin-bottom:14px}

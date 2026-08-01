@@ -1766,7 +1766,7 @@ function EnhancedExercisePicker({ onAdd, lifts, workoutDate }) {
                     })()}
                   </div>
                 )}
-                <div style={{ display: 'flex', gap: 16, overflowX: 'auto', paddingBottom: 8 }}>
+                <div className="hide-scrollbar" style={{ display: 'flex', gap: 16, overflowX: 'auto', paddingBottom: 8 }}>
                 {browseDepth === 0 && renderBrowseColumn(browseGroups.map(g => ({ movementName: g, id: g })), g => { setBrowseGroup(g.movementName); setBrowseDepth(1); }, 'Muscle Groups')}
                 {browseDepth >= 1 && browseGroup && (
                   <>
