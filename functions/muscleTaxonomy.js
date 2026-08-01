@@ -78,7 +78,7 @@ const PRIMARY_MUSCLES = [...new Set(EXERCISE_DB.flatMap(e => e.primary || []))].
 // Every entry in PRIMARY_MUSCLES must appear in exactly one bucket below, or a
 // whole class of exercises silently becomes unselectable again — see the header.
 const MUSCLE_GROUPS = {
-  push: ['chest', 'front-delt', 'mid-delt', 'triceps'],
+  push: ['chest', 'front-delt', 'mid-delt', 'triceps', 'serratus'],
   pull: ['lats', 'rhomboids', 'traps', 'lower-traps', 'mid-traps', 'rear-delt', 'rotator-cuff', 'biceps', 'brachialis', 'brachioradialis', 'forearms'],
   legs: ['quads', 'hamstrings', 'glutes', 'calves', 'adductors', 'abductors', 'hip-flexors', 'tibialis'],
   core: ['abs', 'obliques', 'erectors', 'transverse-abs', 'core'],
@@ -173,6 +173,22 @@ function isCompoundExercise(name) {
   return COMPOUND_FALLBACK.test(normalizeForMatch(name));
 }
 
+// Some functions/exerciseDb.js isAngleFamily entries were deliberately
+// given a DIFFERENT `pattern` value than their mechanically-equivalent
+// static counterpart, purely to avoid an EMG-table collision in
+// functions/emgActivation.js -- 'leg-curl' vs. bicep curl's 'curl',
+// 'hyperextension' vs. tricep extension's 'extension' (see that file's
+// header note). That distinction is correct for EMG-table dispatch but
+// wrong for "is this mechanically the same movement" redundancy checks
+// (weeklyPlanner.js's pickBackboneExercises, sessionPlanner.js's
+// pickAccessories/pickDedicatedAccessory) -- without normalizing through
+// this map first, a generated session could pick both "Machine Leg Curl"
+// (family, pattern 'leg-curl') and "Lying Leg Curl" (static, pattern
+// 'curl') for the same session with nothing catching the redundancy, since
+// their raw pattern strings differ even though they're the same exercise.
+const PATTERN_REDUNDANCY_ALIASES = { 'leg-curl': 'curl', hyperextension: 'extension' };
+function redundancyPattern(pattern) { return PATTERN_REDUNDANCY_ALIASES[pattern] || pattern; }
+
 // Bodyweight exercises are excluded from normal auto-generated selection —
 // not from the exercise database or manual search/add, just from what the
 // planner reaches for by default — except:
@@ -221,5 +237,5 @@ function loggedExerciseNames(lifts) {
 module.exports = {
   ALL_MUSCLES, PRIMARY_MUSCLES, RECOVERY_H, MUSCLE_GROUPS,
   findExercise, musclesForExercise, isLowerBodyExercise, isCompoundExercise, loggedExerciseNames,
-  isBodyweightOnlyExercise,
+  isBodyweightOnlyExercise, redundancyPattern,
 };

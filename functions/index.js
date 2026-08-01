@@ -61,6 +61,30 @@ const {
 const { personalizedRecoveryHours, trainingMonthsIfKnown } = require('./recoveryPersonalization');
 const { alcoholStats, computeDataMaturity, compVerdict, toCsv, weekLiftSessionsCompleted } = require('./analytics');
 
+// ---------- Unified workout schema ----------
+// All workouts conform to this shape regardless of source. Validation happens
+// on insert/update, ensuring no ghost records or missing required fields.
+function createWorkoutRecord({ date, name, source, sourceId = null, duration = null, kcal = null, sets = 0, createdAt = null, updatedAt = null, gymId = null, groupWith = null }) {
+  if (!date || typeof date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error('workout.date must be YYYY-MM-DD');
+  if (!name || typeof name !== 'string' || !name.trim()) throw new Error('workout.name required and non-empty');
+  if (!source || !['app', 'hevy', 'strava', 'shortcut'].includes(source)) throw new Error('workout.source must be app|hevy|strava|shortcut');
+  if (duration != null && (typeof duration !== 'number' || duration < 0)) throw new Error('workout.duration must be non-negative number');
+  if (kcal != null && (typeof kcal !== 'number' || kcal < 0)) throw new Error('workout.kcal must be non-negative number');
+  if (typeof sets !== 'number' || sets < 0) throw new Error('workout.sets must be non-negative number');
+  if (!createdAt || typeof createdAt !== 'string') throw new Error('workout.createdAt required (ISO string)');
+  if (!updatedAt || typeof updatedAt !== 'string') throw new Error('workout.updatedAt required (ISO string)');
+  const record = { date, name: name.trim(), source, createdAt, updatedAt, sets, ...(sourceId ? { sourceId } : {}), ...(duration != null ? { duration } : {}), ...(kcal != null ? { kcal } : {}), ...(gymId ? { gymId } : {}), ...(groupWith?.length ? { groupWith } : {}) };
+  return record;
+}
+
+function findOrMergeWorkout(workouts, date, source) {
+  return workouts.findIndex(w => w.date === date && w.source === source);
+}
+
+function validateSetsForWorkout(sets) {
+  return sets.filter(s => s.exercise && +s.kg > 0 && +s.reps > 0).length > 0;
+}
+
 // ---------- Firestore-backed state — per user ----------
 // DEFAULTS/loadForUserDoc/saveDocExcludingLifts live in functions/userDoc.js
 // so the migration-on-load logic can be unit-tested directly against the
@@ -230,13 +254,30 @@ app.post("/health", async (req, res) => {
       saved++;
     }
   }
+  const now = new Date().toISOString();
   for (const w of d.workouts || []) {
     const k = day(w.start || w.date);
-    if (!db.workouts.find((x) => x.date === k && x.name === w.name && x.start === w.start)) {
-      const rawKcal = w.activeEnergyBurned?.qty ?? w.activeEnergy?.qty ?? null;
-      const unit = w.activeEnergyBurned?.units ?? w.activeEnergy?.units ?? "kcal";
-      const kcal = rawKcal != null ? Math.round(unit === "kJ" ? rawKcal / 4.184 : rawKcal) : null;
-      db.workouts.push({ date: k, name: w.name, start: w.start, duration: w.duration, kcal });
+    if (!k) continue;
+    const rawKcal = w.activeEnergyBurned?.qty ?? w.activeEnergy?.qty ?? null;
+    const unit = w.activeEnergyBurned?.units ?? w.activeEnergy?.units ?? "kcal";
+    const kcal = rawKcal != null ? Math.round(unit === "kJ" ? rawKcal / 4.184 : rawKcal) : null;
+    const mergeIdx = findOrMergeWorkout(db.workouts || [], k, 'shortcut');
+    if (mergeIdx >= 0) {
+      const existing = db.workouts[mergeIdx];
+      db.workouts[mergeIdx] = createWorkoutRecord({
+        date: k, name: w.name, source: 'shortcut',
+        duration: w.duration || (existing?.duration || null),
+        kcal: kcal || (existing?.kcal || null),
+        sets: existing?.sets || 0,
+        createdAt: existing?.createdAt || (w.start || w.date || now),
+        updatedAt: now,
+      });
+    } else if (!db.workouts.find((x) => x.date === k && x.name === w.name && x.source === 'shortcut')) {
+      db.workouts.push(createWorkoutRecord({
+        date: k, name: w.name, source: 'shortcut',
+        duration: w.duration || null, kcal,
+        createdAt: w.start || w.date || now, updatedAt: now,
+      }));
       saved++;
     }
   }
@@ -314,13 +355,29 @@ app.post("/shortcut", async (req, res) => {
     else db.alcoholLog.push({ date: k, units: d.alcohol_units, ts: Date.now() });
   }
   if (Array.isArray(d.workouts)) {
+    const shortcutNow = new Date().toISOString();
     for (const w of d.workouts) {
-      // Each workout can carry its own date for bulk/historical uploads
       const wDate = w.date ? w.date.slice(0, 10) : k;
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(wDate)) continue;
       const name = (w.name || "workout").toLowerCase();
       const dur = w.minutes || 0;
-      if (!db.workouts.find(x => x.date === wDate && x.name === name && x.duration === dur)) {
-        db.workouts.push({ date: wDate, name, duration: dur, kcal: w.calories || null, source: "shortcut" });
+      const mergeIdx = findOrMergeWorkout(db.workouts || [], wDate, 'shortcut');
+      if (mergeIdx >= 0) {
+        const existing = db.workouts[mergeIdx];
+        db.workouts[mergeIdx] = createWorkoutRecord({
+          date: wDate, name, source: 'shortcut',
+          duration: dur || (existing?.duration || null),
+          kcal: (w.calories || null) || (existing?.kcal || null),
+          sets: existing?.sets || 0,
+          createdAt: existing?.createdAt || shortcutNow,
+          updatedAt: shortcutNow,
+        });
+      } else if (!db.workouts.find(x => x.date === wDate && x.name === name && x.source === 'shortcut')) {
+        db.workouts.push(createWorkoutRecord({
+          date: wDate, name, source: 'shortcut',
+          duration: dur || null, kcal: w.calories || null,
+          createdAt: shortcutNow, updatedAt: shortcutNow,
+        }));
       }
     }
   }
@@ -392,28 +449,15 @@ function registerUnknownExercisesAsCustom(names) {
 }
 
 async function ingestWorkout(w) {
-  // Hevy sends UTC timestamps with no local-time field, unlike Strava (see
-  // ingestActivity below). Slicing the UTC string directly took the UTC
-  // calendar date, which is wrong by a day for a workout logged near
-  // midnight in the athlete's actual timezone — not just a display glitch,
-  // since this date becomes the stored key everywhere downstream (fatigue
-  // decay timing, weekly session counts, history).
   const wDate = utcToAppLocalDateStr(w.start_time || w.created_at);
   if (!wDate) return 0;
 
-  // Add workout entry so it appears in workout history and fatigue model
+  const startMs = w.start_time ? new Date(w.start_time).getTime() : 0;
+  const endMs = w.end_time ? new Date(w.end_time).getTime() : 0;
+  const duration = startMs && endMs ? Math.round((endMs - startMs) / 60000) : null;
   const wTitle = (w.title || "gym").toLowerCase();
-  if (!db.workouts.find(x => x.source === "hevy" && x.date === wDate && x.name === wTitle)) {
-    const startMs = w.start_time ? new Date(w.start_time).getTime() : 0;
-    const endMs = w.end_time ? new Date(w.end_time).getTime() : 0;
-    const duration = startMs && endMs ? Math.round((endMs - startMs) / 60000) : null;
-    db.workouts.push({ date: wDate, name: wTitle, duration, kcal: null, source: "hevy" });
-  }
+  const now = new Date().toISOString();
 
-  // Collected and appended to the liftChunks subcollection in one batch at
-  // the end rather than pushed to db.lifts one at a time — lifts no longer
-  // live embedded in this document (see liftChunks.js), so each new entry
-  // needs an actual Firestore write, not just an in-memory array mutation.
   const newEntries = [];
   for (const ex of (w.exercises || [])) {
     const name = (ex.title || ex.name || "").toLowerCase();
@@ -421,7 +465,6 @@ async function ingestWorkout(w) {
     for (const set of (ex.sets || [])) {
       const kg = set.weight_kg ?? (set.weight_lbs ? set.weight_lbs / 2.20462 : 0);
       const reps = set.reps || 0;
-      // Deduplicate against all lifts regardless of source
       const isDupe = db.lifts.find(l => l.date === wDate && l.exercise === name && Math.abs((l.kg || 0) - kg) < 0.1 && l.reps === reps);
       if (!isDupe && (kg > 0 || reps > 0)) {
         const entry = { date: wDate, exercise: name, kg: Math.round(kg * 100) / 100, reps, source: "hevy" };
@@ -436,6 +479,23 @@ async function ingestWorkout(w) {
     registerUnknownExercisesAsCustom(newEntries.map(e => e.exercise));
     await appendLifts(liftsDocRef, newEntries);
     db.lifts.push(...newEntries);
+  }
+
+  if (newEntries.length) {
+    const mergeIdx = findOrMergeWorkout(db.workouts, wDate, 'hevy');
+    const existing = db.workouts[mergeIdx];
+    const workoutRecord = createWorkoutRecord({
+      date: wDate,
+      name: wTitle,
+      source: 'hevy',
+      sourceId: String(w.id || ''),
+      duration: duration || (existing?.duration || null),
+      sets: (existing?.sets || 0) + newEntries.length,
+      createdAt: existing?.createdAt || (w.start_time || w.created_at),
+      updatedAt: now,
+    });
+    if (mergeIdx >= 0) db.workouts[mergeIdx] = workoutRecord;
+    else db.workouts.push(workoutRecord);
   }
   return newEntries.length;
 }
@@ -503,14 +563,33 @@ app.post("/hevy/backfill", async (req, res) => {
   }
 });
 
-// ---------- CSV import ----------
 app.post("/import", async (req, res) => {
   const { lifts = [], weights = {}, workouts = [] } = req.body;
   let addedLifts = 0, addedWeights = 0, addedWorkouts = 0;
+  const now = new Date().toISOString();
   for (const w of workouts) {
     if (!w.date || !w.name) continue;
-    const isDupe = (db.workouts || []).find(x => x.date === w.date && x.name === w.name && x.source === "hevy");
-    if (!isDupe) { db.workouts = db.workouts || []; db.workouts.push({ date: w.date, name: w.name, duration: w.duration || null, kcal: w.kcal || null, source: "hevy" }); addedWorkouts++; }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(w.date)) continue;
+    const mergeIdx = findOrMergeWorkout(db.workouts || [], w.date, 'hevy');
+    if (mergeIdx >= 0) {
+      const existing = db.workouts[mergeIdx];
+      db.workouts[mergeIdx] = createWorkoutRecord({
+        date: w.date, name: w.name, source: 'hevy',
+        duration: w.duration || (existing?.duration || null),
+        kcal: w.kcal || (existing?.kcal || null),
+        sets: existing?.sets || 0,
+        createdAt: existing?.createdAt || now,
+        updatedAt: now,
+      });
+    } else {
+      db.workouts = db.workouts || [];
+      db.workouts.push(createWorkoutRecord({
+        date: w.date, name: w.name, source: 'hevy',
+        duration: w.duration || null, kcal: w.kcal || null,
+        createdAt: now, updatedAt: now,
+      }));
+      addedWorkouts++;
+    }
   }
   const newLiftEntries = [];
   for (const l of lifts) {
@@ -559,19 +638,30 @@ async function stravaAccessToken() {
 }
 
 function ingestActivity(a) {
-  // Strava provides start_date_local specifically so consumers don't have to
-  // do UTC-to-local conversion themselves — it carries the athlete's actual
-  // local wall-clock time (mislabeled with a "Z" suffix, so just slice the
-  // date portion directly rather than running it through a timezone
-  // conversion, which would incorrectly shift it a second time). Falls back
-  // to start_date (true UTC) only if Strava ever omits the local field.
   const date = (a.start_date_local || a.start_date || "").slice(0, 10);
   if (!date) return;
   const name = (a.sport_type || a.type || "workout").toLowerCase().replace(/_/g, " ");
   const duration = Math.round((a.moving_time || a.elapsed_time || 0) / 60);
   const kcal = a.kilojoules ? Math.round(a.kilojoules * 0.239) : null;
-  if (!db.workouts.find(w => w.source === "strava" && w.stravaId === a.id)) {
-    db.workouts.push({ date, name, duration, kcal, source: "strava", stravaId: a.id });
+  const now = new Date().toISOString();
+  const mergeIdx = findOrMergeWorkout(db.workouts, date, 'strava');
+  if (mergeIdx >= 0) {
+    const existing = db.workouts[mergeIdx];
+    db.workouts[mergeIdx] = createWorkoutRecord({
+      date, name, source: 'strava', sourceId: String(a.id),
+      duration: duration || (existing?.duration || null),
+      kcal: kcal || (existing?.kcal || null),
+      sets: existing?.sets || 0,
+      createdAt: existing?.createdAt || (a.start_date_local || a.start_date),
+      updatedAt: now,
+    });
+  } else if (!db.workouts.find(w => w.source === "strava" && w.sourceId === String(a.id))) {
+    db.workouts.push(createWorkoutRecord({
+      date, name, source: 'strava', sourceId: String(a.id),
+      duration, kcal,
+      createdAt: a.start_date_local || a.start_date,
+      updatedAt: now,
+    }));
   }
 }
 
@@ -1553,7 +1643,15 @@ app.post("/plan/session-exercises", async (req, res) => {
   }
 
   if (type === 'lift' && targetMuscles?.length && !backboneExercises?.length) {
-    backboneExercises = pickBackboneExercises(targetMuscles, { travelMode, lifts, favoriteExercises, preferStable: stableLeaning }).map(e => e.name);
+    // {name, angle?}, not a bare name string -- preserves any recommended
+    // angle pickBackboneExercises attached to an isAngleFamily pick through
+    // to generateSessionExercises below (which accepts both shapes) instead
+    // of silently dropping it back to a bare name. Safe to round-trip as
+    // JSON if the client later re-sends this same array verbatim (e.g.
+    // starting the workout) — generateSessionExercises's normalization
+    // handles either shape either way.
+    backboneExercises = pickBackboneExercises(targetMuscles, { travelMode, lifts, favoriteExercises, preferStable: stableLeaning })
+      .map(e => e.isAngleFamily ? { name: e.name, angle: e.angle } : { name: e.name });
   }
 
   const exercises = fillSessionToDuration(capSessionDuration(generateSessionExercises({
@@ -1830,26 +1928,8 @@ app.post('/exercises/merge', async (req, res) => {
 // 1-hour-inactivity auto-finish, which finishes a stale participant's
 // workout on their behalf, not the requester's own. See
 // .design/feature-brainstorm/GROUP_WORKOUT.md §4/§6.
-async function applySessionComplete(data, liftsRef, saveFn, { workout, sets = [], customExercises = [], groupWith = null }) {
+async function applySessionComplete(data, liftsRef, saveFn, { workout, sets = [], customExercises = [], groupWith = null, elapsed = null }) {
   data.workouts = data.workouts || [];
-  const existing = data.workouts.findIndex(w => w.date === workout.date);
-  const workoutRecord = { name: workout.name || 'Session', date: workout.date, sets: sets.length, ...(groupWith ? { groupWith } : {}), ...(workout.gymId ? { gymId: workout.gymId } : {}) };
-  if (existing >= 0) data.workouts[existing] = { ...data.workouts[existing], ...workoutRecord };
-  else data.workouts.push(workoutRecord);
-
-  // RPE-drift CNS auto-calibration: compare perceived effort on today's big compounds
-  // against the CNS fatigue the model predicted walking in (before this session's lifts
-  // are added). Higher felt effort than predicted nudges cnsSensitivity up, and vice
-  // versa — same gentle 25%-per-log nudge pattern used for muscleSensitivity below.
-  const cnsSetsWithRpe = sets.filter(s => s.rpe && isCompoundExercise(s.exercise || ''));
-  if (cnsSetsWithRpe.length) {
-    const predicted = computeCNSFatigue(data.lifts || [], data.cnsSensitivity || 1.0) / 100;
-    if (predicted > 0.05) {
-      const felt = avg(cnsSetsWithRpe.map(s => +s.rpe)) / 10;
-      const current = data.cnsSensitivity || 1.0;
-      data.cnsSensitivity = Math.round(Math.max(0.3, Math.min(3.0, current * Math.pow(felt / predicted, 0.25))) * 100) / 100;
-    }
-  }
 
   const newLiftEntries = sets
     .filter(s => s.exercise && s.kg && s.reps)
@@ -1859,8 +1939,41 @@ async function applySessionComplete(data, liftsRef, saveFn, { workout, sets = []
       ...(s.machine ? { machine: s.machine } : {}), ...(s.pulleyType ? { pulleyType: s.pulleyType } : {}),
       ...(s.model ? { model: s.model } : {}),
       ...(s.emgWeights ? { emgWeights: s.emgWeights } : {}),
+      ...(s.angle != null ? { angle: s.angle } : {}),
+      ...(s.pattern ? { pattern: s.pattern } : {}),
     }));
-  const isReplacedToday = l => l.date === workout.date && sets.some(s => s.exercise === l.exercise);
+
+  if (!newLiftEntries.length) return null;
+
+  const cnsSetsWithRpe = newLiftEntries.filter(s => s.rpe && isCompoundExercise(s.exercise || ''));
+  if (cnsSetsWithRpe.length) {
+    const predicted = computeCNSFatigue(data.lifts || [], data.cnsSensitivity || 1.0) / 100;
+    if (predicted > 0.05) {
+      const felt = avg(cnsSetsWithRpe.map(s => +s.rpe)) / 10;
+      const current = data.cnsSensitivity || 1.0;
+      data.cnsSensitivity = Math.round(Math.max(0.3, Math.min(3.0, current * Math.pow(felt / predicted, 0.25))) * 100) / 100;
+    }
+  }
+
+  const now = new Date().toISOString();
+  const mergeIdx = findOrMergeWorkout(data.workouts, workout.date, 'app');
+  const existing = data.workouts[mergeIdx];
+  const workoutRecord = createWorkoutRecord({
+    date: workout.date,
+    name: workout.name || 'Session',
+    source: 'app',
+    sets: newLiftEntries.length,
+    duration: elapsed ? Math.round(elapsed / 60) : (existing?.duration || null),
+    gymId: workout.gymId || existing?.gymId,
+    groupWith,
+    createdAt: existing?.createdAt || now,
+    updatedAt: now,
+  });
+
+  if (mergeIdx >= 0) data.workouts[mergeIdx] = workoutRecord;
+  else data.workouts.push(workoutRecord);
+
+  const isReplacedToday = l => l.date === workout.date && newLiftEntries.some(s => s.exercise === l.exercise);
   await removeLiftsAndAppend(liftsRef, isReplacedToday, newLiftEntries);
   data.lifts = data.lifts.filter(l => !isReplacedToday(l));
   data.lifts.push(...newLiftEntries);
@@ -1873,24 +1986,22 @@ async function applySessionComplete(data, liftsRef, saveFn, { workout, sets = []
   }
 
   await saveFn();
+  return newLiftEntries.length;
 }
 
 app.post('/session/complete', async (req, res) => {
   try {
-    const { workout, sets = [], customExercises = [] } = req.body;
+    const { workout, sets = [], customExercises = [], elapsed = null } = req.body;
     if (!workout?.date) return res.status(400).json({ error: 'workout.date required' });
+    if (typeof elapsed !== 'number' || elapsed < 0) return res.status(400).json({ error: 'elapsed (ms) must be non-negative number' });
 
-    await applySessionComplete(db, liftsDocRef, save, { workout, sets, customExercises });
+    const setsLogged = await applySessionComplete(db, liftsDocRef, save, { workout, sets, customExercises, elapsed });
+    if (setsLogged === null) return res.json({ ok: true, setsLogged: 0, atlasSummary: null });
 
     let atlasSummary = null;
-    if (process.env.GEMINI_API_KEY && sets.length > 0) {
+    if (process.env.GEMINI_API_KEY && setsLogged > 0) {
       const topSets = sets.slice(0, 8).map(s => `${s.exercise}: ${s.kg}kg × ${s.reps}${s.rpe ? ' @ RPE ' + s.rpe : ''}`).join('\n');
       const profile = db.profile || {};
-      // Evaluated on the complete, final session (not just topSets) — if an
-      // early low-rep stretch got worked back up to a normal majority by the
-      // end, this correctly reads false and Atlas says nothing about it. Only
-      // flagged if the pattern held all the way through, i.e. it wasn't
-      // addressed intra-session (see the matching WorkoutLogger banner).
       const lowRepNote = isLowRepPattern(sets)
         ? `\n\nNote: most hard sets this session were at or under ${LOW_REP_THRESHOLD} reps, and stayed that way through the end of the session. The training ethos biases toward 8-9 reps — low reps rarely deliver enough stimulus per set to default to. If this reads as a deliberate low-rep/strength-testing day, don't labor the point, but if it looks habitual, say so plainly.`
         : '';
@@ -1905,27 +2016,17 @@ Training age: ${profile.trainingAge || 'unknown'}
 
 Write a brief post-session note highlighting what the numbers say — mechanical fatigue accumulation, any standout load, what to prioritise next. No bullet points. No greetings.${lowRepNote}`;
 
-      // 180 was too tight for "2-3 sentences" covering fatigue accumulation,
-      // standout load, and next-priority guidance — Gemini would sometimes
-      // still be mid-sentence at the cap, cutting the summary off outright
-      // rather than the prompt's own length instruction doing the limiting.
       const result = await callGeminiResilient({ messages: [{ role: 'user', content: prompt }], maxTokens: 300, temperature: 0.7 });
       atlasSummary = result.ok ? result.content.trim() : null;
     }
 
-    res.json({ ok: true, setsLogged: sets.length, atlasSummary });
+    res.json({ ok: true, setsLogged, atlasSummary });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// Deletes an entire saved workout by date -- workouts are one-per-calendar-
-// date (applySessionComplete above overwrites, never appends, a second
-// same-day workoutRecord), so `date` alone is an unambiguous key. Removes
-// both the summary record (db.workouts) and every underlying set logged
-// that day (db.lifts / the liftChunks subcollection) -- leaving the lifts
-// behind after deleting the workout record would silently keep counting
-// them toward fatigue/PRs/strength levels as if the workout still existed.
 app.delete('/workout/:date', async (req, res) => {
   const { date } = req.params;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return res.status(400).json({ error: 'date must be YYYY-MM-DD' });
   db.workouts = (db.workouts || []).filter(w => w.date !== date);
   db.lifts = (db.lifts || []).filter(l => l.date !== date);
   await removeLiftsAndAppend(liftsDocRef, l => l.date === date, []);
@@ -1933,17 +2034,9 @@ app.delete('/workout/:date', async (req, res) => {
   res.json({ ok: true });
 });
 
-// Overwrites every logged set for a past date -- used by the History
-// screen's edit mode. Full-replace semantics (delete-then-insert), same as
-// applySessionComplete's isReplacedToday -- an edit replaces that day's
-// sets wholesale, not a merge -- but deliberately skips
-// applySessionComplete's live-session side effects (Atlas summary,
-// CNS-sensitivity auto-calibration from RPE drift), which are tuned for a
-// just-finished session, not a retroactive historical edit. Editing down to
-// zero sets removes the workout record entirely rather than leaving a
-// ghost "0 sets" entry -- same as DELETE /workout/:date.
 app.put('/workout/:date', async (req, res) => {
   const { date } = req.params;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return res.status(400).json({ error: 'date must be YYYY-MM-DD' });
   const sets = Array.isArray(req.body?.sets) ? req.body.sets : [];
   const newLiftEntries = sets
     .filter(s => s.exercise && s.kg && s.reps)
@@ -1955,12 +2048,29 @@ app.put('/workout/:date', async (req, res) => {
     }));
   await removeLiftsAndAppend(liftsDocRef, l => l.date === date, newLiftEntries);
   db.lifts = (db.lifts || []).filter(l => l.date !== date).concat(newLiftEntries);
+  const now = new Date().toISOString();
   if (!newLiftEntries.length) {
     db.workouts = (db.workouts || []).filter(w => w.date !== date);
   } else {
     const idx = (db.workouts || []).findIndex(w => w.date === date);
-    if (idx >= 0) db.workouts[idx] = { ...db.workouts[idx], sets: newLiftEntries.length };
-    else db.workouts = [...(db.workouts || []), { name: 'Session', date, sets: newLiftEntries.length }];
+    if (idx >= 0) {
+      const existing = db.workouts[idx];
+      db.workouts[idx] = createWorkoutRecord({
+        date,
+        name: existing.name || 'Session',
+        source: existing.source || 'app',
+        sourceId: existing.sourceId || null,
+        duration: existing.duration || null,
+        kcal: existing.kcal || null,
+        sets: newLiftEntries.length,
+        gymId: existing.gymId || null,
+        groupWith: existing.groupWith || null,
+        createdAt: existing.createdAt || now,
+        updatedAt: now,
+      });
+    } else {
+      db.workouts = [...(db.workouts || []), createWorkoutRecord({ date, name: 'Session', source: 'app', sets: newLiftEntries.length, createdAt: now, updatedAt: now })];
+    }
   }
   await save();
   res.json({ ok: true, setsLogged: newLiftEntries.length });
@@ -2234,8 +2344,9 @@ app.delete('/session/:id/entries/:entryId', async (req, res) => {
 // it's given, same contract as solo /session/complete.
 app.post('/session/:id/finish', async (req, res) => {
   try {
-    const { workout, sets = [], customExercises = [] } = req.body;
+    const { workout, sets = [], customExercises = [], elapsed = null } = req.body;
     if (!workout?.date) return res.status(400).json({ error: 'workout.date required' });
+    if (typeof elapsed !== 'number' || elapsed < 0) return res.status(400).json({ error: 'elapsed (ms) must be non-negative number' });
     const ref = firestore.collection('liveSessions').doc(req.params.id);
     const snap = await ref.get();
     if (!snap.exists) return res.status(404).json({ error: 'Session not found' });
@@ -2243,13 +2354,14 @@ app.post('/session/:id/finish', async (req, res) => {
     if (!data.participants.find(p => p.uid === req.uid)) return res.status(403).json({ error: 'Not a participant of this session' });
 
     const groupWith = data.participants.filter(p => p.uid !== req.uid).map(p => ({ uid: p.uid, username: p.username, displayNameFirst: p.displayNameFirst }));
-    await applySessionComplete(db, liftsDocRef, save, { workout, sets, customExercises, groupWith: groupWith.length ? groupWith : null });
+    const setsLogged = await applySessionComplete(db, liftsDocRef, save, { workout, sets, customExercises, groupWith: groupWith.length ? groupWith : null, elapsed });
+    if (setsLogged === null) return res.json({ ok: true, setsLogged: 0 });
 
     const now = new Date().toISOString();
     const updatedParticipants = data.participants.map(p => p.uid === req.uid ? { ...p, status: 'finished', lastActivityAt: now } : p);
     await ref.update({ participants: updatedParticipants, participantUids: participantUidsOf(updatedParticipants) });
     await deleteSessionIfDone(ref, updatedParticipants);
-    res.json({ ok: true, setsLogged: sets.length });
+    res.json({ ok: true, setsLogged });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -2893,6 +3005,64 @@ app.post('/travel-mode', async (req, res) => {
   db.profile = { ...(db.profile || {}), travelMode: !!enabled };
   await save();
   res.json({ ok: true, travelMode: !!enabled });
+});
+
+// ---------- Exercise Stats for Picker ----------
+// Computes frequency and recency stats from lifts for the exercise picker UI
+// Returns recent exercises, frequency by time window, and in-session indicators
+app.get('/exercise-stats', (req, res) => {
+  const { timeWindow = '30d', sessionDate = null } = req.query;
+  const lifts = db.lifts || [];
+  if (!lifts.length) return res.json({ recent: [], frequent: [], today: [] });
+
+  // Parse time window
+  const now = new Date();
+  let daysBack = 30;
+  if (timeWindow === '6m') daysBack = 180;
+  else if (timeWindow === '1y') daysBack = 365;
+  else if (timeWindow === 'all') daysBack = 999999;
+
+  const cutoffDate = new Date(now.getTime() - daysBack * 86400000);
+
+  // Group lifts by exercise name, tracking recency and frequency
+  const stats = {};
+  lifts.forEach(lift => {
+    if (!lift.exercise) return;
+    const name = lift.exercise;
+    if (!stats[name]) stats[name] = { count: 0, lastUsedAt: null, lastSet: null };
+    stats[name].count++;
+    const liftDate = new Date(lift.date + 'T00:00:00Z');
+    if (!stats[name].lastUsedAt || liftDate > new Date(stats[name].lastUsedAt)) {
+      stats[name].lastUsedAt = liftDate.toISOString();
+      stats[name].lastSet = { kg: lift.kg, reps: lift.reps, rpe: lift.rpe };
+    }
+  });
+
+  // Compute recent (last 30 days) — all exercises, sorted by date desc
+  const recentLimit = new Date(now.getTime() - 30 * 86400000);
+  const recent = lifts
+    .filter(l => l.exercise && new Date(l.date + 'T00:00:00Z') >= recentLimit)
+    .sort((a, b) => new Date(b.date) - new Date(a.date))
+    .reduce((acc, l) => {
+      if (!acc.find(e => e.name === l.exercise)) {
+        const s = stats[l.exercise];
+        acc.push({ name: l.exercise, lastUsedAt: s.lastUsedAt, lastSet: s.lastSet });
+      }
+      return acc;
+    }, []);
+
+  // Compute frequent (time-windowed) — sorted by count desc
+  const frequent = Object.entries(stats)
+    .filter(([_, s]) => s.lastUsedAt && new Date(s.lastUsedAt) >= cutoffDate)
+    .map(([name, s]) => ({ name, count: s.count, lastUsedAt: s.lastUsedAt, lastSet: s.lastSet }))
+    .sort((a, b) => b.count - a.count || new Date(b.lastUsedAt) - new Date(a.lastUsedAt));
+
+  // Exercises already logged in the given session date (for in-session indicator)
+  const today = sessionDate
+    ? [...new Set(lifts.filter(l => l.date === sessionDate && l.exercise).map(l => l.exercise))]
+    : [];
+
+  res.json({ recent, frequent, today });
 });
 
 exports.api = functions.region("europe-west2").runWith({ timeoutSeconds: 300, memory: "256MB", invoker: "public" }).https.onRequest(app);

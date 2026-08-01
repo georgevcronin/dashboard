@@ -19,6 +19,91 @@
 // Row: 0° = a low pull (e.g. straight-arm pulldown), 90° = a pull from in
 // front (e.g. seated cable row), 180° = an overhead pull (e.g. pull-up).
 // This is pull DIRECTION (which row variation), not phase through one rep.
+//
+// Fly: the angle the arms make with the torso at full contraction (finish
+// position), NOT shoulder flexion through the rep like press. 0° = a
+// high-to-low cable fly finishing with arms pinned near the hips (lower-pec
+// line of pull); 90° = a flat/mid fly finishing with arms extended forward
+// at chest height; 180° = a low-to-high cable fly finishing with arms
+// raised high, near overhead (upper-pec line of pull). Grounded in Lauver
+// et al. 2020 (steeper incline shifts load toward front-delt and upper
+// pec) and the directional lower/upper-pec findings behind functions/
+// chestHeadSplit.js's own bench-angle split; front-delt dumbbell-fly
+// baseline (~18.8% MVIC at the flat/mid position) from EMG literature on
+// shoulder-exercise comparisons. No single study tracked mid-delt/biceps/
+// serratus continuously across this exact axis -- directional estimates,
+// same caveat as press/row above. mid-delt rises sharply toward 180°
+// because a low-to-high finish approaches a lateral-raise-like overhead
+// reach, a real abduction component press/row's own axes don't have.
+// biceps stays low and roughly flat -- a fly holds a fixed elbow bend
+// isometrically rather than actively curling.
+//
+// Curl: like fly, an interpretive arm-position axis rather than a literal
+// single joint angle, since curl variants differ by SHOULDER position, not
+// elbow angle through the rep (the elbow does the same flexion motion at
+// every variant). 0° = incline curl (shoulder extended, arm hangs behind
+// the torso -- stretches biceps' long head at the bottom of each rep); 90°
+// = standing curl (arm at your side, neutral shoulder); 180° = preacher
+// curl (shoulder flexed, arm braced in front of the torso, elbow "locked"
+// against a pad). Grounded in EMG/hypertrophy literature comparing these
+// three variants: preacher curl biases the short head and brachialis (the
+// locked-elbow position isolates brachialis's pure elbow-flexion role more
+// than a free-swinging variant); incline curl biases the long head via the
+// behind-torso stretch. This taxonomy has a single `biceps` muscle, not a
+// long/short-head split, so `biceps` here reflects overall biceps
+// engagement (found to be broadly comparable in total amplitude across
+// variants in the literature -- the real differences are head-specific,
+// which this table can't represent) while `brachialis` is genuinely
+// direction-sensitive to this axis on its own.
+//
+// Extension: same directional convention as press (0° = arm at your side,
+// 180° = arm overhead) since a tricep extension's arm-position axis is
+// literally the same physical range press's axis already describes. `front-
+// delt` climbs toward 180° because holding an overhead extension position
+// genuinely engages the shoulder isometrically, not because it's a major
+// contributor at 0°. `triceps` stays high and fairly flat throughout --
+// any solid extension angle trains it well; the real head-specific
+// tradeoff (long head favors overhead, per Maeo et al. 2023's stretch-
+// mediated hypertrophy finding -- it's biarticular, crossing the shoulder
+// as well as the elbow, so shoulder position lengthens it more; lateral/
+// medial are monoarticular and not meaningfully affected by arm position)
+// is informational-only, see functions/tricepsHeadSplit.js -- this table
+// can't represent it either, same reasoning as press/fly's single `chest`.
+//
+// NOTE on pattern-name overload: functions/exerciseDb.js already tags leg
+// curl exercises with pattern "curl" and hyperextension/back-extension
+// exercises with pattern "extension" (a coarse, body-part-agnostic
+// movement-SHAPE taxonomy, pre-dating this file's per-pattern EMG tables).
+// Leg Curl and Hyperextension below deliberately use their OWN distinct
+// pattern strings ("leg-curl", "hyperextension") for THIS file's dispatch,
+// specifically so emgForAngle('curl', angle) can never accidentally return
+// leg-curl muscles for a bicep-curl lookup or vice versa. This means the
+// new isAngleFamily leg-curl/hyperextension entries won't share
+// sessionPlanner.js's same-pattern redundancy guard with the EXISTING
+// static leg-curl/hyperextension exercises (which still use exerciseDb.js's
+// original coarser "curl"/"extension" tags) -- a pre-existing overload in
+// that taxonomy, not something introduced here, and out of scope to fix.
+//
+// Leg Curl: 0° = lying/prone leg curl (hip extended, ~30°) through 180° =
+// seated leg curl (hip flexed, ~90°). Grounded in Maeo et al. 2020: the
+// biarticular hamstrings (semimembranosus, semitendinosus, long head of
+// biceps femoris -- the majority of hamstring mass) are lengthened more in
+// the hip-flexed seated position, and significantly outgrew the lying
+// position over a 12-week trial. `calves` (gastrocnemius, itself
+// biarticular at the knee) stays modest and roughly flat -- no literature
+// found suggesting real angle-sensitivity there specifically.
+//
+// Hyperextension: unlike every other table here, this is NOT an
+// interpretive 0-180 axis -- there is no continuously-adjustable real
+// equipment for this movement, only two distinct fixed device types (a
+// ~45° pad and a ~90° "Roman chair"/GHD). Keyed directly by the REAL pad
+// angle (45 and 90 only, not the usual 15°-step 0-180 grid) rather than
+// inventing interpolated values with no equipment to check them against.
+// Grounded in EMG comparison of 45° vs. 90° back-extension devices: 90°
+// shifts emphasis toward glutes/erectors with less biceps-femoris
+// (hamstring) involvement; 45° opens up hamstring involvement more.
+// `erectors` stays dominant and fairly flat at both -- it's the namesake
+// mover of "back extension" regardless of device.
 
 const ANGLES = [0, 15, 30, 45, 60, 75, 90, 105, 120, 135, 150, 165, 180];
 
@@ -54,8 +139,84 @@ const ROW_EMG = {
   180: { lats: 23, biceps: 42, 'rear-delt': 100, 'mid-delt': 84, 'mid-traps': 100, rhomboids: 91, 'teres-major': 34, brachioradialis: 55 },
 };
 
+const FLY_EMG = {
+  0:   { chest: 55, 'front-delt': 8,  'mid-delt': 4,  biceps: 10, serratus: 10 },
+  15:  { chest: 62, 'front-delt': 10, 'mid-delt': 4,  biceps: 10, serratus: 13 },
+  30:  { chest: 68, 'front-delt': 12, 'mid-delt': 5,  biceps: 9,  serratus: 16 },
+  45:  { chest: 72, 'front-delt': 14, 'mid-delt': 5,  biceps: 9,  serratus: 20 },
+  60:  { chest: 74, 'front-delt': 16, 'mid-delt': 6,  biceps: 8,  serratus: 24 },
+  75:  { chest: 75, 'front-delt': 18, 'mid-delt': 7,  biceps: 8,  serratus: 28 },
+  90:  { chest: 74, 'front-delt': 19, 'mid-delt': 8,  biceps: 8,  serratus: 32 },
+  105: { chest: 71, 'front-delt': 21, 'mid-delt': 10, biceps: 8,  serratus: 38 },
+  120: { chest: 66, 'front-delt': 24, 'mid-delt': 13, biceps: 9,  serratus: 45 },
+  135: { chest: 58, 'front-delt': 27, 'mid-delt': 17, biceps: 9,  serratus: 53 },
+  150: { chest: 48, 'front-delt': 30, 'mid-delt': 22, biceps: 10, serratus: 60 },
+  165: { chest: 38, 'front-delt': 32, 'mid-delt': 28, biceps: 11, serratus: 66 },
+  180: { chest: 30, 'front-delt': 34, 'mid-delt': 35, biceps: 12, serratus: 70 },
+};
+
+const CURL_EMG = {
+  0:   { biceps: 70, brachialis: 40, brachioradialis: 30 },
+  15:  { biceps: 74, brachialis: 42, brachioradialis: 32 },
+  30:  { biceps: 78, brachialis: 45, brachioradialis: 34 },
+  45:  { biceps: 82, brachialis: 48, brachioradialis: 36 },
+  60:  { biceps: 85, brachialis: 52, brachioradialis: 38 },
+  75:  { biceps: 87, brachialis: 56, brachioradialis: 40 },
+  90:  { biceps: 88, brachialis: 60, brachioradialis: 42 },
+  105: { biceps: 86, brachialis: 65, brachioradialis: 40 },
+  120: { biceps: 83, brachialis: 70, brachioradialis: 38 },
+  135: { biceps: 78, brachialis: 76, brachioradialis: 35 },
+  150: { biceps: 72, brachialis: 82, brachioradialis: 32 },
+  165: { biceps: 65, brachialis: 88, brachioradialis: 28 },
+  180: { biceps: 58, brachialis: 95, brachioradialis: 25 },
+};
+
+const EXTENSION_EMG = {
+  0:   { triceps: 85, 'front-delt': 5 },
+  15:  { triceps: 86, 'front-delt': 6 },
+  30:  { triceps: 87, 'front-delt': 8 },
+  45:  { triceps: 88, 'front-delt': 10 },
+  60:  { triceps: 89, 'front-delt': 13 },
+  75:  { triceps: 90, 'front-delt': 17 },
+  90:  { triceps: 90, 'front-delt': 22 },
+  105: { triceps: 89, 'front-delt': 28 },
+  120: { triceps: 88, 'front-delt': 35 },
+  135: { triceps: 87, 'front-delt': 43 },
+  150: { triceps: 86, 'front-delt': 52 },
+  165: { triceps: 85, 'front-delt': 60 },
+  180: { triceps: 84, 'front-delt': 68 },
+};
+
+const LEG_CURL_EMG = {
+  0:   { hamstrings: 75, calves: 20 },
+  15:  { hamstrings: 77, calves: 19 },
+  30:  { hamstrings: 79, calves: 19 },
+  45:  { hamstrings: 81, calves: 18 },
+  60:  { hamstrings: 83, calves: 17 },
+  75:  { hamstrings: 85, calves: 16 },
+  90:  { hamstrings: 87, calves: 15 },
+  105: { hamstrings: 89, calves: 14 },
+  120: { hamstrings: 91, calves: 13 },
+  135: { hamstrings: 93, calves: 12 },
+  150: { hamstrings: 95, calves: 11 },
+  165: { hamstrings: 97, calves: 10 },
+  180: { hamstrings: 99, calves: 9 },
+};
+
+// Only 2 keys, deliberately -- see the header note above. NOT part of the
+// usual 0-180/15°-step ANGLES grid.
+const HYPEREXTENSION_EMG = {
+  45: { erectors: 78, glutes: 38, hamstrings: 61 },
+  90: { erectors: 85, glutes: 58, hamstrings: 28 },
+};
+
 const PRESS_ANGLE_DESC = '0° = arm at your side · 90° = arm horizontal, straight out in front · 180° = arm straight overhead';
 const ROW_ANGLE_DESC = '0° = a low pull (e.g. straight-arm pulldown) · 90° = a pull from in front (e.g. seated cable row) · 180° = an overhead pull (e.g. pull-up)';
+const FLY_ANGLE_DESC = '0° = arms finish pinned near your hips (high-to-low cable fly) · 90° = arms finish extended forward at chest height (flat/mid fly) · 180° = arms finish raised high, near overhead (low-to-high cable fly)';
+const CURL_ANGLE_DESC = '0° = shoulder extended, arm hangs behind your torso (incline curl) · 90° = arm at your side (standing curl) · 180° = shoulder flexed, arm braced in front of your torso (preacher curl)';
+const EXTENSION_ANGLE_DESC = '0° = arm at your side (pushdown / lying extension) · 90° = arm horizontal in front · 180° = arm straight overhead (overhead extension)';
+const LEG_CURL_ANGLE_DESC = '0° = hip extended (lying/prone leg curl) · 90° = hip at a right angle · 180° = hip flexed (seated leg curl)';
+const HYPEREXTENSION_ANGLE_DESC = 'Only two real device types exist for this movement, not a continuous range: 45° = standard back-extension bench (more hamstring involvement) · 90° = Roman chair / GHD (steeper, more glute/erector-biased)';
 
 // Frontal-plane companion tables (arm abduction, viewed from behind: 0° =
 // elbow tucked at your side, 90° = elbow flared out to horizontal) —
@@ -242,13 +403,75 @@ function classifyMuscles(weights) {
 }
 
 function emgForAngle(pattern, angle) {
-  const table = pattern === 'press' ? PRESS_EMG : pattern === 'row' ? ROW_EMG : null;
+  const table = pattern === 'press' ? PRESS_EMG : pattern === 'row' ? ROW_EMG : pattern === 'fly' ? FLY_EMG
+    : pattern === 'curl' ? CURL_EMG : pattern === 'extension' ? EXTENSION_EMG
+    : pattern === 'leg-curl' ? LEG_CURL_EMG : pattern === 'hyperextension' ? HYPEREXTENSION_EMG : null;
   return table ? (table[angle] || null) : null;
 }
 
+// Union of a pattern's muscle involvement ACROSS every angle, not one fixed
+// position -- for each muscle appearing anywhere in the table, takes its
+// max % across ANGLES and classifies via the same PRIMARY_THRESHOLD/
+// SECONDARY_THRESHOLD cutoffs as classifyMuscles. This is what gives a
+// family exercise (functions/exerciseDb.js's isAngleFamily entries, e.g.
+// "Cable Fly" spanning all 13 buildable angles) a primary/secondary array
+// that doesn't make it invisible to session-picker scoring for a muscle it
+// only serves well at a DIFFERENT angle than whichever one happened to be
+// checked. Sorted by max % descending -- NOT a claim about anatomical
+// dominance (this file's own header notes each muscle's % is relative to
+// its own MVIC reference, not a shared scale), just a stable, deterministic
+// order. functions/exerciseDb.js's actual isAngleFamily entries hand-curate
+// their primary/secondary arrays for realistic session-picker weighting
+// (e.g. chest first for a press, not whichever muscle's own peak % happens
+// to be numerically largest) -- this function is the inclusion source of
+// truth for which muscles belong in those arrays at all, not the literal
+// order to paste in.
+function muscleEnvelope(pattern) {
+  const table = pattern === 'press' ? PRESS_EMG : pattern === 'row' ? ROW_EMG : pattern === 'fly' ? FLY_EMG
+    : pattern === 'curl' ? CURL_EMG : pattern === 'extension' ? EXTENSION_EMG
+    : pattern === 'leg-curl' ? LEG_CURL_EMG : pattern === 'hyperextension' ? HYPEREXTENSION_EMG : null;
+  if (!table) return { primary: [], secondary: [] };
+  const maxByMuscle = {};
+  for (const angle of ANGLES) {
+    for (const [muscle, pct] of Object.entries(table[angle] || {})) {
+      if (!(muscle in maxByMuscle) || pct > maxByMuscle[muscle]) maxByMuscle[muscle] = pct;
+    }
+  }
+  const primary = [], secondary = [];
+  for (const [muscle, pct] of Object.entries(maxByMuscle)) {
+    if (pct >= PRIMARY_THRESHOLD) primary.push(muscle);
+    else if (pct >= SECONDARY_THRESHOLD) secondary.push(muscle);
+  }
+  primary.sort((a, b) => maxByMuscle[b] - maxByMuscle[a]);
+  secondary.sort((a, b) => maxByMuscle[b] - maxByMuscle[a]);
+  return { primary, secondary };
+}
+
+// Given a pattern and a target muscle, finds the angle (from the 13-step
+// ANGLES grid) that maximizes that muscle's activation -- the "what angle
+// should this family exercise be built at to best serve this goal" lookup
+// Phase B's session-picker recommendation depends on. Returns null if the
+// pattern's table never tracks that muscle at all (e.g. idealAngleForMuscle
+// ('row', 'chest')), not a fabricated angle.
+function idealAngleForMuscle(pattern, muscle) {
+  const table = pattern === 'press' ? PRESS_EMG : pattern === 'row' ? ROW_EMG : pattern === 'fly' ? FLY_EMG
+    : pattern === 'curl' ? CURL_EMG : pattern === 'extension' ? EXTENSION_EMG
+    : pattern === 'leg-curl' ? LEG_CURL_EMG : pattern === 'hyperextension' ? HYPEREXTENSION_EMG : null;
+  if (!table) return null;
+  let best = null, bestPct = -1;
+  for (const angle of ANGLES) {
+    const pct = table[angle]?.[muscle];
+    if (pct != null && pct > bestPct) { bestPct = pct; best = angle; }
+  }
+  return best;
+}
+
 module.exports = {
-  ANGLES, PRESS_EMG, ROW_EMG, PRESS_ANGLE_DESC, ROW_ANGLE_DESC,
+  ANGLES, PRESS_EMG, ROW_EMG, FLY_EMG, CURL_EMG, EXTENSION_EMG, LEG_CURL_EMG, HYPEREXTENSION_EMG,
+  PRESS_ANGLE_DESC, ROW_ANGLE_DESC, FLY_ANGLE_DESC, CURL_ANGLE_DESC, EXTENSION_ANGLE_DESC,
+  LEG_CURL_ANGLE_DESC, HYPEREXTENSION_ANGLE_DESC,
   PRESS_FRONTAL_EMG, ROW_FRONTAL_EMG, FRONTAL_ANGLES,
   PRESS_GRIP_EMG, ROW_GRIP_EMG, GRIP_ANGLES, GRIP_LABELS, GRIP_ANGLES_BY_EQUIPMENT,
   PRIMARY_THRESHOLD, SECONDARY_THRESHOLD, classifyMuscles, emgForAngle, frontalCueForProfile, gripCueForProfile,
+  muscleEnvelope, idealAngleForMuscle,
 };

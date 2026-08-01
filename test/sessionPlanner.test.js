@@ -368,3 +368,83 @@ test('fillSessionToDuration never invents a new exercise, only adds sets to what
   const out = fillSessionToDuration(exercises, 999, 10);
   assert.equal(out.length, 1, 'should still be exactly one exercise, no matter how much target length is left unfilled');
 });
+
+test('generateSessionExercises surfaces family/pattern/equipment/angle for an isAngleFamily backbone pick, preserving a caller-supplied angle through name re-resolution', () => {
+  const result = generateSessionExercises({
+    type: 'lift', targetMuscles: ['serratus'], backboneExerciseNames: [{ name: 'Cable Fly', angle: 165 }],
+    lifts: [], skipAccessories: true,
+  });
+  assert.equal(result.length, 1);
+  assert.equal(result[0].family, true);
+  assert.equal(result[0].pattern, 'fly');
+  assert.equal(result[0].equipment, 'cable');
+  assert.equal(result[0].angle, 165, 'the angle passed in via {name, angle} should survive EXERCISE_DB re-resolution, not get dropped back to a bare name');
+});
+
+test('generateSessionExercises still accepts a plain backboneExerciseNames string array (today\'s contract), output unaffected for non-family exercises', () => {
+  const result = generateSessionExercises({
+    type: 'lift', targetMuscles: ['chest'], backboneExerciseNames: ['Barbell Bench Press'],
+    lifts: [], skipAccessories: true,
+  });
+  assert.equal(result.length, 1);
+  assert.equal(result[0].name, 'Barbell Bench Press');
+  assert.ok(!('family' in result[0]) && !('angle' in result[0]), 'a non-family exercise entry should be byte-identical to today, no new fields');
+});
+
+test('generateSessionExercises via the accessory picker (no backbone) also attaches family/angle for a muscle only a family entry serves well', () => {
+  const { idealAngleForMuscle } = require('../functions/emgActivation');
+  const result = generateSessionExercises({
+    type: 'lift', targetMuscles: ['serratus'], backboneExerciseNames: [], lifts: [], accessoryCountOverride: 1,
+  });
+  assert.equal(result.length, 1);
+  assert.equal(result[0].family, true);
+  assert.equal(result[0].angle, idealAngleForMuscle(result[0].pattern, 'serratus'));
+});
+
+test('generateSessionExercises surfaces family/pattern/equipment/angle for a curl-family backbone pick (brachialis)', () => {
+  const result = generateSessionExercises({
+    type: 'lift', targetMuscles: ['brachialis'], backboneExerciseNames: [{ name: 'Cable Curl', angle: 180 }],
+    lifts: [], skipAccessories: true,
+  });
+  assert.equal(result.length, 1);
+  assert.equal(result[0].family, true);
+  assert.equal(result[0].pattern, 'curl');
+  assert.equal(result[0].equipment, 'cable');
+  assert.equal(result[0].angle, 180);
+});
+
+test('generateSessionExercises surfaces family/pattern/equipment/angle for an extension-family backbone pick (triceps)', () => {
+  const result = generateSessionExercises({
+    type: 'lift', targetMuscles: ['triceps'], backboneExerciseNames: [{ name: 'Cable Extension', angle: 90 }],
+    lifts: [], skipAccessories: true,
+  });
+  assert.equal(result.length, 1);
+  assert.equal(result[0].family, true);
+  assert.equal(result[0].pattern, 'extension');
+  assert.equal(result[0].equipment, 'cable');
+  assert.equal(result[0].angle, 90);
+});
+
+test('generateSessionExercises surfaces family/pattern/equipment/angle for a leg-curl-family backbone pick (hamstrings)', () => {
+  const result = generateSessionExercises({
+    type: 'lift', targetMuscles: ['hamstrings'], backboneExerciseNames: [{ name: 'Machine Leg Curl', angle: 180 }],
+    lifts: [], skipAccessories: true,
+  });
+  assert.equal(result.length, 1);
+  assert.equal(result[0].family, true);
+  assert.equal(result[0].pattern, 'leg-curl');
+  assert.equal(result[0].equipment, 'machine');
+  assert.equal(result[0].angle, 180);
+});
+
+test('generateSessionExercises surfaces family/pattern/equipment/angle for a hyperextension backbone pick, restricted to its 2 real device angles', () => {
+  const result = generateSessionExercises({
+    type: 'lift', targetMuscles: ['erectors'], backboneExerciseNames: [{ name: 'Hyperextension', angle: 90 }],
+    lifts: [], skipAccessories: true,
+  });
+  assert.equal(result.length, 1);
+  assert.equal(result[0].family, true);
+  assert.equal(result[0].pattern, 'hyperextension');
+  assert.equal(result[0].equipment, 'bodyweight');
+  assert.equal(result[0].angle, 90);
+});

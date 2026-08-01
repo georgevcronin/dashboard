@@ -72,4 +72,35 @@ function chestSplitForExercise(name) {
   return CHEST_SPLIT_BY_ANGLE[String(angle)] || null;
 }
 
-module.exports = { CHEST_SPLIT_BY_ANGLE, CHEST_EXERCISE_ANGLES, chestSplitForExercise };
+// Same informational-only lower/mid/upper split, but for PressRowBuilder's
+// fly pattern -- keyed on functions/emgActivation.js's own fly axis (arm-
+// to-torso angle at full contraction, 0-180° in 15° steps), NOT this file's
+// bench-incline axis above. A fly's "angle" and a bench's "incline" aren't
+// the same physical quantity even though both drive the same lower-vs-
+// upper-pec bias, so keeping separate tables avoids conflating them. 0° (a
+// high-to-low cable fly finishing near the hips) is more lower-pec-biased
+// than the deepest decline bench above, since a fly's cable line of pull is
+// a more direct lower-pec vector than a decline press's bar path.
+const FLY_HEAD_SPLIT_BY_ANGLE = {
+  0:   { lower: 60, mid: 32, upper: 8 },
+  15:  { lower: 54, mid: 34, upper: 12 },
+  30:  { lower: 47, mid: 37, upper: 16 },
+  45:  { lower: 40, mid: 40, upper: 20 },
+  60:  { lower: 33, mid: 42, upper: 25 },
+  75:  { lower: 27, mid: 43, upper: 30 },
+  90:  { lower: 22, mid: 43, upper: 35 },
+  105: { lower: 18, mid: 41, upper: 41 },
+  120: { lower: 14, mid: 38, upper: 48 },
+  135: { lower: 11, mid: 34, upper: 55 },
+  150: { lower: 9,  mid: 30, upper: 61 },
+  165: { lower: 8,  mid: 26, upper: 66 },
+  180: { lower: 8,  mid: 22, upper: 70 },
+};
+
+// Returns { lower, mid, upper } for a fly angle (0-180°, 15° steps), or
+// null for an angle outside that grid.
+function flyHeadSplitForAngle(angle) {
+  return FLY_HEAD_SPLIT_BY_ANGLE[angle] || null;
+}
+
+module.exports = { CHEST_SPLIT_BY_ANGLE, CHEST_EXERCISE_ANGLES, chestSplitForExercise, FLY_HEAD_SPLIT_BY_ANGLE, flyHeadSplitForAngle };

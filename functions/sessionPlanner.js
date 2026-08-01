@@ -6,7 +6,8 @@
 
 const { EXERCISE_DB } = require('./exerciseDb');
 const { computeProgression } = require('./progression');
-const { isCompoundExercise, loggedExerciseNames, isBodyweightOnlyExercise } = require('./muscleTaxonomy');
+const { isCompoundExercise, loggedExerciseNames, isBodyweightOnlyExercise, redundancyPattern } = require('./muscleTaxonomy');
+const { idealAngleForMuscle } = require('./emgActivation');
 
 // Same reasoning/magnitude as weeklyPlanner.js's LOGGED_EXERCISE_BONUS — a
 // heavy preference for whatever the athlete has actually done before,
@@ -140,7 +141,7 @@ function pickAccessories(targetMuscles, alreadySelected, excludeNames, avoidMusc
   // an isolation raise accessory is genuinely different work and stays
   // allowed.
   const isRedundant = e => !isStapleExercise(lifts, e.name) &&
-    alreadySelected.some(a => a.pattern === e.pattern && e.primary.some(m => a.primary.includes(m)));
+    alreadySelected.some(a => redundancyPattern(a.pattern) === redundancyPattern(e.pattern) && e.primary.some(m => a.primary.includes(m)));
   // Bodyweight exercises excluded from normal selection — see
   // isBodyweightOnlyExercise in muscleTaxonomy.js for the exceptions
   // (travelMode, "Weighted X" variants, Russian Twist).
@@ -192,22 +193,28 @@ function pickAccessories(targetMuscles, alreadySelected, excludeNames, avoidMusc
   // Same-pattern+overlapping-muscle guard now also applies WITHIN this
   // list (previously only checked against `alreadySelected`), so two
   // accessory picks can't be each other's redundant pair either.
+  // isAngleFamily entries get a recommended angle attached for whichever
+  // muscle they're actually being credited for -- always a shallow copy
+  // (never mutate the shared EXERCISE_DB entry `e` itself, see
+  // pickBackboneExercises' identical comment in weeklyPlanner.js).
+  const withAngle = (e, creditedMuscle) => e.isAngleFamily ? { ...e, angle: idealAngleForMuscle(e.pattern, creditedMuscle) } : e;
   const out = [];
   const dynamicCovered = new Set(coveredMuscles);
-  const isRedundantWithPicked = e => out.some(o => o.pattern === e.pattern && e.primary.some(m => o.primary.includes(m)));
+  const isRedundantWithPicked = e => out.some(o => redundancyPattern(o.pattern) === redundancyPattern(e.pattern) && e.primary.some(m => o.primary.includes(m)));
   for (const { e } of scored) {
     if (out.length >= count) break;
     if (isRedundantWithPicked(e)) continue;
-    const coversNewMuscle = e.primary.some(m => targetMuscles.includes(m) && !dynamicCovered.has(m));
-    if (!coversNewMuscle) continue;
-    out.push(e);
+    const creditedMuscle = e.primary.find(m => targetMuscles.includes(m) && !dynamicCovered.has(m));
+    if (!creditedMuscle) continue;
+    out.push(withAngle(e, creditedMuscle));
     e.primary.forEach(m => dynamicCovered.add(m));
   }
   if (out.length < count) {
     for (const { e } of scored) {
       if (out.length >= count) break;
       if (out.some(o => o.name === e.name) || isRedundantWithPicked(e)) continue;
-      out.push(e);
+      const creditedMuscle = e.primary.find(m => targetMuscles.includes(m)) || e.primary[0];
+      out.push(withAngle(e, creditedMuscle));
     }
   }
   return out;
@@ -225,7 +232,7 @@ function pickAccessories(targetMuscles, alreadySelected, excludeNames, avoidMusc
 // obscure scoring used everywhere else in this file.
 function pickDedicatedAccessory(muscle, alreadySelected, excludeNames, avoidMuscles, { travelMode, avoidEquipment = [], isolationOnly = false, lifts, favoriteExercises = [], avoidMusclesSecondary = [], preferStable = false }) {
   const isRedundant = e => !isStapleExercise(lifts, e.name) &&
-    alreadySelected.some(a => a.pattern === e.pattern && e.primary.some(m => a.primary.includes(m)));
+    alreadySelected.some(a => redundancyPattern(a.pattern) === redundancyPattern(e.pattern) && e.primary.some(m => a.primary.includes(m)));
   const basePool = EXERCISE_DB.filter(e =>
     !excludeNames.has(e.name) &&
     (travelMode ? e.equipment === 'bodyweight' : true) &&
@@ -262,7 +269,11 @@ function pickDedicatedAccessory(muscle, alreadySelected, excludeNames, avoidMusc
         + stabilityScore(e, preferStable),
     }))
     .sort((a, b) => b.score - a.score);
-  return scored[0]?.e || null;
+  const top = scored[0]?.e;
+  if (!top) return null;
+  // Shallow copy for an isAngleFamily pick -- see pickAccessories' identical
+  // comment above; never mutate the shared EXERCISE_DB entry.
+  return top.isAngleFamily ? { ...top, angle: idealAngleForMuscle(top.pattern, muscle) } : top;
 }
 
 // Case-insensitive wrapper around computeProgression: EXERCISE_DB uses Title
@@ -396,8 +407,21 @@ function generateSessionExercises({ type, targetMuscles, backboneExerciseNames, 
   // directly trained. offlineMuscles (injured) still hard-excludes either way.
   const excludeMusclesSecondary = [...new Set([...avoidMusclesSecondary, ...offlineMuscles])];
 
+  // backboneExerciseNames accepts either bare name strings (the original,
+  // still-supported contract) or {name, angle} objects -- weeklyPlanner.js's
+  // pickBackboneExercises already attaches a recommended angle to any
+  // isAngleFamily pick it makes, and that angle needs to survive this
+  // name-based re-resolution, not get silently dropped back to a bare
+  // EXERCISE_DB entry with no angle at all.
   let backboneEntries = (backboneExerciseNames || [])
-    .map(n => EXERCISE_DB.find(e => e.name.toLowerCase() === (n || '').toLowerCase()))
+    .map(n => (typeof n === 'string' ? { name: n } : n))
+    .map(spec => {
+      const entry = EXERCISE_DB.find(e => e.name.toLowerCase() === (spec.name || '').toLowerCase());
+      if (!entry) return null;
+      // Shallow copy, never mutate the shared EXERCISE_DB entry -- see
+      // pickBackboneExercises' identical comment in weeklyPlanner.js.
+      return spec.angle != null ? { ...entry, angle: spec.angle } : entry;
+    })
     .filter(Boolean)
     .filter(e => !e.primary.some(m => excludeMuscles.includes(m)))
     .filter(e => !(e.secondary || []).some(m => excludeMusclesSecondary.includes(m)));
@@ -443,7 +467,18 @@ function generateSessionExercises({ type, targetMuscles, backboneExerciseNames, 
       failureSolo: newLifterPhase && workingSetCount === 1,
       higherRirPair: newLifterPhase && workingSetCount >= 2,
     });
-    return { name: e.name, note, sets };
+    // isAngleFamily entries surface a recommended angle in the response so
+    // the frontend can pre-fill PressRowBuilder's confirm step with it.
+    // Falls back to idealAngleForMuscle(e.pattern, e.primary[0]) if this
+    // particular entry reached buildEntry without one already attached
+    // (e.g. CNS substitution above can swap in a different EXERCISE_DB
+    // entry that never went through pickAccessories/pickBackboneExercises'
+    // own angle attachment) -- every family entry in the response should
+    // always carry SOME angle, not just whichever ones took the normal path.
+    return {
+      name: e.name, note, sets,
+      ...(e.isAngleFamily ? { family: true, pattern: e.pattern, equipment: e.equipment, angle: e.angle ?? idealAngleForMuscle(e.pattern, e.primary[0]) } : {}),
+    };
   };
 
   let finalDbEntries = [...backboneEntries, ...accessories];

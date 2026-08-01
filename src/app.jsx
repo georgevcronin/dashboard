@@ -17,7 +17,8 @@ import identityPkg from '../functions/identity.js';
 import weeklyPlannerPkg from '../functions/weeklyPlanner.js';
 import emgActivationPkg from '../functions/emgActivation.js';
 import muscleCapacityPkg from '../functions/muscleCapacity.js';
-import { chestSplitForExercise } from '../functions/chestHeadSplit.js';
+import { chestSplitForExercise, flyHeadSplitForAngle } from '../functions/chestHeadSplit.js';
+import { extensionHeadSplitForAngle } from '../functions/tricepsHeadSplit.js';
 import { EXERCISE_ANGLES } from '../functions/exerciseAngles.js';
 import { EXERCISE_DB, EXERCISE_MUSCLE_GROUPS, EXERCISE_PATTERNS } from '../functions/exerciseDb.js';
 import { PRESS_CSS } from './pressCss.js';
@@ -46,7 +47,7 @@ const { platesForWeight, STANDARD_PLATES_KG } = plateCalculatorPkg;
 const { DEFAULT_WARMUP_SCHEME, WARMUP_SCHEME_PRESETS } = progressionPkg;
 const { validateUsername, validateDisplayName, normalizeUsername, USERNAME_MAX, canChangeUsername, usernameChangeAvailableAt } = identityPkg;
 const { FATIGUE_CEILING } = weeklyPlannerPkg;
-const { ANGLES: EMG_ANGLES, PRESS_ANGLE_DESC, ROW_ANGLE_DESC, classifyMuscles, emgForAngle, frontalCueForProfile, gripCueForProfile, GRIP_ANGLES_BY_EQUIPMENT } = emgActivationPkg;
+const { ANGLES: EMG_ANGLES, PRESS_ANGLE_DESC, ROW_ANGLE_DESC, FLY_ANGLE_DESC, CURL_ANGLE_DESC, EXTENSION_ANGLE_DESC, LEG_CURL_ANGLE_DESC, HYPEREXTENSION_ANGLE_DESC, classifyMuscles, emgForAngle, frontalCueForProfile, gripCueForProfile, GRIP_ANGLES_BY_EQUIPMENT } = emgActivationPkg;
 
 // Priority-ordered: checked in this order so a compound phrase like "iso-
 // lateral cable machine" resolves to 'cable' (an iso-lateral cable stack),
@@ -76,6 +77,16 @@ function equipmentFromName(name) {
 // restrict the grip cue."
 function sagittalProfileForExercise(ex) {
   if (ex?.emgWeights && ex?.pattern) return { pattern: ex.pattern, weights: ex.emgWeights, equipment: ex.equipment };
+  // A session-generator family recommendation (functions/sessionPlanner.js's
+  // generateSessionExercises, ex.family) carries pattern+angle but not yet
+  // its own emgWeights (only computed once actually added to a workout, see
+  // toExercise above) -- resolve it the same way rather than falling all
+  // the way through to the EXERCISE_ANGLES name map, which has no entry for
+  // a generic family name like "Cable Fly".
+  if (ex?.family && ex?.pattern && ex?.angle != null) {
+    const weights = emgForAngle(ex.pattern, ex.angle);
+    if (weights) return { pattern: ex.pattern, weights, equipment: ex.equipment };
+  }
   const key = (ex?.name || '').toLowerCase().trim();
   const angleInfo = EXERCISE_ANGLES[key];
   if (!angleInfo) return null;
@@ -840,6 +851,35 @@ const glycogenPct = (elapsedS, totalS) => {
 // app's first version — everything before this had no changelog at all.
 const CHANGELOG = [
   {
+    version: '0.62',
+    date: '2026-07-30',
+    features: [
+      'Build Press/Row/Fly/... now also builds Leg Curl (0°=lying/prone through 180°=seated, hip position shifting stretch on the biarticular hamstrings) and Hyperextension. Hyperextension is a deliberate exception to the usual 0-180° picker — only 2 real device types exist for this movement (a 45° bench and a 90° Roman chair), so it\'s a 2-button choice instead of a fabricated continuous range, with the angle keyed directly to the real pad angle.',
+    ],
+  },
+  {
+    version: '0.61',
+    date: '2026-07-30',
+    features: [
+      'Build Press/Row/Fly now also builds Curl and Extension: pick a pattern, equipment, and an EMG-backed angle (curl: 0°=incline curl through 180°=preacher curl, shifting emphasis between biceps and brachialis; extension: 0°=pushdown/lying through 180°=overhead, shifting emphasis toward the long head of triceps and adding real shoulder demand). Extension also shows an informational long/lateral/medial triceps-head breakdown for the chosen angle — same idea as fly\'s chest split, purely informational, your tracked \'triceps\' number stays one comparable value everywhere else. Auto-generated sessions can recommend these too, same as Press/Row/Fly.',
+    ],
+  },
+  {
+    version: '0.60',
+    date: '2026-07-30',
+    features: [
+      'Press/Row/Fly built via Build Press/Row/Fly now share one exercise identity per pattern+equipment (e.g. every "Cable Fly" you build, at any angle, is one tracked exercise with one logged history) instead of a separate identity per angle — angle is a per-set attribute now, shown next to each logged set and factored precisely into fatigue crediting and weight-suggestion math for that exact angle, same as before. Brand rides along on the exercise\'s machine/brand field instead of the name.',
+      'Auto-generated sessions can now recommend one of these angle-built exercises directly (e.g. "Cable Fly @ 165° (recommended)") when it\'s genuinely the best way to hit a target muscle — shown in the session preview and, once added to a workout, pre-loaded with the correct angle and weighted muscle profile already attached.',
+    ],
+  },
+  {
+    version: '0.59',
+    date: '2026-07-30',
+    features: [
+      'Build Press/Row now also builds Fly: pick Fly, equipment (dumbbell/cable/machine — no barbell fly), and an EMG-backed angle (0° = a high-to-low cable fly finishing near your hips, through 90° = flat/mid fly, to 180° = a low-to-high fly finishing raised near overhead), and it becomes its own tracked exercise like any Press/Row builder result. Also shows an informational lower/mid/upper pec breakdown for the chosen angle — same idea as the existing per-exercise chest split, but on fly\'s own arm-to-torso-angle axis rather than bench incline, and purely informational: your tracked \'chest\' number stays one comparable value everywhere else.',
+    ],
+  },
+  {
     version: '0.58',
     date: '2026-07-29',
     features: [
@@ -1456,6 +1496,295 @@ function ExHistoryChart({ name, lifts }) {
   );
 }
 
+// Enhanced exercise picker with tabs: Recent, Frequent, Browse, Machine search
+// Horizontal drill-down tree for Browse tab (Muscle → Pattern → Movement → Equipment → Variants)
+// Global search across all exercises, ranked by recency
+const HIDDEN_PATTERNS = new Set(['press', 'row', 'fly']);
+
+function EnhancedExercisePicker({ onAdd, lifts, workoutDate }) {
+  const [open, setOpen] = useState(false);
+  const [tab, setTab] = useState('recent');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [frequencyWindow, setFrequencyWindow] = useState('30d');
+  const [stats, setStats] = useState(null);
+  const [loading, setLoading] = useState(false);
+
+  // Browse tree state
+  const [browseDepth, setBrowseDepth] = useState(0);
+  const [browseGroup, setBrowseGroup] = useState(null);
+  const [browsePattern, setBrowsePattern] = useState(null);
+  const [browseMovement, setBrowseMovement] = useState(null);
+
+  // Get today's date in YYYY-MM-DD format if workoutDate not provided
+  const sessionDate = workoutDate || new Date().toISOString().split('T')[0];
+
+  // Load exercise stats when picker opens or when time window changes
+  useEffect(() => {
+    if (!open) return;
+    setLoading(true);
+    fetch(`/exercise-stats?timeWindow=${frequencyWindow}&sessionDate=${sessionDate}`)
+      .then(r => r.json())
+      .then(data => { setStats(data); setLoading(false); })
+      .catch(() => { setLoading(false); setStats({ recent: [], frequent: [], today: [] }); });
+  }, [open, frequencyWindow, sessionDate]);
+
+  const resetBrowse = () => { setBrowseDepth(0); setBrowseGroup(null); setBrowsePattern(null); setBrowseMovement(null); };
+  const handleClose = () => { setOpen(false); setSearchQuery(''); resetBrowse(); };
+
+  // Search across all exercises
+  const searchResults = useMemo(() => {
+    if (!searchQuery.trim()) return [];
+    const q = searchQuery.toLowerCase();
+    let results = EXERCISE_DB.filter(e => e.name.toLowerCase().includes(q));
+
+    // Rank by recency if we have stats
+    if (stats?.recent) {
+      const recentNames = new Set(stats.recent.map(r => r.name.toLowerCase()));
+      results.sort((a, b) => {
+        const aRecent = recentNames.has(a.name.toLowerCase());
+        const bRecent = recentNames.has(b.name.toLowerCase());
+        return (bRecent ? 1 : 0) - (aRecent ? 1 : 0);
+      });
+    }
+
+    return results.slice(0, 20);
+  }, [searchQuery, stats]);
+
+  const pickExercise = (name) => {
+    onAdd(name.toLowerCase());
+    handleClose();
+  };
+
+  // Browse tab: horizontal drill-down
+  const browseGroups = useMemo(() => EXERCISE_MUSCLE_GROUPS.filter(g => EXERCISE_DB.some(e => e.muscleGroup === g)), []);
+
+  const browsePatterns = useMemo(() => {
+    if (!browseGroup) return [];
+    const present = new Set(EXERCISE_DB.filter(e => e.muscleGroup === browseGroup).map(e => e.pattern));
+    return EXERCISE_PATTERNS.filter(p => present.has(p) && !HIDDEN_PATTERNS.has(p));
+  }, [browseGroup]);
+
+  const browseHiddenMovements = useMemo(() => {
+    if (!browseGroup) return [];
+    const byId = new Map();
+    for (const e of EXERCISE_DB) {
+      if (e.muscleGroup !== browseGroup || !HIDDEN_PATTERNS.has(e.pattern)) continue;
+      if (!byId.has(e.movementId)) byId.set(e.movementId, { movementId: e.movementId, movementName: e.movementName, id: e.movementId });
+    }
+    return [...byId.values()].sort((a, b) => a.movementName.localeCompare(b.movementName));
+  }, [browseGroup]);
+
+  const browseMovements = useMemo(() => {
+    if (!browseGroup || !browsePattern) return [];
+    const byId = new Map();
+    for (const e of EXERCISE_DB) {
+      if (e.muscleGroup !== browseGroup || e.pattern !== browsePattern) continue;
+      if (!byId.has(e.movementId)) byId.set(e.movementId, { movementId: e.movementId, movementName: e.movementName });
+      byId.get(e.movementId);
+    }
+    return [...byId.values()].sort((a, b) => a.movementName.localeCompare(b.movementName));
+  }, [browseGroup, browsePattern]);
+
+  const browseEquipments = useMemo(() => {
+    if (!browseMovement) return [];
+    const exercises = EXERCISE_DB.filter(e => e.movementId === browseMovement);
+    const byEquip = new Map();
+    exercises.forEach(e => {
+      if (!byEquip.has(e.equipment)) byEquip.set(e.equipment, []);
+      byEquip.get(e.equipment).push(e);
+    });
+    return [...byEquip.entries()].map(([equip, exs]) => ({ equipment: equip, exercises: exs }));
+  }, [browseMovement]);
+
+  const browseVariants = useMemo(() => {
+    if (browseEquipments.length === 0) return [];
+    return browseEquipments.flatMap(e => e.exercises);
+  }, [browseEquipments]);
+
+  const machineExercises = useMemo(() => {
+    if (!searchQuery.trim()) return [];
+    const q = searchQuery.toLowerCase();
+    const results = [];
+    for (const [key, model] of Object.entries(MACHINE_MODELS)) {
+      const [exName, brand] = key.split('|');
+      const brandDisplay = brand.charAt(0).toUpperCase() + brand.slice(1).replace(/\b\w/g, l => l.toUpperCase());
+      if (exName.includes(q) || brand.includes(q) || model.toLowerCase().includes(q)) {
+        results.push({
+          name: `${brandDisplay} — ${model}`,
+          exercise: exName,
+          brand: brandDisplay,
+          model: model
+        });
+      }
+    }
+    return results.slice(0, 15);
+  }, [searchQuery]);
+
+  // Indicators for exercises
+  const getExerciseIndicator = (name) => {
+    const lowerName = name.toLowerCase();
+    const isInSession = stats?.today?.includes(lowerName);
+    const isLogged = stats?.recent?.some(r => r.name === lowerName) || stats?.frequent?.some(r => r.name === lowerName);
+    if (isInSession) return '●'; // filled dot for in-session
+    if (isLogged) return '○'; // empty dot for logged before
+    return ''; // nothing for never logged
+  };
+
+  const renderBrowseColumn = (items, onSelect, label) => (
+    <div style={{ minWidth: 200, paddingRight: 16, flexShrink: 0, overflowY: 'auto', maxHeight: 300 }}>
+      {label && <div style={{ fontSize: 9, textTransform: 'uppercase', color: 'var(--dim)', marginBottom: 8, fontWeight: 600 }}>{label}</div>}
+      {items.map(item => (
+        <div key={item.id || item.equipment || item.movementId}
+          onClick={() => onSelect(item)}
+          style={{ padding: '8px 0', cursor: 'pointer', borderBottom: '1px solid var(--paper2)', fontSize: 11, fontFamily: "'JetBrains Mono',monospace", display: 'flex', justifyContent: 'space-between' }}
+          onMouseEnter={e => e.currentTarget.style.background = 'var(--paper2)'}
+          onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+          <span>{item.movementName || item.name || item.equipment}</span>
+          {item.isLogged && <span style={{ color: 'var(--dim)', marginLeft: 4 }}>○</span>}
+        </div>
+      ))}
+    </div>
+  );
+
+  return (
+    <div style={{ marginTop: 16, borderTop: '1px solid var(--rule)', paddingTop: 10 }}>
+      <button onClick={() => setOpen(!open)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, fontFamily: "'JetBrains Mono',monospace", fontSize: 9, letterSpacing: '.12em', textTransform: 'uppercase', color: 'var(--dim)' }}>
+        {open ? '− ' : '+ '}Exercise Picker
+      </button>
+
+      {open && (
+        <div style={{ marginTop: 12, background: 'var(--paper)', border: '1px solid var(--rule)', borderRadius: 4, padding: 12 }}>
+          {/* Search bar */}
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={e => setSearchQuery(e.target.value)}
+            placeholder="Search exercises, machines…"
+            style={{ width: '100%', padding: '8px 10px', border: '1px solid var(--rule)', borderRadius: 3, fontFamily: "'JetBrains Mono',monospace", fontSize: 11, marginBottom: 12, boxSizing: 'border-box' }}
+            autoFocus
+          />
+
+          {/* Tabs */}
+          <div style={{ display: 'flex', gap: 8, marginBottom: 12, borderBottom: '1px solid var(--rule)', paddingBottom: 8 }}>
+            {['recent', 'frequent', 'browse', 'machines'].map(t => (
+              <button key={t}
+                onClick={() => { setTab(t); resetBrowse(); }}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '4px 8px', fontSize: 9, textTransform: 'uppercase', color: tab === t ? 'var(--ink)' : 'var(--dim)', borderBottom: tab === t ? '2px solid var(--ink)' : 'none', fontWeight: tab === t ? 600 : 400 }}>
+                {t}
+              </button>
+            ))}
+          </div>
+
+          {/* Tab content */}
+          <div style={{ maxHeight: 320, overflowY: 'auto' }}>
+            {tab === 'recent' && (
+              <div>
+                {searchResults.length > 0 ? (
+                  searchResults.map(ex => (
+                    <div key={ex.id} onClick={() => pickExercise(ex.name)} style={{ padding: '8px 0', cursor: 'pointer', borderBottom: '1px solid var(--paper2)', fontSize: 11, fontFamily: "'JetBrains Mono',monospace", display: 'flex', justifyContent: 'space-between' }} onMouseEnter={e => e.currentTarget.style.background = 'var(--paper2)'} onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                      <span>{ex.name}</span>
+                      <span style={{ color: 'var(--dim)', fontSize: 9 }}>{ex.equipment}</span>
+                    </div>
+                  ))
+                ) : !loading ? (
+                  <div style={{ fontSize: 11, color: 'var(--dim)' }}>
+                    {stats?.recent?.length > 0 ? (
+                      stats.recent.slice(0, 15).map(r => (
+                        <div key={r.name} onClick={() => pickExercise(r.name)} style={{ padding: '8px 0', cursor: 'pointer', borderBottom: '1px solid var(--paper2)', fontSize: 11, fontFamily: "'JetBrains Mono',monospace", display: 'flex', justifyContent: 'space-between' }} onMouseEnter={e => e.currentTarget.style.background = 'var(--paper2)'} onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                          <span>{r.name}</span>
+                          <span style={{ color: 'var(--dim)', fontSize: 9 }}>{new Date(r.lastUsedAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}</span>
+                        </div>
+                      ))
+                    ) : (
+                      <div style={{ color: 'var(--dim)' }}>No recent exercises. Start logging to build history.</div>
+                    )}
+                  </div>
+                ) : (
+                  <div style={{ color: 'var(--dim)' }}>Loading…</div>
+                )}
+              </div>
+            )}
+
+            {tab === 'frequent' && (
+              <div>
+                <div style={{ marginBottom: 8, display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <label style={{ fontSize: 9, color: 'var(--dim)' }}>Time window:</label>
+                  <select value={frequencyWindow} onChange={e => setFrequencyWindow(e.target.value)} style={{ fontSize: 9, padding: '3px 6px', border: '1px solid var(--rule)' }}>
+                    <option value="30d">30 days</option>
+                    <option value="6m">6 months</option>
+                    <option value="1y">1 year</option>
+                    <option value="all">All time</option>
+                  </select>
+                </div>
+                {loading ? (
+                  <div style={{ color: 'var(--dim)' }}>Loading…</div>
+                ) : stats?.frequent?.length > 0 ? (
+                  stats.frequent.slice(0, 15).map(f => (
+                    <div key={f.name} onClick={() => pickExercise(f.name)} style={{ padding: '8px 0', cursor: 'pointer', borderBottom: '1px solid var(--paper2)', fontSize: 11, fontFamily: "'JetBrains Mono',monospace", display: 'flex', justifyContent: 'space-between' }} onMouseEnter={e => e.currentTarget.style.background = 'var(--paper2)'} onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                      <span>{f.name}</span>
+                      <span style={{ color: 'var(--dim)', fontSize: 9 }}>{f.count}x</span>
+                    </div>
+                  ))
+                ) : (
+                  <div style={{ color: 'var(--dim)' }}>No exercises in this time window.</div>
+                )}
+              </div>
+            )}
+
+            {tab === 'browse' && (
+              <div style={{ display: 'flex', gap: 16, overflowX: 'auto', paddingBottom: 8 }}>
+                {browseDepth === 0 && renderBrowseColumn(browseGroups.map(g => ({ movementName: g, id: g })), g => { setBrowseGroup(g.movementName); setBrowseDepth(1); }, 'Muscle Groups')}
+                {browseDepth >= 1 && browseGroup && (
+                  <>
+                    {renderBrowseColumn([...browsePatterns.map(p => ({ movementName: p, id: `p-${p}` })), ...browseHiddenMovements.map(m => ({ ...m, id: `m-${m.movementId}` }))], item => {
+                      if (item.movementId) {
+                        setBrowseMovement(item.movementId);
+                        setBrowseDepth(2);
+                      } else {
+                        setBrowsePattern(item.movementName);
+                        setBrowseDepth(2);
+                      }
+                    }, 'Patterns & Movements')}
+                  </>
+                )}
+                {browseDepth >= 2 && browsePattern && browseMovement === null && (
+                  renderBrowseColumn(browseMovements.map(m => ({ ...m, id: m.movementId })), m => { setBrowseMovement(m.movementId); setBrowseDepth(3); }, 'Movements')
+                )}
+                {browseDepth >= 3 && browseMovement && (
+                  <>
+                    {browseEquipments.map(eq => renderBrowseColumn(eq.exercises.map(e => ({ ...e, isLogged: stats?.frequent?.some(f => f.name === e.name) || stats?.recent?.some(r => r.name === e.name) })), e => pickExercise(e.name), eq.equipment))}
+                  </>
+                )}
+              </div>
+            )}
+
+            {tab === 'machines' && (
+              <div>
+                {searchQuery.trim() ? (
+                  machineExercises.length > 0 ? (
+                    machineExercises.map((m, i) => (
+                      <div key={i} onClick={() => pickExercise(m.name)} style={{ padding: '8px 0', cursor: 'pointer', borderBottom: '1px solid var(--paper2)', fontSize: 11, fontFamily: "'JetBrains Mono',monospace" }} onMouseEnter={e => e.currentTarget.style.background = 'var(--paper2)'} onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                        <div>{m.name}</div>
+                        <div style={{ fontSize: 9, color: 'var(--dim)', marginTop: 2 }}>{m.exercise}</div>
+                      </div>
+                    ))
+                  ) : (
+                    <div style={{ color: 'var(--dim)', fontSize: 11 }}>No machines found.</div>
+                  )
+                ) : (
+                  <div style={{ color: 'var(--dim)', fontSize: 11 }}>Search for a machine or exercise to find models.</div>
+                )}
+              </div>
+            )}
+          </div>
+
+          <button onClick={handleClose} style={{ marginTop: 12, fontSize: 9, padding: '6px 12px', background: 'var(--paper2)', border: '1px solid var(--rule)', borderRadius: 3, cursor: 'pointer', width: '100%' }}>Close</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // Tree-nav exercise picker: muscle group -> pattern -> movement -> variant.
 // Additive alongside the free-text search above, not a replacement — same
 // addExercise() call either way, this is just a browsable way to arrive at
@@ -1466,7 +1795,7 @@ function ExHistoryChart({ name, lifts }) {
 // exercise IS a press/row/fly, so this bucket contained most of the tree.
 // Exercises using these patterns skip the pattern step entirely and show
 // up directly at the muscle-group level instead (see hiddenMovements).
-const HIDDEN_PATTERNS = new Set(['press', 'row', 'fly']);
+const HIDDEN_PATTERNS_OLD = new Set(['press', 'row', 'fly']);
 
 function ExerciseBrowser({ onAdd }) {
   const [open, setOpen] = useState(false);
@@ -1481,7 +1810,7 @@ function ExerciseBrowser({ onAdd }) {
   const patterns = useMemo(() => {
     if (!group) return [];
     const present = new Set(EXERCISE_DB.filter(e => e.muscleGroup === group).map(e => e.pattern));
-    return EXERCISE_PATTERNS.filter(p => present.has(p) && !HIDDEN_PATTERNS.has(p));
+    return EXERCISE_PATTERNS.filter(p => present.has(p) && !HIDDEN_PATTERNS_OLD.has(p));
   }, [group]);
 
   // Movements for hidden-pattern exercises (press/row/fly) within this
@@ -1491,7 +1820,7 @@ function ExerciseBrowser({ onAdd }) {
     if (!group) return [];
     const byId = new Map();
     for (const e of EXERCISE_DB) {
-      if (e.muscleGroup !== group || !HIDDEN_PATTERNS.has(e.pattern)) continue;
+      if (e.muscleGroup !== group || !HIDDEN_PATTERNS_OLD.has(e.pattern)) continue;
       if (!byId.has(e.movementId)) byId.set(e.movementId, { movementId: e.movementId, movementName: e.movementName, count: 0 });
       byId.get(e.movementId).count++;
     }
@@ -1584,12 +1913,18 @@ function ExerciseBrowser({ onAdd }) {
   );
 }
 
-// Builds a genuinely new exercise identity from Row/Press + equipment +
+// Builds a genuinely new exercise identity from Press/Row/Fly + equipment +
 // angle + brand, rather than resolving to an existing exerciseDb.js entry —
 // each combination gets its own EMG-weighted muscle profile (functions/
 // emgActivation.js) and is tracked as its own exercise going forward, same
 // as any other custom exercise. See onAdd's second argument in WorkoutLogger
-// for how the weighted profile travels with the logged sets.
+// for how the weighted profile travels with the logged sets. Fly's angle is
+// a different physical quantity than press/row's (arm-to-torso angle at
+// full contraction, not shoulder-flexion/pull-direction through the rep —
+// see emgActivation.js's header) but shares the same picker mechanics.
+const PATTERN_LABELS = { press: 'Press', row: 'Row', fly: 'Fly', curl: 'Curl', extension: 'Extension', 'leg-curl': 'Leg Curl', hyperextension: 'Hyperextension' };
+function patternLabelFor(pattern) { return PATTERN_LABELS[pattern] || pattern; }
+
 function PressRowBuilder({ onAdd, lifts }) {
   const [open, setOpen] = useState(false);
   const [pattern, setPattern] = useState(null);
@@ -1611,8 +1946,8 @@ function PressRowBuilder({ onAdd, lifts }) {
   // press/row exercises they've angle-mapped, then predicts this exact,
   // possibly-never-logged angle's expected e1RM from those capacities. Only
   // recomputed when lifts actually change, not on every angle click.
-  const capacityResult = useMemo(() => solveMuscleCapacities(buildObservations(lifts)), [lifts]);
-  const prediction = angle != null ? predictExerciseE1RM(pattern, angle, capacityResult) : null;
+  const capacityResult = useMemo(() => solveMuscleCapacities(buildObservations(lifts), lifts), [lifts]);
+  const prediction = angle != null ? predictExerciseE1RM(pattern, angle, capacityResult, equipment) : null;
   const suggestedKg = prediction ? suggestedWeightForReps(prediction.e1rm, 8) : null;
 
   const build = () => {
@@ -1620,11 +1955,15 @@ function PressRowBuilder({ onAdd, lifts }) {
     if (!weights) return;
     const { primary, secondary } = classifyMuscles(weights);
     const equipLabel = equipment[0].toUpperCase() + equipment.slice(1);
-    const patternLabel = pattern === 'press' ? 'Press' : 'Row';
-    const name = brand.trim()
-      ? `${equipLabel} ${patternLabel} — ${angle}° — ${brand.trim()}`
-      : `${equipLabel} ${patternLabel} — ${angle}°`;
-    onAdd(name, { primary, secondary, emgWeights: weights, suggestedKg, pattern, equipment });
+    const patternLabel = patternLabelFor(pattern);
+    // Name matches one of functions/exerciseDb.js's isAngleFamily entries
+    // exactly (e.g. "Cable Fly") -- angle/brand are per-set attributes now,
+    // not part of exercise identity, so every angle you build shares one
+    // history under this name. Brand rides along on `machine`, the same
+    // per-set field a normal machine/cable exercise already uses for its
+    // brand/model, instead of fragmenting identity like angle used to.
+    const name = `${equipLabel} ${patternLabel}`;
+    onAdd(name, { primary, secondary, emgWeights: weights, suggestedKg, pattern, equipment, angle, machine: brand.trim() || undefined });
     setOpen(false);
     reset();
   };
@@ -1637,7 +1976,7 @@ function PressRowBuilder({ onAdd, lifts }) {
   return (
     <div style={{ marginTop: 10, borderTop: '1px solid var(--rule)', paddingTop: 10 }}>
       <button onClick={() => { setOpen(v => !v); reset(); }} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, fontFamily: "'JetBrains Mono',monospace", fontSize: 9, letterSpacing: '.12em', textTransform: 'uppercase', color: 'var(--dim)' }}>
-        {open ? '− ' : '+ '}Build Press/Row
+        {open ? '− ' : '+ '}Build Press/Row/Fly/Curl/Extension/Leg Curl/Hyperextension
       </button>
       {open && (
         <div style={{ marginTop: 10 }}>
@@ -1652,12 +1991,20 @@ function PressRowBuilder({ onAdd, lifts }) {
             <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
               <button style={tileStyle} onClick={() => setPattern('press')}>Press</button>
               <button style={tileStyle} onClick={() => setPattern('row')}>Row</button>
+              <button style={tileStyle} onClick={() => setPattern('fly')}>Fly</button>
+              <button style={tileStyle} onClick={() => setPattern('curl')}>Curl</button>
+              <button style={tileStyle} onClick={() => setPattern('extension')}>Extension</button>
+              <button style={tileStyle} onClick={() => setPattern('leg-curl')}>Leg Curl</button>
+              <button style={tileStyle} onClick={() => setPattern('hyperextension')}>Hyperextension</button>
             </div>
           )}
 
           {pattern && !equipment && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-              {['barbell', 'dumbbell', 'cable', 'machine'].map(eq => (
+              {(pattern === 'fly' ? ['dumbbell', 'cable', 'machine']
+                : pattern === 'leg-curl' ? ['machine', 'cable']
+                : pattern === 'hyperextension' ? ['bodyweight']
+                : ['barbell', 'dumbbell', 'cable', 'machine']).map(eq => (
                 <button key={eq} style={tileStyle} onClick={() => setEquipment(eq)}>{eq}</button>
               ))}
             </div>
@@ -1666,10 +2013,15 @@ function PressRowBuilder({ onAdd, lifts }) {
           {showAngleStep && (
             <div>
               <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)', lineHeight: 1.6, marginBottom: 10 }}>
-                {pattern === 'press' ? PRESS_ANGLE_DESC : ROW_ANGLE_DESC}
+                {pattern === 'press' ? PRESS_ANGLE_DESC : pattern === 'row' ? ROW_ANGLE_DESC : pattern === 'fly' ? FLY_ANGLE_DESC
+                  : pattern === 'curl' ? CURL_ANGLE_DESC : pattern === 'extension' ? EXTENSION_ANGLE_DESC
+                  : pattern === 'leg-curl' ? LEG_CURL_ANGLE_DESC : HYPEREXTENSION_ANGLE_DESC}
               </div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-                {EMG_ANGLES.map(a => (
+                {/* Hyperextension has no continuous angle range -- only 2 real
+                    device types exist (see HYPEREXTENSION_ANGLE_DESC), so it
+                    gets exactly 2 buttons here instead of the usual 13. */}
+                {(pattern === 'hyperextension' ? [45, 90] : EMG_ANGLES).map(a => (
                   <button key={a} style={{ ...tileStyle, flex: '0 0 auto', padding: '7px 10px' }} onClick={() => setAngle(a)}>{a}°</button>
                 ))}
               </div>
@@ -1688,12 +2040,34 @@ function PressRowBuilder({ onAdd, lifts }) {
           {showConfirm && (
             <div>
               <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 11, color: 'var(--ink)', marginBottom: 8 }}>
-                {equipment[0].toUpperCase() + equipment.slice(1)} {pattern === 'press' ? 'Press' : 'Row'} — {angle}°{brand.trim() ? ` — ${brand.trim()}` : ''}
+                {equipment[0].toUpperCase() + equipment.slice(1)} {patternLabelFor(pattern)} — {angle}°{brand.trim() ? ` — ${brand.trim()}` : ''}
               </div>
+              {pattern === 'fly' && flyHeadSplitForAngle(angle) && (() => {
+                const split = flyHeadSplitForAngle(angle);
+                return (
+                  <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)', marginBottom: 10 }}>
+                    Lower {split.lower}% · Mid {split.mid}% · Upper {split.upper}%
+                    <span style={{ display: 'block', marginTop: 2 }}>Informational only — doesn't change your tracked chest number.</span>
+                  </div>
+                );
+              })()}
+              {pattern === 'extension' && extensionHeadSplitForAngle(angle) && (() => {
+                const split = extensionHeadSplitForAngle(angle);
+                return (
+                  <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)', marginBottom: 10 }}>
+                    Long {split.long}% · Lateral {split.lateral}% · Medial {split.medial}%
+                    <span style={{ display: 'block', marginTop: 2 }}>Informational only — doesn't change your tracked triceps number.</span>
+                  </div>
+                );
+              })()}
               <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)', lineHeight: 1.6, marginBottom: suggestedKg ? 6 : 10 }}>
                 {suggestedKg
-                  ? `Suggested first set: ~${suggestedKg}kg × 8 reps${prediction.confidence === 'partial' ? ' — rough estimate, some contributing muscles have no history yet' : ' — from your history on other angles'}.`
-                  : 'No target weight suggestion yet — log at least 3 other press/row exercises (with angles set) to calibrate one.'}
+                  ? `Suggested first set: ~${suggestedKg}kg × 8 reps${
+                      prediction.confidence === 'rough' ? ' — rough ballpark, based on very little logged history yet'
+                      : prediction.confidence === 'partial' ? ' — rough estimate, some contributing muscles have no history yet'
+                      : ' — from your history on other angles'
+                    }.`
+                  : 'No target weight suggestion yet — log at least one other press/row/fly exercise (with an angle set) to get even a rough estimate.'}
               </div>
               {prediction?.breakdown && (
                 <div style={{ marginBottom: 10, border: '1px solid var(--rule)' }}>
@@ -1901,10 +2275,19 @@ function WorkoutLogger({ planDay, lifts, customExercises, experienceLevel, onClo
     const session = planDay.sessions?.[0];
     if (!session || session.type === 'rest') { setLoading(false); return; }
 
+    // ex.family (functions/sessionPlanner.js's generateSessionExercises,
+    // for an isAngleFamily pick like "Cable Fly") carries pattern/equipment/
+    // angle but no emgWeights of its own -- compute it the same way
+    // PressRowBuilder.build() does for a manually-built one, so a session-
+    // generator-recommended family exercise gets the same precise
+    // angle-based fatigue/stimulus crediting once logged, not just the
+    // coarse static primary/secondary array every other exercise falls
+    // back to.
     const toExercise = ex => ({
       name: ex.name.toLowerCase().trim(),
       targetReps: ex.sets?.[0]?.reps || 8,
       sets: (ex.sets || Array.from({length:3},()=>({type:'N',kg:'',reps:'8'}))).map(s => ({ type: s.type || 'N', kg: String(s.kg || ''), reps: String(s.reps || ''), rpe: '', done: false })),
+      ...(ex.family ? { pattern: ex.pattern, equipment: ex.equipment, angle: ex.angle, emgWeights: emgForAngle(ex.pattern, ex.angle) } : {}),
     });
 
     if (planDay.preloadedExercises?.length) {
@@ -2033,7 +2416,16 @@ function WorkoutLogger({ planDay, lifts, customExercises, experienceLevel, onClo
     // suggestedKg is a one-off logging convenience (this session's first-set
     // prefill), not a fact about the exercise itself -- kept out of the
     // stored customExercises record, unlike primary/secondary/emgWeights/pattern.
-    const { suggestedKg, ...taxonomy } = effective;
+    // angle/machine (brand) are likewise per-add, not per-name facts -- a
+    // shared family name like "Cable Fly" gets built at a different angle
+    // (and possibly different brand) every time, so baking either into the
+    // name-keyed customExercises record would misrepresent every add after
+    // the first. Since these names now resolve to a real exerciseDb.js
+    // entry (functions/exerciseDb.js's isAngleFamily rows), this branch
+    // naturally stops firing for them anyway (`allExercises` already
+    // includes the name) -- this destructure just keeps taxonomy clean for
+    // any other custom exercise that isn't a family build.
+    const { suggestedKg, angle, machine: builderMachine, ...taxonomy } = effective;
     if (!allExercises.includes(key)) {
       setNewCustomExercises(p => p.some(ce => ce.name === key) ? p : [...p, { name: key, ...taxonomy }]);
     }
@@ -2045,7 +2437,8 @@ function WorkoutLogger({ planDay, lifts, customExercises, experienceLevel, onClo
     const hardSave = activeGym && gymDetail?.hardSaves?.[key];
     setExercises(p => [...p, {
       name: key, targetReps: 8, sets,
-      ...(effective.emgWeights ? { emgWeights: effective.emgWeights, pattern: effective.pattern, equipment: effective.equipment } : {}),
+      ...(effective.emgWeights ? { emgWeights: effective.emgWeights, pattern: effective.pattern, equipment: effective.equipment, angle } : {}),
+      ...(builderMachine ? { machine: builderMachine } : {}),
       ...(hardSave ? { machine: hardSave.brand, ...(hardSave.model ? { model: hardSave.model } : {}) } : {}),
     }]);
     setNewEx(''); setSuggestions([]);
@@ -2216,7 +2609,7 @@ function WorkoutLogger({ planDay, lifts, customExercises, experienceLevel, onClo
           </div>
         )}
       </div>
-      <ExerciseBrowser onAdd={onAddFn} />
+      <EnhancedExercisePicker onAdd={onAddFn} lifts={lifts} workoutDate={workoutDate} />
       <PressRowBuilder onAdd={onAddFn} lifts={lifts} />
     </>
   );
@@ -2332,6 +2725,8 @@ function WorkoutLogger({ planDay, lifts, customExercises, experienceLevel, onClo
       ...(ex.pulleyType ? { pulleyType: ex.pulleyType } : {}),
       ...(ex.model ? { model: ex.model } : {}),
       ...(ex.emgWeights ? { emgWeights: ex.emgWeights } : {}),
+      ...(ex.angle != null ? { angle: ex.angle } : {}),
+      ...(ex.pattern ? { pattern: ex.pattern } : {}),
     })));
     try {
       let r;
@@ -2347,13 +2742,13 @@ function WorkoutLogger({ planDay, lifts, customExercises, experienceLevel, onClo
         const finalSets = myEntries.map(e => ({ exercise: e.exercise, kg: e.kg, reps: e.reps, rpe: e.rpe, type: e.type, machine: e.machine, pulleyType: e.pulleyType, model: e.model }));
         r = await api(`session/${groupSessionId}/finish`, {
           method: 'POST',
-          body: JSON.stringify({ workout: { name: planDay?.sessions?.[0]?.title || 'Session', date: today, ...(activeGym ? { gymId: activeGym.id } : {}) }, sets: finalSets, customExercises: newCustomExercises }),
+          body: JSON.stringify({ workout: { name: planDay?.sessions?.[0]?.title || 'Session', date: today, ...(activeGym ? { gymId: activeGym.id } : {}) }, sets: finalSets, customExercises: newCustomExercises, elapsed }),
         });
         persistGroupSessionId(null); setGroupData(null); setFinishingGroup(false);
       } else {
         r = await api('session/complete', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ workout: { name: planDay?.sessions?.[0]?.title || 'Session', date: today, ...(activeGym ? { gymId: activeGym.id } : {}) }, sets: allSets, customExercises: newCustomExercises }),
+          body: JSON.stringify({ workout: { name: planDay?.sessions?.[0]?.title || 'Session', date: today, ...(activeGym ? { gymId: activeGym.id } : {}) }, sets: allSets, customExercises: newCustomExercises, elapsed }),
         });
       }
       clearActiveSession(); // saved server-side now — stop persisting/offering to restore this one
@@ -2620,6 +3015,28 @@ function WorkoutLogger({ planDay, lifts, customExercises, experienceLevel, onClo
                     </div>
                   );
                 })()}
+
+                {/* Angle-family exercise (functions/exerciseDb.js's
+                    isAngleFamily, e.g. "Cable Fly" built via Build Press/
+                    Row/Fly, or recommended by session generation) — angle is
+                    a per-set attribute now, not part of the name, so it's
+                    shown here rather than in the header. Fly's own
+                    lower/mid/upper split is angle-derived (chestHeadSplit.js's
+                    flyHeadSplitForAngle), a different axis than the
+                    bench-incline split above, so it's shown separately. */}
+                {ex.pattern && ex.angle != null && (
+                  <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, color: 'var(--dim)', marginBottom: 3 }}>
+                    {patternLabelFor(ex.pattern)} angle: {ex.angle}°
+                    {ex.pattern === 'fly' && flyHeadSplitForAngle(ex.angle) && (() => {
+                      const split = flyHeadSplitForAngle(ex.angle);
+                      return <span> — Lower {split.lower}% · Mid {split.mid}% · Upper {split.upper}%</span>;
+                    })()}
+                    {ex.pattern === 'extension' && extensionHeadSplitForAngle(ex.angle) && (() => {
+                      const split = extensionHeadSplitForAngle(ex.angle);
+                      return <span> — Long {split.long}% · Lateral {split.lateral}% · Medial {split.medial}%</span>;
+                    })()}
+                  </div>
+                )}
 
                 {/* Elbow-flare (frontal-plane) and grip-rotation form cues —
                     companions to the press/row angle already chosen
@@ -3895,11 +4312,18 @@ function S3({ s, onStartWorkout, onImport, onHistory, refresh }) {
                 // prescribing 4 working sets at a different rep target.
                 const workingSets = ex.sets?.filter(s => s.type !== 'W') ?? [];
                 // Which muscle(s) this specific pick is actually for — not
-                // returned by the backend (generateSessionExercises only
-                // sends {name, note, sets}), but EXERCISE_DB is already
-                // bundled into the frontend, so a lookup here is enough.
+                // returned by the backend for a normal exercise
+                // (generateSessionExercises sends {name, note, sets}), but
+                // EXERCISE_DB is already bundled into the frontend, so a
+                // lookup here is enough. An isAngleFamily pick (e.g. "Cable
+                // Fly") DOES additionally carry its own family/pattern/
+                // equipment/angle straight from the response — that's the
+                // specific angle recommended for the muscle this pick was
+                // actually credited for, shown below.
                 const primaryMuscles = EXERCISE_DB.find(e => e.name === ex.name)?.primary || [];
                 const chestSplit = chestSplitForExercise(ex.name);
+                const flySplit = ex.family && ex.pattern === 'fly' ? flyHeadSplitForAngle(ex.angle) : null;
+                const extensionSplit = ex.family && ex.pattern === 'extension' ? extensionHeadSplitForAngle(ex.angle) : null;
                 const formTips = formCuesForExercise(ex);
                 return (
                   <div key={i} style={{ display: 'flex', alignItems: 'baseline', gap: 8, padding: '3px 0', borderBottom: '1px solid var(--rule)' }}>
@@ -3913,6 +4337,11 @@ function S3({ s, onStartWorkout, onImport, onHistory, refresh }) {
                       {chestSplit && (
                         <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, color: 'var(--dim)', marginTop: 1 }}>
                           Lower {chestSplit.lower}% · Mid {chestSplit.mid}% · Upper {chestSplit.upper}%
+                        </div>
+                      )}
+                      {ex.family && ex.angle != null && (
+                        <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, color: 'var(--gold)', marginTop: 1 }}>
+                          @ {ex.angle}° (recommended){flySplit ? ` — Lower ${flySplit.lower}% · Mid ${flySplit.mid}% · Upper ${flySplit.upper}%` : ''}{extensionSplit ? ` — Long ${extensionSplit.long}% · Lateral ${extensionSplit.lateral}% · Medial ${extensionSplit.medial}%` : ''}
                         </div>
                       )}
                       {formTips.map((tip, ti) => (

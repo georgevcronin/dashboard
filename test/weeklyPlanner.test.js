@@ -40,7 +40,7 @@ test('computeMusclePriority does not itself special-case "ignore" — that is th
 });
 
 test('scoreBucket returns null when every muscle in the bucket is unavailable', () => {
-  const priority = computeMusclePriority({ chest: 100, 'front-delt': 100, 'mid-delt': 100, triceps: 100 }, []);
+  const priority = computeMusclePriority({ chest: 100, 'front-delt': 100, 'mid-delt': 100, triceps: 100, serratus: 100 }, []);
   assert.equal(scoreBucket(MUSCLE_GROUPS.push, priority), null);
 });
 
@@ -60,7 +60,11 @@ test('bucket weighting: a genuinely fatigued major-muscle bucket does not read a
 
 test('scoreBucket reads 100 when every muscle in the bucket is fully fresh', () => {
   const priority = computeMusclePriority({}, []);
-  assert.equal(scoreBucket(MUSCLE_GROUPS.push, priority).score, 100);
+  // Math.round, not a raw equality check -- a 5-muscle weighted average
+  // (push now includes serratus alongside chest/front-delt/mid-delt/
+  // triceps) can land at 99.99999999999999 from floating-point division,
+  // not exactly 100, even though every muscle's own priority is 100.
+  assert.equal(Math.round(scoreBucket(MUSCLE_GROUPS.push, priority).score), 100);
 });
 
 test('pickBackboneExercises prefers compounds covering more target muscles, excludes lesserKnown', () => {
@@ -216,7 +220,7 @@ test('generateWeeklyGuidance gives a recovery-only rationale only when BOTH lift
 });
 
 test('generateWeeklyGuidance ranks muscleFocus freshest-first', () => {
-  const fatigue = { chest: 80, 'front-delt': 80, 'mid-delt': 80, triceps: 80 }; // push fried, everything else fresh
+  const fatigue = { chest: 80, 'front-delt': 80, 'mid-delt': 80, triceps: 80, serratus: 80 }; // push fried, everything else fresh
   const guidance = generateWeeklyGuidance({
     currentFatigue: fatigue, weekMetabolic: 0, weekCNS: 0, offlineMuscles: [], dataMature: true,
     preferredSplit: 'Push / Pull / Legs',
@@ -287,6 +291,24 @@ test('computeMusclePriority still excludes over-ceiling/offline muscles even wit
   const staleness = { quads: 60 }; // very overdue, but also currently over the fatigue ceiling
   const priority = computeMusclePriority(fatigue, [], staleness);
   assert.equal(priority.quads, -1);
+});
+
+test('pickBackboneExercises attaches a recommended angle to an isAngleFamily pick, for the specific muscle it\'s being credited for', () => {
+  // serratus has thin coverage among static (non-family) entries -- an
+  // isAngleFamily fly should win and carry idealAngleForMuscle('fly','serratus').
+  const { idealAngleForMuscle } = require('../functions/emgActivation');
+  const picks = pickBackboneExercises(['serratus'], { count: 1 });
+  assert.equal(picks.length, 1);
+  assert.equal(picks[0].isAngleFamily, true);
+  assert.equal(picks[0].angle, idealAngleForMuscle(picks[0].pattern, 'serratus'));
+});
+
+test('pickBackboneExercises never mutates the shared EXERCISE_DB entry when attaching an angle', () => {
+  const { EXERCISE_DB } = require('../functions/exerciseDb');
+  pickBackboneExercises(['serratus'], { count: 1 });
+  pickBackboneExercises(['lats'], { count: 2 }); // a second, different-muscle call
+  const dbEntry = EXERCISE_DB.find(e => e.isAngleFamily && e.pattern === 'fly');
+  assert.equal(dbEntry.angle, undefined, 'the underlying EXERCISE_DB entry must never carry an angle -- only shallow copies returned to callers should');
 });
 
 test('generateWeeklyGuidance threads muscleLastTrainedDays through so the displayed freshness reflects atrophy-risk too', () => {

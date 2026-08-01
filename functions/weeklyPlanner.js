@@ -14,9 +14,10 @@
 // started, rather than reading back a pre-committed slot.
 
 const { EXERCISE_DB } = require('./exerciseDb');
-const { PRIMARY_MUSCLES, MUSCLE_GROUPS, loggedExerciseNames, isBodyweightOnlyExercise } = require('./muscleTaxonomy');
+const { PRIMARY_MUSCLES, MUSCLE_GROUPS, loggedExerciseNames, isBodyweightOnlyExercise, redundancyPattern } = require('./muscleTaxonomy');
 const { SPLIT_GROUPS } = require('./splitPlanner');
 const { stabilityScore } = require('./sessionPlanner');
+const { idealAngleForMuscle } = require('./emgActivation');
 
 // Dominates the small (0-4 point) muscle-coverage score below by design — "a
 // heavy preference for exercises you've done before" means history should
@@ -137,9 +138,21 @@ function pickBackboneExercises(targetMuscles, { travelMode, lifts, favoriteExerc
   for (const { e } of scored) {
     if (out.length >= count) break;
     if (out.some(o => o.name === e.name)) continue;
-    if (out.some(o => o.pattern === e.pattern && e.primary.some(m => o.primary.includes(m)))) continue;
+    if (out.some(o => redundancyPattern(o.pattern) === redundancyPattern(e.pattern) && e.primary.some(m => o.primary.includes(m)))) continue;
     if (!travelMode && !e.primary.some(m => targetMuscles.includes(m) && !covered.has(m))) continue;
-    out.push(e);
+    // isAngleFamily entries (functions/exerciseDb.js, e.g. "Cable Fly") get
+    // a recommended angle attached for whichever target muscle this pick is
+    // actually being credited for -- a shallow copy, never a mutation of
+    // the shared EXERCISE_DB entry itself (that array is required once per
+    // Cloud Functions instance and reused across requests; assigning onto
+    // `e` directly would leak one athlete's angle into every other
+    // concurrent/later request on the same warm instance).
+    if (e.isAngleFamily) {
+      const creditedMuscle = e.primary.find(m => targetMuscles.includes(m) && !covered.has(m)) || e.primary.find(m => targetMuscles.includes(m)) || e.primary[0];
+      out.push({ ...e, angle: idealAngleForMuscle(e.pattern, creditedMuscle) });
+    } else {
+      out.push(e);
+    }
     e.primary.forEach(m => covered.add(m));
   }
   return out;

@@ -1,27 +1,67 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const {
-  ANGLES, PRESS_EMG, ROW_EMG, classifyMuscles, emgForAngle,
-  PRIMARY_THRESHOLD, SECONDARY_THRESHOLD,
+  ANGLES, PRESS_EMG, ROW_EMG, FLY_EMG, CURL_EMG, EXTENSION_EMG, LEG_CURL_EMG, HYPEREXTENSION_EMG, classifyMuscles, emgForAngle,
+  PRIMARY_THRESHOLD, SECONDARY_THRESHOLD, muscleEnvelope, idealAngleForMuscle,
   PRESS_FRONTAL_EMG, ROW_FRONTAL_EMG, FRONTAL_ANGLES, frontalCueForProfile,
   PRESS_GRIP_EMG, ROW_GRIP_EMG, GRIP_ANGLES, gripCueForProfile, GRIP_ANGLES_BY_EQUIPMENT,
 } = require('../functions/emgActivation');
 
-test('ANGLES covers 0-180 in 15deg steps, matching every table key', () => {
-  assert.deepEqual(ANGLES, [0, 15, 30, 45, 60, 75, 90, 105, 120, 135, 150, 165, 180]);
-  for (const a of ANGLES) {
-    assert.ok(a in PRESS_EMG, `PRESS_EMG missing angle ${a}`);
-    assert.ok(a in ROW_EMG, `ROW_EMG missing angle ${a}`);
+// Full 0-180/15°-step tables only -- HYPEREXTENSION_EMG deliberately isn't
+// one of these (see its own dedicated tests below): it only has 2 real
+// keys (45, 90), not the usual 13, because only 2 real device types exist
+// for that movement.
+const ALL_PATTERN_TABLES = [['press', PRESS_EMG], ['row', ROW_EMG], ['fly', FLY_EMG], ['curl', CURL_EMG], ['extension', EXTENSION_EMG], ['leg-curl', LEG_CURL_EMG]];
+
+function maxAcrossAngles(table, muscle) {
+  return Math.max(...ANGLES.map(a => table[a]?.[muscle] ?? -Infinity));
+}
+
+test('muscleEnvelope: every muscle it includes actually crosses the right threshold at SOME angle in the pattern\'s table', () => {
+  for (const [pattern, table] of ALL_PATTERN_TABLES) {
+    const { primary, secondary } = muscleEnvelope(pattern);
+    for (const m of primary) assert.ok(maxAcrossAngles(table, m) >= PRIMARY_THRESHOLD, `${pattern}/${m} in primary should peak >= ${PRIMARY_THRESHOLD}`);
+    for (const m of secondary) assert.ok(maxAcrossAngles(table, m) >= SECONDARY_THRESHOLD && maxAcrossAngles(table, m) < PRIMARY_THRESHOLD, `${pattern}/${m} in secondary should peak in [${SECONDARY_THRESHOLD}, ${PRIMARY_THRESHOLD})`);
   }
 });
 
-test('emgForAngle returns the press table for pattern "press" and the row table for "row"', () => {
-  assert.deepEqual(emgForAngle('press', 90), PRESS_EMG[90]);
-  assert.deepEqual(emgForAngle('row', 90), ROW_EMG[90]);
+test('muscleEnvelope: a muscle that never crosses SECONDARY_THRESHOLD anywhere in the table is excluded entirely', () => {
+  // Fly's biceps peaks at 12% (see FLY_EMG) -- well under SECONDARY_THRESHOLD.
+  const { primary, secondary } = muscleEnvelope('fly');
+  assert.ok(!primary.includes('biceps') && !secondary.includes('biceps'), 'fly biceps never reaches 25% anywhere, should be excluded from both');
+});
+
+test('muscleEnvelope returns empty arrays for an unknown pattern', () => {
+  assert.deepEqual(muscleEnvelope('squat'), { primary: [], secondary: [] });
+});
+
+test('idealAngleForMuscle finds the angle that maximizes a muscle\'s activation for a pattern', () => {
+  for (const [pattern, table] of ALL_PATTERN_TABLES) {
+    for (const muscle of new Set(ANGLES.flatMap(a => Object.keys(table[a])))) {
+      const angle = idealAngleForMuscle(pattern, muscle);
+      assert.equal(table[angle][muscle], maxAcrossAngles(table, muscle), `${pattern}/${muscle}: angle ${angle} should be the true argmax`);
+    }
+  }
+});
+
+test('idealAngleForMuscle returns null for a muscle the pattern never tracks, or an unknown pattern', () => {
+  assert.equal(idealAngleForMuscle('row', 'chest'), null);
+  assert.equal(idealAngleForMuscle('squat', 'chest'), null);
+});
+
+test('ANGLES covers 0-180 in 15deg steps, matching every table key', () => {
+  assert.deepEqual(ANGLES, [0, 15, 30, 45, 60, 75, 90, 105, 120, 135, 150, 165, 180]);
+  for (const a of ANGLES) {
+    for (const [pattern, table] of ALL_PATTERN_TABLES) assert.ok(a in table, `${pattern} table missing angle ${a}`);
+  }
+});
+
+test('emgForAngle returns the right table for every known pattern', () => {
+  for (const [pattern, table] of ALL_PATTERN_TABLES) assert.deepEqual(emgForAngle(pattern, 90), table[90]);
 });
 
 test('emgForAngle returns null for an unknown pattern or angle', () => {
-  assert.equal(emgForAngle('fly', 90), null);
+  assert.equal(emgForAngle('squat', 90), null);
   assert.equal(emgForAngle('press', 37), null, '37 is not one of the 15deg-step angles');
 });
 
@@ -187,4 +227,25 @@ test('gripCueForProfile defaults to the full GRIP_ANGLES range when no available
   const withDefault = gripCueForProfile('row', ROW_EMG[90]);
   const withExplicitFull = gripCueForProfile('row', ROW_EMG[90], GRIP_ANGLES);
   assert.deepEqual(withDefault, withExplicitFull);
+});
+
+test('HYPEREXTENSION_EMG has exactly 2 keys (45, 90) -- deliberately NOT the usual 15deg/0-180 grid, since only 2 real device types exist', () => {
+  assert.deepEqual(Object.keys(HYPEREXTENSION_EMG).map(Number).sort((a, b) => a - b), [45, 90]);
+});
+
+test('emgForAngle("hyperextension", ...) only responds to the 2 real device angles, null for anything on the usual grid', () => {
+  assert.deepEqual(emgForAngle('hyperextension', 45), HYPEREXTENSION_EMG[45]);
+  assert.deepEqual(emgForAngle('hyperextension', 90), HYPEREXTENSION_EMG[90]);
+  for (const a of ANGLES) {
+    if (a === 45 || a === 90) continue;
+    assert.equal(emgForAngle('hyperextension', a), null, `hyperextension has no real device at ${a}°`);
+  }
+});
+
+test('muscleEnvelope/idealAngleForMuscle handle HYPEREXTENSION_EMG\'s sparse 2-key table correctly, without needing special-casing', () => {
+  const { primary, secondary } = muscleEnvelope('hyperextension');
+  assert.ok(primary.includes('erectors') && primary.includes('hamstrings'));
+  assert.ok(secondary.includes('glutes'));
+  assert.equal(idealAngleForMuscle('hyperextension', 'hamstrings'), 45, '45° has more hamstring involvement per HYPEREXTENSION_EMG');
+  assert.equal(idealAngleForMuscle('hyperextension', 'glutes'), 90, '90° has more glute involvement per HYPEREXTENSION_EMG');
 });
