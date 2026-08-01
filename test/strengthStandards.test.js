@@ -103,6 +103,22 @@ test('classifyLift excludes same-equipment squat/deadlift/press/row variants tha
   for (const name of nonCanonical) assert.equal(classifyLift(name), null, `${name} should not be ranked`);
 });
 
+// The Row-family fold-in retired "Barbell Row (Overhand / Pendlay)"/
+// "Barbell Row (Underhand / Yates)" from new logging (exerciseDb.js
+// supersededBy: 'row') — classifyLift must keep recognizing a NEW log of the
+// same movement (now saved as canonical 'Row' + Barbell + angle 60) as the
+// 'row' classic-lift category, the same regression-prevention §14 already
+// did for Bench Press/Overhead Press.
+test('classifyLift routes canonical "Row" to the row category only for Barbell equipment at exactly angle 60 (the migrated bent-over-row point)', () => {
+  assert.equal(classifyLift('Row', 'Barbell', 60), 'row');
+  assert.equal(classifyLift('row', 'barbell', 60), 'row', 'case-insensitive');
+  assert.equal(classifyLift('Row', 'Barbell', 90), null, 'a seated-row-angle barbell instance is not the classic bent-over row');
+  assert.equal(classifyLift('Row', 'Barbell', 0), null);
+  assert.equal(classifyLift('Row', 'Cable', 60), null, 'still excluded for non-barbell equipment regardless of angle');
+  assert.equal(classifyLift('Row', 'Barbell'), null, 'no angle given is not assumed to be the classic bent-over row');
+  assert.equal(classifyLift('Row'), null, 'no equipment given excludes it, same as Bench Press');
+});
+
 test('classifyLift excludes non-comparable variants for unrecognized custom exercises (allowlist, not keyword match, so these never matched anyway)', () => {
   assert.equal(classifyLift('My Custom Hack Squat'), null);
   assert.equal(classifyLift('My Custom Romanian Deadlift'), null);

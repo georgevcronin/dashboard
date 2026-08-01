@@ -155,6 +155,39 @@ test('Cable Straight-Arm Pulldown deliberately stays separate despite sharing th
   assert.equal(e.supersededBy, undefined);
 });
 
+// Row-family fold-in, picking up the scope §15 explicitly deferred ("only
+// the pull-up/pulldown cluster, not the whole ~15-entry Row family").
+test('the broader named Row family is superseded by Row but still fully resolvable', () => {
+  const LEGACY_IDS = [
+    'barbell-row-overhand', 'barbell-row-underhand', 'meadows-row', 'dumbbell-row-three-point',
+    'dumbbell-row-chest-supported', 'seated-cable-row', 'single-arm-cable-row', 'high-cable-row',
+    't-bar-row', 'machine-row-seated', 'single-arm-landmine-row', 'cable-row-single-arm-standing',
+    'bent-over-dumbbell-row', 'rack-row', 'inverted-row', 'dumbbell-row-pronated', 'cable-row-wide',
+    'chest-supported-row-barbell',
+  ];
+  for (const id of LEGACY_IDS) {
+    const e = EXERCISE_MAP[id];
+    assert.ok(e, `expected legacy entry ${id} to still exist`);
+    assert.equal(e.supersededBy, 'row', `${id} should be marked supersededBy 'row'`);
+    assert.ok(e.name && e.primary?.length, `${id} should still be a fully-formed entry`);
+  }
+});
+
+test('Upright Row, Face Pull, and Kelso Shrug stay separate from Row — mechanically distinct, not angle points on the Row axis', () => {
+  const DISTINCT_IDS = ['upright-row', 'face-pull', 'kelso-shrug-low', 'kelso-shrug-mid', 'kelso-shrug-high'];
+  for (const id of DISTINCT_IDS) {
+    const e = EXERCISE_MAP[id];
+    assert.ok(e, `expected ${id} to still exist`);
+    assert.equal(e.supersededBy, undefined, `${id} should NOT be folded into Row`);
+  }
+  // Upright Row specifically: confirms the task's own exclusion reasoning is
+  // still true of the live data (mid-delt primary, shoulders category — the
+  // Transverse/Sweep axis's family per §18, not Row's).
+  const uprightRow = EXERCISE_MAP['upright-row'];
+  assert.equal(uprightRow.category, 'shoulders');
+  assert.deepEqual(uprightRow.primary, ['mid-delt']);
+});
+
 test('the six legacy bench-press-family entries are superseded by Bench Press but still fully resolvable', () => {
   const LEGACY_IDS = [
     'barbell-bench-press', 'incline-barbell-bench-press', 'decline-barbell-bench-press',

@@ -866,6 +866,14 @@ const glycogenPct = (elapsedS, totalS) => {
 // app's first version — everything before this had no changelog at all.
 const CHANGELOG = [
   {
+    version: '0.65',
+    date: '2026-08-01',
+    features: [
+      'Row now covers the rest of the named row family, not just Pull-up/Lat Pulldown: Barbell Row (Overhand/Underhand), Meadows Row, Dumbbell Row (Three-Point/Chest-Supported/Pronated), Seated/Single-Arm/Wide/High Cable Row, T-Bar Row, Machine Row, Landmine Row, Rack Row, Inverted Row, and Chest-Supported Barbell Row stop appearing for new logging — pick "Row" and dial in the equipment/angle/grip instead. All your existing history under the old names is untouched and keeps working exactly as before, including strength standards and PRs.',
+      'Barbell Row Overhand vs. Underhand is now the same pull, differentiated by grip rotation (pronated vs. supinated) instead of two different angles — the old data had Underhand crediting less biceps than Overhand, backwards from how a supinated row grip actually works.',
+    ],
+  },
+  {
     version: '0.64',
     date: '2026-08-01',
     features: [

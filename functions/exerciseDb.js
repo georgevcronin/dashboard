@@ -466,6 +466,14 @@ const EXERCISE_DB = [
   },
 
   // ── BACK — HORIZONTAL PULL ───────────────────────────────────────────────────
+  // Per this project's Row-family fold-in pass (functions/pressRowMigration.js
+  // LEGACY_ROW_NAME_MAP, extending §15's own pull-up/pulldown table to the
+  // rest of the ~15-entry family §15 explicitly deferred -- see that section's
+  // "Scope boundary" note): every entry below except Face Pull/Upright Row/
+  // Kelso Shrug (mechanically distinct, not angle points on this axis -- see
+  // their own entries) is supersededBy 'row'. Angle/equipment/rotation/limb
+  // values are documented, with sourcing and audit corrections, in
+  // pressRowMigration.js -- not re-derived here.
   {
     id: 'barbell-row-overhand',
     name: 'Barbell Row (Overhand / Pendlay)',
@@ -475,7 +483,8 @@ const EXERCISE_DB = [
     curveNote: 'Pronated grip reduces bicep contribution; rhomboids and mid-traps take over at end range. Gravity vector loads well through mid-pull; slightly awkward at full retraction.',
     form: ['Bar starts from floor each rep for strict Pendlay', 'Torso 45–90° depending on style', 'Pull to lower chest / upper abdomen', 'Full dead hang between reps for Pendlay'],
     lesserKnown: false,
-    muscleGroup: "back", pattern: "row", movementId: "barbell-row", movementName: "Barbell Row"
+    muscleGroup: "back", pattern: "row", movementId: "barbell-row", movementName: "Barbell Row",
+    supersededBy: 'row',
   },
   {
     id: 'barbell-row-underhand',
@@ -486,7 +495,8 @@ const EXERCISE_DB = [
     curveNote: 'Supinated grip maximises bicep involvement allowing heavier loads; lats strongly activated especially lower fibres. More upright torso than overhand style.',
     form: ['More upright torso than overhand — 70° or so', 'Pull to belly button area', 'Elbows stay close to sides', 'Control the descent — do not drop it'],
     lesserKnown: false,
-    muscleGroup: "back", pattern: "row", movementId: "barbell-row", movementName: "Barbell Row"
+    muscleGroup: "back", pattern: "row", movementId: "barbell-row", movementName: "Barbell Row",
+    supersededBy: 'row',
   },
   {
     id: 'meadows-row',
@@ -497,7 +507,8 @@ const EXERCISE_DB = [
     curveNote: 'Landmine angle creates unique force vector that loads the lat through a longer arc than any other row. Elbow travels behind torso at peak contraction — full lat shortening.',
     form: ['Landmine in corner or holder', 'Stand perpendicular to bar, grip end of bar', 'Drive elbow up and back past torso', 'Allow shoulder to drop at bottom for full lat stretch'],
     lesserKnown: true,
-    muscleGroup: "back", pattern: "row", movementId: "meadows-row", movementName: "Meadows Row"
+    muscleGroup: "back", pattern: "row", movementId: "meadows-row", movementName: "Meadows Row",
+    supersededBy: 'row',
   },
   {
     id: 'dumbbell-row-three-point',
@@ -508,7 +519,8 @@ const EXERCISE_DB = [
     curveNote: 'Ipsilateral support position allows elbow to travel further behind torso than barbell rows — better lat peak contraction. Heavier loads possible than chest-supported versions.',
     form: ['Brace same-side hand and knee on bench', 'Let shoulder drop at bottom — stretch the lat', 'Pull elbow past hip, not just to hip', 'Do not rotate torso — resist the urge'],
     lesserKnown: false,
-    muscleGroup: "back", pattern: "row", movementId: "dumbbell-row", movementName: "Dumbbell Row"
+    muscleGroup: "back", pattern: "row", movementId: "dumbbell-row", movementName: "Dumbbell Row",
+    supersededBy: 'row',
   },
   {
     id: 'dumbbell-row-chest-supported',
@@ -519,7 +531,8 @@ const EXERCISE_DB = [
     curveNote: 'Chest support eliminates erector fatigue and momentum; forces honest mid-back work. Gravity vector is directly opposing the pull through full ROM.',
     form: ['Incline bench at 30–45°', 'Chest on pad throughout — do not lift off', 'Both arms simultaneously or alternating', 'Focus on squeezing rhomboids at top'],
     lesserKnown: false,
-    muscleGroup: "back", pattern: "row", movementId: "chest-supported-row", movementName: "Chest-Supported Row"
+    muscleGroup: "back", pattern: "row", movementId: "chest-supported-row", movementName: "Chest-Supported Row",
+    supersededBy: 'row',
   },
   {
     id: 'seated-cable-row',
@@ -530,7 +543,8 @@ const EXERCISE_DB = [
     curveNote: 'Horizontal cable maintains consistent tension through full ROM; resistance does not drop at peak contraction like free weights. One of the most balanced mid-back loaders.',
     form: ['Torso upright or slight lean back at end', 'Slight forward lean at start to prestretch', 'Pull handle to navel', 'Squeeze scapulae hard at end range — hold 1 second'],
     lesserKnown: false,
-    muscleGroup: "back", pattern: "row", movementId: "seated-cable-row", movementName: "Seated Cable Row"
+    muscleGroup: "back", pattern: "row", movementId: "seated-cable-row", movementName: "Seated Cable Row",
+    supersededBy: 'row',
   },
   {
     id: 'single-arm-cable-row',
@@ -541,7 +555,8 @@ const EXERCISE_DB = [
     curveNote: 'Unilateral version allows rotation at end range — adds serratus engagement and fuller lat contraction. Cable maintains tension throughout unlike dumbbell rows.',
     form: ['Allow torso rotation toward cable at start', 'Drive elbow back hard past hip', 'Rotate slightly away at peak to squeeze lat fully', 'Do not use hip momentum'],
     lesserKnown: false,
-    muscleGroup: "back", pattern: "row", movementId: "seated-cable-row", movementName: "Seated Cable Row"
+    muscleGroup: "back", pattern: "row", movementId: "seated-cable-row", movementName: "Seated Cable Row",
+    supersededBy: 'row',
   },
   {
     id: 'high-cable-row',
@@ -552,7 +567,8 @@ const EXERCISE_DB = [
     curveNote: 'Pulling from above head angle targets upper back and rear delt fibres that low rows miss. Cable keeps tension consistent through the downward arc.',
     form: ['Pulleys at or above head height', 'Pull elbows down and back simultaneously', 'Squeeze shoulder blades at end range', 'Slight lean back for balance'],
     lesserKnown: false,
-    muscleGroup: "shoulders", pattern: "row", movementId: "high-row", movementName: "High Row"
+    muscleGroup: "shoulders", pattern: "row", movementId: "high-row", movementName: "High Row",
+    supersededBy: 'row',
   },
   {
     id: 't-bar-row',
@@ -563,7 +579,8 @@ const EXERCISE_DB = [
     curveNote: 'Landmine angle creates a rowing arc between horizontal and vertical pull. Very strong loading potential; chest support version removes erector fatigue variable.',
     form: ['V-handle allows neutral grip', 'Bar close to chest at top', 'Full hang at bottom', 'Keep back rigid — do not bounce'],
     lesserKnown: false,
-    muscleGroup: "back", pattern: "row", movementId: "t-bar-row", movementName: "T-Bar Row"
+    muscleGroup: "back", pattern: "row", movementId: "t-bar-row", movementName: "T-Bar Row",
+    supersededBy: 'row',
   },
   {
     id: 'machine-row-seated',
@@ -574,7 +591,8 @@ const EXERCISE_DB = [
     curveNote: 'Machine cam can be designed to provide matching resistance curve. Removes stabiliser requirement — allows greater focus on target muscles at high intensity.',
     form: ['Adjust seat so handles are at sternum height', 'Full stretch at start', 'Pull to torso, squeeze scapulae hard', 'Control the return — do not let weight crash'],
     lesserKnown: false,
-    muscleGroup: "back", pattern: "row", movementId: "machine-row", movementName: "Machine Row"
+    muscleGroup: "back", pattern: "row", movementId: "machine-row", movementName: "Machine Row",
+    supersededBy: 'row',
   },
   {
     id: 'face-pull',
@@ -1762,7 +1780,8 @@ const EXERCISE_DB = [
     curveNote: 'Landmine angle creates unique arc that allows elbow to travel behind torso — full lat contraction at peak. Foot-supported version allows heavier loading than dumbbell rows.',
     form: ['Brace contralateral knee and hand', 'Drive elbow behind torso', 'Full lat stretch at bottom', 'Do not rotate at top'],
     lesserKnown: false,
-    muscleGroup: "back", pattern: "row", movementId: "landmine-row", movementName: "Landmine Row"
+    muscleGroup: "back", pattern: "row", movementId: "landmine-row", movementName: "Landmine Row",
+    supersededBy: 'row',
   },
   {
     id: 'cable-row-single-arm-standing',
@@ -1773,7 +1792,8 @@ const EXERCISE_DB = [
     curveNote: 'Standing position adds anti-rotation core demand. Cable tension consistent; elbow can travel past hip for fuller lat contraction than seated versions.',
     form: ['Stand facing cable, slight lean forward', 'Drive elbow back past hip', 'Allow shoulder to reach forward at start', 'Resist trunk rotation throughout'],
     lesserKnown: false,
-    muscleGroup: "back", pattern: "row", movementId: "standing-cable-row", movementName: "Standing Cable Row"
+    muscleGroup: "back", pattern: "row", movementId: "standing-cable-row", movementName: "Standing Cable Row",
+    supersededBy: 'row',
   },
   {
     id: 'bent-over-dumbbell-row',
@@ -1784,7 +1804,8 @@ const EXERCISE_DB = [
     curveNote: 'Bilateral version allows more total load than unilateral but requires stronger erector endurance. More balanced loading than barbell due to independent arm movement.',
     form: ['Hinge to 45–70° torso angle', 'Both dumbbells pulled simultaneously', 'Elbows back, not flared out', 'Hold at top, full stretch at bottom'],
     lesserKnown: false,
-    muscleGroup: "back", pattern: "row", movementId: "dumbbell-row", movementName: "Dumbbell Row"
+    muscleGroup: "back", pattern: "row", movementId: "dumbbell-row", movementName: "Dumbbell Row",
+    supersededBy: 'row',
   },
   {
     id: 'shrug-barbell',
@@ -2284,8 +2305,8 @@ const EXERCISE_DB = [
   },
   // ── FINAL ADDITIONS ──────────────────────────────────────────────────────────
   { id: 'close-grip-lat-pulldown', name: 'Close-Grip Lat Pulldown', category: 'pull', equipment: 'machine', primary: ['lats', 'biceps'], secondary: ['rhomboids'], curve: 'partial', curveNote: 'Narrow supinated or neutral grip shifts emphasis to lower lats and biceps. Elbow path more vertical — good variation from wide grip.', form: ['V-bar or close attachment', 'Pull to upper chest', 'Full stretch at top', 'Elbows travel close to body'], lesserKnown: false, muscleGroup: "back", pattern: "pulldown", movementId: "lat-pulldown", movementName: "Lat Pulldown", supersededBy: 'row' },
-  { id: 'rack-row', name: 'Rack Row (Barbell Inverted)', category: 'pull', equipment: 'barbell', primary: ['lats', 'rhomboids', 'biceps'], secondary: ['rear-delt', 'core'], curve: 'partial', curveNote: 'Bodyweight inverted row with barbell in rack. Horizontal pulling pattern with bodyweight load — easier than pull-ups. Chest stays up throughout.', form: ['Bar at hip height in rack', 'Lie under bar, overhand grip', 'Pull chest to bar', 'Body plank-rigid throughout'], lesserKnown: false, muscleGroup: "back", pattern: "row", movementId: "rack-row", movementName: "Rack Row" },
-  { id: 'inverted-row', name: 'Inverted Row (TRX/Rings)', category: 'pull', equipment: 'bodyweight', primary: ['lats', 'rhomboids'], secondary: ['biceps', 'rear-delt'], curve: 'partial', curveNote: 'Suspension inverted row allows wrist rotation and increases instability. Greater ROM than bar-based version; adjustable difficulty via body angle.', form: ['Angle body 20–60° from floor', 'Pull chest to handles', 'Full arm extension at bottom', 'Squeeze back hard at top'], lesserKnown: false, muscleGroup: "back", pattern: "row", movementId: "inverted-row", movementName: "Inverted Row" },
+  { id: 'rack-row', name: 'Rack Row (Barbell Inverted)', category: 'pull', equipment: 'barbell', primary: ['lats', 'rhomboids', 'biceps'], secondary: ['rear-delt', 'core'], curve: 'partial', curveNote: 'Bodyweight inverted row with barbell in rack. Horizontal pulling pattern with bodyweight load — easier than pull-ups. Chest stays up throughout.', form: ['Bar at hip height in rack', 'Lie under bar, overhand grip', 'Pull chest to bar', 'Body plank-rigid throughout'], lesserKnown: false, muscleGroup: "back", pattern: "row", movementId: "rack-row", movementName: "Rack Row", supersededBy: 'row' },
+  { id: 'inverted-row', name: 'Inverted Row (TRX/Rings)', category: 'pull', equipment: 'bodyweight', primary: ['lats', 'rhomboids'], secondary: ['biceps', 'rear-delt'], curve: 'partial', curveNote: 'Suspension inverted row allows wrist rotation and increases instability. Greater ROM than bar-based version; adjustable difficulty via body angle.', form: ['Angle body 20–60° from floor', 'Pull chest to handles', 'Full arm extension at bottom', 'Squeeze back hard at top'], lesserKnown: false, muscleGroup: "back", pattern: "row", movementId: "inverted-row", movementName: "Inverted Row", supersededBy: 'row' },
   { id: 'snatch-grip-deadlift', name: 'Snatch-Grip Deadlift', category: 'hinge', equipment: 'barbell', primary: ['hamstrings', 'glutes', 'erectors'], secondary: ['traps', 'lats'], curve: 'partial', curveNote: 'Wide grip lowers starting hip position and increases ROM — more upper back and hamstring demand than conventional. Excellent for posterior chain development.', form: ['Very wide overhand grip — snatch width', 'Lower hips than conventional deadlift', 'Bar close throughout', 'Full lockout'], lesserKnown: false, muscleGroup: "hamstrings", pattern: "hinge", movementId: "deadlift", movementName: "Deadlift" },
   { id: 'deficit-deadlift', name: 'Deficit Deadlift', category: 'hinge', equipment: 'barbell', primary: ['hamstrings', 'glutes', 'erectors'], secondary: ['quads', 'lats'], curve: 'partial', curveNote: 'Standing on plates increases ROM at the bottom — more hip and hamstring demand off the floor. Develops strength where most people are weakest.', form: ['Stand on 2–4 inch plates', 'Same mechanics as conventional', 'Bar still over mid-foot', 'Greatest tension at very bottom — start slow'], lesserKnown: false, muscleGroup: "hamstrings", pattern: "hinge", movementId: "deadlift", movementName: "Deadlift" },
   { id: 'pin-squat', name: 'Pin Squat', category: 'legs', equipment: 'barbell', primary: ['quads', 'glutes'], secondary: ['hamstrings', 'erectors'], curve: 'partial', curveNote: 'Bar rests on safeties at bottom position — dead stop eliminates stretch reflex. Pure starting strength from the hole. Develops weakest part of squat.', form: ['Set pins at bottom of squat', 'Sit under bar, brace, drive up from dead stop', 'No touch-and-go', 'Reset tight each rep'], lesserKnown: true, muscleGroup: "quads", pattern: "squat", movementId: "squat", movementName: "Squat" },
@@ -2299,9 +2320,9 @@ const EXERCISE_DB = [
   { id: 'stir-the-pot', name: 'Stir the Pot (Ball Plank)', category: 'core', equipment: 'bodyweight', primary: ['transverse-abs', 'obliques'], secondary: ['abs', 'shoulders'], curve: 'partial', curveNote: 'Elbows on stability ball, draw circles — anti-rotation demand extremely high throughout. Higher TVA activation than standard plank due to instability.', form: ['Elbows on ball, body plank', 'Draw small clockwise then counter-clockwise circles', 'Hips completely still — only arms move', 'Small circles first — increase size as strength improves'], lesserKnown: true, isometric: true, muscleGroup: "core", pattern: "hold", movementId: "stir-the-pot", movementName: "Stir the Pot" },
   { id: 'press-pallof', name: 'Half-Kneeling Pallof Press', category: 'core', equipment: 'cable', primary: ['obliques', 'transverse-abs'], secondary: ['glutes', 'hip-flexors'], curve: 'matching', curveNote: 'Kneeling removes leg base of support — forces core and glute to resist rotation and lateral lean simultaneously. More demanding than standing version.', form: ['Kneel on inside knee relative to cable', 'Press handle straight out', 'Resist rotation and lateral lean', 'Keep hips square'], lesserKnown: true, isometric: true, muscleGroup: "core", pattern: "rotation", movementId: "pallof-press", movementName: "Pallof Press" },
   { id: 'barbell-rollout-standing', name: 'Standing Ab Rollout', category: 'core', equipment: 'barbell', primary: ['abs', 'transverse-abs'], secondary: ['lats', 'erectors'], curve: 'matching', curveNote: 'Most advanced version of ab rollout — full body extension from standing. Extremely high anti-extension demand. Only appropriate for very advanced trainees.', form: ['Stand upright, bend to grip bar', 'Roll out to horizontal or below', 'Return using abs and lats combined', 'Very few people can do this correctly'], lesserKnown: true, muscleGroup: "core", pattern: "rollout", movementId: "ab-rollout", movementName: "Ab Rollout" },
-  { id: 'dumbbell-row-pronated', name: 'Dumbbell Row (Pronated)', category: 'pull', equipment: 'dumbbell', primary: ['lats', 'rhomboids'], secondary: ['rear-delt', 'brachioradialis'], curve: 'partial', curveNote: 'Pronated grip shifts emphasis from biceps to brachioradialis and increases rhomboid/mid-trap recruitment. Varied grip for complete back development.', form: ['Overhand grip on dumbbell', 'Pull to lower ribcage area', 'Elbow more flared than supinated version', 'Control the descent'], lesserKnown: false, muscleGroup: "back", pattern: "row", movementId: "dumbbell-row", movementName: "Dumbbell Row" },
-  { id: 'cable-row-wide', name: 'Wide-Grip Cable Row', category: 'pull', equipment: 'cable', primary: ['rhomboids', 'mid-traps', 'rear-delt'], secondary: ['lats', 'biceps'], curve: 'matching', curveNote: 'Wide bar attachment on seated row shifts emphasis to upper back — elbows flare and pull to upper chest. More mid-trap and rhomboid, less lat than close-grip version.', form: ['Wide pronated grip on straight bar', 'Pull to upper chest', 'Elbows flare to 90° at end', 'Squeeze upper back hard'], lesserKnown: false, muscleGroup: "back", pattern: "row", movementId: "wide-grip-row", movementName: "Wide-Grip Row" },
-  { id: 'chest-supported-row-barbell', name: 'Chest-Supported Barbell Row', category: 'pull', equipment: 'barbell', primary: ['lats', 'rhomboids', 'mid-traps'], secondary: ['biceps'], curve: 'partial', curveNote: 'Chest on incline bench completely removes lower back demand. Honest mid-back loading without erector fatigue limiting the set.', form: ['Prone on incline at 45°', 'Barbell hanging below', 'Pull to sternum level', 'Squeeze rhomboids hard at top'], lesserKnown: false, muscleGroup: "back", pattern: "row", movementId: "chest-supported-row", movementName: "Chest-Supported Row" },
+  { id: 'dumbbell-row-pronated', name: 'Dumbbell Row (Pronated)', category: 'pull', equipment: 'dumbbell', primary: ['lats', 'rhomboids'], secondary: ['rear-delt', 'brachioradialis'], curve: 'partial', curveNote: 'Pronated grip shifts emphasis from biceps to brachioradialis and increases rhomboid/mid-trap recruitment. Varied grip for complete back development.', form: ['Overhand grip on dumbbell', 'Pull to lower ribcage area', 'Elbow more flared than supinated version', 'Control the descent'], lesserKnown: false, muscleGroup: "back", pattern: "row", movementId: "dumbbell-row", movementName: "Dumbbell Row", supersededBy: 'row' },
+  { id: 'cable-row-wide', name: 'Wide-Grip Cable Row', category: 'pull', equipment: 'cable', primary: ['rhomboids', 'mid-traps', 'rear-delt'], secondary: ['lats', 'biceps'], curve: 'matching', curveNote: 'Wide bar attachment on seated row shifts emphasis to upper back — elbows flare and pull to upper chest. More mid-trap and rhomboid, less lat than close-grip version.', form: ['Wide pronated grip on straight bar', 'Pull to upper chest', 'Elbows flare to 90° at end', 'Squeeze upper back hard'], lesserKnown: false, muscleGroup: "back", pattern: "row", movementId: "wide-grip-row", movementName: "Wide-Grip Row", supersededBy: 'row' },
+  { id: 'chest-supported-row-barbell', name: 'Chest-Supported Barbell Row', category: 'pull', equipment: 'barbell', primary: ['lats', 'rhomboids', 'mid-traps'], secondary: ['biceps'], curve: 'partial', curveNote: 'Chest on incline bench completely removes lower back demand. Honest mid-back loading without erector fatigue limiting the set.', form: ['Prone on incline at 45°', 'Barbell hanging below', 'Pull to sternum level', 'Squeeze rhomboids hard at top'], lesserKnown: false, muscleGroup: "back", pattern: "row", movementId: "chest-supported-row", movementName: "Chest-Supported Row", supersededBy: 'row' },
   { id: 'seated-overhead-press-smith', name: 'Smith Machine Overhead Press', category: 'shoulders', equipment: 'smith', primary: ['front-delt', 'mid-delt'], secondary: ['triceps'], curve: 'partial', curveNote: 'Fixed path removes stabiliser demand — allows focus on pure deltoid overload. Useful when shoulder injury requires guided movement.', form: ['Set up so bar is in front of face', 'Press to full extension', 'Full ROM — do not short stroke', 'Control descent'], lesserKnown: false, muscleGroup: "shoulders", pattern: "press", movementId: "overhead-press", movementName: "Overhead Press", supersededBy: 'bench-press' },
   { id: 'dumbbell-pullover', name: 'Dumbbell Pullover', category: 'pull', equipment: 'dumbbell', primary: ['lats', 'chest'], secondary: ['teres-major', 'abs'], curve: 'opposing', curveNote: 'Dumbbell overhead — maximum load where lats are lengthened (overhead), decreasing as arm returns to chest. Opposite of ideal but unique cross-body lat/chest loader.', form: ['Shoulders on bench, hips off', 'Lower dumbbell behind head', 'Keep slight bend in elbow', 'Return by driving through lats and chest'], lesserKnown: false, muscleGroup: "back", pattern: "pullover", movementId: "dumbbell-pullover", movementName: "Dumbbell Pullover" },
   { id: 'band-pull-apart', name: 'Band Pull-Apart', category: 'pull', equipment: 'bodyweight', primary: ['rear-delt', 'rhomboids', 'mid-traps'], secondary: ['rotator-cuff'], curve: 'matching', curveNote: 'Band maintains resistance through full horizontal abduction — peak load right where rear delt is strongest. One of the best shoulder health exercises with consistent tension profile.', form: ['Hold band at shoulder height, arms straight', 'Pull apart to chest level', 'Squeeze shoulder blades', 'Control return — eccentric is where the benefit is'], lesserKnown: false, muscleGroup: "shoulders", pattern: "raise", movementId: "band-pull-apart", movementName: "Band Pull-Apart" },
