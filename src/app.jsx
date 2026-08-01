@@ -1525,8 +1525,19 @@ function EnhancedExercisePicker({ onAdd, lifts, workoutDate }) {
     fetch(`/exercise-stats?timeWindow=${frequencyWindow}&sessionDate=${sessionDate}`)
       .then(r => r.json())
       .then(data => { setStats(data); setLoading(false); })
-      .catch(() => { setLoading(false); setStats({ recent: [], frequent: [], today: [] }); });
-  }, [open, frequencyWindow, sessionDate]);
+      .catch(err => {
+        setLoading(false);
+        // Fallback: compute from lifts prop if API fails
+        if (lifts && lifts.length > 0) {
+          const now = new Date();
+          const recentLimit = new Date(now.getTime() - 30 * 86400000);
+          const recent = [...new Set(lifts.filter(l => new Date(l.date + 'T00:00:00Z') >= recentLimit && l.exercise).map(l => l.exercise))];
+          setStats({ recent: recent.map(name => ({ name })), frequent: [], today: [] });
+        } else {
+          setStats({ recent: [], frequent: [], today: [] });
+        }
+      });
+  }, [open, frequencyWindow, sessionDate, lifts]);
 
   const resetBrowse = () => { setBrowseDepth(0); setBrowseGroup(null); setBrowsePattern(null); setBrowseMovement(null); };
   const handleClose = () => { setOpen(false); setSearchQuery(''); resetBrowse(); };
