@@ -1707,7 +1707,10 @@ function EnhancedExercisePicker({ onAdd, lifts, workoutDate }) {
                         </div>
                       ))
                     ) : (
-                      <div style={{ color: 'var(--dim)' }}>No recent exercises. Start logging to build history.</div>
+                      <div style={{ color: 'var(--dim)', fontSize: 10, lineHeight: 1.5 }}>
+                        No recent exercises.{' '}
+                        <span style={{ display: 'block', marginTop: 6, fontSize: 9, color: 'var(--rule)' }}>Start logging workouts to see your recent picks here.</span>
+                      </div>
                     )}
                   </div>
                 ) : (
@@ -1719,13 +1722,18 @@ function EnhancedExercisePicker({ onAdd, lifts, workoutDate }) {
             {tab === 'frequent' && (
               <div>
                 <div style={{ marginBottom: 8, display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <label style={{ fontSize: 9, color: 'var(--dim)' }}>Time window:</label>
                   <select value={frequencyWindow} onChange={e => setFrequencyWindow(e.target.value)} style={{ fontSize: 9, padding: '3px 6px', border: '1px solid var(--rule)' }}>
                     <option value="30d">30 days</option>
                     <option value="6m">6 months</option>
                     <option value="1y">1 year</option>
                     <option value="all">All time</option>
                   </select>
+                  <span style={{ fontSize: 8, color: 'var(--dim)', fontFamily: "'JetBrains Mono',monospace" }}>
+                    {frequencyWindow === '30d' && '(last 30 days)'}
+                    {frequencyWindow === '6m' && '(last 6 months)'}
+                    {frequencyWindow === '1y' && '(last year)'}
+                    {frequencyWindow === 'all' && '(all time)'}
+                  </span>
                 </div>
                 {loading ? (
                   <div style={{ color: 'var(--dim)' }}>Loading…</div>
@@ -1737,13 +1745,28 @@ function EnhancedExercisePicker({ onAdd, lifts, workoutDate }) {
                     </div>
                   ))
                 ) : (
-                  <div style={{ color: 'var(--dim)' }}>No exercises in this time window.</div>
+                  <div style={{ color: 'var(--dim)', fontSize: 10, lineHeight: 1.5 }}>
+                    No exercises logged {frequencyWindow === '30d' ? 'in the last 30 days' : frequencyWindow === '6m' ? 'in the last 6 months' : frequencyWindow === '1y' ? 'in the last year' : 'ever'}.{' '}
+                    <span style={{ display: 'block', marginTop: 6, fontSize: 9, color: 'var(--rule)' }}>Try a longer time window or add exercises to build your history.</span>
+                  </div>
                 )}
               </div>
             )}
 
             {tab === 'browse' && (
-              <div style={{ display: 'flex', gap: 16, overflowX: 'auto', paddingBottom: 8 }}>
+              <div>
+                {browseDepth > 0 && (
+                  <div style={{ fontSize: 8, color: 'var(--dim)', marginBottom: 12, fontFamily: "'JetBrains Mono',monospace" }}>
+                    <button onClick={() => { setBrowseDepth(0); setBrowseGroup(null); setBrowsePattern(null); setBrowseMovement(null); }} style={{ background: 'none', border: 'none', color: 'var(--dim)', textDecoration: 'underline', cursor: 'pointer', padding: 0 }}>Home</button>
+                    {browseGroup && <span> / {browseGroup}</span>}
+                    {browsePattern && <span> / {browsePattern}</span>}
+                    {browseMovement && (() => {
+                      const moveName = EXERCISE_DB.find(e => e.movementId === browseMovement)?.movementName || '';
+                      return moveName && <span> / {moveName}</span>;
+                    })()}
+                  </div>
+                )}
+                <div style={{ display: 'flex', gap: 16, overflowX: 'auto', paddingBottom: 8 }}>
                 {browseDepth === 0 && renderBrowseColumn(browseGroups.map(g => ({ movementName: g, id: g })), g => { setBrowseGroup(g.movementName); setBrowseDepth(1); }, 'Muscle Groups')}
                 {browseDepth >= 1 && browseGroup && (
                   <>
@@ -1766,6 +1789,7 @@ function EnhancedExercisePicker({ onAdd, lifts, workoutDate }) {
                     {browseEquipments.map(eq => renderBrowseColumn(eq.exercises.map(e => ({ ...e, isLogged: stats?.frequent?.some(f => f.name === e.name) || stats?.recent?.some(r => r.name === e.name) })), e => pickExercise(e.name), eq.equipment))}
                   </>
                 )}
+                </div>
               </div>
             )}
 
@@ -1773,12 +1797,18 @@ function EnhancedExercisePicker({ onAdd, lifts, workoutDate }) {
               <div>
                 {searchQuery.trim() ? (
                   machineExercises.length > 0 ? (
-                    machineExercises.map((m, i) => (
-                      <div key={i} onClick={() => pickExercise(m.name)} style={{ padding: '8px 0', cursor: 'pointer', borderBottom: '1px solid var(--paper2)', fontSize: 11, fontFamily: "'JetBrains Mono',monospace" }} onMouseEnter={e => e.currentTarget.style.background = 'var(--paper2)'} onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
-                        <div>{m.name}</div>
-                        <div style={{ fontSize: 9, color: 'var(--dim)', marginTop: 2 }}>{m.exercise}</div>
-                      </div>
-                    ))
+                    machineExercises.map((m, i) => {
+                      const isRecentExercise = stats?.recent?.some(r => r.name === m.exercise) || stats?.frequent?.some(r => r.name === m.exercise);
+                      return (
+                        <div key={i} onClick={() => pickExercise(m.exercise)} style={{ padding: '8px 0', cursor: 'pointer', borderBottom: '1px solid var(--paper2)', fontSize: 11, fontFamily: "'JetBrains Mono',monospace", display: 'flex', justifyContent: 'space-between', alignItems: 'center' }} onMouseEnter={e => e.currentTarget.style.background = 'var(--paper2)'} onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                          <div>
+                            <div>{m.name}</div>
+                            <div style={{ fontSize: 9, color: 'var(--dim)', marginTop: 2 }}>{m.exercise}</div>
+                          </div>
+                          {isRecentExercise && <span style={{ fontSize: 8, color: 'var(--dim)', whiteSpace: 'nowrap', marginLeft: 8 }}>○</span>}
+                        </div>
+                      );
+                    })
                   ) : (
                     <div style={{ color: 'var(--dim)', fontSize: 11 }}>No machines found.</div>
                   )
@@ -2819,6 +2849,11 @@ function WorkoutLogger({ planDay, lifts, customExercises, experienceLevel, onClo
               <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, letterSpacing: '.12em', textTransform: 'uppercase', padding: '2px 7px', background: cns.color, color: 'var(--paper)' }}>{cns.label}</span>
             )}
           </div>
+          {!summary && exercises.length > 0 && (
+            <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, letterSpacing: '.08em', textTransform: 'uppercase', color: 'var(--dim)', marginTop: 4 }}>
+              {exercises.filter(e => e.sets.some(s => s.done)).length} of {exercises.length} exercises · {exercises.reduce((sum, e) => sum + e.sets.filter(s => s.done).length, 0)} sets
+            </div>
+          )}
           {!summary && !groupSessionId && (
             <button onClick={() => setShowGroupStart(true)} style={{ marginTop: 4, background: 'none', border: 'none', fontFamily: "'JetBrains Mono',monospace", fontSize: 8, letterSpacing: '.1em', textTransform: 'uppercase', color: 'var(--dim)', cursor: 'pointer', padding: 0 }}>
               + Group Session
@@ -2982,11 +3017,13 @@ function WorkoutLogger({ planDay, lifts, customExercises, experienceLevel, onClo
           )}
 
           {/* Exercise blocks */}
-          {exercises.map((ex, i) => {
-            const prev = prevData[ex.name];
-            const doneE1rms = ex.sets.filter(s => s.done).map(s => e1rm(+s.kg, +s.reps)).filter(Boolean);
-            const bestE1rm = doneE1rms.length ? Math.max(...doneE1rms) : null;
-            const isPR = bestE1rm && bestE1rm > (prData[ex.name] || 0);
+          {(() => {
+            let nextSetFound = false;
+            return exercises.map((ex, i) => {
+              const prev = prevData[ex.name];
+              const doneE1rms = ex.sets.filter(s => s.done).map(s => e1rm(+s.kg, +s.reps)).filter(Boolean);
+              const bestE1rm = doneE1rms.length ? Math.max(...doneE1rms) : null;
+              const isPR = bestE1rm && bestE1rm > (prData[ex.name] || 0);
             const vol = ex.sets.filter(s => s.done).reduce((a, s) => a + (+s.kg || 0) * (+s.reps || 1), 0);
             const prog = progressionFor(lifts, ex.name);
             const progression = prog?.note || null;
@@ -3004,14 +3041,20 @@ function WorkoutLogger({ planDay, lifts, customExercises, experienceLevel, onClo
             const isExpanded = expandedEx === i;
             const coach = coachNotes[ex.name];
             const isLoadingCoach = coachLoading[ex.name];
+            const muscleGroup = EXERCISE_DB.find(e => e.name === ex.name)?.muscleGroup || '';
+            const showMuscleSeparator = i === 0 || EXERCISE_DB.find(e => e.name === exercises[i-1].name)?.muscleGroup !== muscleGroup;
 
             return (
-              <div key={i} style={{ marginBottom: 22, paddingBottom: 16, borderBottom: '2px solid var(--ink)' }}>
-                {/* Exercise header row */}
+              <div key={i}>
+                {showMuscleSeparator && muscleGroup && (
+                  <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, letterSpacing: '.12em', textTransform: 'uppercase', color: 'var(--dim)', marginTop: i > 0 ? 18 : 0, marginBottom: 8, fontWeight: 600 }}>— {muscleGroup} —</div>
+                )}
+                <div style={{ marginBottom: 22, paddingBottom: 16, borderBottom: '2px solid var(--ink)' }}>
+                  {/* Exercise header row */}
                 <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 2 }}>
                   <button onClick={() => setExpandedEx(isExpanded ? null : i)}
-                    style={{ fontFamily: "'Playfair Display',serif", fontWeight: 700, fontSize: 17, textTransform: 'capitalize', background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'var(--ink)', textAlign: 'left' }}>
-                    {ex.name} {isExpanded ? '▲' : '▸'}
+                    style={{ fontFamily: "'Playfair Display',serif", fontWeight: 700, fontSize: 17, textTransform: 'capitalize', background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'var(--ink)', textAlign: 'left', transition: 'opacity .2s' }}>
+                    {ex.name} {isExpanded ? '▼' : '▸'}
                   </button>
                   <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
                     {isPR && <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, letterSpacing: '.12em', background: 'var(--gold)', color: 'var(--paper)', padding: '2px 6px' }}>PR</span>}
@@ -3225,15 +3268,17 @@ function WorkoutLogger({ planDay, lifts, customExercises, experienceLevel, onClo
                       const isWorking = set.type !== 'W';
                       const fbColor = set.feedbackType === 'green' ? 'var(--forest)' : set.feedbackType === 'red' ? 'var(--red)' : set.feedbackType === 'amber' ? 'var(--gold)' : 'var(--dim)';
                       const minRepsForPR = (!set.done && isWorking && +set.kg > 0) ? repsForPR(+set.kg, prData[ex.name]) : null;
+                      const isCurrentSet = !nextSetFound && !set.done;
+                      if (isCurrentSet) nextSetFound = true;
                       return (
                         <React.Fragment key={j}>
-                        <tr style={{ opacity: set.done ? 0.45 : 1 }}>
+                        <tr style={{ opacity: set.done ? 0.45 : 1, backgroundColor: isCurrentSet ? 'var(--paper2)' : 'transparent' }}>
                           <td style={{ padding: '5px 0', textAlign: 'left' }}>
                             <button onClick={() => handleTypeClick(i, j)}
                               onMouseDown={() => handleTypePressStart(i, j)} onMouseUp={handleTypePressEnd} onMouseLeave={handleTypePressEnd}
                               onTouchStart={() => handleTypePressStart(i, j)} onTouchEnd={handleTypePressEnd}
                               title={`${SET_LABELS[set.type]} — tap: warm-up/working, hold: drop set`}
-                              style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, background: set.type === 'W' ? 'var(--navy)' : set.type === 'D' ? 'var(--gold)' : 'var(--paper2)', color: set.type !== 'N' ? 'var(--paper)' : 'var(--dim)', border: 'none', padding: '2px 4px', cursor: 'pointer', minWidth: 20, textAlign: 'center', touchAction: 'manipulation' }}>
+                              style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 11, fontWeight: 600, background: set.type === 'W' ? 'var(--navy)' : set.type === 'D' ? 'var(--gold)' : 'var(--paper2)', color: set.type !== 'N' ? 'var(--paper)' : 'var(--dim)', border: 'none', padding: '4px 6px', cursor: 'pointer', minWidth: 28, textAlign: 'center', touchAction: 'manipulation', borderRadius: 3 }}>
                               {set.type === 'N' ? j + 1 : set.type}
                             </button>
                           </td>
@@ -3300,9 +3345,11 @@ function WorkoutLogger({ planDay, lifts, customExercises, experienceLevel, onClo
                   </tbody>
                 </table>
                 <button className="ol-btn ol-btn-ghost" style={{ fontSize: 8 }} onClick={() => addSet(i)}>+ Set</button>
+                </div>
               </div>
             );
-          })}
+            });
+          })()}
 
           {/* Exercise search */}
           {renderExerciseAdd(addExercise)}
