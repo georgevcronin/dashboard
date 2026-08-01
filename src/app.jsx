@@ -840,6 +840,14 @@ const glycogenPct = (elapsedS, totalS) => {
 // app's first version — everything before this had no changelog at all.
 const CHANGELOG = [
   {
+    version: '0.59',
+    date: '2026-08-01',
+    features: [
+      'Fixed two curl exercises being credited with the wrong muscle emphasis: Machine Curl was tracked as if you stood straight up, but most curl machines actually brace your arm in front of you like a preacher curl; Concentration Curl was tracked as the single most bicep-dominant exercise in the app, even though it\'s always been described here as having a resistance profile similar to preacher curl. Both now credit muscles the same way Preacher/Spider/Scott Curl do.',
+      'Curl and Triceps Extension exercises now carry a shoulder-position value behind the scenes (standing vs. preacher-braced vs. overhead) — not adjustable from the picker yet, but the groundwork for real muscle-emphasis features on these exercises going forward. As part of the same groundwork, Reverse Grip Pushdown\'s data is now tied to Cable Tricep Pushdown (Bar) as a grip variant rather than a fully separate, disconnected exercise — nothing changes about how you log either one today.',
+    ],
+  },
+  {
     version: '0.58',
     date: '2026-07-29',
     features: [

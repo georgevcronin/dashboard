@@ -4,7 +4,8 @@ const {
   ANGLES, PRESS_EMG, ROW_EMG, classifyMuscles, emgForAngle,
   PRIMARY_THRESHOLD, SECONDARY_THRESHOLD,
   PRESS_FRONTAL_EMG, ROW_FRONTAL_EMG, FRONTAL_ANGLES, frontalCueForProfile,
-  PRESS_GRIP_EMG, ROW_GRIP_EMG, GRIP_ANGLES, gripCueForProfile, GRIP_ANGLES_BY_EQUIPMENT,
+  PRESS_GRIP_EMG, ROW_GRIP_EMG, EXTENSION_GRIP_EMG, GRIP_ANGLES, gripCueForProfile, GRIP_ANGLES_BY_EQUIPMENT,
+  applyGripRotationModifier,
 } = require('../functions/emgActivation');
 
 test('ANGLES covers 0-180 in 15deg steps, matching every table key', () => {
@@ -187,4 +188,45 @@ test('gripCueForProfile defaults to the full GRIP_ANGLES range when no available
   const withDefault = gripCueForProfile('row', ROW_EMG[90]);
   const withExplicitFull = gripCueForProfile('row', ROW_EMG[90], GRIP_ANGLES);
   assert.deepEqual(withDefault, withExplicitFull);
+});
+
+// EXERCISE_PARAMETERIZATION.md §21: Reverse Grip Pushdown folds into Cable
+// Tricep Pushdown (Bar) + a rotation value via the same
+// applyGripRotationModifier mechanism Press/Row's own grip rotation uses.
+test('EXTENSION_GRIP_EMG is keyed by the same GRIP_ANGLES as press/row', () => {
+  for (const a of GRIP_ANGLES) assert.ok(a in EXTENSION_GRIP_EMG, `EXTENSION_GRIP_EMG missing angle ${a}`);
+});
+
+test('applyGripRotationModifier(\'extension\', ...) at rotation 0 (pronated, standard pushdown) barely moves triceps off the base value', () => {
+  const base = { triceps: 94.33 };
+  const out = applyGripRotationModifier('extension', base, 0);
+  assert.ok(Math.abs(out.triceps - base.triceps) < 3, 'triceps should stay nearly flat across rotation -- only the medial head plausibly shifts');
+});
+
+test('applyGripRotationModifier(\'extension\', ...) at rotation 180 (supinated, reverse grip) credits brachioradialis directly since the base vector never tracked it', () => {
+  const base = { triceps: 94.33 };
+  const out = applyGripRotationModifier('extension', base, 180);
+  assert.equal(out.brachioradialis, EXTENSION_GRIP_EMG[180].brachioradialis, 'a muscle absent from the base vector should be credited directly from the grip table, not delta-adjusted');
+});
+
+test('applyGripRotationModifier(\'extension\', ...) brachioradialis climbs from pronated (0) toward supinated (180), matching Reverse Grip Pushdown\'s own curveNote', () => {
+  const base = { triceps: 94.33 };
+  const pronated = applyGripRotationModifier('extension', base, 0);
+  const supinated = applyGripRotationModifier('extension', base, 180);
+  assert.ok(supinated.brachioradialis > pronated.brachioradialis, 'supinated (reverse grip) should add more brachioradialis than pronated (standard grip)');
+});
+
+test('applyGripRotationModifier returns the base vector unchanged for an unrecognized pattern, a null rotation, or an unrecognized rotation angle', () => {
+  const base = { triceps: 94.33 };
+  assert.deepEqual(applyGripRotationModifier('curl', base, 0), base, 'curl has no grip-rotation table (yet)');
+  assert.deepEqual(applyGripRotationModifier('extension', base, null), base);
+  assert.deepEqual(applyGripRotationModifier('extension', base, 37), base, '37 is not one of GRIP_ANGLES');
+});
+
+test('applyGripRotationModifier(\'press\'|\'row\', ...) still works exactly as the existing PRESS_GRIP_EMG/ROW_GRIP_EMG tables define -- extension support is additive, not a behavior change', () => {
+  const pressBase = { biceps: 68 };
+  const out = applyGripRotationModifier('press', pressBase, 180);
+  const acrossRotation = GRIP_ANGLES.map(a => PRESS_GRIP_EMG[a].biceps);
+  const mean = acrossRotation.reduce((a, b) => a + b, 0) / acrossRotation.length;
+  assert.ok(Math.abs(out.biceps - (pressBase.biceps + (PRESS_GRIP_EMG[180].biceps - mean))) < 1e-9);
 });

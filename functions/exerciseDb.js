@@ -731,6 +731,33 @@ const EXERCISE_DB = [
   },
 
   // ── BICEPS ───────────────────────────────────────────────────────────────────
+  // Sagittal Angle (shoulder position relative to the torso -- NOT elbow
+  // flexion, which movementEmg.js's ELBOW_EMG already tracks separately per
+  // rep-phase, not per exercise identity) per
+  // .design/feature-brainstorm/EXERCISE_PARAMETERIZATION.md §20: signed -90
+  // (max shoulder extension, e.g. Decline Curl) to +90 (max shoulder
+  // flexion, e.g. Overhead Cable Curl), 0 = neutral/standing -- feeds
+  // functions/movementEmg.js's new elbowEmgForShoulderAngle. Field-only
+  // this pass, per §21's own recommendation for Phase 3's first pass: no
+  // collapsing into one canonical entry, each exercise keeps its own
+  // name/id/curated flat functions/exerciseEmgProfiles.js value.
+  // `angleRange` is picker-adjustment metadata in the same
+  // `{ min, max, step }` shape the design doc's own §6/§14 describe for a
+  // parameterized field, not yet wired into a live picker control here
+  // (this codebase doesn't yet have Bench Press/Row's own equipment+angle
+  // parameterization built, so there's no existing on-disk entry of that
+  // shape to point to directly).
+  //
+  // Two corrections vs. the flat exerciseEmgProfiles.js values that
+  // predate this parameter, found while placing these (§20, flagged there
+  // as a judgment call rather than a clean derivation, not silently
+  // picked): Machine Curl was at the neutral/standing value (95.5) despite
+  // most cambered curl machines bracing the arm preacher-style -- moved to
+  // +45° with Preacher/Spider/Scott (see that entry's own comment).
+  // Concentration Curl was at the axis's peak value (99.5, tied with
+  // High/Overhead Cable Curl) despite its own curveNote comparing its
+  // gravity profile to preacher curl -- moved to +45° to match its own
+  // stated comparison (see that entry's own comment).
   {
     id: 'barbell-curl',
     name: 'Barbell Curl',
@@ -740,7 +767,8 @@ const EXERCISE_DB = [
     curveNote: 'Peak moment arm at ~90° elbow flexion; gravity-based resistance then drops as arm curls to full contraction. Heaviest bicep exercise but curve mismatch means top-range bicep is underloaded.',
     form: ['Elbows pinned to sides — do not swing', 'Supinated grip throughout', 'Full extension at bottom', 'Squeeze at top — do not just stop halfway'],
     lesserKnown: false,
-    muscleGroup: "biceps", pattern: "curl", movementId: "bicep-curl", movementName: "Bicep Curl"
+    muscleGroup: "biceps", pattern: "curl", movementId: "bicep-curl", movementName: "Bicep Curl",
+    angle: 0, angleRange: { min: -90, max: 90, step: 15 },
   },
   {
     id: 'ez-bar-curl',
@@ -751,7 +779,8 @@ const EXERCISE_DB = [
     curveNote: 'Semi-supinated grip reduces bicep peak contribution but adds brachialis. Same partial curve as straight bar. Easier on wrists for high volume.',
     form: ['Grip outer angles of EZ bar', 'Same mechanics as barbell curl', 'Controlled eccentric', 'Do not let elbows drift forward'],
     lesserKnown: false,
-    muscleGroup: "biceps", pattern: "curl", movementId: "bicep-curl", movementName: "Bicep Curl"
+    muscleGroup: "biceps", pattern: "curl", movementId: "bicep-curl", movementName: "Bicep Curl",
+    angle: 0, angleRange: { min: -90, max: 90, step: 15 },
   },
   {
     id: 'dumbbell-curl-standing',
@@ -762,7 +791,8 @@ const EXERCISE_DB = [
     curveNote: 'Same gravity profile as barbell curl with added wrist supination freedom. Supinating through the curl recruits bicep fully — that rotation is the bicep\'s primary function.',
     form: ['Supinate as you curl — palm rotates upward', 'Alternating or simultaneous both work', 'Elbows stay at sides', 'Full extension each rep'],
     lesserKnown: false,
-    muscleGroup: "biceps", pattern: "curl", movementId: "bicep-curl", movementName: "Bicep Curl"
+    muscleGroup: "biceps", pattern: "curl", movementId: "bicep-curl", movementName: "Bicep Curl",
+    angle: 0, angleRange: { min: -90, max: 90, step: 15 },
   },
   {
     id: 'incline-dumbbell-curl',
@@ -773,7 +803,8 @@ const EXERCISE_DB = [
     curveNote: 'Incline position shifts shoulder into extension — puts bicep on longer length at the start of the curl. Better loading at the bottom of the ROM vs standing curl.',
     form: ['45–60° incline', 'Arms hang naturally behind torso at bottom', 'Curl without elbow drifting forward', 'Full supination at top'],
     lesserKnown: false,
-    muscleGroup: "biceps", pattern: "curl", movementId: "bicep-curl", movementName: "Bicep Curl"
+    muscleGroup: "biceps", pattern: "curl", movementId: "bicep-curl", movementName: "Bicep Curl",
+    angle: -45, angleRange: { min: -90, max: 90, step: 15 },
   },
   {
     id: 'hammer-curl',
@@ -784,7 +815,8 @@ const EXERCISE_DB = [
     curveNote: 'Neutral grip removes supination — shifts emphasis from bicep to brachialis and brachioradialis. Brachialis is largest elbow flexor but often undertrained due to pronation bias.',
     form: ['Thumbs up grip throughout — no rotation', 'Same elbow mechanics as regular curl', 'Can be done alternating or cross-body', 'Full extension at bottom'],
     lesserKnown: false,
-    muscleGroup: "biceps", pattern: "curl", movementId: "hammer-curl", movementName: "Hammer Curl"
+    muscleGroup: "biceps", pattern: "curl", movementId: "hammer-curl", movementName: "Hammer Curl",
+    angle: 0, angleRange: { min: -90, max: 90, step: 15 },
   },
   {
     id: 'preacher-curl-barbell',
@@ -795,7 +827,8 @@ const EXERCISE_DB = [
     curveNote: 'Preacher pad fixes elbows in front of torso — eliminates cheating. Resistance profile similar to standing curl but with stricter isolation. Short head bicep emphasis due to shoulder flexion position.',
     form: ['Upper arm fully on pad — no gap', 'Full extension — do not stop short', 'Slow eccentric is key on this exercise', 'Do not bounce at bottom — elbow injury risk'],
     lesserKnown: false,
-    muscleGroup: "biceps", pattern: "curl", movementId: "preacher-curl", movementName: "Preacher Curl"
+    muscleGroup: "biceps", pattern: "curl", movementId: "preacher-curl", movementName: "Preacher Curl",
+    angle: 45, angleRange: { min: -90, max: 90, step: 15 },
   },
   {
     id: 'spider-curl',
@@ -806,7 +839,8 @@ const EXERCISE_DB = [
     curveNote: 'Lying prone on incline bench with arms hanging down — gravity assists at peak contraction (top of curl) rather than fighting it. One of few exercises that loads bicep better in the shortened position.',
     form: ['Chest on top of incline bench, arms hanging', 'Curl against gravity toward face', 'Peak contraction is easy to feel — squeeze hard', 'Full extension between reps'],
     lesserKnown: true,
-    muscleGroup: "biceps", pattern: "curl", movementId: "spider-curl", movementName: "Spider Curl"
+    muscleGroup: "biceps", pattern: "curl", movementId: "spider-curl", movementName: "Spider Curl",
+    angle: 45, angleRange: { min: -90, max: 90, step: 15 },
   },
   {
     id: 'decline-curl',
@@ -817,7 +851,8 @@ const EXERCISE_DB = [
     curveNote: 'Decline position means the gravity vector better opposes bicep contraction at the top of the rep — the arm curls up a decline slope, maintaining moment arm into full flexion. Superior resistance at peak contraction vs standard curl.',
     form: ['Lie face up on decline bench', 'Arms hang on decline side', 'Curl up toward ceiling', 'Resistance feels hardest at the top — embrace it'],
     lesserKnown: true,
-    muscleGroup: "biceps", pattern: "curl", movementId: "decline-curl", movementName: "Decline Curl"
+    muscleGroup: "biceps", pattern: "curl", movementId: "decline-curl", movementName: "Decline Curl",
+    angle: -75, angleRange: { min: -90, max: 90, step: 15 },
   },
   {
     id: 'low-cable-curl',
@@ -828,7 +863,8 @@ const EXERCISE_DB = [
     curveNote: 'Low pulley means cable tension increases as arm curls up — maintaining load into peak contraction where barbell curl drops off. Best matching resistance curve among curl variations for full-range bicep loading.',
     form: ['Low pulley, SZ-bar or straight bar', 'Stand close to cable stack', 'Full supination at top', 'Elbows stay at sides'],
     lesserKnown: false,
-    muscleGroup: "biceps", pattern: "curl", movementId: "bicep-curl", movementName: "Bicep Curl"
+    muscleGroup: "biceps", pattern: "curl", movementId: "bicep-curl", movementName: "Bicep Curl",
+    angle: 0, angleRange: { min: -90, max: 90, step: 15 },
   },
   {
     id: 'drag-curl',
@@ -839,7 +875,8 @@ const EXERCISE_DB = [
     curveNote: 'Bar stays in contact with body as it drags upward — elbows move backward rather than forward. This position virtually eliminates front delt contribution, forcing pure bicep work.',
     form: ['Bar starts at hips', 'Drag bar up torso — elbows go back, not forward', 'Bar stays touching body throughout', 'Squeeze hard at the top'],
     lesserKnown: true,
-    muscleGroup: "biceps", pattern: "curl", movementId: "drag-curl", movementName: "Drag Curl"
+    muscleGroup: "biceps", pattern: "curl", movementId: "drag-curl", movementName: "Drag Curl",
+    angle: -15, angleRange: { min: -90, max: 90, step: 15 },
   },
   {
     id: 'concentration-curl',
@@ -850,7 +887,13 @@ const EXERCISE_DB = [
     curveNote: 'Elbow braced on inner thigh with arm vertical — gravity profile similar to preacher curl. Removes all cheating. Peak contraction is fully achieved and easy to maintain.',
     form: ['Elbow on inner thigh, not middle of quad', 'Supinate fully at peak', 'Full extension at bottom', 'No body movement — pure arm'],
     lesserKnown: false,
-    muscleGroup: "biceps", pattern: "curl", movementId: "concentration-curl", movementName: "Concentration Curl"
+    muscleGroup: "biceps", pattern: "curl", movementId: "concentration-curl", movementName: "Concentration Curl",
+    // Corrected from the flat profile's implied 99.5/+75° (tied with
+    // High/Overhead Cable Curl) to +45° -- this entry's own curveNote
+    // above ("gravity profile similar to preacher curl") matches Preacher/
+    // Spider/Scott's placement, not the more shoulder-flexed +75° group.
+    // See the BICEPS section header comment for the full §20 note.
+    angle: 45, angleRange: { min: -90, max: 90, step: 15 },
   },
   {
     id: 'cross-body-hammer-curl',
@@ -861,7 +904,11 @@ const EXERCISE_DB = [
     curveNote: 'Neutral grip curl across body increases brachioradialis activation. Angle changes the loading slightly from standard hammer curl — good variation for complete forearm/elbow flexor development.',
     form: ['Curl across body toward opposite shoulder', 'Neutral grip throughout', 'Controlled lowering', 'Alternate arms'],
     lesserKnown: false,
-    muscleGroup: "biceps", pattern: "curl", movementId: "hammer-curl", movementName: "Hammer Curl"
+    muscleGroup: "biceps", pattern: "curl", movementId: "hammer-curl", movementName: "Hammer Curl",
+    // §20 carve-out: the "cross-body" sweep is a transverse-plane
+    // deviation (§17 marks that N for Curl, not modeled) -- same 0° as
+    // standard Hammer Curl, not a separate sagittal placement.
+    angle: 0, angleRange: { min: -90, max: 90, step: 15 },
   },
   {
     id: 'zottman-curl',
@@ -872,7 +919,10 @@ const EXERCISE_DB = [
     curveNote: 'Supinated on the way up (bicep concentric), pronated on the way down (brachioradialis eccentric). Trains both supinator and pronator grip strength in one movement.',
     form: ['Curl up with supinated grip', 'Rotate to pronated at the top', 'Lower with pronated grip — slow eccentric', 'Rotate back to supinated at bottom for next rep'],
     lesserKnown: true,
-    muscleGroup: "biceps", pattern: "curl", movementId: "zottman-curl", movementName: "Zottman Curl"
+    muscleGroup: "biceps", pattern: "curl", movementId: "zottman-curl", movementName: "Zottman Curl",
+    // §20 carve-out: differs from a standing curl by grip rotation, not
+    // shoulder position -- 0° same as the rest of the standing group.
+    angle: 0, angleRange: { min: -90, max: 90, step: 15 },
   },
   {
     id: 'reverse-curl',
@@ -883,10 +933,16 @@ const EXERCISE_DB = [
     curveNote: 'Pronated grip nearly eliminates bicep supination contribution; forces brachioradialis and wrist extensors to work. Develops often-neglected forearm extensor side for balanced elbow health.',
     form: ['Pronated / overhand grip', 'Elbows at sides', 'Full extension between reps', 'Do not allow wrists to break backward'],
     lesserKnown: false,
-    muscleGroup: "biceps", pattern: "curl", movementId: "reverse-curl", movementName: "Reverse Curl"
+    muscleGroup: "biceps", pattern: "curl", movementId: "reverse-curl", movementName: "Reverse Curl",
+    angle: 0, angleRange: { min: -90, max: 90, step: 15 },
   },
 
   // ── TRICEPS ──────────────────────────────────────────────────────────────────
+  // Sagittal Angle for Extension, same mechanism/doc reference as Biceps
+  // above (§21) -- 0 = neutral (pushdown position) through this pattern's
+  // own 0-to-+90(+) half of the shared scale (no named extension entry
+  // puts the shoulder in true extension the way Decline Curl does for
+  // biceps). Field-only, same posture as Curl above.
   {
     id: 'cable-pushdown-rope',
     name: 'Cable Tricep Pushdown (Rope)',
@@ -896,7 +952,8 @@ const EXERCISE_DB = [
     curveNote: 'High pulley with rope maintains cable tension at full elbow extension — where triceps are strongest and where free weights lose all resistance. Flaring rope ends at bottom adds lateral head recruitment.',
     form: ['High pulley, rope attachment', 'Elbows pinned to sides throughout', 'Flare rope ends at bottom of movement', 'Pause at full extension — squeeze hard'],
     lesserKnown: false,
-    muscleGroup: "triceps", pattern: "extension", movementId: "tricep-pushdown", movementName: "Tricep Pushdown"
+    muscleGroup: "triceps", pattern: "extension", movementId: "tricep-pushdown", movementName: "Tricep Pushdown",
+    angle: 0, angleRange: { min: 0, max: 105, step: 15 },
   },
   {
     id: 'cable-pushdown-bar',
@@ -907,7 +964,27 @@ const EXERCISE_DB = [
     curveNote: 'Same cable-at-lockout benefit as rope, with more load possible due to bilateral fixed grip. Good for heavy tricep volume.',
     form: ['Elbows stay pinned to torso', 'Full extension at bottom', 'Slight forward lean for body alignment', 'Controlled return — do not let cable yank arms up'],
     lesserKnown: false,
-    muscleGroup: "triceps", pattern: "extension", movementId: "tricep-pushdown", movementName: "Tricep Pushdown"
+    muscleGroup: "triceps", pattern: "extension", movementId: "tricep-pushdown", movementName: "Tricep Pushdown",
+    angle: 0, angleRange: { min: 0, max: 105, step: 15 },
+    // §21's fix to §17's own schema (Extension's Hand Rotation was marked
+    // N -- contradicted by Reverse Grip Pushdown, whose entire identity
+    // WAS a supinated-vs-pronated pushdown grip expressed as its own
+    // separate named entry, the same "grip difference = separate name"
+    // shape Curl's own Reverse Curl still is in this codebase). Reverse
+    // Grip Pushdown's grip distinction folds in here as a rotation value
+    // instead of its own separate entry (see its own entry's
+    // `supersededBy` below) -- `rotation` uses the same
+    // 0=pronated/180=supinated convention as GRIP_ANGLES
+    // (functions/emgActivation.js), applied via that file's new
+    // applyGripRotationModifier + EXTENSION_GRIP_EMG (a real modifier at
+    // log time, not just a stored label -- see that file's own comment).
+    // Only the two real extremes are offered, not the full 5-point
+    // GRIP_ANGLES range -- a straight
+    // pushdown bar/rope handle only offers a genuinely distinct pronated
+    // or supinated grip in practice, the same "no in-between stop exists"
+    // reasoning GRIP_ANGLES_BY_EQUIPMENT.barbell already applies to a
+    // straight bar elsewhere in this codebase.
+    rotation: 0, rotationOptions: [0, 180],
   },
   {
     id: 'skullcrusher-barbell',
@@ -918,7 +995,8 @@ const EXERCISE_DB = [
     curveNote: 'Long head tricep stretch achieved at the bottom when elbows are bent. However, resistance drops at full extension where triceps should be strongest. Best at mid-range loading.',
     form: ['Lower bar to forehead level — not skull', 'Elbows stay over chest, not drifting back', 'Full extension at top', 'Keep upper arms stationary'],
     lesserKnown: false,
-    muscleGroup: "triceps", pattern: "extension", movementId: "skullcrusher", movementName: "Skullcrusher"
+    muscleGroup: "triceps", pattern: "extension", movementId: "skullcrusher", movementName: "Skullcrusher",
+    angle: 45, angleRange: { min: 0, max: 105, step: 15 },
   },
   {
     id: 'skullcrusher-ez',
@@ -929,7 +1007,8 @@ const EXERCISE_DB = [
     curveNote: 'EZ bar reduces wrist stress in pronated-skullcrusher position. Same resistance profile as straight bar; slightly less elbow valgus stress.',
     form: ['Semi-pronated grip on outer angles', 'Same mechanics as barbell version', 'Lower toward forehead or slightly behind head', 'Full extension at top'],
     lesserKnown: false,
-    muscleGroup: "triceps", pattern: "extension", movementId: "skullcrusher", movementName: "Skullcrusher"
+    muscleGroup: "triceps", pattern: "extension", movementId: "skullcrusher", movementName: "Skullcrusher",
+    angle: 45, angleRange: { min: 0, max: 105, step: 15 },
   },
   {
     id: 'jm-press',
@@ -951,7 +1030,8 @@ const EXERCISE_DB = [
     curveNote: 'Overhead position puts long head of tricep under maximum stretch. Low pulley behind provides tension through the overhead extension arc — better than dumbbell version which has no tension at peak stretch.',
     form: ['Face away from low cable, rope overhead', 'Elbows forward, upper arm stationary', 'Extend to full lockout overhead', 'Control return — do not let it snap back'],
     lesserKnown: false,
-    muscleGroup: "triceps", pattern: "extension", movementId: "overhead-tricep-extension", movementName: "Overhead Tricep Extension"
+    muscleGroup: "triceps", pattern: "extension", movementId: "overhead-tricep-extension", movementName: "Overhead Tricep Extension",
+    angle: 90, angleRange: { min: 0, max: 105, step: 15 },
   },
   {
     id: 'overhead-tricep-extension-dumbbell',
@@ -962,7 +1042,8 @@ const EXERCISE_DB = [
     curveNote: 'Dumbbell weight loads tricep at full extension (lockout) where it is strongest, but provides near-zero resistance at the stretched position overhead where long head is maximally recruited.',
     form: ['Hold dumbbell with both hands behind head', 'Elbows stay close together, pointing forward', 'Full extension at top', 'Control return to full stretch'],
     lesserKnown: false,
-    muscleGroup: "triceps", pattern: "extension", movementId: "overhead-tricep-extension", movementName: "Overhead Tricep Extension"
+    muscleGroup: "triceps", pattern: "extension", movementId: "overhead-tricep-extension", movementName: "Overhead Tricep Extension",
+    angle: 90, angleRange: { min: 0, max: 105, step: 15 },
   },
   {
     id: 'tricep-dips',
@@ -984,7 +1065,12 @@ const EXERCISE_DB = [
     curveNote: 'Lying on decline bench and lowering dumbbells overhead in an arc behind head — gravity peaks resistance at the most stretched position of the tricep long head, opposite of standing overhead extension.',
     form: ['Decline bench, dumbbells lowered behind head', 'Elbows stay high — gravity does the work on descent', 'Extend to above chest at top, not fully overhead', 'Slow eccentric — feel the stretch'],
     lesserKnown: true,
-    muscleGroup: "triceps", pattern: "extension", movementId: "carter-extension", movementName: "Carter Extension"
+    muscleGroup: "triceps", pattern: "extension", movementId: "carter-extension", movementName: "Carter Extension",
+    // §21: proposing a value past the ordinary overhead endpoint, same
+    // treatment §14 gave Incline Shoulder Press as a hybrid past Incline
+    // Press's own boundary -- own curveNote above says the dumbbells lower
+    // further behind the head than standing overhead extension reaches.
+    angle: 105, angleRange: { min: 0, max: 105, step: 15 },
   },
   {
     id: 'tate-press',
@@ -1740,7 +1826,8 @@ const EXERCISE_DB = [
     curveNote: 'Cable at head height pulled toward face — bicep shortens against resistance that peaks at peak contraction. Arms in shoulder-flexed position also places long head bicep on length, adding tension.',
     form: ['Stand between two high cables', 'Curl both handles toward temples simultaneously', 'Hold peak squeeze', 'Slow return against cable tension'],
     lesserKnown: true,
-    muscleGroup: "biceps", pattern: "curl", movementId: "bicep-curl", movementName: "Bicep Curl"
+    muscleGroup: "biceps", pattern: "curl", movementId: "bicep-curl", movementName: "Bicep Curl",
+    angle: 75, angleRange: { min: -90, max: 90, step: 15 },
   },
   {
     id: 'machine-curl',
@@ -1751,7 +1838,16 @@ const EXERCISE_DB = [
     curveNote: 'Machine cam designed for consistent bicep loading. Removes stabiliser demand — focus entirely on bicep contraction. Seat adjustment critical for correct lever arm.',
     form: ['Elbow on pad at correct height', 'Full extension at bottom', 'Squeeze hard at top', 'Control eccentric — do not let it slam down'],
     lesserKnown: false,
-    muscleGroup: "biceps", pattern: "curl", movementId: "bicep-curl", movementName: "Bicep Curl"
+    muscleGroup: "biceps", pattern: "curl", movementId: "bicep-curl", movementName: "Bicep Curl",
+    // Corrected from the flat profile's implied 95.5/0° (neutral/standing)
+    // to +45° -- most cambered curl machines physically brace the arm in
+    // front of the torso, preacher-style, per §20. §20 itself flags this as
+    // "needs your call -- depends on the specific machine," not a clean
+    // derivation; +45° is the conservative default for the common
+    // preacher-style cam, adjustable per `angleRange` if your own machine's
+    // geometry is actually closer to standing. See the BICEPS section
+    // header comment for the full note.
+    angle: 45, angleRange: { min: -90, max: 90, step: 15 },
   },
   {
     id: 'tricep-pushdown-single-arm',
@@ -1762,7 +1858,8 @@ const EXERCISE_DB = [
     curveNote: 'Unilateral pushdown corrects bilateral strength imbalances. Same cable-at-lockout benefit. D-handle allows slight wrist rotation which can reduce elbow stress.',
     form: ['High cable, D-handle', 'Elbow pinned to side', 'Full extension, squeeze hard', 'Alternate arms or do all sets per side'],
     lesserKnown: false,
-    muscleGroup: "triceps", pattern: "extension", movementId: "tricep-pushdown", movementName: "Tricep Pushdown"
+    muscleGroup: "triceps", pattern: "extension", movementId: "tricep-pushdown", movementName: "Tricep Pushdown",
+    angle: 0, angleRange: { min: 0, max: 105, step: 15 },
   },
   {
     id: 'bench-dips',
@@ -1775,6 +1872,16 @@ const EXERCISE_DB = [
     lesserKnown: false,
     muscleGroup: "triceps", pattern: "dip", movementId: "tricep-dip", movementName: "Tricep Dip"
   },
+  // Reverse Grip Pushdown is superseded by 'cable-pushdown-bar' for NEW
+  // logging, per §21: its whole identity is a supinated-vs-pronated
+  // pushdown grip, which now folds into that entry's own `rotation` field
+  // (rotation: 180) instead of a separate name -- `supersededBy` is the
+  // same field name the design doc's own Press/Row collapse (§14/§15) uses
+  // for this shape of fold-in (that collapse hasn't landed in this
+  // codebase yet, so this is this file's first real use of the field).
+  // Kept as a real, unmodified EXERCISE_DB entry (not deleted, no angle
+  // field added) purely so existing historical lift documents and any
+  // name-keyed lookups keep resolving exactly as they did before.
   {
     id: 'reverse-grip-pushdown',
     name: 'Reverse Grip Pushdown',
@@ -1784,7 +1891,8 @@ const EXERCISE_DB = [
     curveNote: 'Supinated grip on pushdown shifts emphasis to medial head of tricep and adds brachioradialis. Full lockout still loads tricep at its strongest — same cable benefit at end range.',
     form: ['Supinated (palms up) grip on bar', 'Elbows at sides', 'Extend fully — medial head fires hard here', 'Control the return'],
     lesserKnown: true,
-    muscleGroup: "triceps", pattern: "extension", movementId: "tricep-pushdown", movementName: "Tricep Pushdown"
+    muscleGroup: "triceps", pattern: "extension", movementId: "tricep-pushdown", movementName: "Tricep Pushdown",
+    supersededBy: 'cable-pushdown-bar',
   },
   {
     id: 'wrist-curl-barbell',
@@ -2057,8 +2165,8 @@ const EXERCISE_DB = [
   { id: 'seated-overhead-press-smith', name: 'Smith Machine Overhead Press', category: 'shoulders', equipment: 'smith', primary: ['front-delt', 'mid-delt'], secondary: ['triceps'], curve: 'partial', curveNote: 'Fixed path removes stabiliser demand — allows focus on pure deltoid overload. Useful when shoulder injury requires guided movement.', form: ['Set up so bar is in front of face', 'Press to full extension', 'Full ROM — do not short stroke', 'Control descent'], lesserKnown: false, muscleGroup: "shoulders", pattern: "press", movementId: "overhead-press", movementName: "Overhead Press" },
   { id: 'dumbbell-pullover', name: 'Dumbbell Pullover', category: 'pull', equipment: 'dumbbell', primary: ['lats', 'chest'], secondary: ['teres-major', 'abs'], curve: 'opposing', curveNote: 'Dumbbell overhead — maximum load where lats are lengthened (overhead), decreasing as arm returns to chest. Opposite of ideal but unique cross-body lat/chest loader.', form: ['Shoulders on bench, hips off', 'Lower dumbbell behind head', 'Keep slight bend in elbow', 'Return by driving through lats and chest'], lesserKnown: false, muscleGroup: "back", pattern: "pullover", movementId: "dumbbell-pullover", movementName: "Dumbbell Pullover" },
   { id: 'band-pull-apart', name: 'Band Pull-Apart', category: 'pull', equipment: 'bodyweight', primary: ['rear-delt', 'rhomboids', 'mid-traps'], secondary: ['rotator-cuff'], curve: 'matching', curveNote: 'Band maintains resistance through full horizontal abduction — peak load right where rear delt is strongest. One of the best shoulder health exercises with consistent tension profile.', form: ['Hold band at shoulder height, arms straight', 'Pull apart to chest level', 'Squeeze shoulder blades', 'Control return — eccentric is where the benefit is'], lesserKnown: false, muscleGroup: "shoulders", pattern: "raise", movementId: "band-pull-apart", movementName: "Band Pull-Apart" },
-  { id: 'incline-curl', name: 'Incline Bench Curl (Scott Curl)', category: 'arms', equipment: 'dumbbell', primary: ['biceps'], secondary: ['brachialis'], curve: 'partial', curveNote: 'Arms braced on incline — similar to preacher but on incline side. Short head bicep fully loaded; cheating eliminated by bench support.', form: ['Arms over incline, elbows fixed on bench', 'Full extension at bottom', 'Curl to peak', 'Do not bounce at bottom'], lesserKnown: false, muscleGroup: "biceps", pattern: "curl", movementId: "incline-curl", movementName: "Incline Curl" },
-  { id: 'overhead-cable-curl', name: 'Overhead Cable Curl (Double Bicep)', category: 'arms', equipment: 'cable', primary: ['biceps'], secondary: ['front-delt'], curve: 'matching', curveNote: 'Arms extended at shoulder height with high cables — mimics double-bicep pose. Shoulder-flexed position places both bicep heads under tension. Loads peak contraction from an extended position.', form: ['High cables at each side', 'Curl toward temples simultaneously', 'Hold peak flex', 'Return slowly against cable resistance'], lesserKnown: true, muscleGroup: "biceps", pattern: "curl", movementId: "overhead-cable-curl", movementName: "Overhead Cable Curl" },
+  { id: 'incline-curl', name: 'Incline Bench Curl (Scott Curl)', category: 'arms', equipment: 'dumbbell', primary: ['biceps'], secondary: ['brachialis'], curve: 'partial', curveNote: 'Arms braced on incline — similar to preacher but on incline side. Short head bicep fully loaded; cheating eliminated by bench support.', form: ['Arms over incline, elbows fixed on bench', 'Full extension at bottom', 'Curl to peak', 'Do not bounce at bottom'], lesserKnown: false, muscleGroup: "biceps", pattern: "curl", movementId: "incline-curl", movementName: "Incline Curl", angle: 45, angleRange: { min: -90, max: 90, step: 15 } },
+  { id: 'overhead-cable-curl', name: 'Overhead Cable Curl (Double Bicep)', category: 'arms', equipment: 'cable', primary: ['biceps'], secondary: ['front-delt'], curve: 'matching', curveNote: 'Arms extended at shoulder height with high cables — mimics double-bicep pose. Shoulder-flexed position places both bicep heads under tension. Loads peak contraction from an extended position.', form: ['High cables at each side', 'Curl toward temples simultaneously', 'Hold peak flex', 'Return slowly against cable resistance'], lesserKnown: true, muscleGroup: "biceps", pattern: "curl", movementId: "overhead-cable-curl", movementName: "Overhead Cable Curl", angle: 75, angleRange: { min: -90, max: 90, step: 15 } },
   { id: 'lat-pulldown-behind-neck', name: 'Behind-Neck Lat Pulldown', category: 'pull', equipment: 'machine', primary: ['lats'], secondary: ['rhomboids', 'biceps'], curve: 'partial', curveNote: 'Bar pulled to behind neck increases mid-trap and rhomboid activation at the expense of increased cervical spine load. Only for those with good mobility and no shoulder issues.', form: ['Head forward, bar behind neck', 'Wide grip', 'Touch back of neck lightly — no force', 'Contraindicated for shoulder impingement'], lesserKnown: false, muscleGroup: "back", pattern: "pulldown", movementId: "lat-pulldown", movementName: "Lat Pulldown" },
   { id: 'single-arm-dumbbell-press', name: 'Single-Arm Dumbbell Press', category: 'push', equipment: 'dumbbell', primary: ['chest', 'triceps'], secondary: ['front-delt', 'core', 'serratus'], curve: 'partial', curveNote: 'Unilateral press creates rotational demand on core — anti-rotation adds TVA engagement. Reveals chest imbalances. Core benefit makes this more than just a chest exercise.', form: ['Lay flat, one dumbbell', 'Other arm extended or on chest', 'Press and resist rotation', 'Full ROM as normal press'], lesserKnown: false, muscleGroup: "chest", pattern: "press", movementId: "single-arm-bench-press", movementName: "Single-Arm Bench Press" },
   { id: 'hex-press', name: 'Hex Press (Floor)', category: 'push', equipment: 'dumbbell', primary: ['chest', 'triceps'], secondary: ['front-delt'], curve: 'partial', curveNote: 'Dumbbells pressed together throughout floor press — constant adduction tension from squeezing. Similar to Svend press but in a press pattern. Unusual inner chest loading.', form: ['Flat on floor', 'Hold hex/flat-faced dumbbells pressed together', 'Press without letting them separate', 'Full extension and squeeze at top'], lesserKnown: true, muscleGroup: "chest", pattern: "press", movementId: "hex-press", movementName: "Hex Press" },

@@ -58,6 +58,54 @@ const ELBOW_SHOULDER_MODIFIER = {
   135: { 'triceps-long': 6,   'biceps-long': -6, 'biceps-short': 5 },
   180: { 'triceps-long': 12,  'biceps-long': -12, 'biceps-short': 10 },
 };
+const ELBOW_SHOULDER_MODIFIER_ANGLES = [0, 45, 90, 135, 180];
+
+// Wires the modifier above into a real per-exercise calculation, per
+// .design/feature-brainstorm/EXERCISE_PARAMETERIZATION.md §20/§21's Curl/
+// Extension "Sagittal Angle" parameter -- shoulder position relative to the
+// torso, a genuinely different axis from `elbowAngle` above (elbow flexion,
+// which happens every rep regardless of shoulder position). The doc's
+// scale is signed -90 (max shoulder extension, e.g. Decline Curl) to +90
+// (max shoulder flexion, e.g. Overhead Cable Curl), 0 = neutral/standing --
+// converted to this modifier's own raw 0/45/90/135/180 keys via
+// raw = signed + 90, exactly as §20 specifies.
+//
+// Of the two reasons the comment above gives for leaving this dormant,
+// only reason (1) still governs how it's applied now that a real per-
+// exercise angle exists (reason 2, "no live shoulder-angle input to modify
+// with," no longer holds): this taxonomy has no separate long/short-head
+// keys, only single collapsed `biceps`/`triceps` muscles, so each raw
+// per-head delta is folded into its real taxonomy muscle, damped by how
+// much of that whole muscle the shifting head actually represents --
+// - biceps has exactly two heads (long, short) that shift in opposite
+//   directions -- the collapsed delta is their average, which is why the
+//   comment above calls the net effect on `biceps` "~1 point" (they nearly
+//   cancel).
+// - triceps has three heads; only the long head is biarticular/shoulder-
+//   sensitive. The collapsed delta is the long-head shift divided by 3,
+//   damped by the two heads (lateral, medial) that don't move at all.
+// Snaps both inputs to their own table's nearest sampled point (same
+// "snap to nearest sampled anchor" convention chestHeadSplit.js's
+// nearestAngleBucket already uses) rather than requiring an exact grid
+// match, so a picker offering finer steps than either table's sampling
+// still resolves sensibly.
+function nearestKey(keys, value) {
+  return keys.reduce((best, k) => Math.abs(k - value) < Math.abs(best - value) ? k : best);
+}
+
+function elbowEmgForShoulderAngle(elbowAngle, shoulderAngle) {
+  if (elbowAngle == null || Number.isNaN(+elbowAngle)) return null;
+  const base = ELBOW_EMG[nearestKey(ELBOW_ANGLES, +elbowAngle)];
+  const raw = shoulderAngle == null || Number.isNaN(+shoulderAngle) ? 90 : +shoulderAngle + 90;
+  const mod = ELBOW_SHOULDER_MODIFIER[nearestKey(ELBOW_SHOULDER_MODIFIER_ANGLES, raw)];
+  const bicepsShift = (mod['biceps-long'] + mod['biceps-short']) / 2;
+  const tricepsShift = mod['triceps-long'] / 3;
+  return {
+    ...base,
+    biceps: Math.max(0, base.biceps + bicepsShift),
+    triceps: Math.max(0, base.triceps + tricepsShift),
+  };
+}
 
 // ---------- Section 9: squat / leg press, by hip angle ----------
 // 0deg = standing, 120deg = deep squat (realistic depth cap).
@@ -317,7 +365,8 @@ function tableForAngle(table, angle) {
 }
 
 module.exports = {
-  ELBOW_ANGLES, ELBOW_EMG, ELBOW_SHOULDER_MODIFIER,
+  ELBOW_ANGLES, ELBOW_EMG, ELBOW_SHOULDER_MODIFIER, ELBOW_SHOULDER_MODIFIER_ANGLES,
+  elbowEmgForShoulderAngle,
   SQUAT_HIP_ANGLES, SQUAT_HIP_EMG,
   HINGE_HIP_ANGLES, HINGE_HIP_EMG,
   HIP_ABDUCTION_ANGLES, HIP_ABDUCTION_EMG,

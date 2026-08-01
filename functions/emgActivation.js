@@ -167,6 +167,34 @@ const ROW_GRIP_EMG = {
   180: { biceps: 90, brachioradialis: 72, lats: 85, 'lower-traps': 40, 'rear-delt': 62 },
 };
 
+// Extension (elbow-extension/triceps) grip-rotation companion table -- same
+// rotation axis as PRESS_GRIP_EMG/ROW_GRIP_EMG above, built per
+// .design/feature-brainstorm/EXERCISE_PARAMETERIZATION.md §21 specifically
+// to fold Reverse Grip Pushdown's identity into Cable Tricep Pushdown
+// (Bar) + a rotation value ("same pattern as Curl"), reusing
+// applyGripRotationModifier rather than a new mechanism. No literature
+// pass behind this one, unlike the row-width table above -- exerciseDb.js's
+// own existing curveNote for Reverse Grip Pushdown ("supinated grip...
+// shifts emphasis to medial head of tricep and adds brachioradialis") is
+// the only real signal available. triceps is kept nearly flat across
+// rotation: this taxonomy's single `triceps` bucket collapses all three
+// heads, and only the medial head is plausibly affected by rotation here --
+// same "one of several heads moves, damped by the ones that don't"
+// reasoning movementEmg.js's elbowEmgForShoulderAngle uses for the
+// biarticular shoulder modifier. brachioradialis -- absent from
+// cable-pushdown-bar's own sagittal profile entirely -- climbs toward full
+// supination, the new information an explicit rotation choice unlocks
+// (same "credit it directly, there's no base value to nudge" rule
+// applyGripRotationModifier already uses for press/row's own untracked
+// muscles).
+const EXTENSION_GRIP_EMG = {
+  0:   { triceps: 93,   brachioradialis: 20 },
+  45:  { triceps: 93.5, brachioradialis: 27 },
+  90:  { triceps: 94,   brachioradialis: 34 },
+  135: { triceps: 94.5, brachioradialis: 40 },
+  180: { triceps: 95,   brachioradialis: 46 },
+};
+
 const GRIP_LABELS = { 0: 'pronated (overhand)', 45: 'lightly pronated', 90: 'neutral (thumb up)', 135: 'lightly supinated', 180: 'supinated (underhand)' };
 
 // Not every piece of equipment actually lets you choose your grip. A
@@ -220,6 +248,64 @@ function gripCueForProfile(pattern, sagittalWeights, availableAngles = GRIP_ANGL
   return { muscle, angle, grip: GRIP_LABELS[angle] };
 }
 
+// Applies the grip-rotation axis (PRESS_GRIP_EMG/ROW_GRIP_EMG/
+// EXTENSION_GRIP_EMG) on top of an already-resolved sagittal (angle) weight
+// vector -- promotes rotation from an advisory cue (gripCueForProfile
+// above) to a real modifier on what gets credited, once a rotation is
+// actually chosen for a logged exercise instance. Per
+// .design/feature-brainstorm/EXERCISE_PARAMETERIZATION.md §11 (Press/Row)
+// and §21 (Extension, added this pass to fold Reverse Grip Pushdown into
+// Cable Tricep Pushdown (Bar) + a rotation value -- "do not invent a new
+// mechanism, reuse it"). NOTE: only Extension's table is actually consumed
+// anywhere yet (see functions/exerciseDb.js's cable-pushdown-bar entry) --
+// this function itself is written generally, over all three grip tables
+// that already exist in this file, so Press/Row's own promotion from cue
+// to real parameter (§11's PressRowBuilder rotation-picker step) is a
+// drop-in extension later rather than a second implementation.
+//
+// Each grip table tracks only a SUBSET of the muscles its sagittal table
+// does (e.g. EXTENSION_GRIP_EMG only has triceps/brachioradialis, not the
+// full set an extension exercise's own curated profile might track) -- so
+// this can only ever be a MODIFIER on the subset it tracks, never a full
+// replacement vector. Same "secondary axis adjusts a subset of a primary
+// table" architecture as movementEmg.js's CALF_SEATED_MODIFIER/
+// SHRUG_BAR_PATH_MODIFIER/ROTATOR_CUFF_ELEVATION_MODIFIER (and, for
+// Curl/Extension specifically, movementEmg.js's own
+// elbowEmgForShoulderAngle), adapted to apply programmatically here since
+// rotation needs to combine with whichever angle a given exercise instance
+// actually used, which isn't known until log time.
+//
+// The delta applied for a tracked muscle at a given rotation is that
+// muscle's grip-table value AT that rotation minus its own MEAN across
+// GRIP_ANGLES -- not the raw grip-table value itself. Each grip table was
+// curated purely as a function of rotation, with no sagittal angle held
+// constant, so its numbers can't be read as "the muscle's true % at this
+// rotation" the way a sagittal table's numbers can; centering on the
+// table's own mean turns each entry into a directional nudge ("this
+// rotation trains this muscle more/less than a typical rotation would")
+// without asserting a false absolute reading. For a muscle the sagittal
+// table doesn't track at all (e.g. brachioradialis for
+// cable-pushdown-bar), there's no base value to nudge -- the grip table's
+// own value is credited directly instead, since any credit here is
+// strictly new information (that muscle wasn't part of the vector at all
+// before an explicit rotation was chosen).
+function applyGripRotationModifier(pattern, baseWeights, rotationAngle) {
+  const gripTable = pattern === 'press' ? PRESS_GRIP_EMG
+    : pattern === 'row' ? ROW_GRIP_EMG
+    : pattern === 'extension' ? EXTENSION_GRIP_EMG
+    : null;
+  if (!gripTable || !baseWeights || rotationAngle == null || !gripTable[rotationAngle]) return baseWeights;
+  const tracked = Object.keys(gripTable[GRIP_ANGLES[0]]);
+  const out = { ...baseWeights };
+  for (const muscle of tracked) {
+    const acrossRotation = GRIP_ANGLES.map(a => gripTable[a][muscle]);
+    const mean = acrossRotation.reduce((a, b) => a + b, 0) / acrossRotation.length;
+    const atRotation = gripTable[rotationAngle][muscle];
+    out[muscle] = muscle in baseWeights ? Math.max(0, baseWeights[muscle] + (atRotation - mean)) : atRotation;
+  }
+  return out;
+}
+
 // Threshold used to collapse a weighted EMG profile into a normal
 // primary/secondary muscle split for every OTHER consumer of the shared
 // exercise taxonomy (session generation, staleness tracking, PR/strength-
@@ -249,6 +335,7 @@ function emgForAngle(pattern, angle) {
 module.exports = {
   ANGLES, PRESS_EMG, ROW_EMG, PRESS_ANGLE_DESC, ROW_ANGLE_DESC,
   PRESS_FRONTAL_EMG, ROW_FRONTAL_EMG, FRONTAL_ANGLES,
-  PRESS_GRIP_EMG, ROW_GRIP_EMG, GRIP_ANGLES, GRIP_LABELS, GRIP_ANGLES_BY_EQUIPMENT,
+  PRESS_GRIP_EMG, ROW_GRIP_EMG, EXTENSION_GRIP_EMG, GRIP_ANGLES, GRIP_LABELS, GRIP_ANGLES_BY_EQUIPMENT,
   PRIMARY_THRESHOLD, SECONDARY_THRESHOLD, classifyMuscles, emgForAngle, frontalCueForProfile, gripCueForProfile,
+  applyGripRotationModifier,
 };
