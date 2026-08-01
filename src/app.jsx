@@ -1503,324 +1503,121 @@ const HIDDEN_PATTERNS = new Set(['press', 'row', 'fly']);
 
 function EnhancedExercisePicker({ onAdd, lifts, workoutDate }) {
   const [open, setOpen] = useState(false);
-  const [tab, setTab] = useState('recent');
-  const [searchQuery, setSearchQuery] = useState('');
-  const [frequencyWindow, setFrequencyWindow] = useState('30d');
-  const [stats, setStats] = useState(null);
-  const [loading, setLoading] = useState(false);
+  const [step, setStep] = useState('muscle'); // muscle → movement → equipment → exercise
+  const [selectedMuscle, setSelectedMuscle] = useState(null);
+  const [selectedMovement, setSelectedMovement] = useState(null);
+  const [selectedEquipment, setSelectedEquipment] = useState(null);
 
-  // Browse tree state
-  const [browseDepth, setBrowseDepth] = useState(0);
-  const [browseGroup, setBrowseGroup] = useState(null);
-  const [browsePattern, setBrowsePattern] = useState(null);
-  const [browseMovement, setBrowseMovement] = useState(null);
-
-  // Get today's date in YYYY-MM-DD format if workoutDate not provided
   const sessionDate = workoutDate || new Date().toISOString().split('T')[0];
 
-  // Load exercise stats when picker opens or when time window changes
-  useEffect(() => {
-    if (!open) return;
-    setLoading(true);
-    fetch(`/exercise-stats?timeWindow=${frequencyWindow}&sessionDate=${sessionDate}`)
-      .then(r => r.json())
-      .then(data => { setStats(data); setLoading(false); })
-      .catch(err => {
-        setLoading(false);
-        // Fallback: compute from lifts prop if API fails
-        if (lifts && lifts.length > 0) {
-          const now = new Date();
-          const recentLimit = new Date(now.getTime() - 30 * 86400000);
-          const recent = [...new Set(lifts.filter(l => new Date(l.date + 'T00:00:00Z') >= recentLimit && l.exercise).map(l => l.exercise))];
-          setStats({ recent: recent.map(name => ({ name })), frequent: [], today: [] });
-        } else {
-          setStats({ recent: [], frequent: [], today: [] });
-        }
-      });
-  }, [open, frequencyWindow, sessionDate, lifts]);
+  const handleClose = () => {
+    setOpen(false);
+    setStep('muscle');
+    setSelectedMuscle(null);
+    setSelectedMovement(null);
+    setSelectedEquipment(null);
+  };
 
-  const resetBrowse = () => { setBrowseDepth(0); setBrowseGroup(null); setBrowsePattern(null); setBrowseMovement(null); };
-  const handleClose = () => { setOpen(false); setSearchQuery(''); resetBrowse(); };
-
-  // Search across all exercises
-  const searchResults = useMemo(() => {
-    if (!searchQuery.trim()) return [];
-    const q = searchQuery.toLowerCase();
-    let results = EXERCISE_DB.filter(e => e.name.toLowerCase().includes(q));
-
-    // Rank by recency if we have stats
-    if (stats?.recent) {
-      const recentNames = new Set(stats.recent.map(r => r.name.toLowerCase()));
-      results.sort((a, b) => {
-        const aRecent = recentNames.has(a.name.toLowerCase());
-        const bRecent = recentNames.has(b.name.toLowerCase());
-        return (bRecent ? 1 : 0) - (aRecent ? 1 : 0);
-      });
-    }
-
-    return results.slice(0, 20);
-  }, [searchQuery, stats]);
-
-  const pickExercise = (name) => {
-    onAdd(name.toLowerCase());
+  const pickExercise = (exerciseName) => {
+    onAdd(exerciseName);
     handleClose();
   };
 
-  // Browse tab: horizontal drill-down
-  const browseGroups = useMemo(() => EXERCISE_MUSCLE_GROUPS.filter(g => EXERCISE_DB.some(e => e.muscleGroup === g)), []);
+  // Tree picker data
+  const muscles = useMemo(() => EXERCISE_MUSCLE_GROUPS.filter(g => EXERCISE_DB.some(e => e.muscleGroup === g)), []);
 
-  const browsePatterns = useMemo(() => {
-    if (!browseGroup) return [];
-    const present = new Set(EXERCISE_DB.filter(e => e.muscleGroup === browseGroup).map(e => e.pattern));
-    return EXERCISE_PATTERNS.filter(p => present.has(p) && !HIDDEN_PATTERNS.has(p));
-  }, [browseGroup]);
-
-  const browseHiddenMovements = useMemo(() => {
-    if (!browseGroup) return [];
+  const movements = useMemo(() => {
+    if (!selectedMuscle) return [];
     const byId = new Map();
     for (const e of EXERCISE_DB) {
-      if (e.muscleGroup !== browseGroup || !HIDDEN_PATTERNS.has(e.pattern)) continue;
-      if (!byId.has(e.movementId)) byId.set(e.movementId, { movementId: e.movementId, movementName: e.movementName, id: e.movementId });
-    }
-    return [...byId.values()].sort((a, b) => a.movementName.localeCompare(b.movementName));
-  }, [browseGroup]);
-
-  const browseMovements = useMemo(() => {
-    if (!browseGroup || !browsePattern) return [];
-    const byId = new Map();
-    for (const e of EXERCISE_DB) {
-      if (e.muscleGroup !== browseGroup || e.pattern !== browsePattern) continue;
-      if (!byId.has(e.movementId)) byId.set(e.movementId, { movementId: e.movementId, movementName: e.movementName });
-      byId.get(e.movementId);
-    }
-    return [...byId.values()].sort((a, b) => a.movementName.localeCompare(b.movementName));
-  }, [browseGroup, browsePattern]);
-
-  const browseEquipments = useMemo(() => {
-    if (!browseMovement) return [];
-    const exercises = EXERCISE_DB.filter(e => e.movementId === browseMovement);
-    const byEquip = new Map();
-    exercises.forEach(e => {
-      if (!byEquip.has(e.equipment)) byEquip.set(e.equipment, []);
-      byEquip.get(e.equipment).push(e);
-    });
-    return [...byEquip.entries()].map(([equip, exs]) => ({ equipment: equip, exercises: exs }));
-  }, [browseMovement]);
-
-  const browseVariants = useMemo(() => {
-    if (browseEquipments.length === 0) return [];
-    return browseEquipments.flatMap(e => e.exercises);
-  }, [browseEquipments]);
-
-  const machineExercises = useMemo(() => {
-    if (!searchQuery.trim()) return [];
-    const q = searchQuery.toLowerCase();
-    const results = [];
-    for (const [key, model] of Object.entries(MACHINE_MODELS)) {
-      const [exName, brand] = key.split('|');
-      const brandDisplay = brand.charAt(0).toUpperCase() + brand.slice(1).replace(/\b\w/g, l => l.toUpperCase());
-      if (exName.includes(q) || brand.includes(q) || model.toLowerCase().includes(q)) {
-        results.push({
-          name: `${brandDisplay} — ${model}`,
-          exercise: exName,
-          brand: brandDisplay,
-          model: model
-        });
+      if (e.muscleGroup !== selectedMuscle) continue;
+      if (!byId.has(e.movementId)) {
+        byId.set(e.movementId, { movementId: e.movementId, name: e.movementName });
       }
     }
-    return results.slice(0, 15);
-  }, [searchQuery]);
+    return [...byId.values()].sort((a, b) => a.name.localeCompare(b.name));
+  }, [selectedMuscle]);
 
-  // Indicators for exercises
-  const getExerciseIndicator = (name) => {
-    const lowerName = name.toLowerCase();
-    const isInSession = stats?.today?.includes(lowerName);
-    const isLogged = stats?.recent?.some(r => r.name === lowerName) || stats?.frequent?.some(r => r.name === lowerName);
-    if (isInSession) return '●'; // filled dot for in-session
-    if (isLogged) return '○'; // empty dot for logged before
-    return ''; // nothing for never logged
-  };
+  const equipment = useMemo(() => {
+    if (!selectedMovement) return [];
+    const exercisesInMovement = EXERCISE_DB.filter(e => e.movementId === selectedMovement);
+    return [...new Set(exercisesInMovement.map(e => e.equipment))].sort();
+  }, [selectedMovement]);
 
-  const renderBrowseColumn = (items, onSelect, label) => (
-    <div style={{ minWidth: 200, paddingRight: 16, flexShrink: 0, overflowY: 'auto', maxHeight: 300 }}>
-      {label && <div style={{ fontSize: 9, textTransform: 'uppercase', color: 'var(--dim)', marginBottom: 8, fontWeight: 600 }}>{label}</div>}
-      {items.map(item => (
-        <div key={item.id || item.equipment || item.movementId}
-          onClick={() => onSelect(item)}
-          style={{ padding: '8px 0', cursor: 'pointer', borderBottom: '1px solid var(--paper2)', fontSize: 11, fontFamily: "'JetBrains Mono',monospace", display: 'flex', justifyContent: 'space-between' }}
-          onMouseEnter={e => e.currentTarget.style.background = 'var(--paper2)'}
-          onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
-          <span>{item.movementName || item.name || item.equipment}</span>
-          {item.isLogged && <span style={{ color: 'var(--dim)', marginLeft: 4 }}>○</span>}
-        </div>
-      ))}
+  const exercises = useMemo(() => {
+    if (!selectedEquipment || !selectedMovement) return [];
+    return EXERCISE_DB.filter(e => e.movementId === selectedMovement && e.equipment === selectedEquipment).sort((a, b) => a.name.localeCompare(b.name));
+  }, [selectedMovement, selectedEquipment]);
+
+  const renderItem = (item, onClick) => (
+    <div onClick={onClick} style={{ padding: '10px 0', cursor: 'pointer', borderBottom: '1px solid var(--paper2)', fontSize: 12, fontFamily: "'JetBrains Mono',monospace", display: 'flex', justifyContent: 'space-between', alignItems: 'center' }} onMouseEnter={e => e.currentTarget.style.background = 'var(--paper2)'} onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+      <span>{item}</span>
+      <span style={{ fontSize: 10, color: 'var(--dim)' }}>→</span>
     </div>
   );
 
   return (
     <div style={{ marginTop: 16, borderTop: '1px solid var(--rule)', paddingTop: 10 }}>
-      <button onClick={() => setOpen(!open)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, fontFamily: "'JetBrains Mono',monospace", fontSize: 9, letterSpacing: '.12em', textTransform: 'uppercase', color: 'var(--dim)' }}>
-        {open ? '− ' : '+ '}Exercise Picker
-      </button>
-
-      {open && (
-        <div style={{ marginTop: 12, background: 'var(--paper)', border: '1px solid var(--rule)', borderRadius: 4, padding: 12 }}>
-          {/* Search bar */}
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={e => setSearchQuery(e.target.value)}
-            placeholder="Search exercises, machines…"
-            style={{ width: '100%', padding: '8px 10px', border: '1px solid var(--rule)', borderRadius: 3, fontFamily: "'JetBrains Mono',monospace", fontSize: 11, marginBottom: 12, boxSizing: 'border-box' }}
-            autoFocus
-          />
-
-          {/* Tabs */}
-          <div style={{ display: 'flex', gap: 8, marginBottom: 12, borderBottom: '1px solid var(--rule)', paddingBottom: 8 }}>
-            {['recent', 'frequent', 'browse', 'machines'].map(t => (
-              <button key={t}
-                onClick={() => { setTab(t); resetBrowse(); }}
-                style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '4px 8px', fontSize: 9, textTransform: 'uppercase', color: tab === t ? 'var(--ink)' : 'var(--dim)', borderBottom: tab === t ? '2px solid var(--ink)' : 'none', fontWeight: tab === t ? 600 : 400 }}>
-                {t}
-              </button>
-            ))}
+      {open ? (
+        <div style={{ marginBottom: 12, background: 'var(--paper)', border: '1px solid var(--rule)', borderRadius: 4, padding: 16 }}>
+          {/* Breadcrumb */}
+          <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, color: 'var(--dim)', marginBottom: 12, textTransform: 'uppercase', letterSpacing: '.08em' }}>
+            {step === 'muscle' && 'Select Primary Muscle'}
+            {step === 'movement' && `${selectedMuscle} · Select Movement`}
+            {step === 'equipment' && `${selectedMuscle} · ${selectedMovement} · Select Equipment`}
+            {step === 'exercise' && `${selectedMuscle} · ${selectedMovement} · ${selectedEquipment} · Select Exercise`}
           </div>
 
-          {/* Tab content */}
-          <div style={{ maxHeight: 320, overflowY: 'auto' }}>
-            {tab === 'recent' && (
-              <div>
-                {searchResults.length > 0 ? (
-                  searchResults.map(ex => (
-                    <div key={ex.id} onClick={() => pickExercise(ex.name)} style={{ padding: '8px 0', cursor: 'pointer', borderBottom: '1px solid var(--paper2)', fontSize: 11, fontFamily: "'JetBrains Mono',monospace", display: 'flex', justifyContent: 'space-between' }} onMouseEnter={e => e.currentTarget.style.background = 'var(--paper2)'} onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
-                      <span>{ex.name}</span>
-                      <span style={{ color: 'var(--dim)', fontSize: 9 }}>{ex.equipment}</span>
-                    </div>
-                  ))
-                ) : !loading ? (
-                  <div style={{ fontSize: 11, color: 'var(--dim)' }}>
-                    {stats?.recent?.length > 0 ? (
-                      stats.recent.slice(0, 15).map(r => (
-                        <div key={r.name} onClick={() => pickExercise(r.name)} style={{ padding: '8px 0', cursor: 'pointer', borderBottom: '1px solid var(--paper2)', fontSize: 11, fontFamily: "'JetBrains Mono',monospace", display: 'flex', justifyContent: 'space-between' }} onMouseEnter={e => e.currentTarget.style.background = 'var(--paper2)'} onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
-                          <span>{r.name}</span>
-                          <span style={{ color: 'var(--dim)', fontSize: 9 }}>{new Date(r.lastUsedAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}</span>
-                        </div>
-                      ))
-                    ) : (
-                      <div style={{ color: 'var(--dim)', fontSize: 10, lineHeight: 1.5 }}>
-                        No recent exercises.{' '}
-                        <span style={{ display: 'block', marginTop: 6, fontSize: 9, color: 'var(--rule)' }}>Start logging workouts to see your recent picks here.</span>
-                      </div>
-                    )}
-                  </div>
-                ) : (
-                  <div style={{ color: 'var(--dim)' }}>Loading…</div>
-                )}
-              </div>
-            )}
+          {/* Muscle selection */}
+          {step === 'muscle' && (
+            <div style={{ maxHeight: 400, overflowY: 'auto' }}>
+              {muscles.map(m => renderItem(m, () => {
+                setSelectedMuscle(m);
+                setStep('movement');
+              }))}
+            </div>
+          )}
 
-            {tab === 'frequent' && (
-              <div>
-                <div style={{ marginBottom: 8, display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <select value={frequencyWindow} onChange={e => setFrequencyWindow(e.target.value)} style={{ fontSize: 9, padding: '3px 6px', border: '1px solid var(--rule)' }}>
-                    <option value="30d">30 days</option>
-                    <option value="6m">6 months</option>
-                    <option value="1y">1 year</option>
-                    <option value="all">All time</option>
-                  </select>
-                  <span style={{ fontSize: 8, color: 'var(--dim)', fontFamily: "'JetBrains Mono',monospace" }}>
-                    {frequencyWindow === '30d' && '(last 30 days)'}
-                    {frequencyWindow === '6m' && '(last 6 months)'}
-                    {frequencyWindow === '1y' && '(last year)'}
-                    {frequencyWindow === 'all' && '(all time)'}
-                  </span>
+          {/* Movement selection */}
+          {step === 'movement' && (
+            <div style={{ maxHeight: 400, overflowY: 'auto' }}>
+              <button onClick={() => { setSelectedMuscle(null); setStep('muscle'); }} style={{ background: 'none', border: 'none', color: 'var(--ink)', textDecoration: 'underline', cursor: 'pointer', padding: '10px 0', fontSize: 12, fontFamily: "'JetBrains Mono',monospace", width: '100%', textAlign: 'left', marginBottom: 8 }}>← Back</button>
+              {movements.length > 0 ? movements.map(m => renderItem(m.name, () => {
+                setSelectedMovement(m.movementId);
+                setStep('equipment');
+              })) : <div style={{ color: 'var(--dim)', fontSize: 11 }}>No movements available</div>}
+            </div>
+          )}
+
+          {/* Equipment selection */}
+          {step === 'equipment' && (
+            <div style={{ maxHeight: 400, overflowY: 'auto' }}>
+              <button onClick={() => setStep('movement')} style={{ background: 'none', border: 'none', color: 'var(--ink)', textDecoration: 'underline', cursor: 'pointer', padding: '10px 0', fontSize: 12, fontFamily: "'JetBrains Mono',monospace", width: '100%', textAlign: 'left', marginBottom: 8 }}>← Back</button>
+              {equipment.length > 0 ? equipment.map(e => renderItem(e, () => {
+                setSelectedEquipment(e);
+                setStep('exercise');
+              })) : <div style={{ color: 'var(--dim)', fontSize: 11 }}>No equipment available</div>}
+            </div>
+          )}
+
+          {/* Exercise selection */}
+          {step === 'exercise' && (
+            <div style={{ maxHeight: 400, overflowY: 'auto' }}>
+              <button onClick={() => setStep('equipment')} style={{ background: 'none', border: 'none', color: 'var(--ink)', textDecoration: 'underline', cursor: 'pointer', padding: '10px 0', fontSize: 12, fontFamily: "'JetBrains Mono',monospace", width: '100%', textAlign: 'left', marginBottom: 8 }}>← Back</button>
+              {exercises.length > 0 ? exercises.map(e => (
+                <div key={e.name} onClick={() => pickExercise(e.name)} style={{ padding: '10px 0', cursor: 'pointer', borderBottom: '1px solid var(--paper2)', fontSize: 12, fontFamily: "'JetBrains Mono',monospace" }} onMouseEnter={e => e.currentTarget.style.background = 'var(--paper2)'} onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                  {e.name}
                 </div>
-                {loading ? (
-                  <div style={{ color: 'var(--dim)' }}>Loading…</div>
-                ) : stats?.frequent?.length > 0 ? (
-                  stats.frequent.slice(0, 15).map(f => (
-                    <div key={f.name} onClick={() => pickExercise(f.name)} style={{ padding: '8px 0', cursor: 'pointer', borderBottom: '1px solid var(--paper2)', fontSize: 11, fontFamily: "'JetBrains Mono',monospace", display: 'flex', justifyContent: 'space-between' }} onMouseEnter={e => e.currentTarget.style.background = 'var(--paper2)'} onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
-                      <span>{f.name}</span>
-                      <span style={{ color: 'var(--dim)', fontSize: 9 }}>{f.count}x</span>
-                    </div>
-                  ))
-                ) : (
-                  <div style={{ color: 'var(--dim)', fontSize: 10, lineHeight: 1.5 }}>
-                    No exercises logged {frequencyWindow === '30d' ? 'in the last 30 days' : frequencyWindow === '6m' ? 'in the last 6 months' : frequencyWindow === '1y' ? 'in the last year' : 'ever'}.{' '}
-                    <span style={{ display: 'block', marginTop: 6, fontSize: 9, color: 'var(--rule)' }}>Try a longer time window or add exercises to build your history.</span>
-                  </div>
-                )}
-              </div>
-            )}
+              )) : <div style={{ color: 'var(--dim)', fontSize: 11 }}>No exercises available</div>}
+            </div>
+          )}
 
-            {tab === 'browse' && (
-              <div>
-                {browseDepth > 0 && (
-                  <div style={{ fontSize: 8, color: 'var(--dim)', marginBottom: 12, fontFamily: "'JetBrains Mono',monospace" }}>
-                    <button onClick={() => { setBrowseDepth(0); setBrowseGroup(null); setBrowsePattern(null); setBrowseMovement(null); }} style={{ background: 'none', border: 'none', color: 'var(--dim)', textDecoration: 'underline', cursor: 'pointer', padding: 0 }}>Home</button>
-                    {browseGroup && <span> / {browseGroup}</span>}
-                    {browsePattern && <span> / {browsePattern}</span>}
-                    {browseMovement && (() => {
-                      const moveName = EXERCISE_DB.find(e => e.movementId === browseMovement)?.movementName || '';
-                      return moveName && <span> / {moveName}</span>;
-                    })()}
-                  </div>
-                )}
-                <div className="hide-scrollbar" style={{ display: 'flex', gap: 16, overflowX: 'auto', paddingBottom: 8 }}>
-                {browseDepth === 0 && renderBrowseColumn(browseGroups.map(g => ({ movementName: g, id: g })), g => { setBrowseGroup(g.movementName); setBrowseDepth(1); }, 'Muscle Groups')}
-                {browseDepth >= 1 && browseGroup && (
-                  <>
-                    {renderBrowseColumn([...browsePatterns.map(p => ({ movementName: p, id: `p-${p}` })), ...browseHiddenMovements.map(m => ({ ...m, id: `m-${m.movementId}` }))], item => {
-                      if (item.movementId) {
-                        setBrowseMovement(item.movementId);
-                        setBrowseDepth(2);
-                      } else {
-                        setBrowsePattern(item.movementName);
-                        setBrowseDepth(2);
-                      }
-                    }, 'Patterns & Movements')}
-                  </>
-                )}
-                {browseDepth >= 2 && browsePattern && browseMovement === null && (
-                  renderBrowseColumn(browseMovements.map(m => ({ ...m, id: m.movementId })), m => { setBrowseMovement(m.movementId); setBrowseDepth(3); }, 'Movements')
-                )}
-                {browseDepth >= 3 && browseMovement && (
-                  <>
-                    {browseEquipments.map(eq => renderBrowseColumn(eq.exercises.map(e => ({ ...e, isLogged: stats?.frequent?.some(f => f.name === e.name) || stats?.recent?.some(r => r.name === e.name) })), e => pickExercise(e.name), eq.equipment))}
-                  </>
-                )}
-                </div>
-              </div>
-            )}
-
-            {tab === 'machines' && (
-              <div>
-                {searchQuery.trim() ? (
-                  machineExercises.length > 0 ? (
-                    machineExercises.map((m, i) => {
-                      const isRecentExercise = stats?.recent?.some(r => r.name === m.exercise) || stats?.frequent?.some(r => r.name === m.exercise);
-                      return (
-                        <div key={i} onClick={() => pickExercise(m.exercise)} style={{ padding: '8px 0', cursor: 'pointer', borderBottom: '1px solid var(--paper2)', fontSize: 11, fontFamily: "'JetBrains Mono',monospace", display: 'flex', justifyContent: 'space-between', alignItems: 'center' }} onMouseEnter={e => e.currentTarget.style.background = 'var(--paper2)'} onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
-                          <div>
-                            <div>{m.name}</div>
-                            <div style={{ fontSize: 9, color: 'var(--dim)', marginTop: 2 }}>{m.exercise}</div>
-                          </div>
-                          {isRecentExercise && <span style={{ fontSize: 8, color: 'var(--dim)', whiteSpace: 'nowrap', marginLeft: 8 }}>○</span>}
-                        </div>
-                      );
-                    })
-                  ) : (
-                    <div style={{ color: 'var(--dim)', fontSize: 11 }}>No machines found.</div>
-                  )
-                ) : (
-                  <div style={{ color: 'var(--dim)', fontSize: 11 }}>Search for a machine or exercise to find models.</div>
-                )}
-              </div>
-            )}
-          </div>
-
-          <button onClick={handleClose} style={{ marginTop: 12, fontSize: 9, padding: '6px 12px', background: 'var(--paper2)', border: '1px solid var(--rule)', borderRadius: 3, cursor: 'pointer', width: '100%' }}>Close</button>
+          <button onClick={handleClose} style={{ marginTop: 12, fontSize: 9, padding: '8px 12px', background: 'var(--paper2)', border: '1px solid var(--rule)', borderRadius: 3, cursor: 'pointer', width: '100%' }}>Close</button>
         </div>
+      ) : (
+        <button onClick={() => setOpen(true)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, fontFamily: "'JetBrains Mono',monospace", fontSize: 9, letterSpacing: '.12em', textTransform: 'uppercase', color: 'var(--dim)' }}>
+          + Exercise Picker
+        </button>
       )}
     </div>
   );
