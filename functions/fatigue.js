@@ -15,6 +15,43 @@ const { STABLE_EQUIPMENT, UNSTABLE_EQUIPMENT } = require('./sessionPlanner');
 const avg = (a) => (a.length ? a.reduce((x, y) => x + y, 0) / a.length : null);
 const liftTime = (l) => new Date(l.start || l.date).getTime();
 
+// The writer side of liftTime's `start || date` contract.
+//
+// A lift with only a date resolves to 00:00 on that day, so an evening session
+// reads ~18 hours older than it is and same-day fatigue is understated across
+// the whole app. Stamping a real ISO timestamp at log time fixes that for
+// everything downstream — structural decay, CNS decay, staleness, the recovery
+// forecast — without migrating anything, because liftTime already prefers it.
+//
+// Returns null rather than guessing whenever a real time isn't knowable:
+//   - the session is being logged for a day that isn't today (a backdated
+//     entry or an edit of an old workout), where "now" would be actively wrong
+//     and midnight-on-that-date is the honest fallback;
+//   - there's no usable clock reading at all.
+//
+// elapsedSec is clamped because the app's own timer can be left running: a
+// forgotten session reporting 13 hours would otherwise place the work before
+// the athlete woke up. Past the clamp we fall back to stamping the finish
+// time, which is late but real.
+const MAX_CREDIBLE_SESSION_SEC = 6 * 3600;
+
+function sessionStartStamp({ dateStr, today, elapsedSec = null, now = Date.now() } = {}) {
+  if (!dateStr || !today || dateStr !== today) return null;
+  const finished = new Date(now);
+  if (Number.isNaN(finished.getTime())) return null;
+  const usable = typeof elapsedSec === 'number' && elapsedSec > 0 && elapsedSec <= MAX_CREDIBLE_SESSION_SEC;
+  return new Date(now - (usable ? elapsedSec * 1000 : 0)).toISOString();
+}
+
+// Normalises whatever an import hands us (Hevy's start_time, a CSV column)
+// into an ISO string, or null if it isn't a real date. Keeps a malformed
+// value from becoming an Invalid Date that silently NaNs every decay.
+function importedStartStamp(raw) {
+  if (!raw) return null;
+  const t = new Date(raw).getTime();
+  return Number.isNaN(t) ? null : new Date(t).toISOString();
+}
+
 // Weighted profile for an existing, non-generated exercise, checked in this
 // order: (1) a curated FIXED profile (functions/exerciseEmgProfiles.js,
 // phase 1-3 categories); (2) the athlete's own hand-mapped angle for a
@@ -449,4 +486,5 @@ module.exports = {
   computeACWR, computePerformanceTrend, computeMetabolicFatigue, computeCNSFatigue,
   cnsLoad, computeMuscleLastTrainedDays, computeCompoundIsolationSplit, computeStabilitySplit,
   recoveryWord, RECOVERY_BANDS,
+  liftTime, sessionStartStamp, importedStartStamp, MAX_CREDIBLE_SESSION_SEC,
 };

@@ -58,7 +58,7 @@ app.use((req, res, next) => {
 const {
   computeStructuralFatigue, computeCurrentFatigueScores, musclePeaksFromLifts, fatigueTimeline,
   INJURY_HEALING_DAYS, injuryFatiguePenalty, applyInjuryTaper,
-  computeMetabolicFatigue, computeCNSFatigue,
+  computeMetabolicFatigue, computeCNSFatigue, sessionStartStamp, importedStartStamp,
   computeMuscleLastTrainedDays, computeCompoundIsolationSplit, computeStabilitySplit,
 } = require('./fatigue');
 const { personalizedRecoveryHours, trainingMonthsIfKnown } = require('./recoveryPersonalization');
@@ -471,6 +471,10 @@ async function ingestWorkout(w) {
       const isDupe = db.lifts.find(l => l.date === wDate && l.exercise === name && Math.abs((l.kg || 0) - kg) < 0.1 && l.reps === reps);
       if (!isDupe && (kg > 0 || reps > 0)) {
         const entry = { date: wDate, exercise: name, kg: Math.round(kg * 100) / 100, reps, source: "hevy" };
+        // Hevy knows when the session actually started; keeping it means an
+        // imported evening workout doesn't read as 18 hours older than it was.
+        const hevyStart = importedStartStamp(w.start_time);
+        if (hevyStart) entry.start = hevyStart;
         const type = hevySetType(set.set_type);
         if (type !== 'N') entry.type = type;
         if (set.rpe != null) entry.rir = Math.max(0, Math.round((10 - set.rpe) * 10) / 10);
@@ -598,7 +602,18 @@ app.post("/import", async (req, res) => {
   for (const l of lifts) {
     if (!l.date || !l.exercise) continue;
     const isDupe = db.lifts.find(x => x.date === l.date && x.exercise === l.exercise && Math.abs((x.kg || 0) - (l.kg || 0)) < 0.1 && x.reps === l.reps);
-    if (!isDupe) { const e = { date: l.date, exercise: l.exercise, kg: l.kg || 0, reps: l.reps || 0, source: "hevy" }; if (l.rir != null) e.rir = l.rir; newLiftEntries.push(e); addedLifts++; }
+    if (!isDupe) {
+      const e = { date: l.date, exercise: l.exercise, kg: l.kg || 0, reps: l.reps || 0, source: "hevy" };
+      if (l.rir != null) e.rir = l.rir;
+      // Honoured if the caller supplies one. This is a generic external
+      // endpoint (the iOS Shortcut among others) and most callers send a date
+      // only — nothing is invented for them, the lift just falls back to
+      // midnight as before.
+      const importedStart = importedStartStamp(l.start);
+      if (importedStart) e.start = importedStart;
+      newLiftEntries.push(e);
+      addedLifts++;
+    }
   }
   for (const [date, kg] of Object.entries(weights)) {
     if (kg && !db.weight[date]) { db.weight[date] = kg; addedWeights++; }
@@ -1720,6 +1735,10 @@ app.post("/import/hevy", async (req, res) => {
         if (kg <= 0 && reps <= 0) continue;
         if (isDupeLift(session.date, ex.name, kg, reps)) continue;
         const entry = { date: session.date, exercise: ex.name, kg, reps, source: 'hevy' };
+        // parseHevyCSV already reads start_time to derive the date; it now
+        // forwards the raw value so the clock survives the import too.
+        const csvStart = importedStartStamp(session.start);
+        if (csvStart) entry.start = csvStart;
         if (set.type && set.type !== 'N') entry.type = set.type;
         newLiftEntries.push(entry);
         addedForSession++;
@@ -2011,10 +2030,16 @@ app.post('/exercises/merge', async (req, res) => {
 async function applySessionComplete(data, liftsRef, saveFn, { workout, sets = [], customExercises = [], groupWith = null, elapsed = null }) {
   data.workouts = data.workouts || [];
 
+  // A real clock reading for when the work happened, so fatigue decays from
+  // then rather than from midnight. Null for anything not being logged today —
+  // see sessionStartStamp for why guessing is worse than falling back.
+  const startedAt = sessionStartStamp({ dateStr: workout.date, today: day(), elapsedSec: elapsed });
+
   const newLiftEntries = sets
     .filter(s => s.exercise && s.kg && s.reps)
     .map(s => ({
       exercise: s.exercise, kg: +s.kg, reps: +s.reps, rpe: s.rpe || null, date: workout.date,
+      ...(startedAt ? { start: startedAt } : {}),
       ...(s.type && s.type !== 'N' ? { type: s.type } : {}),
       ...(s.machine ? { machine: s.machine } : {}), ...(s.pulleyType ? { pulleyType: s.pulleyType } : {}),
       ...(s.model ? { model: s.model } : {}),
@@ -2118,10 +2143,16 @@ app.put('/workout/:date', async (req, res) => {
   const { date } = req.params;
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return res.status(400).json({ error: 'date must be YYYY-MM-DD' });
   const sets = Array.isArray(req.body?.sets) ? req.body.sets : [];
+  // This route replaces every lift for the date, so a workout that already had
+  // a real timestamp would silently fall back to midnight after any edit.
+  // Carry the existing one forward; there's no better source here, since an
+  // edit can happen days after the session.
+  const existingStart = (db.lifts || []).find(l => l.date === date && l.start)?.start || null;
   const newLiftEntries = sets
     .filter(s => s.exercise && s.kg && s.reps)
     .map(s => ({
       exercise: s.exercise, kg: +s.kg, reps: +s.reps, rpe: s.rpe || null, date,
+      ...(existingStart ? { start: existingStart } : {}),
       ...(s.type && s.type !== 'N' ? { type: s.type } : {}),
       ...(s.machine ? { machine: s.machine } : {}), ...(s.pulleyType ? { pulleyType: s.pulleyType } : {}),
       ...(s.model ? { model: s.model } : {}),

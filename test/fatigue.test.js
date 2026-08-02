@@ -4,7 +4,7 @@ const {
   computeStructuralFatigue, musclePeaksFromLifts, applyInjuryTaper,
   injuryFatiguePenalty, computeACWR, computePerformanceTrend, computeCNSFatigue,
   computeMuscleLastTrainedDays, fatigueTimeline, computeCompoundIsolationSplit, computeStabilitySplit,
-  recoveryWord,
+  recoveryWord, liftTime, sessionStartStamp, importedStartStamp, MAX_CREDIBLE_SESSION_SEC,
 } = require('../functions/fatigue');
 
 const daysAgo = (n) => new Date(Date.now() - n * 86400000).toISOString().slice(0, 10);
@@ -404,4 +404,99 @@ test('recoveryWord returns null for a missing or non-numeric score rather than a
 
 test('recoveryWord covers the full 0-100 range with no gaps', () => {
   for (let i = 0; i <= 100; i++) assert.ok(recoveryWord(i), `no word for ${i}`);
+});
+
+// ---------------------------------------------------------------------------
+// Lift timestamps. liftTime reads `start || date`, and nothing used to write
+// `start` — so every session resolved to 00:00 on its date and same-day
+// fatigue was understated across the whole app.
+// ---------------------------------------------------------------------------
+
+const NOON = new Date('2026-08-02T12:00:00Z').getTime();
+
+test('a session logged today is stamped with its real start time', () => {
+  const stamp = sessionStartStamp({
+    dateStr: '2026-08-02', today: '2026-08-02', elapsedSec: 3600, now: NOON,
+  });
+  assert.equal(stamp, '2026-08-02T11:00:00.000Z');
+});
+
+test('with no elapsed time it stamps the finish time rather than nothing', () => {
+  const stamp = sessionStartStamp({ dateStr: '2026-08-02', today: '2026-08-02', now: NOON });
+  assert.equal(stamp, '2026-08-02T12:00:00.000Z');
+});
+
+// "Now" is actively wrong for a backdated entry, and midnight-on-that-date is
+// the honest fallback — so this must decline to guess.
+test('a session logged for any other day is not stamped', () => {
+  for (const dateStr of ['2026-08-01', '2026-08-03', '2025-12-25']) {
+    assert.equal(sessionStartStamp({ dateStr, today: '2026-08-02', elapsedSec: 3600, now: NOON }), null);
+  }
+});
+
+test('a missing date or today yields no stamp', () => {
+  assert.equal(sessionStartStamp({ today: '2026-08-02', now: NOON }), null);
+  assert.equal(sessionStartStamp({ dateStr: '2026-08-02', now: NOON }), null);
+  assert.equal(sessionStartStamp(), null);
+});
+
+// The app's own timer can be left running for hours — a real session in this
+// account once reported 13. Believing it would place the work before the
+// athlete woke up.
+test('an implausible elapsed time falls back to the finish time', () => {
+  const stamp = sessionStartStamp({
+    dateStr: '2026-08-02', today: '2026-08-02',
+    elapsedSec: MAX_CREDIBLE_SESSION_SEC + 1, now: NOON,
+  });
+  assert.equal(stamp, '2026-08-02T12:00:00.000Z');
+});
+
+test('elapsed exactly at the credibility limit is still believed', () => {
+  const stamp = sessionStartStamp({
+    dateStr: '2026-08-02', today: '2026-08-02',
+    elapsedSec: MAX_CREDIBLE_SESSION_SEC, now: NOON,
+  });
+  assert.equal(stamp, new Date(NOON - MAX_CREDIBLE_SESSION_SEC * 1000).toISOString());
+});
+
+test('a negative or non-numeric elapsed is ignored rather than shifting time forward', () => {
+  for (const elapsedSec of [-100, '3600', null, NaN]) {
+    const stamp = sessionStartStamp({ dateStr: '2026-08-02', today: '2026-08-02', elapsedSec, now: NOON });
+    assert.equal(stamp, '2026-08-02T12:00:00.000Z');
+  }
+});
+
+test('an imported start time is normalised to ISO, and junk is rejected', () => {
+  assert.equal(importedStartStamp('2026-08-02T18:30:00Z'), '2026-08-02T18:30:00.000Z');
+  assert.equal(importedStartStamp('not a date'), null);
+  assert.equal(importedStartStamp(''), null);
+  assert.equal(importedStartStamp(null), null);
+  assert.equal(importedStartStamp(undefined), null);
+});
+
+// The whole point: a stamped lift must actually decay from the stamp.
+test('liftTime prefers a real start over midnight on the date', () => {
+  const evening = { date: '2026-08-02', start: '2026-08-02T19:00:00Z', exercise: 'Barbell Squat', kg: 100, reps: 5 };
+  const dateOnly = { date: '2026-08-02', exercise: 'Barbell Squat', kg: 100, reps: 5 };
+  assert.equal(liftTime(evening), new Date('2026-08-02T19:00:00Z').getTime());
+  assert.equal(liftTime(dateOnly), new Date('2026-08-02').getTime());
+  assert.ok(liftTime(evening) > liftTime(dateOnly), 'the stamped lift must read as more recent');
+});
+
+test('a stamped evening session reads as more fatiguing than the same one dated only', () => {
+  const now = Date.now();
+  const todayISO = new Date(now).toISOString().slice(0, 10);
+  // Same work, same day; one carries a timestamp from an hour ago.
+  const mk = extra => Array.from({ length: 8 }, () => ({
+    date: todayISO, exercise: 'Barbell Squat', kg: 200, reps: 5, ...extra,
+  }));
+  const stamped = mk({ start: new Date(now - 3600e3).toISOString() });
+  const dateOnly = mk({});
+  const peaks = musclePeaksFromLifts(dateOnly);
+  const a = computeStructuralFatigue(stamped, peaks, [], {});
+  const b = computeStructuralFatigue(dateOnly, peaks, [], {});
+  // Only meaningful once the day is old enough for midnight to differ from now.
+  if (new Date(now).getUTCHours() >= 2) {
+    assert.ok(a.quads >= b.quads, `stamped ${a.quads} should not read fresher than date-only ${b.quads}`);
+  }
 });
