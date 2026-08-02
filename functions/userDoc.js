@@ -12,7 +12,14 @@ const DEFAULTS = () => ({
   injuries: [], measurements: [], supplements: [], supplementLog: [],
   alcoholLog: [], photos: [], experiments: [], customExercises: [],
   profile: { name: null, heightCm: null, sex: null, waterTarget: 7,
-    macroTargets: { calories: 2400, protein: 160, carbs: 250, fat: 75 }, macroMode: "manual" },
+    macroTargets: { calories: 2400, protein: 160, carbs: 250, fat: 75 }, macroMode: "manual",
+    primaryActivity: null,
+    secondaryActivity: null,
+    equipmentAvailable: [],
+    musclePriorities: {},
+    weeklyTargets: { lifting: {}, running: {}, sports: {} },
+    activityPreferences: { lifting: {}, running: {} }
+  },
 });
 
 // Lifts live in a size-bounded subcollection (functions/liftChunks.js), not

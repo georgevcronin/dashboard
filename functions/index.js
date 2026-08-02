@@ -26,6 +26,9 @@ const {
 } = require('./identity');
 const { computeStimulusContributions } = require('./adaptation');
 const { findNearbyGyms, normalizeExerciseKey, GYM_NEARBY_RADIUS_M } = require('./gyms');
+const { computeSharedFatigue } = require('./sharedFatigueEngine');
+const { computeActivityWeights } = require('./activityWeighting');
+const { generateWeeklyAllocation } = require('./sessionAllocationEngine');
 
 admin.initializeApp();
 const firestore = admin.firestore();
@@ -1101,6 +1104,24 @@ app.post("/macro-auto", async (req, res) => {
   await save(); res.json({ goal, targets: db.profile.macroTargets });
 });
 app.post("/thought", async (req, res) => { db.thoughts.push({ date: day(), text: req.body.text }); await save(); res.json({ ok: true }); });
+
+// Track 3: Apply smart defaults for new profile fields
+function applyActivityDefaults(body) {
+  if (!body.primaryActivity) return;
+
+  const defaults = {
+    'strength': { lifting: { sessionsPerWeek: 4, avgSessionScore: 2000 } },
+    'running': { running: { sessionsPerWeek: 4, avgSessionDistance: 25 } },
+    'hybrid': { lifting: { sessionsPerWeek: 3, avgSessionScore: 1800 }, running: { sessionsPerWeek: 3, avgSessionDistance: 20 } },
+    'sports': { lifting: { sessionsPerWeek: 2, avgSessionScore: 1500 }, sports: { sessionsPerWeek: 2 } },
+    'crossfit': { lifting: { sessionsPerWeek: 5, avgSessionScore: 2200 } }
+  };
+
+  if (defaults[body.primaryActivity]) {
+    body.weeklyTargets = { ...body.weeklyTargets, ...defaults[body.primaryActivity] };
+  }
+}
+
 app.post("/profile", async (req, res) => {
   const body = { ...req.body };
   // Stamped server-side, never trusting a client-sent timestamp — reset
@@ -1129,6 +1150,37 @@ app.post("/profile", async (req, res) => {
   } else {
     delete body.visibility;
   }
+
+  // Track 3: Validate new activity fields and apply smart defaults
+  if (body.primaryActivity) {
+    const validActivities = ['strength', 'running', 'hybrid', 'sports', 'crossfit'];
+    if (!validActivities.includes(body.primaryActivity)) {
+      return res.status(400).json({ error: 'Invalid primaryActivity' });
+    }
+    applyActivityDefaults(body);
+  }
+  if (body.secondaryActivity) {
+    const validActivities = ['strength', 'running', 'hybrid', 'sports', 'crossfit'];
+    if (!validActivities.includes(body.secondaryActivity)) {
+      return res.status(400).json({ error: 'Invalid secondaryActivity' });
+    }
+  }
+  if (body.equipmentAvailable && Array.isArray(body.equipmentAvailable)) {
+    const validEquipment = ['barbell', 'dumbbell', 'cable', 'machine', 'smith', 'bodyweight'];
+    const invalid = body.equipmentAvailable.filter(e => !validEquipment.includes(e));
+    if (invalid.length) {
+      return res.status(400).json({ error: `Invalid equipment: ${invalid.join(', ')}` });
+    }
+  }
+  if (body.musclePriorities && typeof body.musclePriorities === 'object') {
+    const validPriorities = ['focus', 'baseline', 'avoid'];
+    for (const [muscle, priority] of Object.entries(body.musclePriorities)) {
+      if (!validPriorities.includes(priority)) {
+        return res.status(400).json({ error: `Invalid priority for ${muscle}: ${priority}` });
+      }
+    }
+  }
+
   db.profile = { ...db.profile, ...body };
   await save();
   res.json(db.profile);
