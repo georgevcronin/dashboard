@@ -7152,6 +7152,8 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
   const [hevyKeyMode, setHevyKeyMode] = useState(null);
   const [hevyKeyVal, setHevyKeyVal] = useState('');
   const [hevyKeySaved, setHevyKeySaved] = useState(false);
+  const [equipmentAvailable, setEquipmentAvailable] = useState(s?.profile?.equipmentAvailable || ['barbell', 'dumbbell', 'machine', 'cable']);
+  const [savingEquipment, setSavingEquipment] = useState(false);
   const [savingTargets, setSavingTargets] = useState(false);
   const [regenLoading, setRegenLoading] = useState(false);
   const [mergeFrom, setMergeFrom] = useState('');
@@ -7926,6 +7928,36 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
               </button>
             ))}
           </div>
+        </div>
+
+        {/* ── EQUIPMENT ── */}
+        <div className="settings-sec">
+          <div className="settings-sh">Equipment Availability</div>
+          <div style={{ fontSize: 11, color: 'var(--dim)', marginBottom: 10, lineHeight: 1.5 }}>
+            Select which equipment you have access to. Used to filter session recommendations.
+          </div>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12 }}>
+            {['barbell', 'dumbbell', 'machine', 'cable', 'smith', 'bodyweight'].map(eq => (
+              <button key={eq} className={`prof-btn${equipmentAvailable.includes(eq) ? ' solid' : ''}`}
+                onClick={() => {
+                  setEquipmentAvailable(prev =>
+                    prev.includes(eq) ? prev.filter(e => e !== eq) : [...prev, eq]
+                  );
+                }}
+                style={{ fontSize: 10, padding: '6px 12px', textTransform: 'capitalize' }}>
+                {eq}
+              </button>
+            ))}
+          </div>
+          <button className="prof-btn solid" style={{ fontSize: 10, padding: '6px 12px' }}
+            onClick={async () => {
+              setSavingEquipment(true);
+              await api('profile', { method: 'POST', body: JSON.stringify({ equipmentAvailable }) });
+              refresh({ ...s, profile: { ...s.profile, equipmentAvailable } });
+              setSavingEquipment(false);
+            }} disabled={savingEquipment}>
+            {savingEquipment ? 'Saving…' : 'Save Equipment'}
+          </button>
         </div>
 
         {/* ── NUTRITION ── */}

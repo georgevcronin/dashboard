@@ -131,7 +131,7 @@ function lastAccessoryPick(lifts, targetMuscles, excludeNames) {
 // rotation list from lastAccessoryPick — excluded unless doing so would
 // leave zero candidates (a muscle with exactly one viable exercise shouldn't
 // get artificially starved just to satisfy rotation).
-function pickAccessories(targetMuscles, alreadySelected, excludeNames, avoidMuscles, { travelMode, avoidEquipment = [], avoidNames = [], count, isolationOnly = false, lifts, favoriteExercises = [], avoidMusclesSecondary = [], preferStable = false }) {
+function pickAccessories(targetMuscles, alreadySelected, excludeNames, avoidMuscles, { travelMode, avoidEquipment = [], avoidNames = [], count, isolationOnly = false, lifts, favoriteExercises = [], avoidMusclesSecondary = [], preferStable = false, equipmentAvailable = null }) {
   const coveredMuscles = new Set(alreadySelected.flatMap(e => e.primary));
   const remainingMuscles = targetMuscles.filter(m => !coveredMuscles.has(m));
   // Same-function guard: skip anything sharing both pattern and an
@@ -150,6 +150,7 @@ function pickAccessories(targetMuscles, alreadySelected, excludeNames, avoidMusc
     (travelMode ? e.equipment === 'bodyweight' : true) &&
     !(isBodyweightOnlyExercise(e) && !travelMode) &&
     !avoidEquipment.includes(e.equipment) &&
+    (equipmentAvailable == null || equipmentAvailable.includes(e.equipment)) &&
     !e.primary.some(m => avoidMuscles.includes(m)) &&
     !(e.secondary || []).some(m => avoidMusclesSecondary.includes(m)) &&
     e.primary.some(m => targetMuscles.includes(m)) &&
@@ -230,7 +231,7 @@ function pickAccessories(targetMuscles, alreadySelected, excludeNames, avoidMusc
 // overlapping-muscle pick as something already selected, e.g. never
 // re-admits Box Squat after Sumo Deadlift) plus the same logged/favorite/
 // obscure scoring used everywhere else in this file.
-function pickDedicatedAccessory(muscle, alreadySelected, excludeNames, avoidMuscles, { travelMode, avoidEquipment = [], isolationOnly = false, lifts, favoriteExercises = [], avoidMusclesSecondary = [], preferStable = false }) {
+function pickDedicatedAccessory(muscle, alreadySelected, excludeNames, avoidMuscles, { travelMode, avoidEquipment = [], isolationOnly = false, lifts, favoriteExercises = [], avoidMusclesSecondary = [], preferStable = false, equipmentAvailable = null }) {
   const isRedundant = e => !isStapleExercise(lifts, e.name) &&
     alreadySelected.some(a => redundancyPattern(a.pattern) === redundancyPattern(e.pattern) && e.primary.some(m => a.primary.includes(m)));
   const basePool = EXERCISE_DB.filter(e =>
@@ -238,6 +239,7 @@ function pickDedicatedAccessory(muscle, alreadySelected, excludeNames, avoidMusc
     (travelMode ? e.equipment === 'bodyweight' : true) &&
     !(isBodyweightOnlyExercise(e) && !travelMode) &&
     !avoidEquipment.includes(e.equipment) &&
+    (equipmentAvailable == null || equipmentAvailable.includes(e.equipment)) &&
     !e.primary.some(m => avoidMuscles.includes(m)) &&
     !(e.secondary || []).some(m => avoidMusclesSecondary.includes(m)) &&
     e.primary[0] === muscle &&
@@ -397,7 +399,7 @@ function setsFor(prog, workingSetCount, { failureSolo = false, higherRirPair = f
 // new-lifter fatigue budget. trainingMonths is null for an athlete who
 // hasn't self-reported training experience, in which case the new-lifter
 // budget is skipped entirely rather than assumed.
-function generateSessionExercises({ type, targetMuscles, backboneExerciseNames, lifts, travelMode, avoidMuscles = [], avoidMusclesSecondary = [], offlineMuscles = [], cnsFatigue = 0, metabolicFatigue = 0, trainingMonths = null, skipAccessories = false, accessoryCountOverride = null, isolationOnly = false, favoriteExercises = [], sessionExcludeNames = new Set(), warmupScheme = null, maxDurationMin = null, preferStable = false, lowCnsMode = false }) {
+function generateSessionExercises({ type, targetMuscles, backboneExerciseNames, lifts, travelMode, avoidMuscles = [], avoidMusclesSecondary = [], offlineMuscles = [], cnsFatigue = 0, metabolicFatigue = 0, trainingMonths = null, skipAccessories = false, accessoryCountOverride = null, isolationOnly = false, favoriteExercises = [], sessionExcludeNames = new Set(), warmupScheme = null, maxDurationMin = null, preferStable = false, lowCnsMode = false, equipmentAvailable = null }) {
   if (type !== 'lift' || !targetMuscles?.length) return [];
 
   const excludeMuscles = [...new Set([...avoidMuscles, ...offlineMuscles])];
@@ -459,7 +461,7 @@ function generateSessionExercises({ type, targetMuscles, backboneExerciseNames, 
   const lastPick = accessoryCount > 0 ? lastAccessoryPick(lifts, targetMuscles, excludeNames) : null;
   const accessories = accessoryCount > 0 ? pickAccessories(targetMuscles, backboneEntries, excludeNames, excludeMuscles, {
     travelMode, avoidEquipment, avoidNames: lastPick ? [lastPick] : [], count: accessoryCount, isolationOnly, lifts, favoriteExercises,
-    avoidMusclesSecondary: excludeMusclesSecondary, preferStable,
+    avoidMusclesSecondary: excludeMusclesSecondary, preferStable, equipmentAvailable,
   }) : [];
 
   // Which exercises actually drive the session, taken from the selection that
@@ -523,7 +525,7 @@ function generateSessionExercises({ type, targetMuscles, backboneExerciseNames, 
       let pick = null;
       for (const muscle of needsDedicated) {
         pick = pickDedicatedAccessory(muscle, finalDbEntries, widenExcludeNames, excludeMuscles, {
-          travelMode, avoidEquipment, isolationOnly, lifts, favoriteExercises, avoidMusclesSecondary: excludeMusclesSecondary, preferStable,
+          travelMode, avoidEquipment, isolationOnly, lifts, favoriteExercises, avoidMusclesSecondary: excludeMusclesSecondary, preferStable, equipmentAvailable,
         });
         if (pick) break;
       }
