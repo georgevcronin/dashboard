@@ -57,6 +57,10 @@ functions/          Backend — deployed as the Cloud Function
                        changed constraint, with measured trade-offs — see below.
   calendarExport.js     RFC 5545 .ics export for a planned session (escaping,
                        75-octet line folding, stable UIDs).
+  missedTarget.js       Why a set missed its target, and what each answer is
+                       allowed to change. A reason alters what Press infers
+                       about capability, never what it believes about the work
+                       done — see below.
   analytics.js           Pure summary/reporting helpers (data maturity, CSV export, etc.)
   gemini.js              Gemini API client (retry/fallback logic)
   sleepScore.js           Sleep-score calculation
@@ -196,6 +200,33 @@ HRV's 40 points, and full marks need 1.5x baseline. The decomposition surfaced
 this by making HRV the top-ranked cost on most ordinary days. That is a
 property of the existing scoring curve, deliberately left alone here — changing
 it would move every historical recovery score.
+
+## A miss reason changes inference, never the work done
+
+`functions/missedTarget.js` records why a set came in under target, so a grip
+slip is not read as evidence about strength. The measured problem it solves:
+`computeProgression` reads the most recent session's top set, so one missed top
+set on a flat run turns the trend `stalled` and resets the working weight by two
+increments — a 65kg cable row logged at 3 reps instead of 8 suggested "reset to
+56kg".
+
+Three rules, all tested:
+
+- **Absent means ordinary.** Every set logged before this existed carries no
+  reason. `countsAsCapability` returns true for absent and unrecognised values,
+  so history keeps informing strength exactly as before.
+- **Fatigue always counts the work.** The obvious design discards an
+  externally-disrupted set entirely. Those reps physically happened; dropping
+  them would understate structural fatigue and could have Press recommend
+  training a muscle it just watched you train. Only capability inference
+  (progression, strength standards) honours the reason.
+- **`muscleCapacity.js` needs no protection.** `buildObservations` keeps only
+  the best e1RM per exercise+angle, so a low observation loses to the athlete's
+  own best and can never pull a fitted capacity down. Worth knowing before
+  "fixing" it.
+
+There is no Bayesian layer in this codebase to intercept. `muscleCapacity.js` is
+a ridge-regularised batch least-squares fit re-solved from history on demand.
 
 ## Alternative sessions are generated, not described
 

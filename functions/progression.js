@@ -1,5 +1,6 @@
 const { isLowerBodyExercise, findExercise } = require('./muscleTaxonomy');
 const { e1rm: calcE1RM } = require('./strengthStandards');
+const { excludeNonCapabilitySets } = require('./missedTarget');
 const { computeBrandCalibration, calibratedE1RM } = require('./brandCalibration');
 
 // Deterministic double-progression calculator: given an exercise's session
@@ -57,7 +58,15 @@ function computeProgression(lifts, name, warmupScheme) {
   // carry the tag, exclude them explicitly rather than relying on that
   // coincidence — untagged (older) history is unaffected since undefined
   // !== 'W'.
-  const ex = lifts.filter(l => l.exercise === name && l.type !== 'W');
+  // Sets whose miss was flagged as non-physiological (grip, pain, an
+  // interruption) are not evidence about strength and are dropped before the
+  // trend is computed. Without this, one slipped grip on a top set drops that
+  // session's e1RM below the previous one and, on a flat run, turns the trend
+  // 'stalled' — which resets the working weight by two increments. Measured:
+  // a 65kg cable row logged at 3 reps instead of 8 suggested "reset to 56kg".
+  // Untagged history is unaffected: no reason means an ordinary set.
+  const ex = excludeNonCapabilitySets(lifts)
+    .filter(l => l.exercise === name && l.type !== 'W');
   if (!ex.length) return null;
   // Rescales e1RM onto whichever brand this exercise is most often logged on
   // (brandCalibration.js), so a session-to-session trend comparison below
