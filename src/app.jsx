@@ -4697,6 +4697,10 @@ function WhatIfSandbox({ s, exercises }) {
 
   if (!baseline.length) return null;
   const changed = dropped.size > 0 || setDelta !== 0;
+  // Muscles pinned at the 100 cap in the candidate — the reason two very
+  // different sessions can produce identical readings. Declared here rather
+  // than beside the render so it sits after `result` exists.
+  const saturated = (result?.muscles || []).filter(m => m.clamped).map(m => m.muscle);
 
   const hours = h => (h == null ? '—' : `${h > 0 ? '+' : ''}${h}h`);
 
@@ -4775,10 +4779,10 @@ function WhatIfSandbox({ s, exercises }) {
           {result.muscles.slice(0, 6).map(m => (
             <div key={m.muscle} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 3 }}>
               <div style={{ ...mono, fontSize: 9, width: 84, flexShrink: 0, textTransform: 'capitalize', color: 'var(--dim)' }}>
-                {m.muscle}
+                {m.muscle}{m.clamped ? ' *' : ''}
               </div>
               <div className="muscle-bar-track">
-                <div className="muscle-bar-fill" style={{
+                <div className={m.clamped ? 'muscle-bar-fill muscle-bar-clamped' : 'muscle-bar-fill'} style={{
                   width: `${Math.min(100, m.fatigueAfter)}%`,
                   background: m.crossesCeiling ? 'var(--red)' : 'var(--ember)',
                 }} />
@@ -4788,6 +4792,22 @@ function WhatIfSandbox({ s, exercises }) {
               </div>
             </div>
           ))}
+        </div>
+      )}
+
+      {/* Without this the tool silently reports identical numbers for very
+          different sessions and reads as broken. Fatigue is scored against
+          each muscle's own historical peak load and capped at 100, so a
+          muscle with little direct history saturates on almost any volume —
+          every option then shows 100, and every recovery figure decays from
+          100, which is why halving or doubling the sets changes nothing you
+          can see. Saying so is the difference between a limitation and a bug. */}
+      {saturated.length > 0 && (
+        <div style={{ ...mono, fontSize: 9, color: 'var(--ember)', marginTop: 6, lineHeight: 1.6 }}>
+          * {saturated.join(', ')} {saturated.length === 1 ? 'is' : 'are'} pinned at the 100 cap whichever option you pick,
+          so the figures above are a floor and can't tell these choices apart for {saturated.length === 1 ? 'it' : 'them'}.
+          {' '}That happens when a muscle has little direct training history to scale against — the set count is the honest
+          comparison here.
         </div>
       )}
 
