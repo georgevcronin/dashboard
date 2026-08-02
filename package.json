@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "scripts": {
     "build": "esbuild src/app.jsx --bundle --jsx=automatic --minify --outfile=public/app.js",
-    "test": "node --test",
+    "test": "node --test && jest",
     "deploy": "npm run build && firebase deploy"
   },
   "dependencies": {
@@ -11,5 +11,15 @@
     "firebase": "^12.15.0",
     "react": "^19.2.7",
     "react-dom": "^19.2.7"
+  },
+  "devDependencies": {
+    "@babel/preset-env": "^8.0.2",
+    "@babel/preset-react": "^8.0.1",
+    "@testing-library/jest-dom": "^7.0.0",
+    "@testing-library/react": "^16.3.2",
+    "babel-jest": "^30.4.1",
+    "identity-obj-proxy": "^3.0.0",
+    "jest": "^30.4.2",
+    "jest-environment-jsdom": "^30.4.1"
   }
 }

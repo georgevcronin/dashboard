@@ -176,11 +176,20 @@ function computeStructuralFatigue(lifts, musclePeaks, soreness = [], sensitivity
   soreness.filter(e => now - e.ts < 5 * 24 * 3600000)
     .forEach(e => { sorenessMap[e.muscle] = Math.max(sorenessMap[e.muscle] || 0, e.score); });
   const out = {};
+  const outRaw = {};
   for (const [m, v] of Object.entries(scores)) {
     const soreAdj = sorenessMap[m] ? 1 + sorenessMap[m] / 20 : 1;
     const sensAdj = sensitivity[m] || 1.0;
-    out[m] = Math.min(100, Math.round(v / (musclePeaks?.[m] || 2000) * 100 * soreAdj * sensAdj));
+    const raw = Math.round(v / (musclePeaks?.[m] || 2000) * 100 * soreAdj * sensAdj);
+    out[m] = Math.min(100, raw);
+    outRaw[m] = raw;
   }
+  Object.defineProperty(out, '_raw', {
+    value: outRaw,
+    enumerable: false,
+    writable: false,
+    configurable: false,
+  });
   return out;
 }
 

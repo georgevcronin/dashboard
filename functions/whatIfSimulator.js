@@ -141,13 +141,16 @@ function simulateSession({
     .map(muscle => {
       const fatigueBefore = before.structural[muscle] || 0;
       const fatigueAfter = after.structural[muscle] || 0;
+      const beforeRaw = before.structural._raw?.[muscle] ?? fatigueBefore;
+      const afterRaw = after.structural._raw?.[muscle] ?? fatigueAfter;
+      const fatigueDeltaRaw = afterRaw - beforeRaw;
       const hoursBefore = beforeHours[muscle] ?? 0;
       const hoursAfter = afterHours[muscle] ?? 0;
       return {
         muscle,
         fatigueBefore,
         fatigueAfter,
-        fatigueDelta: fatigueAfter - fatigueBefore,
+        fatigueDelta: fatigueDeltaRaw,
         hoursBefore: round1(hoursBefore),
         hoursAfter: round1(hoursAfter),
         hoursDelta: round1(hoursAfter - hoursBefore),
