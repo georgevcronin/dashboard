@@ -31,7 +31,8 @@
 // spent" cashes out as the same threshold that governs exercise selection.
 
 const { emgForAngle } = require('./emgActivation');
-const { ANGLE_PATTERNS, angleOptionsFor } = require('./parameterExplorer');
+const { emgProfileForExercise } = require('./exerciseEmgProfiles');
+const { ANGLE_PATTERNS, angleOptionsFor, targetableMuscles } = require('./parameterExplorer');
 const { EXERCISE_DB } = require('./exerciseDb');
 const { FATIGUE_CEILING } = require('./weeklyPlanner');
 
@@ -71,10 +72,13 @@ function limitingFatigue(weights, currentFatigue, involvementFloor) {
   return { ratio: worst, muscle: worstMuscle };
 }
 
-function scoreConfiguration(pattern, angle, targetMuscles, {
+// The scoring itself, given a muscle->activation map from wherever. Shared by
+// the angle-family sweep and the fixed-exercise sweep below so there is exactly
+// one definition of stimulus/(1 + lambda*L) — the two must stay comparable,
+// because they are ranked against each other in one list.
+function scoreWeights(weights, targetMuscles, {
   currentFatigue = {}, lambda = DEFAULT_LAMBDA, involvementFloor = 20,
 } = {}) {
-  const weights = emgForAngle(pattern, angle);
   if (!weights) return null;
 
   const perTarget = targetMuscles
@@ -91,8 +95,6 @@ function scoreConfiguration(pattern, angle, targetMuscles, {
   const score = stimulus / (1 + lambda * limiting.ratio);
 
   return {
-    pattern,
-    angle,
     perTarget: perTarget.sort((a, b) => b.activation - a.activation),
     stimulus,
     limitingFatigue: limiting.ratio,
@@ -107,6 +109,63 @@ function scoreConfiguration(pattern, angle, targetMuscles, {
       .filter(([m, a]) => a >= involvementFloor && (currentFatigue?.[m] || 0) >= FATIGUE_CEILING)
       .map(([m]) => m),
   };
+}
+
+function scoreConfiguration(pattern, angle, targetMuscles, options = {}) {
+  const scored = scoreWeights(emgForAngle(pattern, angle), targetMuscles, options);
+  return scored ? { pattern, angle, ...scored } : null;
+}
+
+// Every EXERCISE_DB entry that is NOT an angle family, scored from its own EMG
+// profile.
+//
+// Without this the planner could only ever answer for the 17 muscles the seven
+// angle families happen to touch, and "Train a muscle" silently offered no
+// quads, abs, calves, traps, forearms, adductors, abductors, hip-flexors,
+// tibialis or rotator-cuff — which is most of the lower body and all of the
+// core. The gap was in the question the panel could ask, not in the data:
+// exerciseEmgProfiles.js has covered back squat, leg press and the rest all
+// along.
+//
+// A fixed exercise has no angle to choose, so `angle` is null rather than a
+// made-up number, and the caller names the exercise directly instead of
+// resolving a pattern to equipment options.
+function scoreFixedExercises(targetMuscles, {
+  currentFatigue = {}, lambda = DEFAULT_LAMBDA, involvementFloor = 20, equipment = null,
+} = {}) {
+  const out = [];
+  for (const entry of EXERCISE_DB) {
+    if (entry.isAngleFamily) continue;
+    if (equipment && entry.equipment !== equipment) continue;
+    const weights = emgProfileForExercise(entry.name);
+    if (!weights) continue;
+    const scored = scoreWeights(weights, targetMuscles, { currentFatigue, lambda, involvementFloor });
+    if (!scored) continue;
+    out.push({
+      pattern: null,
+      angle: null,
+      ...scored,
+      exercises: [{ name: entry.name, equipment: entry.equipment }],
+    });
+  }
+  return out;
+}
+
+// Every muscle the planner can actually answer for — both sweeps unioned.
+// Deliberately separate from parameterExplorer's targetableMuscles(patterns),
+// which answers the narrower "what can this one angle slider reach" and is
+// still correct for that.
+function allTargetableMuscles({ involvementFloor = 20 } = {}) {
+  const seen = new Set(targetableMuscles());
+  for (const entry of EXERCISE_DB) {
+    if (entry.isAngleFamily) continue;
+    const weights = emgProfileForExercise(entry.name);
+    if (!weights) continue;
+    for (const [muscle, activation] of Object.entries(weights)) {
+      if (activation >= involvementFloor) seen.add(muscle);
+    }
+  }
+  return [...seen].sort();
 }
 
 // Rank every buildable configuration for a set of target muscles.
@@ -140,12 +199,16 @@ function findOptimalConfigurations(targetMuscles, {
     }
   }
 
+  scored.push(...scoreFixedExercises(targets, { currentFatigue, lambda, involvementFloor, equipment }));
+
+  // Tie-break has to cope with fixed exercises, which have no pattern or angle.
+  // Sorting on a.pattern.localeCompare threw the moment one entered the list.
+  const label = s => `${s.pattern ?? ''}|${s.angle ?? ''}|${s.exercises?.[0]?.name ?? ''}`;
   scored.sort((a, b) => b.score - a.score
     // Deterministic tie-break, so an unchanged athlete state can't reorder the
     // list between two renders.
     || b.stimulus - a.stimulus
-    || a.pattern.localeCompare(b.pattern)
-    || a.angle - b.angle);
+    || label(a).localeCompare(label(b)));
 
   return {
     targets,
@@ -179,7 +242,12 @@ function fatigueChangedTheAnswer(targetMuscles, options = {}) {
   const top = withPenalty.results[0];
   const unpenalisedTop = without.results[0];
   if (!top || !unpenalisedTop) return null;
-  if (top.pattern === unpenalisedTop.pattern && top.angle === unpenalisedTop.angle) return null;
+  // Identity has to include the exercise name. A fixed exercise carries
+  // pattern: null and angle: null, so comparing only those two made every pair
+  // of distinct fixed exercises look identical — the counterfactual would then
+  // stay silent exactly when fatigue had swapped one squat variant for another.
+  const identity = r => `${r.pattern ?? ''}|${r.angle ?? ''}|${r.exercises?.[0]?.name ?? ''}`;
+  if (identity(top) === identity(unpenalisedTop)) return null;
 
   return {
     chosen: top,
@@ -191,6 +259,7 @@ function fatigueChangedTheAnswer(targetMuscles, options = {}) {
 }
 
 module.exports = {
-  findOptimalConfigurations, scoreConfiguration, withoutFatiguePenalty,
+  findOptimalConfigurations, scoreConfiguration, scoreWeights, scoreFixedExercises,
+  allTargetableMuscles, withoutFatiguePenalty,
   fatigueChangedTheAnswer, limitingFatigue, DEFAULT_LAMBDA,
 };

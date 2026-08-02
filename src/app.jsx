@@ -54,7 +54,7 @@ const { DEFAULT_WARMUP_SCHEME, WARMUP_SCHEME_PRESETS } = progressionPkg;
 const { validateUsername, validateDisplayName, normalizeUsername, USERNAME_MAX, canChangeUsername, usernameChangeAvailableAt } = identityPkg;
 const { FATIGUE_CEILING } = weeklyPlannerPkg;
 const { angleOptionsFor, activationAt, optimalAngleFor, compareAngle, bestConfigurationsFor, targetableMuscles, axisOptions, activationOnAxis, axisSensitivity, AXIS_META } = parameterExplorerPkg;
-const { findOptimalConfigurations, fatigueChangedTheAnswer } = targetMusclePlannerPkg;
+const { findOptimalConfigurations, fatigueChangedTheAnswer, allTargetableMuscles } = targetMusclePlannerPkg;
 const { muscleCredit } = muscleCreditPkg;
 const { simulateSession } = whatIfSimulatorPkg;
 const { buildSessionICS } = calendarExportPkg;
@@ -1079,6 +1079,7 @@ const CHANGELOG = [
     version: '0.66',
     date: '2026-08-02',
     features: [
+      'Train A Muscle now covers the whole body. It was only ever sweeping the seven movement families that have an angle slider, so it silently offered no quads, abs, obliques, calves, traps, forearms, adductors, abductors, hip-flexors or rotator-cuff \u2014 most of the lower body and all of the core. The data was never missing; the exercise database has covered squats, leg presses and the rest all along, and the search just never looked there. It now ranks fixed exercises alongside angle configurations using the same score, so 28 muscles are selectable instead of 17. A fixed exercise names itself rather than reporting an angle it does not have.',
       'Tidied the Training panel\'s button row. It had grown to eight identical boxes mixing three different kinds of control — ones that start a session and leave the screen, ones that just expand a panel below, and utilities — so nothing indicated which was the thing to press. Start Session, Freestyle and Group Session stay as buttons; Other Ways, What If and Train A Muscle become text toggles under a rule, marked + when closed and − when open. They no longer relabel themselves to "Hide …", which was making the whole row jump about every time you opened one. Add to Calendar, Refresh Guidance and Auto-Pick Freshest sit together at the right as utilities. Nothing was removed and nothing behaves differently.',
       'Fixed: Add to Calendar has never worked. It threw an error the moment you pressed it, on every browser, since the day it shipped — the line-folding step used a facility that exists on the server but not in a browser, so no .ics file was ever produced. The whole backend test suite passed throughout, because those tests run on the server where that facility does exist. Now uses a method available in both, and produces byte-identical output. A new check fails the build if any server-only facility reaches the browser bundle again.',
     ],
@@ -4829,7 +4830,7 @@ function WhatIfSandbox({ s, exercises }) {
 function TargetMusclePlannerPanel({ fatigue }) {
   const [targets, setTargets] = useState([]);
   const mono = { fontFamily: "'JetBrains Mono',monospace" };
-  const all = useMemo(() => targetableMuscles(), []);
+  const all = useMemo(() => allTargetableMuscles(), []);
 
   const plan = useMemo(
     () => (targets.length ? findOptimalConfigurations(targets, { currentFatigue: fatigue || {} }) : null),
@@ -4864,21 +4865,25 @@ function TargetMusclePlannerPanel({ fatigue }) {
 
       {plan && plan.results.length === 0 && (
         <div style={{ ...mono, fontSize: 9, color: 'var(--dim)' }}>
-          No angle-built movement in the tables reaches {targets.join(' and ')}.
+          Nothing in the exercise database meaningfully reaches {targets.join(' and ')}.
         </div>
       )}
 
       {plan?.results.map((r, i) => (
-        <div key={`${r.pattern}-${r.angle}`} className={`target-config${i === 0 ? ' top' : ''}`}>
+        <div key={`${r.pattern ?? 'fixed'}-${r.angle ?? r.exercises[0]?.name}`} className={`target-config${i === 0 ? ' top' : ''}`}>
           <div style={{ ...mono, fontSize: 11, color: 'var(--ink)' }}>
-            {patternLabelFor(r.pattern)} at {r.angle}°
+            {/* A fixed exercise has no angle to choose, so it names itself
+                rather than rendering an invented "at null degrees". */}
+            {r.pattern ? `${patternLabelFor(r.pattern)} at ${r.angle}\u00b0` : r.exercises[0]?.name}
           </div>
           <div style={{ ...mono, fontSize: 9, color: 'var(--dim)', marginTop: 2, lineHeight: 1.6 }}>
             {r.perTarget.map(t => `${t.muscle} ${Math.round(t.activation)}%`).join(' · ')}
           </div>
-          <div style={{ ...mono, fontSize: 8, color: 'var(--dim)', marginTop: 2 }}>
-            {r.exercises.map(e => e.name).join(' · ')}
-          </div>
+          {r.pattern && (
+            <div style={{ ...mono, fontSize: 8, color: 'var(--dim)', marginTop: 2 }}>
+              {r.exercises.map(e => e.name).join(' · ')}
+            </div>
+          )}
           {r.limitingFatigue > 0 && (
             <div style={{ ...mono, fontSize: 8, color: r.spentMuscles.length ? 'var(--ember)' : 'var(--dim)', marginTop: 2 }}>
               Most-spent muscle involved: {r.limitingMuscle} at {Math.round(r.limitingFatigue * 100)}
@@ -4890,7 +4895,9 @@ function TargetMusclePlannerPanel({ fatigue }) {
 
       {counterfactual && (
         <div style={{ ...mono, fontSize: 9, color: 'var(--gold)', marginTop: 4, lineHeight: 1.6 }}>
-          Ranked above {patternLabelFor(counterfactual.insteadOf.pattern)} at {counterfactual.insteadOf.angle}°,
+          Ranked above {counterfactual.insteadOf.pattern
+            ? `${patternLabelFor(counterfactual.insteadOf.pattern)} at ${counterfactual.insteadOf.angle}\u00b0`
+            : counterfactual.insteadOf.exercises[0]?.name},
           which would normally win — {counterfactual.because} is at {counterfactual.fatigue}.
         </div>
       )}

@@ -209,3 +209,102 @@ test('no fabricated prescription numbers reach the payload', () => {
     assert.ok(!json.includes(banned), `payload leaked ${banned}`);
   }
 });
+
+// ---------------------------------------------------------------------------
+// Fixed (non-angle-family) exercises
+//
+// The planner originally swept only the seven angle families, so it could
+// answer for the 17 muscles those happen to touch and silently offered no
+// quads, abs, calves, traps, forearms, adductors, abductors, hip-flexors or
+// rotator-cuff — most of the lower body and all of the core. The data was
+// never missing; exerciseEmgProfiles.js covers 208 exercises. Only the sweep
+// was too narrow.
+// ---------------------------------------------------------------------------
+
+const {
+  allTargetableMuscles, scoreFixedExercises, scoreWeights,
+} = require('../functions/targetMusclePlanner');
+
+test('the muscles that were missing are all answerable now', () => {
+  const targetable = allTargetableMuscles();
+  for (const muscle of ['quads', 'abs', 'obliques', 'calves', 'traps', 'forearms',
+                        'adductors', 'abductors', 'hip-flexors', 'rotator-cuff']) {
+    assert.ok(targetable.includes(muscle), `${muscle} is still not targetable`);
+    const plan = findOptimalConfigurations([muscle], { currentFatigue: {} });
+    assert.ok(plan.results.length > 0, `no configuration found for ${muscle}`);
+    assert.ok(plan.results[0].exercises.length > 0, `${muscle}'s top result names no exercise`);
+  }
+});
+
+test('every targetable muscle really does yield at least one result', () => {
+  for (const muscle of allTargetableMuscles()) {
+    const plan = findOptimalConfigurations([muscle], { currentFatigue: {} });
+    assert.ok(plan.results.length > 0, `${muscle} is offered but returns nothing`);
+  }
+});
+
+test('a fixed exercise reports no angle rather than a made-up one', () => {
+  const plan = findOptimalConfigurations(['quads'], { currentFatigue: {} });
+  const fixed = plan.results.find(r => r.pattern === null);
+  assert.ok(fixed, 'expected at least one non-angle-family result for quads');
+  assert.equal(fixed.angle, null);
+  assert.equal(fixed.exercises.length, 1);
+  assert.ok(fixed.exercises[0].name);
+});
+
+// Both sweeps are ranked against each other in one list, so they have to be
+// scored by the same function or the ordering is meaningless.
+test('fixed exercises and angle configurations are scored identically', () => {
+  const weights = { quads: 80, glutes: 40 };
+  const direct = scoreWeights(weights, ['quads'], { currentFatigue: { glutes: 100 } });
+  assert.equal(direct.stimulus, 80);
+  assert.equal(direct.limitingMuscle, 'glutes');
+  assert.equal(direct.penaltyFactor, 1 + 1.5 * 1);
+  assert.equal(direct.score, 80 / (1 + 1.5));
+});
+
+test('scoreWeights drops a candidate that reaches no target at all', () => {
+  assert.equal(scoreWeights({ calves: 90 }, ['chest'], {}), null);
+  assert.equal(scoreWeights(null, ['chest'], {}), null);
+});
+
+test('the equipment filter applies to fixed exercises too', () => {
+  const all = scoreFixedExercises(['quads'], {});
+  const machineOnly = scoreFixedExercises(['quads'], { equipment: 'machine' });
+  assert.ok(machineOnly.length > 0);
+  assert.ok(machineOnly.length < all.length);
+  for (const r of machineOnly) assert.equal(r.exercises[0].equipment, 'machine');
+});
+
+// Sorting used a.pattern.localeCompare, which throws the moment a fixed
+// exercise (pattern: null) enters the list.
+test('ranking does not throw when fixed and angle results are mixed', () => {
+  for (const muscle of ['chest', 'quads', 'lats', 'abs']) {
+    assert.doesNotThrow(() => findOptimalConfigurations([muscle], { currentFatigue: {} }));
+  }
+  const mixed = findOptimalConfigurations(['chest'], { currentFatigue: {} });
+  for (let i = 1; i < mixed.results.length; i++) {
+    assert.ok(mixed.results[i - 1].score >= mixed.results[i].score, 'results are not ranked by score');
+  }
+});
+
+test('ranking is deterministic across repeated calls', () => {
+  const once = findOptimalConfigurations(['quads', 'glutes'], { currentFatigue: { glutes: 40 } });
+  const twice = findOptimalConfigurations(['quads', 'glutes'], { currentFatigue: { glutes: 40 } });
+  assert.deepEqual(once.results.map(r => r.exercises[0].name), twice.results.map(r => r.exercises[0].name));
+});
+
+// Identity for the counterfactual has to include the exercise name: a fixed
+// exercise carries pattern: null and angle: null, so comparing only those made
+// every pair of distinct fixed exercises look like the same movement.
+test('a swap between two fixed exercises is still reported', () => {
+  const targets = ['quads'];
+  const unpenalised = findOptimalConfigurations(targets, { currentFatigue: {} }).results[0];
+  const spent = { [unpenalised.limitingMuscle || 'glutes']: 100 };
+  const changed = fatigueChangedTheAnswer(targets, { currentFatigue: spent });
+  if (changed) {
+    const name = r => `${r.pattern ?? ''}|${r.angle ?? ''}|${r.exercises[0]?.name ?? ''}`;
+    assert.notEqual(name(changed.chosen), name(changed.insteadOf),
+      'reported a swap between two identical movements');
+  }
+});
