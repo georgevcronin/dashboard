@@ -54,14 +54,20 @@ body{font-family:'Times New Roman',Times,Georgia,serif;color:var(--ink)}
 @media(min-width:481px){
 .panel{display:block;position:relative;align-self:start;min-width:0}
 }
-/* Only once two 440px tracks actually fit. Below that the grid has a single
-   explicit column, and span 2 would make it generate an implicit second one \u2014
-   the panel then overflows the viewport sideways instead of being ignored.
+/* Only once THREE 440px tracks fit (3*440 + the 40px .sec-nav gutter). Two
+   reasons it isn't the more obvious 940px two-column threshold:
+   - at one column, span 2 makes the grid generate an implicit second column
+     and the panel overflows the viewport sideways;
+   - at two columns, "wide" means the full row, which is a hard packing
+     barrier \u2014 nothing can sit beside it, so every panel above it has to
+     finish first and the shorter column is left with a hole. Measured at 236px
+     on a 960px viewport, which is precisely the whitespace the masonry exists
+     to remove. Wide should mean wider than its neighbours, never the whole row.
    The background is load-bearing: panels are otherwise transparent, so the
    column hairline the wide panel now straddles would show straight down its
    middle. Only .panel-expanded gets one \u2014 putting it on every .panel would
    paint over every rule, since a standard panel's edge sits exactly on one. */
-@media(min-width:940px){.panel-expanded{grid-column:span 2;background:var(--paper)}}
+@media(min-width:1380px){.panel-expanded{grid-column:span 2;background:var(--paper)}}
 .panel-off{display:none}
 /* Everything except the section's own header block hides, which is why each
    section tags its header .panel-head \u2014 "the first .fade child" isn't
