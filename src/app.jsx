@@ -23,6 +23,9 @@ import { EXERCISE_ANGLES } from '../functions/exerciseAngles.js';
 import { EXERCISE_DB, EXERCISE_MUSCLE_GROUPS, EXERCISE_PATTERNS } from '../functions/exerciseDb.js';
 import expertisePkg from '../functions/expertise.js';
 import parameterExplorerPkg from '../functions/parameterExplorer.js';
+import targetMusclePlannerPkg from '../functions/targetMusclePlanner.js';
+import muscleCreditPkg from '../functions/muscleCredit.js';
+import whatIfSimulatorPkg from '../functions/whatIfSimulator.js';
 import calendarExportPkg from '../functions/calendarExport.js';
 import { PRESS_CSS } from './pressCss.js';
 import { AreaChart, BarChart, Sparkline, AdaptationChart } from './charts.jsx';
@@ -50,7 +53,10 @@ const { platesForWeight, STANDARD_PLATES_KG } = plateCalculatorPkg;
 const { DEFAULT_WARMUP_SCHEME, WARMUP_SCHEME_PRESETS } = progressionPkg;
 const { validateUsername, validateDisplayName, normalizeUsername, USERNAME_MAX, canChangeUsername, usernameChangeAvailableAt } = identityPkg;
 const { FATIGUE_CEILING } = weeklyPlannerPkg;
-const { angleOptionsFor, activationAt, optimalAngleFor, compareAngle, bestConfigurationsFor, targetableMuscles } = parameterExplorerPkg;
+const { angleOptionsFor, activationAt, optimalAngleFor, compareAngle, bestConfigurationsFor, targetableMuscles, axisOptions, activationOnAxis, axisSensitivity, AXIS_META } = parameterExplorerPkg;
+const { findOptimalConfigurations, fatigueChangedTheAnswer } = targetMusclePlannerPkg;
+const { muscleCredit } = muscleCreditPkg;
+const { simulateSession } = whatIfSimulatorPkg;
 const { buildSessionICS } = calendarExportPkg;
 const { PRESS_ANGLE_DESC, ROW_ANGLE_DESC, FLY_ANGLE_DESC, CURL_ANGLE_DESC, EXTENSION_ANGLE_DESC, LEG_CURL_ANGLE_DESC, HYPEREXTENSION_ANGLE_DESC, classifyMuscles, emgForAngle, frontalCueForProfile, gripCueForProfile, GRIP_ANGLES_BY_EQUIPMENT } = emgActivationPkg;
 
@@ -360,16 +366,31 @@ function LimitingFactorPanel({ limitingFactor }) {
         {primary.headline}
       </div>
 
-      {/* Beginner is told what it means and what to do, never the score. */}
+      {/* The three depths come from limitingFactor.js, which emits all of them
+          every time and never reads a level itself — the factor and its rank
+          are identical here regardless of which one is shown. */}
       <Detail max="beginner">
+        <div style={{ fontSize: 12, color: 'var(--ink)', lineHeight: 1.5, marginTop: 4 }}>
+          {primary.explanations?.beginner || primary.detail}
+        </div>
         <div style={{ fontSize: 12, fontStyle: 'italic', color: 'var(--dim)', lineHeight: 1.5, marginTop: 4 }}>
           {primary.mitigation}
         </div>
       </Detail>
 
-      <Detail min="intermediate">
+      <Detail min="intermediate" max="intermediate">
+        <div style={{ ...mono, fontSize: 10, color: 'var(--ink)', lineHeight: 1.6, marginTop: 4 }}>
+          {primary.explanations?.intermediate || primary.detail}
+        </div>
+        <div style={{ ...mono, fontSize: 9, color: 'var(--dim)', lineHeight: 1.6, marginTop: 3, fontStyle: 'italic' }}>{primary.mitigation}</div>
+      </Detail>
+
+      <Detail min="scientist">
         <div style={{ ...mono, fontSize: 10, color: 'var(--dim)', lineHeight: 1.6, marginTop: 4 }}>{primary.detail}</div>
         <div style={{ ...mono, fontSize: 10, color: 'var(--ink)', lineHeight: 1.6, marginTop: 3 }}>{primary.effect}</div>
+        <div style={{ ...mono, fontSize: 9, color: 'var(--dim)', lineHeight: 1.6, marginTop: 3 }}>
+          {primary.explanations?.scientist}
+        </div>
         <div style={{ ...mono, fontSize: 9, color: 'var(--dim)', lineHeight: 1.6, marginTop: 3, fontStyle: 'italic' }}>{primary.mitigation}</div>
       </Detail>
 
@@ -1054,6 +1075,17 @@ const glycogenPct = (elapsedS, totalS) => {
 // instead of the list. v0.1 is the first tracked release, not literally the
 // app's first version — everything before this had no changelog at all.
 const CHANGELOG = [
+  {
+    version: '0.65',
+    date: '2026-08-02',
+    features: [
+      'New What If button next to Other Ways (Intermediate and above). Switch exercises off, add or drop sets, and see what today\'s session would actually do to you before committing — fatigue per muscle before and after, which muscles it pushes over the ceiling and therefore out of tomorrow\'s selection, and how much longer everything takes to come back. It is not a prediction: the candidate session is turned into the same lift rows the logger would write, appended to a copy of your history, and the same fatigue functions the Recovery panel already shows are re-run over it. So these are the numbers you will actually see tomorrow, and you can check them. There is no predicted strength or stimulus change, because Press has still never compared a prediction of that kind against an outcome.',
+      'New Train A Muscle button: pick one or more muscles and get the movement and angle that hit them hardest given what you have already spent. Ranked on real activation against your current fatigue, so a position that would normally win can lose to a slightly weaker one whose synergists are fresh — and when that happens it says which movement it ranked above and why. The fatigue weighting is a training preference rather than a measurement, and is labelled as one.',
+      'The Build Press/Row angle picker gains two more sliders where the data supports them: elbow flare and grip rotation. Each reads its own EMG table and is shown separately rather than being folded into the angle, because nothing measured them in combination. Grip rotation disappears entirely on fixed-handle machines, which do not offer a choice, and a slider that barely moves your target muscle says so instead of pointing at a setting that changes nothing.',
+      'The muscle bars under the sliders can now show a second bar: the fatigue that position would actually cost each muscle, alongside how hard it works it. They are kept as two bars in two units on purpose — a muscle can be worked hard and cost little, or barely worked and be expensive because it is nearly spent, and that is the trade-off worth seeing.',
+      'Today\'s Limiting Factor now explains itself at whichever detail level you are on, rather than showing the same sentence to everyone, and Training re-ranks it against the session actually generated — spent lats matter before a pull session and not before a leg session. The factor, its severity and its ranking are identical at every detail level; only the wording changes.',
+    ],
+  },
   {
     version: '0.64',
     date: '2026-08-02',
@@ -2002,37 +2034,78 @@ function patternLabelFor(pattern) { return PATTERN_LABELS[pattern] || pattern; }
 // header), so a 0-100 bar would clip real data. They are also not shares of
 // the exercise and never sum to 100, which is why there's no pie and no
 // percentage-of-session figure: that would be a fabricated distribution.
-function MuscleCreditBars({ pattern, angle, targetMuscle }) {
-  const snapshot = activationAt(pattern, angle);
-  if (!snapshot) return null;
+// A second bar is drawn under the first when a real load is known: the
+// structural fatigue this exercise would actually add, from
+// functions/muscleCredit.js, which gets it by running the same simulation the
+// What If sandbox uses. The two bars answer different questions in different
+// units — "how hard is this muscle working" and "what does that cost you
+// tomorrow" — and a muscle can rank high on one and low on the other, which is
+// the whole reason they aren't collapsed into a single score.
+//
+// Without a load there is no second bar at all, rather than an empty one:
+// drawing a flat bar would read as "this costs nothing".
+function MuscleCreditBars({ pattern, angle, axis = 'sagittal', equipment, targetMuscle, costContext = null }) {
+  const credit = muscleCredit({
+    pattern, angle, axis, equipment,
+    ...(costContext || {}),
+  });
+  if (!credit) return null;
   const mono = { fontFamily: "'JetBrains Mono',monospace" };
   const colorFor = role => (role === 'primary' ? 'var(--ink)' : role === 'secondary' ? 'var(--dim)' : 'var(--rule)');
 
+  // Cost bars are drawn against the largest cost on screen, so the tallest is
+  // full width and the rest are readable against it. Against the 0-100 fatigue
+  // scale every bar for a normal session would be a sliver.
+  const maxCost = credit.hasCost
+    ? Math.max(...credit.muscles.map(m => m.fatigueCost || 0), 1)
+    : 1;
+
   return (
     <div style={{ marginTop: 8 }}>
-      {snapshot.muscles.map(m => (
-        <div key={m.muscle} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 3 }}>
+      {credit.muscles.map(m => (
+        <div key={m.muscle} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: credit.hasCost ? 6 : 3 }}>
           <div style={{
             ...mono, fontSize: 9, width: 84, flexShrink: 0, textTransform: 'capitalize',
             color: m.muscle === targetMuscle ? 'var(--gold)' : 'var(--dim)',
             fontWeight: m.muscle === targetMuscle ? 600 : 400,
           }}>{m.muscle}</div>
-          {/* Width transition is the animation — see .muscle-bar-fill, which
-              stops under prefers-reduced-motion. */}
-          <div className="muscle-bar-track">
-            <div className="muscle-bar-fill" style={{
-              width: `${Math.min(100, (m.activation / snapshot.scale) * 100)}%`,
-              background: m.muscle === targetMuscle ? 'var(--gold)' : colorFor(m.role),
-            }} />
+          <div style={{ flex: 1, minWidth: 0 }}>
+            {/* Width transition is the animation — see .muscle-bar-fill, which
+                stops under prefers-reduced-motion. */}
+            <div className="muscle-bar-track">
+              <div className="muscle-bar-fill" style={{
+                width: `${Math.min(100, (m.activation / credit.scale) * 100)}%`,
+                background: m.muscle === targetMuscle ? 'var(--gold)' : colorFor(m.role),
+              }} />
+            </div>
+            {credit.hasCost && (
+              <div className="muscle-bar-track" style={{ marginTop: 2 }}>
+                <div className="muscle-bar-fill muscle-bar-cost" style={{
+                  width: `${Math.min(100, ((m.fatigueCost || 0) / maxCost) * 100)}%`,
+                  background: m.crossesCeiling ? 'var(--red)' : 'var(--ember)',
+                }} />
+              </div>
+            )}
           </div>
-          <div style={{ ...mono, fontSize: 9, color: 'var(--dim)', width: 30, textAlign: 'right', flexShrink: 0 }}>
+          <div style={{ ...mono, fontSize: 9, color: 'var(--dim)', width: 46, textAlign: 'right', flexShrink: 0 }}>
             {Math.round(m.activation)}
+            {credit.hasCost && (
+              <span style={{ display: 'block', color: m.crossesCeiling ? 'var(--red)' : 'var(--ember)' }}>
+                +{m.fatigueCost ?? 0}
+              </span>
+            )}
           </div>
         </div>
       ))}
       <div style={{ ...mono, fontSize: 8, color: 'var(--dim)', marginTop: 4, lineHeight: 1.5 }}>
         % of each muscle's own peak activation — not a share of the exercise, so these don't total 100.
+        {credit.hasCost && ' Second bar: fatigue points this would add, at your current working weight.'}
       </div>
+      {credit.hasCost && credit.muscles.some(m => m.crossesCeiling) && (
+        <div style={{ ...mono, fontSize: 8, color: 'var(--red)', marginTop: 2, lineHeight: 1.5 }}>
+          Red: crosses the {credit.ceiling}-point ceiling, so that muscle drops out of tomorrow's selection.
+        </div>
+      )}
     </div>
   );
 }
@@ -2075,6 +2148,62 @@ function AngleSlider({ pattern, angle, onChange, targetMuscle }) {
   );
 }
 
+// The same slider for the two secondary axes — elbow flare and grip rotation.
+//
+// They are kept as separate controls reading separate tables rather than being
+// folded into the angle above, because nothing measured these axes in
+// combination and multiplying them would invent the combined values (see
+// parameterExplorer.js's multi-axis header, and test/parameterModelComparison
+// .test.js for what that failure looks like numerically).
+//
+// An axis a muscle barely responds to is reported as such instead of getting a
+// confident recommendation: `swing` under a few points means the slider has
+// nothing to offer, and saying so is more useful than an arrow to a setting
+// that changes nothing.
+const AXIS_SWING_FLOOR = 10;
+
+function AxisSlider({ pattern, axis, value, onChange, equipment, targetMuscle }) {
+  const options = axisOptions(pattern, axis, { equipment });
+  if (options.length < 2) return null;
+
+  const index = Math.max(0, options.indexOf(value));
+  const reading = activationOnAxis(pattern, axis, value, { equipment });
+  const sensitivity = targetMuscle ? axisSensitivity(pattern, axis, targetMuscle, { equipment }) : null;
+  const worthMoving = sensitivity && sensitivity.swing >= AXIS_SWING_FLOOR;
+  const mono = { fontFamily: "'JetBrains Mono',monospace" };
+  const label = AXIS_META[axis]?.label || axis;
+
+  return (
+    <div style={{ marginTop: 10 }}>
+      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 3 }}>
+        <span style={{ ...mono, fontSize: 8, letterSpacing: '.12em', textTransform: 'uppercase', color: 'var(--dim)' }}>
+          {label}
+        </span>
+        {sensitivity && (
+          worthMoving ? (
+            <button onClick={() => onChange(sensitivity.bestValue)}
+              style={{ ...mono, fontSize: 9, background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: value === sensitivity.bestValue ? 'var(--forest)' : 'var(--gold)' }}>
+              {value === sensitivity.bestValue ? `✓ best for ${targetMuscle}` : `best for ${targetMuscle} →`}
+            </button>
+          ) : (
+            <span style={{ ...mono, fontSize: 8, color: 'var(--dim)' }}>
+              barely affects {targetMuscle}
+            </span>
+          )
+        )}
+      </div>
+      <div style={{ ...mono, fontSize: 11, color: 'var(--ink)', marginBottom: 2 }}>{reading?.description}</div>
+      <input
+        type="range" min={0} max={options.length - 1} step={1} value={index}
+        onChange={e => onChange(options[+e.target.value])}
+        aria-label={`${pattern} ${label}`}
+        aria-valuetext={reading?.description || String(value)}
+        style={{ width: '100%', accentColor: 'var(--ink)', minHeight: 44 }}
+      />
+    </div>
+  );
+}
+
 function PressRowBuilder({ onAdd, lifts }) {
   const [open, setOpen] = useState(false);
   const [pattern, setPattern] = useState(null);
@@ -2088,12 +2217,17 @@ function PressRowBuilder({ onAdd, lifts }) {
   // Optional. When set, the slider marks that muscle's best angle and the
   // confirm step reports how far the current pick is from it.
   const [targetMuscle, setTargetMuscle] = useState(null);
+  // The two secondary axes. Independent of `angle` and of each other — each
+  // reads its own table, and none of them are combined into a single profile.
+  const [frontal, setFrontal] = useState(null);
+  const [grip, setGrip] = useState(null);
   const [brand, setBrand] = useState('');
   const [brandPicked, setBrandPicked] = useState(false);
 
   const reset = () => {
     setPattern(null); setEquipment(null); setAngle(null); setAngleLocked(false);
     setTargetMuscle(null); setBrand(''); setBrandPicked(false);
+    setFrontal(null); setGrip(null);
   };
 
   // Entering the angle step with nothing selected would leave the slider
@@ -2212,7 +2346,35 @@ function PressRowBuilder({ onAdd, lifts }) {
               </div>
 
               <AngleSlider pattern={pattern} angle={angle} onChange={setAngle} targetMuscle={targetMuscle} />
-              <MuscleCreditBars pattern={pattern} angle={angle} targetMuscle={targetMuscle} />
+              {/* The cost bar needs a real load to be worth drawing, so it
+                  appears only once there's a predicted working weight for this
+                  movement — suggestedKg comes from the athlete's own capacity
+                  model, not a nominal figure invented to fill the bar. */}
+              <MuscleCreditBars pattern={pattern} angle={angle} targetMuscle={targetMuscle}
+                costContext={suggestedKg ? {
+                  exerciseName: `${equipment[0].toUpperCase() + equipment.slice(1)} ${patternLabelFor(pattern)}`,
+                  emgWeights: emgForAngle(pattern, angle),
+                  sets: 3, kg: suggestedKg, reps: 8, lifts: lifts || [],
+                } : null} />
+
+              {/* Elbow flare and grip rotation, where the tables support them.
+                  Both render nothing when the pattern has no such table, and
+                  grip disappears entirely on a fixed-handle machine — a
+                  control for something the equipment can't do would be worse
+                  than no control. */}
+              <AxisSlider pattern={pattern} axis="frontal" value={frontal ?? 45}
+                onChange={setFrontal} equipment={equipment} targetMuscle={targetMuscle} />
+              {frontal != null && (
+                <MuscleCreditBars pattern={pattern} angle={frontal} axis="frontal"
+                  equipment={equipment} targetMuscle={targetMuscle} />
+              )}
+
+              <AxisSlider pattern={pattern} axis="grip" value={grip ?? 90}
+                onChange={setGrip} equipment={equipment} targetMuscle={targetMuscle} />
+              {grip != null && (
+                <MuscleCreditBars pattern={pattern} angle={grip} axis="grip"
+                  equipment={equipment} targetMuscle={targetMuscle} />
+              )}
 
               <button onClick={() => setAngleLocked(true)}
                 style={{ ...tileStyle, width: '100%', marginTop: 10, textAlign: 'center', minHeight: 44, background: 'var(--ink)', color: 'var(--paper)', borderColor: 'var(--ink)' }}>
@@ -4470,6 +4632,251 @@ function RecommendationPanel({ rec, selectedBucket }) {
   );
 }
 
+// Try a change before committing to it.
+//
+// Everything here runs through functions/whatIfSimulator.js, which appends the
+// candidate session to a copy of the lift history and re-runs the same
+// computeStructuralFatigue / computeCNSFatigue the Recovery panel already
+// shows. So these are not predictions — they are the dashboard as it would
+// read afterwards, and you can check them tomorrow.
+//
+// Deliberately absent: any predicted strength or stimulus change. Press has
+// never compared a prediction of that kind against an outcome (see
+// recommendation.js's header), so a "-4% on your top set" line would be
+// decoration with a decimal point on it. Fatigue and recovery hours are the
+// model's own state read forwards, which is a different kind of claim.
+function WhatIfSandbox({ s, exercises }) {
+  const [dropped, setDropped] = useState(() => new Set());
+  const [setDelta, setSetDelta] = useState(0);
+
+  const baseline = exercises || [];
+  const mono = { fontFamily: "'JetBrains Mono',monospace" };
+
+  // The candidate: the planned session minus anything switched off, with each
+  // exercise's working sets nudged by setDelta. Warmups are left alone — they
+  // aren't the variable anyone is testing.
+  const candidate = useMemo(() => baseline
+    .filter(ex => !dropped.has(ex.name))
+    .map(ex => {
+      const sets = ex.sets || [];
+      if (setDelta === 0) return ex;
+      const working = sets.filter(x => x.type !== 'W');
+      const warmups = sets.filter(x => x.type === 'W');
+      const target = Math.max(1, working.length + setDelta);
+      const adjusted = Array.from({ length: target }, (_, i) => working[Math.min(i, working.length - 1)]).filter(Boolean);
+      return { ...ex, sets: [...warmups, ...adjusted] };
+    }), [baseline, dropped, setDelta]);
+
+  const result = useMemo(() => simulateSession({
+    lifts: s?.lifts || [],
+    exercises: candidate,
+    soreness: s?.soreness || [],
+    sensitivity: s?.muscleSensitivity || {},
+    cnsSensitivity: s?.cnsSensitivity,
+    recoveryScore: s?.today?.recovery ?? null,
+    carbsToday: s?.nutritionToday?.carbs || 0,
+  }), [s?.lifts, candidate, s?.soreness, s?.muscleSensitivity, s?.cnsSensitivity, s?.today?.recovery, s?.nutritionToday?.carbs]);
+
+  const asPlanned = useMemo(() => simulateSession({
+    lifts: s?.lifts || [],
+    exercises: baseline,
+    soreness: s?.soreness || [],
+    sensitivity: s?.muscleSensitivity || {},
+    cnsSensitivity: s?.cnsSensitivity,
+    recoveryScore: s?.today?.recovery ?? null,
+    carbsToday: s?.nutritionToday?.carbs || 0,
+  }), [s?.lifts, baseline, s?.soreness, s?.muscleSensitivity, s?.cnsSensitivity, s?.today?.recovery, s?.nutritionToday?.carbs]);
+
+  if (!baseline.length) return null;
+  const changed = dropped.size > 0 || setDelta !== 0;
+
+  const hours = h => (h == null ? '—' : `${h > 0 ? '+' : ''}${h}h`);
+
+  return (
+    <div style={{ marginTop: 10 }}>
+      <div style={{ ...mono, fontSize: 8, letterSpacing: '.12em', textTransform: 'uppercase', color: 'var(--dim)', marginBottom: 6 }}>
+        What if
+      </div>
+
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 8 }}>
+        {baseline.map(ex => {
+          const off = dropped.has(ex.name);
+          return (
+            <button key={ex.name}
+              aria-pressed={!off}
+              onClick={() => setDropped(prev => {
+                const next = new Set(prev);
+                if (next.has(ex.name)) next.delete(ex.name); else next.add(ex.name);
+                return next;
+              })}
+              style={{
+                ...mono, fontSize: 9, padding: '5px 8px', cursor: 'pointer', minHeight: 30,
+                textDecoration: off ? 'line-through' : 'none',
+                border: `1px solid ${off ? 'var(--rule)' : 'var(--ink)'}`,
+                background: 'none', color: off ? 'var(--dim)' : 'var(--ink)',
+              }}>{ex.name}</button>
+          );
+        })}
+      </div>
+
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+        <span style={{ ...mono, fontSize: 9, color: 'var(--dim)' }}>Sets per exercise</span>
+        {[-2, -1, 0, 1, 2].map(d => (
+          <button key={d} onClick={() => setSetDelta(d)}
+            aria-pressed={setDelta === d}
+            style={{
+              ...mono, fontSize: 9, padding: '4px 7px', cursor: 'pointer', minHeight: 30, minWidth: 30,
+              border: `1px solid ${setDelta === d ? 'var(--ink)' : 'var(--rule)'}`,
+              background: setDelta === d ? 'var(--ink)' : 'none',
+              color: setDelta === d ? 'var(--paper)' : 'var(--dim)',
+            }}>{d > 0 ? `+${d}` : d}</button>
+        ))}
+      </div>
+
+      <div className="whatif-row">
+        <span style={{ ...mono, fontSize: 9, color: 'var(--dim)' }}>Working sets</span>
+        <span style={{ ...mono, fontSize: 11, color: 'var(--ink)' }}>
+          {result.setCount}{changed && asPlanned.setCount !== result.setCount && (
+            <span style={{ color: 'var(--dim)' }}> (was {asPlanned.setCount})</span>
+          )}
+        </span>
+      </div>
+      <div className="whatif-row">
+        <span style={{ ...mono, fontSize: 9, color: 'var(--dim)' }}>Everything back under the ceiling</span>
+        <span style={{ ...mono, fontSize: 11, color: 'var(--ink)' }}>
+          {hours(result.recoveryDelayH)}{changed && (
+            <span style={{ color: 'var(--dim)' }}> (was {hours(asPlanned.recoveryDelayH)})</span>
+          )}
+        </span>
+      </div>
+      <div className="whatif-row">
+        <span style={{ ...mono, fontSize: 9, color: 'var(--dim)' }}>CNS fatigue</span>
+        <span style={{ ...mono, fontSize: 11, color: 'var(--ink)' }}>
+          {result.before.cns} → {result.after.cns}
+        </span>
+      </div>
+
+      {result.newlyOverCeiling.length > 0 && (
+        <div style={{ ...mono, fontSize: 9, color: 'var(--ember)', marginTop: 6, lineHeight: 1.6 }}>
+          Puts {result.newlyOverCeiling.join(', ')} over the {result.ceiling}-point ceiling — not selectable for direct work tomorrow.
+        </div>
+      )}
+
+      {result.muscles.length > 0 && (
+        <div style={{ marginTop: 8 }}>
+          {result.muscles.slice(0, 6).map(m => (
+            <div key={m.muscle} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 3 }}>
+              <div style={{ ...mono, fontSize: 9, width: 84, flexShrink: 0, textTransform: 'capitalize', color: 'var(--dim)' }}>
+                {m.muscle}
+              </div>
+              <div className="muscle-bar-track">
+                <div className="muscle-bar-fill" style={{
+                  width: `${Math.min(100, m.fatigueAfter)}%`,
+                  background: m.crossesCeiling ? 'var(--red)' : 'var(--ember)',
+                }} />
+              </div>
+              <div style={{ ...mono, fontSize: 9, color: 'var(--dim)', width: 56, textAlign: 'right', flexShrink: 0 }}>
+                {m.fatigueBefore}→{m.fatigueAfter}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div style={{ ...mono, fontSize: 8, color: 'var(--dim)', marginTop: 6, lineHeight: 1.5 }}>
+        Fatigue and recovery hours only, and both assume you train nothing else in between. No predicted strength change — Press has never checked one against an outcome.
+      </div>
+    </div>
+  );
+}
+
+// Pick the muscles, get the movement — the inverse of the usual workflow.
+//
+// Ranked by functions/targetMusclePlanner.js's Score = stimulus / (1 + λ·L),
+// where L is the most-fatigued muscle the configuration meaningfully involves.
+// The stimulus term is a sum of %MVIC values across the chosen muscles, which
+// is a valid ordering and not a physical total — so it ranks the list and is
+// never printed as a number. λ is a stated preference about training, not a
+// measurement, and is labelled as one.
+function TargetMusclePlannerPanel({ fatigue }) {
+  const [targets, setTargets] = useState([]);
+  const mono = { fontFamily: "'JetBrains Mono',monospace" };
+  const all = useMemo(() => targetableMuscles(), []);
+
+  const plan = useMemo(
+    () => (targets.length ? findOptimalConfigurations(targets, { currentFatigue: fatigue || {} }) : null),
+    [targets, fatigue],
+  );
+  const counterfactual = useMemo(
+    () => (targets.length ? fatigueChangedTheAnswer(targets, { currentFatigue: fatigue || {} }) : null),
+    [targets, fatigue],
+  );
+
+  return (
+    <div style={{ marginTop: 10 }}>
+      <div style={{ ...mono, fontSize: 8, letterSpacing: '.12em', textTransform: 'uppercase', color: 'var(--dim)', marginBottom: 6 }}>
+        Train a muscle
+      </div>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 8 }}>
+        {all.map(m => {
+          const on = targets.includes(m);
+          return (
+            <button key={m} onClick={() => setTargets(prev => (on ? prev.filter(x => x !== m) : [...prev, m]))}
+              aria-pressed={on}
+              style={{
+                ...mono, fontSize: 9, padding: '4px 8px', cursor: 'pointer', minHeight: 30,
+                textTransform: 'capitalize',
+                border: `1px solid ${on ? 'var(--gold)' : 'var(--rule)'}`,
+                background: on ? 'var(--gold)' : 'none',
+                color: on ? 'var(--paper)' : 'var(--dim)',
+              }}>{m}</button>
+          );
+        })}
+      </div>
+
+      {plan && plan.results.length === 0 && (
+        <div style={{ ...mono, fontSize: 9, color: 'var(--dim)' }}>
+          No angle-built movement in the tables reaches {targets.join(' and ')}.
+        </div>
+      )}
+
+      {plan?.results.map((r, i) => (
+        <div key={`${r.pattern}-${r.angle}`} className={`target-config${i === 0 ? ' top' : ''}`}>
+          <div style={{ ...mono, fontSize: 11, color: 'var(--ink)' }}>
+            {patternLabelFor(r.pattern)} at {r.angle}°
+          </div>
+          <div style={{ ...mono, fontSize: 9, color: 'var(--dim)', marginTop: 2, lineHeight: 1.6 }}>
+            {r.perTarget.map(t => `${t.muscle} ${Math.round(t.activation)}%`).join(' · ')}
+          </div>
+          <div style={{ ...mono, fontSize: 8, color: 'var(--dim)', marginTop: 2 }}>
+            {r.exercises.map(e => e.name).join(' · ')}
+          </div>
+          {r.limitingFatigue > 0 && (
+            <div style={{ ...mono, fontSize: 8, color: r.spentMuscles.length ? 'var(--ember)' : 'var(--dim)', marginTop: 2 }}>
+              Most-spent muscle involved: {r.limitingMuscle} at {Math.round(r.limitingFatigue * 100)}
+              {r.spentMuscles.length > 0 && ` — over the ${plan.ceiling}-point ceiling`}
+            </div>
+          )}
+        </div>
+      ))}
+
+      {counterfactual && (
+        <div style={{ ...mono, fontSize: 9, color: 'var(--gold)', marginTop: 4, lineHeight: 1.6 }}>
+          Ranked above {patternLabelFor(counterfactual.insteadOf.pattern)} at {counterfactual.insteadOf.angle}°,
+          which would normally win — {counterfactual.because} is at {counterfactual.fatigue}.
+        </div>
+      )}
+
+      {plan && plan.results.length > 0 && (
+        <div style={{ ...mono, fontSize: 8, color: 'var(--dim)', marginTop: 6, lineHeight: 1.5 }}>
+          {plan.results.length} of {plan.consideredCount} configurations. Ranked on activation against your current fatigue —
+          the fatigue weighting (λ {plan.lambda}) is a training preference, not a measurement.
+        </div>
+      )}
+    </div>
+  );
+}
+
 function S3({ s, recommendation, onStartWorkout, onImport, onHistory, refresh }) {
   const workouts = s?.workouts || [];
   const lifts = s?.lifts || [];
@@ -4557,6 +4964,18 @@ function S3({ s, recommendation, onStartWorkout, onImport, onHistory, refresh })
   // null = never fetched, [] = fetched and there were no real alternatives.
   const [variants, setVariants] = useState(null);
   const [variantsOpen, setVariantsOpen] = useState(false);
+  const [whatIfOpen, setWhatIfOpen] = useState(false);
+  // Ranked against the session that was actually generated, unlike Dispatch's
+  // copy — see sessionLimitingFactor in functions/index.js.
+  const [sessionLimitingFactor, setSessionLimitingFactor] = useState(null);
+  const [targetPlannerOpen, setTargetPlannerOpen] = useState(false);
+  // The same structural fatigue reading the Recovery panel shows — both the
+  // sandbox and the target planner rank against current state, so they have to
+  // be looking at the same numbers the rest of the app is.
+  const currentFatigue = useMemo(
+    () => computeStructuralFatigue(s?.lifts, s?.musclePeaks, s?.soreness, s?.muscleSensitivity),
+    [s?.lifts, s?.musclePeaks, s?.soreness, s?.muscleSensitivity],
+  );
   const [variantsLoading, setVariantsLoading] = useState(false);
   const [variantsError, setVariantsError] = useState('');
   useEffect(() => {
@@ -4574,6 +4993,7 @@ function S3({ s, recommendation, onStartWorkout, onImport, onHistory, refresh })
       setSessionFatigueCeiling(data.fatigueCeiling ?? 4);
       setPickedBucket(data.bucket ? { name: data.bucket, muscles: data.targetMuscles, backboneExercises: data.backboneExercises } : null);
       setSplitNeglected(data.neglectedMuscles || []);
+      setSessionLimitingFactor(data.limitingFactor || null);
       setPreloading(false);
     }).catch(() => setPreloading(false));
   }, [selectedBucket?.name]);
@@ -4883,11 +5303,50 @@ function S3({ s, recommendation, onStartWorkout, onImport, onHistory, refresh })
               onClick={() => setVariantsOpen(o => !o)}>
               {variantsOpen ? 'Hide Alternatives' : 'Other Ways'}
             </button>
+            {/* Both are Intermediate-and-up: they're built on the fatigue
+                numbers, which Beginner doesn't show at all. */}
+            <Detail min="intermediate">
+              <button className="action-btn" disabled={!displayedExercises?.length}
+                aria-expanded={whatIfOpen} aria-controls="what-if"
+                onClick={() => setWhatIfOpen(o => !o)}>
+                {whatIfOpen ? 'Hide What If' : 'What If'}
+              </button>
+              <button className="action-btn"
+                aria-expanded={targetPlannerOpen} aria-controls="target-planner"
+                onClick={() => setTargetPlannerOpen(o => !o)}>
+                {targetPlannerOpen ? 'Hide Muscle Planner' : 'Train A Muscle'}
+              </button>
+            </Detail>
             <button onClick={generatePlan} disabled={genning}
               style={{ marginLeft: 'auto', background: 'none', border: 'none', fontFamily: "'JetBrains Mono',monospace", fontSize: 9, letterSpacing: '.1em', textTransform: 'uppercase', color: 'var(--dim)', cursor: 'pointer', padding: 0 }}>
               {genning ? '…' : guidance ? 'Refresh Guidance' : 'Get Weekly Guidance'}
             </button>
           </div>
+
+          {/* The same factor Dispatch shows, re-ranked against this session
+              rather than in the abstract. Only surfaced when that re-ranking
+              actually changed which factor is on top — otherwise it's the same
+              line twice on one screen. */}
+          {sessionLimitingFactor?.primary && sessionLimitingFactor.sessionAware
+            && sessionLimitingFactor.primary.code !== recommendation?.limitingFactor?.primary?.code && (
+            <Detail min="intermediate">
+              <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--ember)', lineHeight: 1.6, marginTop: 6 }}>
+                For this session specifically: {sessionLimitingFactor.primary.explanations?.intermediate || sessionLimitingFactor.primary.detail}
+              </div>
+            </Detail>
+          )}
+
+          {whatIfOpen && (
+            <div id="what-if">
+              <WhatIfSandbox s={s} exercises={displayedExercises} />
+            </div>
+          )}
+
+          {targetPlannerOpen && (
+            <div id="target-planner">
+              <TargetMusclePlannerPanel fatigue={currentFatigue} />
+            </div>
+          )}
 
           {variantsOpen && (
             <div id="session-variants" className="variants">

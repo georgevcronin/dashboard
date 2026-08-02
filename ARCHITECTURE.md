@@ -39,7 +39,17 @@ functions/          Backend — deployed as the Cloud Function
                        the engine actually acts on — see below.
   parameterExplorer.js  Angle-slider support: what a movement activates at an
                        angle, the best angle for a muscle, and the gap between.
-                       Pure lookups over emgActivation.js's tables.
+                       Pure lookups over emgActivation.js's tables. Also the
+                       three independent parameter axes (angle / elbow flare /
+                       grip rotation) — never combined, see below.
+  targetMusclePlanner.js  Pick muscles, get the movement: ranks every
+                       buildable configuration by activation against current
+                       fatigue. See below.
+  muscleCredit.js       The two-bar readout under the sliders — activation and
+                       what it costs. Two units, never merged, see below.
+  whatIfSimulator.js    What a session would do to you before you do it. Runs
+                       the shipped fatigue functions over a copy of history —
+                       no model of its own, see below.
   recoveryForecast.js   When each muscle and the CNS return to trainable. An
                        exact inversion of fatigue.js's decay, not a new model.
   sessionVariants.js    Alternative versions of today's session (short, low-CNS,
@@ -121,6 +131,24 @@ map, and `test/limitingFactor.test.js` asserts each boundary against the
 function that consumes it — so "poor sleep is limiting you today" always cashes
 out as a specific multiplier being applied somewhere, never as atmosphere.
 
+Two things sit on top of that. An optional `session` re-ranks factors by
+relevance to the exercises actually planned — spent lats above spent quads
+before a pull session, below them before a leg session — with relevance measured
+off the exercise list (`musclesForExercise` for muscle factors, the
+`isCompoundExercise` share for CNS, since that is what `computeCNSFatigue`
+accumulates from). Relevance sits *below* severity in the ordering, because an
+exclusion is absolute regardless of the day. It is opt-in: with no session the
+ranking is exactly what it was, which is why Dispatch's copy (from
+`/plan/recommendation`, where no session exists) is unweighted and
+`/plan/session-exercises` returns a separately-ranked one.
+
+And `explanations` carries every factor at three depths (beginner /
+intermediate / scientist). The module emits all three unconditionally and never
+reads a level — the factor selected, its severity and its rank are identical
+regardless, and only the prose differs. Wiring a level into the engine here
+would make the dashboard's headline constraint depend on a display setting,
+which is exactly what `expertise.js`'s display-only contract exists to prevent.
+
 One more trap, in `emgActivation.js`'s tables and anything reading them
 (`parameterExplorer.js`, the angle slider): those values are **% of each
 muscle's own MVIC**, not shares of the exercise. They do not sum to 100 and
@@ -200,6 +228,103 @@ CNS fatigue already triggers (`substituteForCNS` plus avoiding
 `HIGH_CNS_EQUIPMENT`) without faking the CNS reading itself — the alternative
 was passing `cnsFatigue: 100`, which would have lied to every other consumer of
 that number in the same call.
+
+## Parameter axes are independent, and EMG is never renormalised
+
+The sliders expose three physically separate things — sagittal angle (which
+exercise/position), frontal angle (elbow flare) and grip rotation — each read
+from its own table in `emgActivation.js`. They are deliberately **not** combined
+into a single per-muscle profile, and the activation values are deliberately
+**not** rescaled to sum to 100.
+
+Both of those are tempting, and a full alternative model built on them was
+evaluated against this codebase's own source data before being rejected.
+`test/parameterModelComparison.test.js` keeps that comparison runnable, because
+the losing model is the more intuitive one — smooth closed-form transfer
+functions (`f(θ) = 1 + 0.45·sin(πθ/90)` and friends) applied multiplicatively
+and then renormalised read as more principled than a hand-built lookup table.
+Three results decided it:
+
+- **Magnitude.** Against `chestHeadSplit.js`'s literature-derived bench-angle
+  split (Trebs 2010, Rocha Jr. 2007, Barnett 1995, Solstad 2020), the
+  transfer-function model has a mean absolute error of 9.8 percentage points,
+  growing monotonically with angle. It moves upper pec from 20% to 31% of chest
+  across the incline range where the sources move it 20% to 64% — about a third
+  of the effect the slider exists to produce.
+- **The unit already has a ceiling.** These are % of each muscle's *own* MVIC.
+  Front delt is at 97 during a flat press, so a multiplier claiming another
+  +120% by overhead yields 213%, against a measured ~95 that barely moves.
+  `mid-delt` legitimately reaching 103-109 is a real dynamic-vs-static
+  excursion of ~10%; an unbounded multiplier is a different kind of claim.
+  A multiplier is the wrong operator on a quantity defined against its own
+  maximum, and no coefficient fixes that.
+- **Renormalising destroys total drive.** Press activation sums to 118 at 0°
+  and 561 at 180°. Forced to 100 at every angle, a bottom-position press and an
+  overhead press become indistinguishable — and since the proposed fatigue term
+  reads the normalised share, absolute demand drops out of the fatigue
+  calculation altogether. This is what `scale` exists to preserve.
+
+`movementEmg.js` reached the same conclusion independently at
+`ELBOW_SHOULDER_MODIFIER`, which it keeps as reference data rather than folding
+in. If a fourth axis arrives, give it its own table and its own slider.
+
+One normalisation in this area *is* legitimate and looks similar: `fatigue.js`'s
+`creditedShares` divides a fixed per-set stimulus pool by relative involvement,
+so its ratios do sum to 1. That is the fatigue model's allocation rule, not a
+claim about measured activation. `muscleCredit.js` draws both — activation
+unnormalised, cost from the allocation — as two bars in two units, and never
+merges them into one score, because a muscle can be highly activated and cheap
+or barely activated and expensive, which is the trade-off worth seeing.
+
+## Simulation runs the shipped model, not a copy of it
+
+`functions/whatIfSimulator.js` answers "what would this session do to me"
+by converting a planned session into the same lift rows the logger would write,
+appending them to a copy of the history, and re-running
+`computeStructuralFatigue` / `computeCNSFatigue` / `computeMetabolicFatigue`.
+Recovery hours come from `recoveryForecast.js`. So the output is the dashboard
+as it would read afterwards, not a parallel estimate that could disagree with
+it, and `muscleCredit.js` gets its cost bar from the same call rather than
+reimplementing the arithmetic.
+
+Two traps, both of which produced a wrong answer first:
+
+- **Freeze `musclePeaks` at the baseline.** `computeStructuralFatigue` divides
+  by the largest single-day load on record. A hard candidate session can *be*
+  that new peak, which grows the denominator for both readings and lowers the
+  *baseline* — so a punishing session reports a negative fatigue delta. Both
+  sides are scored against the same frozen peaks.
+- **Stamp `start`, not just `date`.** `liftTime` reads `start || date`, so a
+  lift carrying only a date is modelled as having happened at 00:00 (see
+  `recoveryForecast.js`'s note on the same quirk). Without a real timestamp,
+  "if I trained now" silently means "if I trained up to 24 hours ago".
+
+What is deliberately absent is a predicted e1RM or strength change. Fatigue and
+recovery hours are the model's own state read forwards and can be checked
+tomorrow; a percentage strength cost is a claim Press has never calibrated
+against an outcome. A test greps the payload for those fields, same as
+`recommendation.js`.
+
+## The target-muscle planner ranks, it doesn't measure
+
+`functions/targetMusclePlanner.js` sweeps every angle pattern against every
+setting on its real grid and scores each by
+`Score = stimulus / (1 + λ·L)`, where `L` is the most-fatigued muscle the
+configuration meaningfully involves. Two things in that formula are judgement
+calls and are labelled as such in the payload rather than presented as results:
+
+- `stimulus` sums %MVIC across the target muscles. That is a valid *ordering*
+  and not a physical quantity — front delt 90 plus chest 60 is not "150" of
+  anything — so it ranks the list and is never printed as a number.
+- `λ` is how much a spent synergist should count against a configuration. There
+  is no measured value for it; it is a preference about training, exposed as a
+  parameter because it should be arguable.
+
+The fatigue ratios and `FATIGUE_CEILING` are the real ones the rest of the app
+uses, so "avoid this, the synergist is spent" cashes out as the same threshold
+that governs exercise selection. An involvement floor keeps a movement from
+being penalised for a muscle it barely touches — without it, every press drags
+its incidental biceps involvement into the penalty and the ranking flattens.
 
 ## Request-scoped state
 

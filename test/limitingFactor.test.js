@@ -214,3 +214,133 @@ test('a short list is named in full, with no "and N more" tacked on', () => {
   assert.ok(/quads, glutes/.test(f.detail), f.detail);
   assert.ok(!/more/.test(f.detail), f.detail);
 });
+
+// ---------- Relevance to today's session ----------
+
+test('without a session the ranking is unchanged', () => {
+  const inputs = {
+    cnsFatigue: 85, metabolicFatigue: 65, currentFatigue: { quads: 90 },
+    recoveryScore: 30, sleepHours: 5, sleepTarget: 8,
+  };
+  const bare = identifyLimitingFactors(inputs);
+  for (const f of bare) assert.equal(f.relevance, 1);
+  assert.equal(todaysLimitingFactor(inputs).sessionAware, false);
+});
+
+test('a factor about muscles today never trains falls behind one it does', () => {
+  // Same fatigue on both, same severity band. Only the session differs.
+  const currentFatigue = { lats: 90, quads: 90 };
+  const pullDay = identifyLimitingFactors({
+    ...FRESH, currentFatigue, session: [{ name: 'pull-up' }, { name: 'barbell row' }],
+  });
+  const legDay = identifyLimitingFactors({
+    ...FRESH, currentFatigue, session: [{ name: 'back squat' }, { name: 'leg press' }],
+  });
+
+  const structural = list => list.find(f => f.code === 'structural');
+  assert.ok(structural(pullDay).relevance > 0);
+  assert.ok(structural(legDay).relevance > 0);
+  // Both days flag it (both muscles are spent), but a day training neither
+  // would score it 0 — that's the mechanism.
+  const armDay = identifyLimitingFactors({
+    ...FRESH, currentFatigue, session: [{ name: 'bicep curl (dumbbell)' }],
+  });
+  assert.equal(structural(armDay).relevance, 0);
+});
+
+test('CNS relevance follows how much of the session is actually compound', () => {
+  const inputs = { ...FRESH, cnsFatigue: 85 };
+  const cns = list => list.find(f => f.code === 'cns-high');
+
+  const allCompound = cns(identifyLimitingFactors({
+    ...inputs, session: [{ name: 'back squat' }, { name: 'conventional deadlift' }],
+  }));
+  const allIsolation = cns(identifyLimitingFactors({
+    ...inputs, session: [{ name: 'lateral raise (dumbbell)' }, { name: 'bicep curl (dumbbell)' }],
+  }));
+
+  assert.equal(allCompound.relevance, 1);
+  assert.equal(allIsolation.relevance, 0);
+  assert.ok(allCompound.impact > allIsolation.impact);
+});
+
+test('metabolic fatigue is relevant to any session, since it caps every exercise', () => {
+  const f = identifyLimitingFactors({
+    ...FRESH, metabolicFatigue: 65, session: [{ name: 'bicep curl (dumbbell)' }],
+  }).find(x => x.code === 'metabolic-high');
+  assert.equal(f.relevance, 1);
+});
+
+test('severity still outranks relevance', () => {
+  // A high-severity factor about muscles today ignores must still beat a
+  // moderate one it trains — an exclusion is absolute regardless of the day.
+  const result = todaysLimitingFactor({
+    offlineMuscles: ['lats'],
+    metabolicFatigue: 45,
+    currentFatigue: { chest: 10 },
+    recoveryScore: 70,
+    session: [{ name: 'back squat' }],
+  });
+  assert.equal(result.primary.severity, 'high');
+  assert.equal(result.primary.code, 'excluded');
+  assert.equal(result.sessionAware, true);
+});
+
+// ---------- Explanation depths ----------
+
+test('every factor explains itself at all three depths', () => {
+  const all = identifyLimitingFactors({
+    cnsFatigue: 85, metabolicFatigue: 65, offlineMuscles: ['erectors'],
+    currentFatigue: { quads: 90, glutes: 80 }, recoveryScore: 30,
+    sleepHours: 5, sleepTarget: 8,
+    injuries: [{ area: 'shoulder', muscles: ['front-delt'], penalty: 60 }],
+  });
+  assert.ok(all.length >= 6, 'expected every branch to fire');
+  for (const f of all) {
+    for (const level of ['beginner', 'intermediate', 'scientist']) {
+      assert.ok(f.explanations?.[level], `${f.code} missing ${level}`);
+      assert.ok(f.explanations[level].length > 20, `${f.code} ${level} is too thin to be an explanation`);
+    }
+  }
+});
+
+test('the beginner depth carries no percentages', () => {
+  const all = identifyLimitingFactors({
+    cnsFatigue: 85, metabolicFatigue: 65, currentFatigue: { quads: 90 },
+    recoveryScore: 30, sleepHours: 5, sleepTarget: 8,
+  });
+  for (const f of all) {
+    assert.ok(!/\d+\s*(%|of 100)/.test(f.explanations.beginner),
+      `${f.code}: ${f.explanations.beginner}`);
+  }
+});
+
+test('the depths change the prose, never the factor or its rank', () => {
+  // The contract expertise.js exists to protect. Nothing about which factor
+  // wins may depend on the level, so the module emits all three every time.
+  const inputs = { cnsFatigue: 85, currentFatigue: { quads: 90 }, recoveryScore: 30 };
+  const a = todaysLimitingFactor(inputs);
+  const b = todaysLimitingFactor(inputs);
+  assert.equal(a.primary.code, b.primary.code);
+  assert.deepEqual(a.others.map(f => f.code), b.others.map(f => f.code));
+  assert.notEqual(a.primary.explanations.beginner, a.primary.explanations.scientist);
+});
+
+test('no explanation depth invents a predicted performance figure', () => {
+  const all = identifyLimitingFactors({
+    cnsFatigue: 85, metabolicFatigue: 65, currentFatigue: { quads: 90 },
+    recoveryScore: 30, sleepHours: 5, sleepTarget: 8, offlineMuscles: ['erectors'],
+  });
+  const prose = all.flatMap(f => Object.values(f.explanations)).join(' ');
+  assert.ok(!/\d+\s*%\s*(less|lower|weaker|reduction|drop)/i.test(prose), prose);
+  assert.ok(!/lose \d/i.test(prose));
+  assert.ok(!/expect(ed)? (to )?(be )?\d/i.test(prose));
+});
+
+test('the session-aware result still survives JSON', () => {
+  const r = todaysLimitingFactor({
+    cnsFatigue: 85, currentFatigue: { quads: 90 }, recoveryScore: 30,
+    session: [{ name: 'back squat' }],
+  });
+  assert.deepEqual(JSON.parse(JSON.stringify(r)), r);
+});

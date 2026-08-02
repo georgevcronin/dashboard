@@ -209,6 +209,14 @@ section.visible .fade:nth-child(6){transition-delay:.56s}
 .muscle-name{font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--dim);width:80px;flex-shrink:0;text-transform:capitalize}
 .muscle-bar-track{flex:1;height:6px;background:var(--paper2);border-radius:1px;overflow:hidden}
 .muscle-bar-fill{height:100%;border-radius:1px;transition:width .4s ease}
+/* The fatigue-cost bar under the activation bar. Shorter and hatched-free but
+   deliberately a different weight, so the two are never read as one scale —
+   they're different units (% of MVIC vs points of fatigue). */
+.muscle-bar-cost{opacity:.85}
+.whatif-row{display:flex;align-items:baseline;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--rule)}
+.whatif-row:last-child{border-bottom:none}
+.target-config{border:1px solid var(--rule);padding:8px 10px;margin-bottom:6px}
+.target-config.top{border-color:var(--ink)}
 .muscle-pct{font-family:'JetBrains Mono',monospace;font-size:9px;width:30px;text-align:right;color:var(--dim);flex-shrink:0}
 .soreness-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;padding:4px 0}
 .soreness-btn{font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.08em;text-transform:capitalize;padding:7px 4px;cursor:pointer;border:1px solid var(--rule);background:none;color:var(--dim);position:relative;text-align:center}

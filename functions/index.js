@@ -1574,6 +1574,32 @@ app.post('/plan/session-variants', async (req, res) => {
 // algorithm's full-body default is a default, not a requirement; requesting
 // one bucket explicitly still returns the previous richer single-bucket
 // session (multiple exercises, accessories included).
+// Today's limiting factor, weighted by the session that was just generated.
+//
+// The copy on Dispatch (from /plan/recommendation) is deliberately NOT
+// session-weighted: nothing there knows what today's session is, and guessing
+// would be worse than ranking on severity alone. Here the exercise list exists,
+// so relevance is a fact rather than an assumption — spent lats rank above
+// spent quads before a pull session and below them before a leg session.
+// Same factors, same thresholds, same severities; only the order can differ.
+function sessionLimitingFactor(exercises, { currentFatigue, cnsFatigue, metabolicFatigue, offlineMuscles }) {
+  const recentDays = lastN(db.metrics, 30);
+  const todayMetrics = recentDays.at(-1) || {};
+  return todaysLimitingFactor({
+    cnsFatigue,
+    metabolicFatigue,
+    currentFatigue,
+    offlineMuscles,
+    injuries: (db.injuries || []).filter(i => !i.resolved).map(i => ({
+      area: i.area, muscles: i.muscles || [], penalty: injuryFatiguePenalty(i),
+    })),
+    recoveryScore: getRecoveryScore(db),
+    sleepHours: todayMetrics.sleep_hours ?? null,
+    sleepTarget: personalSleepTarget(recentDays).target,
+    session: exercises,
+  });
+}
+
 app.post("/plan/session-exercises", async (req, res) => {
   const { type = 'lift', bucket: reqBucket, maxDurationMin } = req.body;
   let { targetMuscles, backboneExercises } = req.body;
@@ -1655,6 +1681,7 @@ app.post("/plan/session-exercises", async (req, res) => {
       exercises, targetMuscles, backboneExercises: exercises.map(e => e.name), bucket: 'full body', preferredSplit,
       neglectedMuscles: neglectedMuscles(preferredSplit, muscleLastTrainedDays),
       estimatedDurationMin: estimateSessionDurationMin(exercises),
+      limitingFactor: sessionLimitingFactor(exercises, { currentFatigue, cnsFatigue, metabolicFatigue, offlineMuscles }),
       // currentFatigue: lets the frontend re-run capSessionDuration itself
       // as the Max Length slider moves, instantly, instead of a network
       // round-trip per drag tick — see S3's displayedExercises in
@@ -1700,7 +1727,7 @@ app.post("/plan/session-exercises", async (req, res) => {
     avoidMuscles, avoidMusclesSecondary, offlineMuscles, cnsFatigue, metabolicFatigue, trainingMonths, favoriteExercises,
     warmupScheme: db.profile?.warmupScheme, maxDurationMin, preferStable: stableLeaning,
   }), currentFatigue, maxDurationMin), maxDurationMin, fatigueCeilingFor(metabolicFatigue));
-  res.json({ exercises, targetMuscles: targetMuscles || [], backboneExercises: backboneExercises || [], bucket, estimatedDurationMin: estimateSessionDurationMin(exercises), currentFatigue, fatigueCeiling: fatigueCeilingFor(metabolicFatigue) });
+  res.json({ exercises, targetMuscles: targetMuscles || [], backboneExercises: backboneExercises || [], bucket, estimatedDurationMin: estimateSessionDurationMin(exercises), currentFatigue, fatigueCeiling: fatigueCeilingFor(metabolicFatigue), limitingFactor: sessionLimitingFactor(exercises, { currentFatigue, cnsFatigue, metabolicFatigue, offlineMuscles }) });
 });
 
 app.get('/progression/:exercise', async (req, res) => {
