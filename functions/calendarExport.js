@@ -31,10 +31,19 @@ function escapeText(value) {
 
 // RFC 5545 §3.1. Folds at 75 octets, counting UTF-8 bytes rather than string
 // length, and never splits a multi-byte character across the boundary.
+//
+// TextEncoder/TextDecoder rather than Buffer: this module is bundled into the
+// frontend by esbuild (src/app.jsx imports buildSessionICS for the Add to
+// Calendar button), and Buffer is a Node global that does not exist in a
+// browser. It threw ReferenceError on every click for every user until this
+// was caught. Anything added to this file has to run in both runtimes —
+// test/bundleSafety.test.js now fails the build if a Node global reaches
+// public/app.js.
 function foldLine(line) {
-  const bytes = Buffer.from(line, 'utf8');
+  const bytes = new TextEncoder().encode(line);
   if (bytes.length <= 75) return line;
 
+  const decoder = new TextDecoder();
   const out = [];
   let start = 0;
   let limit = 75;
@@ -43,7 +52,7 @@ function foldLine(line) {
     // Walk back off a UTF-8 continuation byte (10xxxxxx) so a character is
     // never cut in half.
     while (end > start && end < bytes.length && (bytes[end] & 0xc0) === 0x80) end--;
-    out.push(bytes.slice(start, end).toString('utf8'));
+    out.push(decoder.decode(bytes.subarray(start, end)));
     start = end;
     limit = 74; // continuation lines carry a leading space
   }
