@@ -160,6 +160,29 @@ section.visible .fade:nth-child(6){transition-delay:.56s}
 .action-row{display:flex;gap:10px;margin-top:auto;padding-top:12px;border-top:1px solid var(--rule)}
 .action-btn{flex:1;font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.12em;text-transform:uppercase;padding:8px 12px;cursor:pointer;text-align:center;border:1px solid var(--ink);background:none;color:var(--ink)}
 .action-btn.primary{background:var(--ink);color:var(--paper)}
+/* Only the three session-starting actions stay boxed. min-width stops the
+   flex:1 above stretching three buttons across a wide panel into slabs, and
+   keeps a wrapped row from leaving one lonely full-width button. */
+.action-row-primary{display:flex;gap:8px;flex-wrap:wrap;align-items:stretch}
+.action-row-primary .action-btn{flex:1 1 auto;min-width:132px;min-height:44px}
+/* Everything that expands a panel in place, or is a utility, reads as text
+   rather than another box — that difference in weight is what stops eight
+   controls looking like eight equally likely next steps. */
+.session-tools{display:flex;gap:6px 18px;flex-wrap:wrap;align-items:center;margin-top:10px;padding-top:10px;border-top:1px solid var(--rule)}
+.session-tools-end{display:flex;gap:6px 18px;flex-wrap:wrap;align-items:center;margin-left:auto}
+.tool-btn{display:inline-flex;align-items:center;min-height:44px;padding:0;background:none;border:none;cursor:pointer;font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.12em;text-transform:uppercase;color:var(--dim)}
+.tool-btn:hover{color:var(--ink)}
+.tool-btn:focus-visible{color:var(--ink);outline:1px solid var(--ink);outline-offset:3px}
+/* Open state rides on the glyph and aria-expanded, so the label never changes
+   length and the row never reflows mid-toggle. */
+.tool-btn::before{content:'+';display:inline-block;width:9px;margin-right:6px;color:var(--rule)}
+.tool-btn[aria-expanded="true"]{color:var(--ink)}
+.tool-btn[aria-expanded="true"]::before{content:'\\2212';color:var(--ink)}
+.tool-btn.plain::before{content:none}
+/* WCAG 1.4.3 exempts inactive controls from the contrast minimum, which is
+   what makes dimming an unavailable tool acceptable here. */
+.tool-btn:disabled{opacity:.45;cursor:default}
+.tool-btn:disabled:hover{color:var(--dim)}
 .driver-track{height:4px;background:var(--paper2);margin-top:2px}
 .driver-fill{height:100%;background:var(--ink)}
 /* An estimated factor is hatched as well as dimmed — the difference between a

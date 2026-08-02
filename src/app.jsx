@@ -1079,6 +1079,7 @@ const CHANGELOG = [
     version: '0.66',
     date: '2026-08-02',
     features: [
+      'Tidied the Training panel\'s button row. It had grown to eight identical boxes mixing three different kinds of control — ones that start a session and leave the screen, ones that just expand a panel below, and utilities — so nothing indicated which was the thing to press. Start Session, Freestyle and Group Session stay as buttons; Other Ways, What If and Train A Muscle become text toggles under a rule, marked + when closed and − when open. They no longer relabel themselves to "Hide …", which was making the whole row jump about every time you opened one. Add to Calendar, Refresh Guidance and Auto-Pick Freshest sit together at the right as utilities. Nothing was removed and nothing behaves differently.',
       'Fixed: Add to Calendar has never worked. It threw an error the moment you pressed it, on every browser, since the day it shipped — the line-folding step used a facility that exists on the server but not in a browser, so no .ics file was ever produced. The whole backend test suite passed throughout, because those tests run on the server where that facility does exist. Now uses a method available in both, and produces byte-identical output. A new check fails the build if any server-only facility reaches the browser bundle again.',
     ],
   },
@@ -5292,7 +5293,15 @@ function S3({ s, recommendation, onStartWorkout, onImport, onHistory, refresh })
               Your split hasn't reached {[...new Set(splitNeglected.map(n => muscleDisplayLabel(n.muscle)))].join(', ')} in {Math.max(...splitNeglected.map(n => n.daysSinceTrained ?? 999))}+ days — worth working in soon, or switching to Full Body in Settings.
             </div>
           )}
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+          {/* Two tiers, because this row had grown to eight identical boxes
+              mixing three different kinds of control: things that start a
+              session and leave this screen, things that expand a panel in
+              place, and utilities. Boxed buttons are now only ever the first
+              kind, so "Start Session" no longer competes visually with a
+              disclosure toggle. The tools keep a stable label and carry their
+              open state on the +/- glyph rather than swapping to "Hide X",
+              which was also making the row reflow on every toggle. */}
+          <div className="action-row-primary">
             <button className="action-btn primary" disabled={!displayedExercises?.length}
               onClick={() => onStartWorkout({ sessions: [{ type: 'lift', targetMuscles: pickedBucket?.muscles, backboneExercises: pickedBucket?.backboneExercises }], preloadedExercises: displayedExercises })}>
               Start Session
@@ -5303,31 +5312,40 @@ function S3({ s, recommendation, onStartWorkout, onImport, onHistory, refresh })
               try { existing = localStorage.getItem(GROUP_SESSION_KEY); } catch {}
               if (existing) onStartWorkout(null); else setShowGroupStart(true);
             }}>Group Session</button>
-            {selectedBucket && <button className="action-btn" onClick={() => setSelectedBucket(null)}>Auto-Pick Freshest</button>}
-            <button className="action-btn" disabled={!displayedExercises?.length} onClick={addSessionToCalendar}>Add to Calendar</button>
-            <button className="action-btn" disabled={!displayedExercises?.length}
+          </div>
+
+          <div className="session-tools">
+            <button className="tool-btn" disabled={!displayedExercises?.length}
               aria-expanded={variantsOpen} aria-controls="session-variants"
               onClick={() => setVariantsOpen(o => !o)}>
-              {variantsOpen ? 'Hide Alternatives' : 'Other Ways'}
+              Other Ways
             </button>
             {/* Both are Intermediate-and-up: they're built on the fatigue
                 numbers, which Beginner doesn't show at all. */}
             <Detail min="intermediate">
-              <button className="action-btn" disabled={!displayedExercises?.length}
+              <button className="tool-btn" disabled={!displayedExercises?.length}
                 aria-expanded={whatIfOpen} aria-controls="what-if"
                 onClick={() => setWhatIfOpen(o => !o)}>
-                {whatIfOpen ? 'Hide What If' : 'What If'}
+                What If
               </button>
-              <button className="action-btn"
+              <button className="tool-btn"
                 aria-expanded={targetPlannerOpen} aria-controls="target-planner"
                 onClick={() => setTargetPlannerOpen(o => !o)}>
-                {targetPlannerOpen ? 'Hide Muscle Planner' : 'Train A Muscle'}
+                Train A Muscle
               </button>
             </Detail>
-            <button onClick={generatePlan} disabled={genning}
-              style={{ marginLeft: 'auto', background: 'none', border: 'none', fontFamily: "'JetBrains Mono',monospace", fontSize: 9, letterSpacing: '.1em', textTransform: 'uppercase', color: 'var(--dim)', cursor: 'pointer', padding: 0 }}>
-              {genning ? '…' : guidance ? 'Refresh Guidance' : 'Get Weekly Guidance'}
-            </button>
+
+            <div className="session-tools-end">
+              {selectedBucket && (
+                <button className="tool-btn plain" onClick={() => setSelectedBucket(null)}>Auto-Pick Freshest</button>
+              )}
+              <button className="tool-btn plain" disabled={!displayedExercises?.length} onClick={addSessionToCalendar}>
+                Add to Calendar
+              </button>
+              <button className="tool-btn plain" onClick={generatePlan} disabled={genning}>
+                {genning ? '…' : guidance ? 'Refresh Guidance' : 'Get Weekly Guidance'}
+              </button>
+            </div>
           </div>
 
           {/* The same factor Dispatch shows, re-ranked against this session
