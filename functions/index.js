@@ -15,6 +15,7 @@ const { loadAllLifts, appendLifts, removeLiftsAndAppend } = require('./liftChunk
 const { DEFAULTS, loadForUserDoc, saveDocExcludingLifts } = require('./userDoc');
 const { computeProgression } = require('./progression');
 const { generateSessionExercises, progressionFor, isLowRepPattern, LOW_REP_THRESHOLD, estimateSessionDurationMin, capSessionDuration, fillSessionToDuration, fatigueCeilingFor } = require('./sessionPlanner');
+const { buildSessionVariants } = require('./sessionVariants');
 const { computeSleepScore } = require('./sleepScore');
 const { callGeminiResilient, parseGeminiJSON } = require('./gemini');
 const { unwrapShortcutBody, average, sumForDay, computeSleepMetrics } = require('./shortcutParsing');
@@ -1501,6 +1502,81 @@ app.post("/mentor", async (req, res) => {
   res.json({ reply });
 });
 
+// Everything /plan/session-exercises derives about the athlete before it picks
+// a single exercise. Extracted so /plan/session-variants can generate its
+// alternatives from an identical view of the athlete — a variant assembled
+// from even slightly different fatigue or preferences would be compared
+// against the recommended session on unequal terms, and the trade-offs
+// sessionVariants.js reports would be measuring the wrong difference.
+function sessionPlanContext() {
+  const lifts = db.lifts || [];
+  const peaks = musclePeaksFromLifts(lifts);
+  const structuralFatigue = computeStructuralFatigue(lifts, peaks, db.soreness || [], db.muscleSensitivity || {}, personalizedRecoveryHours(db.profile));
+  const activeInjuries = (db.injuries || []).filter(i => !i.resolved);
+  const currentFatigue = applyInjuryTaper(structuralFatigue, activeInjuries);
+  const metabolicFatigue = computeMetabolicFatigue(lifts, (db.nutrition || {})[day()]?.carbs || 0);
+  const cnsFatigue = computeCNSFatigue(lifts, db.cnsSensitivity || 1.0, getRecoveryScore(db));
+  const avoidMuscles = Object.entries(currentFatigue).filter(([,v])=>v>FATIGUE_CEILING).map(([m])=>m);
+  const avoidMusclesSecondary = Object.entries(currentFatigue).filter(([,v])=>v>SECONDARY_FATIGUE_CEILING).map(([m])=>m);
+  // Self-declared at Onboarding step 5 (editable later) — 'ignore' folds
+  // into offlineMuscles unconditionally (not just when fatigued), the exact
+  // same hard-exclusion mechanism an injury already gets: never a priority
+  // target, and never a primary muscle in any picked exercise, regardless
+  // of current fatigue level.
+  const muscleFocus = db.profile?.muscleFocus || {};
+  const ignoredMuscles = Object.entries(muscleFocus).filter(([,v]) => v === 'ignore').map(([m]) => m);
+  const offlineMuscles = [...new Set([...avoidMuscles.filter(m => activeInjuries.some(i => (i.muscles || []).includes(m))), ...ignoredMuscles])];
+  // Same explicit-setting-else-auto-detect pattern as
+  // compoundIsolationPreference, for equipment stability (machine/cable/smith
+  // vs. free-standing barbell/dumbbell) — an account that mostly logs
+  // machine/cable work gets that reflected as the default going forward. A
+  // soft scoring bias (sessionPlanner.js's stabilityScore), not a filter —
+  // free-weight can still win when it's clearly the better option.
+  const stabilitySplit = computeStabilitySplit(lifts);
+  const stableLeaning = db.profile?.stabilityPreference
+    ? db.profile.stabilityPreference === 'stable'
+    : stabilitySplit.stable > stabilitySplit.unstable;
+  return {
+    lifts, currentFatigue, metabolicFatigue, cnsFatigue, avoidMuscles, avoidMusclesSecondary,
+    offlineMuscles, muscleFocus,
+    travelMode: db.profile?.travelMode || false,
+    trainingMonths: trainingMonthsIfKnown(db.profile),
+    // Self-reported at onboarding — a real anchor for a brand-new account with
+    // no lift history yet; see weeklyPlanner.js's FAVORITE_EXERCISE_BONUS for
+    // why it's weighted lower than genuinely logged history.
+    favoriteExercises: db.profile?.trainingBackground?.favoriteExercises || [],
+    warmupScheme: db.profile?.warmupScheme,
+    preferStable: stableLeaning,
+  };
+}
+
+// Alternative versions of the session the client is already showing, each
+// under one changed constraint. Separate from /plan/session-exercises rather
+// than folded into its response: it generates the whole session three more
+// times, and that cost shouldn't land on the request that produces the
+// recommendation the athlete is waiting on.
+app.post('/plan/session-variants', async (req, res) => {
+  const { targetMuscles, backboneExercises, exercises: baseExercises, maxDurationMin } = req.body || {};
+  if (!targetMuscles?.length) return res.json({ variants: [] });
+
+  const ctx = sessionPlanContext();
+  const variants = buildSessionVariants({
+    inputs: {
+      type: 'lift', targetMuscles, backboneExerciseNames: backboneExercises || [],
+      lifts: ctx.lifts, travelMode: ctx.travelMode,
+      avoidMuscles: ctx.avoidMuscles, avoidMusclesSecondary: ctx.avoidMusclesSecondary,
+      offlineMuscles: ctx.offlineMuscles, cnsFatigue: ctx.cnsFatigue,
+      metabolicFatigue: ctx.metabolicFatigue, trainingMonths: ctx.trainingMonths,
+      favoriteExercises: ctx.favoriteExercises, warmupScheme: ctx.warmupScheme,
+      preferStable: ctx.preferStable, maxDurationMin: maxDurationMin ?? null,
+    },
+    baseExercises,
+    currentFatigue: ctx.currentFatigue,
+    metabolicFatigue: ctx.metabolicFatigue,
+  });
+  res.json({ variants });
+});
+
 // Deterministic — exercise selection is muscle-coverage scoring over
 // EXERCISE_DB, every weight/rep number comes from computeProgression's
 // double-progression math. See functions/sessionPlanner.js.
@@ -1526,41 +1602,11 @@ app.post("/plan/session-exercises", async (req, res) => {
   let { targetMuscles, backboneExercises } = req.body;
   const lifts = db.lifts || [];
 
-  const peaks = musclePeaksFromLifts(lifts);
-  const structuralFatigue = computeStructuralFatigue(lifts, peaks, db.soreness || [], db.muscleSensitivity || {}, personalizedRecoveryHours(db.profile));
-  const activeInjuries = (db.injuries || []).filter(i => !i.resolved);
-  const currentFatigue = applyInjuryTaper(structuralFatigue, activeInjuries);
-  const metabolicFatigue = computeMetabolicFatigue(lifts, (db.nutrition || {})[day()]?.carbs || 0);
-  const cnsFatigue = computeCNSFatigue(lifts, db.cnsSensitivity || 1.0, getRecoveryScore(db));
-  const avoidMuscles = Object.entries(currentFatigue).filter(([,v])=>v>FATIGUE_CEILING).map(([m])=>m);
-  const avoidMusclesSecondary = Object.entries(currentFatigue).filter(([,v])=>v>SECONDARY_FATIGUE_CEILING).map(([m])=>m);
-  // Self-declared at Onboarding step 5 (editable later) — 'ignore' folds
-  // into offlineMuscles unconditionally (not just when fatigued), the exact
-  // same hard-exclusion mechanism an injury already gets: never a priority
-  // target, and never a primary muscle in any picked exercise, regardless
-  // of current fatigue level.
-  const muscleFocus = db.profile?.muscleFocus || {};
-  const ignoredMuscles = Object.entries(muscleFocus).filter(([,v]) => v === 'ignore').map(([m]) => m);
-  const offlineMuscles = [...new Set([...avoidMuscles.filter(m => activeInjuries.some(i => (i.muscles || []).includes(m))), ...ignoredMuscles])];
-  const travelMode = db.profile?.travelMode || false;
-  const trainingMonths = trainingMonthsIfKnown(db.profile);
-  // Self-reported at onboarding — a real anchor for a brand-new account with
-  // no lift history yet; see weeklyPlanner.js's FAVORITE_EXERCISE_BONUS for
-  // why it's weighted lower than genuinely logged history.
-  const favoriteExercises = db.profile?.trainingBackground?.favoriteExercises || [];
-  // Same explicit-setting-else-auto-detect pattern as
-  // compoundIsolationPreference below, for equipment stability (machine/
-  // cable/smith vs. free-standing barbell/dumbbell) — an account that
-  // mostly logs machine/cable work gets that reflected as the default
-  // going forward. A soft scoring bias (sessionPlanner.js's
-  // stabilityScore), not a filter — free-weight can still win when it's
-  // clearly the better option. Computed once here, shared by both the
-  // full-body auto-pick branch and the single-bucket branch below.
-  const stabilitySplit = computeStabilitySplit(lifts);
-  const autoStableLeaning = stabilitySplit.stable > stabilitySplit.unstable;
-  const stableLeaning = db.profile?.stabilityPreference
-    ? db.profile.stabilityPreference === 'stable'
-    : autoStableLeaning;
+  const {
+    currentFatigue, metabolicFatigue, cnsFatigue, avoidMuscles, avoidMusclesSecondary,
+    offlineMuscles, muscleFocus, travelMode, trainingMonths, favoriteExercises,
+    preferStable: stableLeaning,
+  } = sessionPlanContext();
 
   if (type === 'lift' && !targetMuscles?.length && !reqBucket) {
     const muscleLastTrainedDays = computeMuscleLastTrainedDays(lifts);

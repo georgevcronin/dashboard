@@ -397,7 +397,7 @@ function setsFor(prog, workingSetCount, { failureSolo = false, higherRirPair = f
 // new-lifter fatigue budget. trainingMonths is null for an athlete who
 // hasn't self-reported training experience, in which case the new-lifter
 // budget is skipped entirely rather than assumed.
-function generateSessionExercises({ type, targetMuscles, backboneExerciseNames, lifts, travelMode, avoidMuscles = [], avoidMusclesSecondary = [], offlineMuscles = [], cnsFatigue = 0, metabolicFatigue = 0, trainingMonths = null, skipAccessories = false, accessoryCountOverride = null, isolationOnly = false, favoriteExercises = [], sessionExcludeNames = new Set(), warmupScheme = null, maxDurationMin = null, preferStable = false }) {
+function generateSessionExercises({ type, targetMuscles, backboneExerciseNames, lifts, travelMode, avoidMuscles = [], avoidMusclesSecondary = [], offlineMuscles = [], cnsFatigue = 0, metabolicFatigue = 0, trainingMonths = null, skipAccessories = false, accessoryCountOverride = null, isolationOnly = false, favoriteExercises = [], sessionExcludeNames = new Set(), warmupScheme = null, maxDurationMin = null, preferStable = false, lowCnsMode = false }) {
   if (type !== 'lift' || !targetMuscles?.length) return [];
 
   const excludeMuscles = [...new Set([...avoidMuscles, ...offlineMuscles])];
@@ -427,7 +427,12 @@ function generateSessionExercises({ type, targetMuscles, backboneExerciseNames, 
     .filter(e => !(e.secondary || []).some(m => excludeMusclesSecondary.includes(m)));
   const originalNames = new Set(backboneEntries.map(e => e.name));
 
-  if (cnsFatigue > 70) backboneEntries = backboneEntries.map(e => substituteForCNS(e, excludeMuscles, excludeMusclesSecondary));
+  // lowCnsMode asks for the same treatment high measured CNS fatigue triggers,
+  // without pretending the CNS reading is worse than it is — sessionVariants.js
+  // uses it to build a spare-the-nervous-system alternative on a day when
+  // cnsFatigue hasn't actually crossed the threshold.
+  const spareCns = lowCnsMode || cnsFatigue > 70;
+  if (spareCns) backboneEntries = backboneEntries.map(e => substituteForCNS(e, excludeMuscles, excludeMusclesSecondary));
 
   // Substitution can collapse two different backbone picks onto the same
   // machine/cable alternative — dedupe before it shows up twice in the session.
@@ -450,7 +455,7 @@ function generateSessionExercises({ type, targetMuscles, backboneExerciseNames, 
   // independently for two different muscles it covers, e.g. Farmer's Carry
   // for both forearms and traps, and show up twice in one session).
   const excludeNames = new Set([...originalNames, ...backboneEntries.map(e => e.name), ...sessionExcludeNames]);
-  const avoidEquipment = cnsFatigue > 70 ? HIGH_CNS_EQUIPMENT : [];
+  const avoidEquipment = spareCns ? HIGH_CNS_EQUIPMENT : [];
   const lastPick = accessoryCount > 0 ? lastAccessoryPick(lifts, targetMuscles, excludeNames) : null;
   const accessories = accessoryCount > 0 ? pickAccessories(targetMuscles, backboneEntries, excludeNames, excludeMuscles, {
     travelMode, avoidEquipment, avoidNames: lastPick ? [lastPick] : [], count: accessoryCount, isolationOnly, lifts, favoriteExercises,

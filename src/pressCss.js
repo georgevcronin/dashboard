@@ -160,6 +160,26 @@ section.visible .fade:nth-child(6){transition-delay:.56s}
 .action-row{display:flex;gap:10px;margin-top:auto;padding-top:12px;border-top:1px solid var(--rule)}
 .action-btn{flex:1;font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.12em;text-transform:uppercase;padding:8px 12px;cursor:pointer;text-align:center;border:1px solid var(--ink);background:none;color:var(--ink)}
 .action-btn.primary{background:var(--ink);color:var(--paper)}
+.variants{margin-top:14px;border-top:1px solid var(--ink)}
+.variants-status{font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.06em;color:var(--dim);line-height:1.7;padding:10px 0}
+.variants-error{color:var(--red)}
+.variant{padding:12px 0;border-bottom:1px solid var(--rule)}
+.variant:last-child{border-bottom:none}
+.variant-head{display:flex;align-items:baseline;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.variant-label{font-family:'Playfair Display',Georgia,serif;font-weight:700;font-size:14px;color:var(--ink)}
+.variant-stat{font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--dim);white-space:nowrap}
+.variant-premise{font-size:11px;line-height:1.6;color:var(--ink);margin:4px 0 0}
+.variant-tradeoffs{list-style:none;padding:0;margin:8px 0 0;display:flex;flex-wrap:wrap;gap:4px 10px}
+/* Direction is carried by the +/- glyph as well as the colour: the two
+   directions must stay distinguishable without colour vision. */
+.variant-tradeoffs li{font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.06em}
+.variant-tradeoffs li::before{margin-right:4px}
+.tradeoff-less{color:var(--dim)}
+.tradeoff-less::before{content:'−'}
+.tradeoff-more{color:var(--ink)}
+.tradeoff-more::before{content:'+'}
+.variant-exercises{font-family:'Times New Roman',serif;font-style:italic;font-size:12px;line-height:1.6;color:var(--dim);margin-top:8px}
+.variant .action-btn{flex:none;margin-top:10px;min-height:44px}
 .auth-wrap{min-height:100svh;background:var(--paper);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:32px 20px}
 .auth-rule{width:100%;max-width:380px;height:3px;background:var(--ink);margin-bottom:24px}
 .auth-logo{font-family:'Playfair Display',Georgia,serif;font-weight:900;font-size:clamp(40px,10vw,60px);letter-spacing:-.02em;color:var(--ink);margin-bottom:4px}

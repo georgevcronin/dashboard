@@ -1004,6 +1004,14 @@ const glycogenPct = (elapsedS, totalS) => {
 // app's first version — everything before this had no changelog at all.
 const CHANGELOG = [
   {
+    version: '0.64',
+    date: '2026-08-02',
+    features: [
+      'New Other Ways button next to Add to Calendar. It rebuilds today\'s session three more times under one changed constraint each — a 30-minute version, a machine-and-cable version that spares the nervous system, and a bodyweight-only version — and states what each one costs. Every trade-off is a measured difference between two sessions that were actually generated: minutes, working sets, and which muscles lose their dedicated exercise. There are no predicted-stimulus percentages, because Press has never checked a prediction against an outcome. Alternatives that come out identical to the recommended session are dropped rather than offered as a choice that changes nothing, so an empty result means today genuinely has one sensible shape. Starting an alternative uses its own exercise list, so a short session stays short rather than being refilled by the Max Length slider.',
+      'Fixed: opening Press in a background browser tab could leave the desktop panels overlapping each other until the window was resized. Repacking was queued on an animation frame, which a hidden tab never runs, and switching to the tab did not trigger a new one.',
+    ],
+  },
+  {
     version: '0.63',
     date: '2026-08-01',
     features: [
@@ -4494,6 +4502,11 @@ function S3({ s, recommendation, onStartWorkout, onImport, onHistory, refresh })
   // below) — the slider itself doesn't wait for that, though: it's purely
   // reactive against whatever was last fetched, see displayedExercises.
   const [sliderDraft, setSliderDraft] = useState(s?.profile?.maxSessionDurationMin ?? 60);
+  // null = never fetched, [] = fetched and there were no real alternatives.
+  const [variants, setVariants] = useState(null);
+  const [variantsOpen, setVariantsOpen] = useState(false);
+  const [variantsLoading, setVariantsLoading] = useState(false);
+  const [variantsError, setVariantsError] = useState('');
   useEffect(() => {
     setPreloading(true);
     setRawExercises([]);
@@ -4569,6 +4582,47 @@ function S3({ s, recommendation, onStartWorkout, onImport, onHistory, refresh })
     // download if the object URL disappears before it has read it.
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
+
+  // Fetched on demand rather than alongside the session: the server generates
+  // the whole session once more per variant, and that cost shouldn't be paid
+  // by every athlete who only ever trains the recommended one.
+  // Every trade-off is a difference against the session currently on screen,
+  // so moving the Max Length slider or switching bucket invalidates them all.
+  // Re-fetching off that signature (rather than caching the first answer) is
+  // what stops the panel claiming "12 minutes shorter" against a session the
+  // athlete has since changed the length of.
+  const variantBase = displayedExercises.map(e => e.name).join('|');
+  useEffect(() => {
+    if (!variantsOpen) return;
+    const muscles = (selectedBucket || pickedBucket)?.muscles;
+    if (!muscles?.length || !displayedExercises.length) return;
+    let cancelled = false;
+    setVariantsLoading(true);
+    setVariantsError('');
+    // Debounced: the base session changes on every tick of the Max Length
+    // slider, and each variant request regenerates the session three times
+    // server-side. Without this, one drag fires a burst of them.
+    const timer = setTimeout(() => {
+      authFetch(`${API_BASE}/plan/session-variants`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          targetMuscles: muscles,
+          backboneExercises: pickedBucket?.backboneExercises || [],
+          exercises: displayedExercises,
+          maxDurationMin: sliderDraft,
+        }),
+      }).then(r => r.json()).then(data => {
+        if (cancelled) return;
+        setVariants(data.variants || []);
+        setVariantsLoading(false);
+      }).catch(() => {
+        if (cancelled) return;
+        setVariantsError('Could not load alternatives.');
+        setVariantsLoading(false);
+      });
+    }, 400);
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [variantsOpen, variantBase, sliderDraft, (selectedBucket || pickedBucket)?.name]);
 
   const generatePlan = async () => {
     setGenning(true);
@@ -4772,11 +4826,55 @@ function S3({ s, recommendation, onStartWorkout, onImport, onHistory, refresh })
             }}>Group Session</button>
             {selectedBucket && <button className="action-btn" onClick={() => setSelectedBucket(null)}>Auto-Pick Freshest</button>}
             <button className="action-btn" disabled={!displayedExercises?.length} onClick={addSessionToCalendar}>Add to Calendar</button>
+            <button className="action-btn" disabled={!displayedExercises?.length}
+              aria-expanded={variantsOpen} aria-controls="session-variants"
+              onClick={() => setVariantsOpen(o => !o)}>
+              {variantsOpen ? 'Hide Alternatives' : 'Other Ways'}
+            </button>
             <button onClick={generatePlan} disabled={genning}
               style={{ marginLeft: 'auto', background: 'none', border: 'none', fontFamily: "'JetBrains Mono',monospace", fontSize: 9, letterSpacing: '.1em', textTransform: 'uppercase', color: 'var(--dim)', cursor: 'pointer', padding: 0 }}>
               {genning ? '…' : guidance ? 'Refresh Guidance' : 'Get Weekly Guidance'}
             </button>
           </div>
+
+          {variantsOpen && (
+            <div id="session-variants" className="variants">
+              {variantsLoading && <div className="variants-status">Building alternatives…</div>}
+              {variantsError && <div className="variants-status variants-error">{variantsError}</div>}
+              {!variantsLoading && !variantsError && variants !== null && variants.length <= 1 && (
+                <div className="variants-status">
+                  No meaningful alternative today — a shorter, machine-only or bodyweight version of this session comes out the same.
+                </div>
+              )}
+              {!variantsLoading && !variantsError && variants?.filter(v => v.key !== 'recommended').map(v => (
+                <div key={v.key} className="variant">
+                  <div className="variant-head">
+                    <span className="variant-label">{v.label}</span>
+                    <span className="variant-stat">{v.durationMin} min · {v.workingSets} working sets</span>
+                  </div>
+                  <p className="variant-premise">{v.premise}</p>
+                  {v.tradeoffs.length > 0 && (
+                    <ul className="variant-tradeoffs">
+                      {v.tradeoffs.map(t => (
+                        <li key={t.key} className={t.direction === 'less' ? 'tradeoff-less' : 'tradeoff-more'}>{t.text}</li>
+                      ))}
+                    </ul>
+                  )}
+                  <div className="variant-exercises">{v.exercises.map(e => e.name).join(' · ')}</div>
+                  <button className="action-btn" onClick={() => onStartWorkout({
+                    sessions: [{ type: 'lift', targetMuscles: (selectedBucket || pickedBucket)?.muscles, backboneExercises: pickedBucket?.backboneExercises }],
+                    // The variant's own exercise list, not the slider-trimmed
+                    // one — starting "Short session" and then having the Max
+                    // Length slider refill it back to 60 minutes would undo
+                    // the only thing the athlete picked it for.
+                    preloadedExercises: v.exercises,
+                  })}>
+                    Start This
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Week history strip — which days actually had a session, not a forward schedule */}
@@ -9594,7 +9692,19 @@ function App() {
     // every section stays packed at its fallback-font height.
     document.fonts?.ready.then(schedule).catch(() => {});
 
-    return () => { obs.disconnect(); if (frame) cancelAnimationFrame(frame); };
+    // A hidden tab never runs rAF, so every repack the observer queues while
+    // backgrounded is dropped — and becoming visible fires no new resize to
+    // re-request one. Without this, opening Press in a background tab leaves
+    // the panels packed at their pre-data heights, overlapping, until the
+    // window happens to be resized.
+    const onVisible = () => { if (document.visibilityState === 'visible') layoutMasonry(); };
+    document.addEventListener('visibilitychange', onVisible);
+
+    return () => {
+      obs.disconnect();
+      document.removeEventListener('visibilitychange', onVisible);
+      if (frame) cancelAnimationFrame(frame);
+    };
     // Keyed off what the rendered section list is derived from further down
     // (panelOrder/hiddenPanels/trackingLevel) rather than sectionIds itself,
     // which is declared below the early returns and would be in its TDZ here.
