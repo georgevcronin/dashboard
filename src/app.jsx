@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo } from "react";
+import React, { useState, useEffect, useLayoutEffect, useContext, useRef, useMemo } from "react";
 import { createRoot } from "react-dom/client";
 import { flushSync } from "react-dom";
 import { initializeApp } from 'firebase/app';
@@ -21,6 +21,8 @@ import { chestSplitForExercise, flyHeadSplitForAngle } from '../functions/chestH
 import { extensionHeadSplitForAngle } from '../functions/tricepsHeadSplit.js';
 import { EXERCISE_ANGLES } from '../functions/exerciseAngles.js';
 import { EXERCISE_DB, EXERCISE_MUSCLE_GROUPS, EXERCISE_PATTERNS } from '../functions/exerciseDb.js';
+import expertisePkg from '../functions/expertise.js';
+import parameterExplorerPkg from '../functions/parameterExplorer.js';
 import { PRESS_CSS } from './pressCss.js';
 import { AreaChart, BarChart, Sparkline, AdaptationChart } from './charts.jsx';
 
@@ -33,7 +35,7 @@ import { AreaChart, BarChart, Sparkline, AdaptationChart } from './charts.jsx';
 // itself is imported separately for the session-logging autocomplete, which
 // needs the full exercise name list rather than a derived lookup.
 const { ALL_MUSCLES, PRIMARY_MUSCLES, musclesForExercise, isCompoundExercise, findExercise } = muscleTaxonomyPkg;
-const { computeStructuralFatigue, computeACWR, computePerformanceTrend, computeMetabolicFatigue, computeCNSFatigue, cnsLoad } = fatiguePkg;
+const { computeStructuralFatigue, computeACWR, computePerformanceTrend, computeMetabolicFatigue, computeCNSFatigue, cnsLoad, recoveryWord } = fatiguePkg;
 const { progressionFor, suggestedWorkingSetCount, suggestedRirSequence, isLowRepPattern, LOW_REP_THRESHOLD, estimateSessionDurationMin, capSessionDuration, fillSessionToDuration } = sessionPlannerPkg;
 const { e1rm: calcE1RM } = strengthStandardsPkg;
 const { defaultMachineBrands } = machineBrandsPkg;
@@ -47,7 +49,8 @@ const { platesForWeight, STANDARD_PLATES_KG } = plateCalculatorPkg;
 const { DEFAULT_WARMUP_SCHEME, WARMUP_SCHEME_PRESETS } = progressionPkg;
 const { validateUsername, validateDisplayName, normalizeUsername, USERNAME_MAX, canChangeUsername, usernameChangeAvailableAt } = identityPkg;
 const { FATIGUE_CEILING } = weeklyPlannerPkg;
-const { ANGLES: EMG_ANGLES, PRESS_ANGLE_DESC, ROW_ANGLE_DESC, FLY_ANGLE_DESC, CURL_ANGLE_DESC, EXTENSION_ANGLE_DESC, LEG_CURL_ANGLE_DESC, HYPEREXTENSION_ANGLE_DESC, classifyMuscles, emgForAngle, frontalCueForProfile, gripCueForProfile, GRIP_ANGLES_BY_EQUIPMENT } = emgActivationPkg;
+const { angleOptionsFor, activationAt, optimalAngleFor, compareAngle, bestConfigurationsFor, targetableMuscles } = parameterExplorerPkg;
+const { PRESS_ANGLE_DESC, ROW_ANGLE_DESC, FLY_ANGLE_DESC, CURL_ANGLE_DESC, EXTENSION_ANGLE_DESC, LEG_CURL_ANGLE_DESC, HYPEREXTENSION_ANGLE_DESC, classifyMuscles, emgForAngle, frontalCueForProfile, gripCueForProfile, GRIP_ANGLES_BY_EQUIPMENT } = emgActivationPkg;
 
 // Priority-ordered: checked in this order so a compound phrase like "iso-
 // lateral cable machine" resolves to 'cable' (an iso-lateral cable stack),
@@ -238,6 +241,36 @@ const pct = (v, t) => (t && t > 0 ? Math.min(100, Math.round(v / t * 100)) : 0);
 // track than exact numbers. Settings > Nutrition can switch to exact.
 const roundCal = (v, exact) => (v == null ? v : exact ? Math.round(v) : Math.round(v / 300) * 300);
 
+// Detail-level gating lives in functions/expertise.js so the rules are
+// testable and so it stays visible that nothing in the engine imports them —
+// see that file's header for the contract. Only the React plumbing is here.
+const {
+  EXPERTISE_LEVELS, EXPERTISE_LABELS, EXPERTISE_BLURBS, DEFAULT_EXPERTISE,
+  normalizeExpertise, expertiseAtLeast, expertiseAtMost,
+  visibleRecoveryTabs: visibleRecoveryTabsFor, resolvePanelState,
+} = expertisePkg;
+
+const ExpertiseContext = React.createContext(DEFAULT_EXPERTISE);
+
+function useExpertise() {
+  const level = useContext(ExpertiseContext);
+  return {
+    level,
+    atLeast: min => expertiseAtLeast(level, min),
+    atMost: max => expertiseAtMost(level, max),
+  };
+}
+
+// Gates a block of interface. `min` reveals it from that level upward, `max`
+// only at or below it — the pair covers both things the levels do: add detail,
+// and swap detail for a plainer substitute.
+function Detail({ min, max, children }) {
+  const { atLeast, atMost } = useExpertise();
+  if (min && !atLeast(min)) return null;
+  if (max && !atMost(max)) return null;
+  return <>{children}</>;
+}
+
 function Header({ s, onSignOut, onOpenSettings, socialBadgeCount }) {
   const today = s?.today || {};
   const n = s?.nutritionToday || {};
@@ -292,7 +325,73 @@ function Header({ s, onSignOut, onOpenSettings, socialBadgeCount }) {
 }
 
 // ── S1: FRONT PAGE ───────────────────────────────────────────────────────────
-function S1({ s, briefing, onShowBriefing, onShowAfternoon, onShowNight, onShowWeekly, afternoonLoaded, nightLoaded, weeklyLoaded, loadingPeriod, newscastError }) {
+// Today's single biggest constraint, from /plan/recommendation's limitingFactor
+// (functions/limitingFactor.js). It lives on Dispatch rather than in its own
+// panel because Dispatch is already the first thing on the page and the day's
+// entry point — "what's holding me back today" belongs next to "what's today",
+// not three panels further down.
+//
+// Every effect line names something the engine genuinely does at that
+// threshold, so this is never mood-setting: see limitingFactor.js's header for
+// the threshold-to-behaviour map it's built from.
+function LimitingFactorPanel({ limitingFactor }) {
+  if (!limitingFactor) return null;
+  const { primary, others, clear } = limitingFactor;
+  const mono = { fontFamily: "'JetBrains Mono',monospace" };
+  const tone = { high: 'var(--ember)', moderate: 'var(--gold)', low: 'var(--dim)' };
+
+  if (clear) {
+    return (
+      <div className="fade" style={{ flexShrink: 0, borderTop: '1px solid var(--rule)', paddingTop: 8, marginTop: 8 }}>
+        <div className="kicker" style={{ marginBottom: 3 }}>Today's Limiting Factor</div>
+        <div style={{ ...mono, fontSize: 11, color: 'var(--forest)' }}>
+          None — nothing is constraining today's session.
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="fade" style={{ flexShrink: 0, borderTop: '1px solid var(--rule)', paddingTop: 8, marginTop: 8 }}>
+      <div className="kicker" style={{ marginBottom: 3 }}>Today's Limiting Factor</div>
+      <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 15, fontWeight: 700, color: tone[primary.severity], lineHeight: 1.25 }}>
+        {primary.headline}
+      </div>
+
+      {/* Beginner is told what it means and what to do, never the score. */}
+      <Detail max="beginner">
+        <div style={{ fontSize: 12, fontStyle: 'italic', color: 'var(--dim)', lineHeight: 1.5, marginTop: 4 }}>
+          {primary.mitigation}
+        </div>
+      </Detail>
+
+      <Detail min="intermediate">
+        <div style={{ ...mono, fontSize: 10, color: 'var(--dim)', lineHeight: 1.6, marginTop: 4 }}>{primary.detail}</div>
+        <div style={{ ...mono, fontSize: 10, color: 'var(--ink)', lineHeight: 1.6, marginTop: 3 }}>{primary.effect}</div>
+        <div style={{ ...mono, fontSize: 9, color: 'var(--dim)', lineHeight: 1.6, marginTop: 3, fontStyle: 'italic' }}>{primary.mitigation}</div>
+      </Detail>
+
+      {/* The others genuinely crossed their thresholds too — at Sport Scientist
+          level the full stack is more useful than just the winner. */}
+      <Detail min="scientist">
+        {others.length > 0 && (
+          <div style={{ marginTop: 6, borderTop: '1px solid var(--paper2)', paddingTop: 5 }}>
+            <div style={{ ...mono, fontSize: 8, letterSpacing: '.12em', textTransform: 'uppercase', color: 'var(--dim)', marginBottom: 3 }}>
+              Also active
+            </div>
+            {others.map(f => (
+              <div key={f.code} style={{ ...mono, fontSize: 9, color: 'var(--dim)', lineHeight: 1.7 }}>
+                <span style={{ color: tone[f.severity] }}>•</span> {f.detail}
+              </div>
+            ))}
+          </div>
+        )}
+      </Detail>
+    </div>
+  );
+}
+
+function S1({ s, recommendation, briefing, onShowBriefing, onShowAfternoon, onShowNight, onShowWeekly, afternoonLoaded, nightLoaded, weeklyLoaded, loadingPeriod, newscastError }) {
   const today = s?.today || {};
   const recovery = today.recovery ?? s?.recoveryTrend?.at(-1) ?? null;
 
@@ -368,7 +467,7 @@ function S1({ s, briefing, onShowBriefing, onShowAfternoon, onShowNight, onShowW
 
   return (
     <section id="s1" style={{ padding: '18px 20px 16px', justifyContent: 'space-between' }}>
-      <div className="fade" style={{ flexShrink: 0 }}>
+      <div className="fade panel-head" style={{ flexShrink: 0 }}>
         <div className="kicker">Today's Edition · {fmtDate()} · Recovery &amp; Readiness</div>
         <div className="headline" style={{ fontSize: 'clamp(30px,8vw,52px)', lineHeight: '.96', marginBottom: 0 }}>{hl1}<br />{hl2}</div>
       </div>
@@ -386,6 +485,8 @@ function S1({ s, briefing, onShowBriefing, onShowAfternoon, onShowNight, onShowW
           )}
         </div>
       )}
+
+      <LimitingFactorPanel limitingFactor={recommendation?.limitingFactor} />
 
       {canAfternoon && (
         <div className="briefing-preview fade" style={{ flexShrink: 0, cursor: loadingPeriod === 'afternoon' ? 'default' : 'pointer', opacity: loadingPeriod === 'afternoon' ? 0.6 : 1 }} onClick={onShowAfternoon}>
@@ -615,7 +716,7 @@ function S2({ s, refresh }) {
 
   return (
     <section id="s2">
-      <div className="fade">
+      <div className="fade panel-head">
         <div className="kicker">Health · Sleep Analysis · {series.length}‑Night</div>
         <div className="headline">
           {todaySleep != null ? `${todaySleep.toFixed(1)} Hours —` : 'Lights Out —'}<br />
@@ -850,6 +951,20 @@ const glycogenPct = (elapsedS, totalS) => {
 // instead of the list. v0.1 is the first tracked release, not literally the
 // app's first version — everything before this had no changelog at all.
 const CHANGELOG = [
+  {
+    version: '0.63',
+    date: '2026-08-01',
+    features: [
+      'The desktop dashboard now packs its panels like a masonry grid instead of balanced newspaper columns. Previously every column was forced to one shared height and a panel could not be split, so any panel too tall for the space left in its column jumped to the next one and left a large empty block behind it — most visibly under Recovery on a four-column screen. Panels now drop into whichever column is shortest, so there is no gap between stacked panels at any width.',
+      'Dashboard panels can be collapsed to just their headline with the − control in the top-right corner, and set to Collapsed, Standard or Wide (double-width) per panel in Settings → Dashboard Layout. Collapsing the long ones — All-Time Bests in particular — is what reclaims the leftover space at the foot of the shorter columns. Both are desktop-only; the phone dock already shows one section at a time.',
+      'The Build Press/Row/… angle picker is now a slider instead of 13 buttons. Sweeping it updates a live muscle-activation readout underneath, so you can compare positions before committing rather than picking blind and backing out. Optionally pick a target muscle first: the slider then marks that muscle\'s best angle, and the confirm step tells you how far your choice sits from it — stated as an EMG activation difference against that muscle\'s own peak, which is what the data supports, not a predicted strength or growth difference. It never stops you choosing any angle. The bars are drawn against each muscle\'s own peak activation and deliberately don\'t total 100%, because these are per-muscle activation levels rather than shares of the exercise.',
+      'Dispatch now leads with Today\'s Limiting Factor — the single biggest thing constraining today\'s session, whether that\'s CNS fatigue, a muscle over the fatigue ceiling, an injury flag, metabolic fatigue, recovery markers below baseline or short sleep. Each one names what it is, what the app is actually doing about it (swapping barbell compounds for machines, capping the week at 2 sessions, capping working sets at 2 per exercise) and what clears it. Nothing is reported unless it has genuinely crossed a threshold the planner acts on, so an empty state means exactly that: nothing is holding you back today.',
+      'Generated sessions now mark which exercise drives the session. The backbone lift is tagged Primary and everything else Secondary or Isolation, taken from the planner\'s own selection rather than guessed from the name. At Beginner only the main lift is tagged, since that\'s the part you can act on.',
+      'The default home-screen order is now recommendation-first — Dispatch, Training, Recovery, then sleep, nutrition, body and records. Only affects accounts that have never reordered their panels; a saved order still wins.',
+      'The weekly guidance now explains itself. A "Why This" block under the muscle-group chips gives the reason the top group was picked, which groups lost and by how much, and how confident the pick is. Tapping a group other than the recommended one shows what that choice actually trades — which muscles you\'d train instead, and which of them can\'t be loaded today because they\'re over the fatigue ceiling or flagged as injured. It never blocks the choice. Detail Level controls the depth: a single sentence at Beginner, the full reasoning at Intermediate, and the term-by-term score arithmetic (recovered + overdue + priority bonus) at Sport Scientist. Confidence is reported as a level with named causes rather than a percentage — Press has never checked a prediction against an outcome, so a number would be invented.',
+      'New Detail Level setting (Settings → Profile & Training): Beginner, Intermediate or Sport Scientist. It changes only how much of the model is shown — the planner, fatigue maths and exercise selection are untouched, so today\'s recommendation is identical whichever you pick. Beginner states recovery in words (Fresh/Recovering/Limited/Fatigued) with a sentence explaining the pick, and hides the Ranking, Types and Adaptation tabs; Intermediate restores the percentages and ranking; Sport Scientist adds the structural/metabolic/CNS split and adaptation estimates. Existing accounts default to Sport Scientist, so nothing is hidden unless you choose to hide it. Soreness and Injuries stay visible at every level — that\'s data going in, not analysis coming out.',
+    ],
+  },
   {
     version: '0.62',
     date: '2026-07-30',
@@ -1763,15 +1878,118 @@ function ExerciseBrowser({ onAdd }) {
 const PATTERN_LABELS = { press: 'Press', row: 'Row', fly: 'Fly', curl: 'Curl', extension: 'Extension', 'leg-curl': 'Leg Curl', hyperextension: 'Hyperextension' };
 function patternLabelFor(pattern) { return PATTERN_LABELS[pattern] || pattern; }
 
+// Live muscle activation for the angle currently under the slider.
+//
+// The bars are drawn against `scale` — the highest activation this movement
+// reaches at any angle — not against 100. EMG values here are "% of each
+// muscle's own MVIC" and legitimately exceed 100 (see emgActivation.js's
+// header), so a 0-100 bar would clip real data. They are also not shares of
+// the exercise and never sum to 100, which is why there's no pie and no
+// percentage-of-session figure: that would be a fabricated distribution.
+function MuscleCreditBars({ pattern, angle, targetMuscle }) {
+  const snapshot = activationAt(pattern, angle);
+  if (!snapshot) return null;
+  const mono = { fontFamily: "'JetBrains Mono',monospace" };
+  const colorFor = role => (role === 'primary' ? 'var(--ink)' : role === 'secondary' ? 'var(--dim)' : 'var(--rule)');
+
+  return (
+    <div style={{ marginTop: 8 }}>
+      {snapshot.muscles.map(m => (
+        <div key={m.muscle} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 3 }}>
+          <div style={{
+            ...mono, fontSize: 9, width: 84, flexShrink: 0, textTransform: 'capitalize',
+            color: m.muscle === targetMuscle ? 'var(--gold)' : 'var(--dim)',
+            fontWeight: m.muscle === targetMuscle ? 600 : 400,
+          }}>{m.muscle}</div>
+          {/* Width transition is the animation — see .muscle-bar-fill, which
+              stops under prefers-reduced-motion. */}
+          <div className="muscle-bar-track">
+            <div className="muscle-bar-fill" style={{
+              width: `${Math.min(100, (m.activation / snapshot.scale) * 100)}%`,
+              background: m.muscle === targetMuscle ? 'var(--gold)' : colorFor(m.role),
+            }} />
+          </div>
+          <div style={{ ...mono, fontSize: 9, color: 'var(--dim)', width: 30, textAlign: 'right', flexShrink: 0 }}>
+            {Math.round(m.activation)}
+          </div>
+        </div>
+      ))}
+      <div style={{ ...mono, fontSize: 8, color: 'var(--dim)', marginTop: 4, lineHeight: 1.5 }}>
+        % of each muscle's own peak activation — not a share of the exercise, so these don't total 100.
+      </div>
+    </div>
+  );
+}
+
+// The angle picker. Was 13 buttons where choosing one immediately advanced the
+// wizard, so you couldn't compare positions without backing out; now a slider
+// you can sweep with the muscle bars updating under it, and an explicit
+// confirm. Snapped to the angles that have EMG data rather than free 1-degree
+// movement, because emgForAngle is a table lookup and anything between stops
+// would have to be invented.
+function AngleSlider({ pattern, angle, onChange, targetMuscle }) {
+  const options = angleOptionsFor(pattern);
+  if (!options.length) return null;
+  const index = Math.max(0, options.indexOf(angle));
+  const optimum = targetMuscle ? optimalAngleFor(pattern, targetMuscle) : null;
+  const mono = { fontFamily: "'JetBrains Mono',monospace" };
+
+  return (
+    <div>
+      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 4 }}>
+        <span style={{ ...mono, fontSize: 15, color: 'var(--ink)' }}>{angle}°</span>
+        {optimum && (
+          <button onClick={() => onChange(optimum.angle)}
+            style={{ ...mono, fontSize: 9, background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: angle === optimum.angle ? 'var(--forest)' : 'var(--gold)' }}>
+            {angle === optimum.angle ? `✓ best for ${targetMuscle}` : `best for ${targetMuscle}: ${optimum.angle}° →`}
+          </button>
+        )}
+      </div>
+      <input
+        type="range" min={0} max={options.length - 1} step={1} value={index}
+        onChange={e => onChange(options[+e.target.value])}
+        aria-label={`${pattern} angle`}
+        aria-valuetext={`${angle} degrees`}
+        style={{ width: '100%', accentColor: 'var(--ink)', minHeight: 44 }}
+      />
+      <div style={{ ...mono, fontSize: 8, color: 'var(--dim)', display: 'flex', justifyContent: 'space-between' }}>
+        <span>{options[0]}°</span><span>{options[options.length - 1]}°</span>
+      </div>
+    </div>
+  );
+}
+
 function PressRowBuilder({ onAdd, lifts }) {
   const [open, setOpen] = useState(false);
   const [pattern, setPattern] = useState(null);
   const [equipment, setEquipment] = useState(null);
   const [angle, setAngle] = useState(null);
+  // Separate from `angle` because the angle step now lets you sweep the slider
+  // and watch the muscle bars move before committing. Previously picking an
+  // angle immediately advanced the wizard, so comparing two positions meant
+  // backing out and starting the step again.
+  const [angleLocked, setAngleLocked] = useState(false);
+  // Optional. When set, the slider marks that muscle's best angle and the
+  // confirm step reports how far the current pick is from it.
+  const [targetMuscle, setTargetMuscle] = useState(null);
   const [brand, setBrand] = useState('');
   const [brandPicked, setBrandPicked] = useState(false);
 
-  const reset = () => { setPattern(null); setEquipment(null); setAngle(null); setBrand(''); setBrandPicked(false); };
+  const reset = () => {
+    setPattern(null); setEquipment(null); setAngle(null); setAngleLocked(false);
+    setTargetMuscle(null); setBrand(''); setBrandPicked(false);
+  };
+
+  // Entering the angle step with nothing selected would leave the slider
+  // thumbless, so it opens mid-range — or straight on the optimum if a target
+  // muscle is already chosen.
+  const startAngleStep = (pat, eq) => {
+    const options = angleOptionsFor(pat);
+    const preset = targetMuscle ? optimalAngleFor(pat, targetMuscle)?.angle : null;
+    setEquipment(eq);
+    setAngle(preset ?? options[Math.floor(options.length / 2)] ?? null);
+    setAngleLocked(false);
+  };
 
   const needsBrand = equipment === 'cable' || equipment === 'machine';
   const brands = needsBrand ? defaultMachineBrands(equipment) : [];
@@ -1807,9 +2025,10 @@ function PressRowBuilder({ onAdd, lifts }) {
   };
 
   const tileStyle = { padding: '9px 12px', fontFamily: "'JetBrains Mono',monospace", fontSize: 11, textTransform: 'capitalize', cursor: 'pointer', border: '1px solid var(--rule)', background: 'var(--paper)', color: 'var(--ink)', textAlign: 'left' };
-  const showAngleStep = pattern && equipment && angle == null;
-  const showBrandStep = pattern && equipment && angle != null && needsBrand && !brandPicked;
-  const showConfirm = pattern && equipment && angle != null && (!needsBrand || brandPicked);
+  const showAngleStep = pattern && equipment && angle != null && !angleLocked;
+  const showBrandStep = pattern && equipment && angleLocked && needsBrand && !brandPicked;
+  const showConfirm = pattern && equipment && angleLocked && (!needsBrand || brandPicked);
+  const targetDeviation = targetMuscle && angle != null ? compareAngle(pattern, angle, targetMuscle) : null;
 
   return (
     <div style={{ marginTop: 10, borderTop: '1px solid var(--rule)', paddingTop: 10 }}>
@@ -1820,8 +2039,8 @@ function PressRowBuilder({ onAdd, lifts }) {
         <div style={{ marginTop: 10 }}>
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', marginBottom: 8, fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)', textTransform: 'capitalize' }}>
             {pattern && <button onClick={() => reset()} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--dim)', textTransform: 'capitalize', padding: 0 }}>{pattern}</button>}
-            {equipment && <><span>›</span><button onClick={() => { setEquipment(null); setAngle(null); setBrand(''); setBrandPicked(false); }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--dim)', textTransform: 'capitalize', padding: 0 }}>{equipment}</button></>}
-            {angle != null && <><span>›</span><button onClick={() => { setAngle(null); setBrand(''); setBrandPicked(false); }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--dim)', padding: 0 }}>{angle}°</button></>}
+            {equipment && <><span>›</span><button onClick={() => { setEquipment(null); setAngle(null); setAngleLocked(false); setBrand(''); setBrandPicked(false); }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--dim)', textTransform: 'capitalize', padding: 0 }}>{equipment}</button></>}
+            {angleLocked && <><span>›</span><button onClick={() => { setAngleLocked(false); setBrand(''); setBrandPicked(false); }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--dim)', padding: 0 }}>{angle}°</button></>}
             {brandPicked && brand && <><span>›</span><span>{brand}</span></>}
           </div>
 
@@ -1843,7 +2062,7 @@ function PressRowBuilder({ onAdd, lifts }) {
                 : pattern === 'leg-curl' ? ['machine', 'cable']
                 : pattern === 'hyperextension' ? ['bodyweight']
                 : ['barbell', 'dumbbell', 'cable', 'machine']).map(eq => (
-                <button key={eq} style={tileStyle} onClick={() => setEquipment(eq)}>{eq}</button>
+                <button key={eq} style={tileStyle} onClick={() => startAngleStep(pattern, eq)}>{eq}</button>
               ))}
             </div>
           )}
@@ -1855,14 +2074,34 @@ function PressRowBuilder({ onAdd, lifts }) {
                   : pattern === 'curl' ? CURL_ANGLE_DESC : pattern === 'extension' ? EXTENSION_ANGLE_DESC
                   : pattern === 'leg-curl' ? LEG_CURL_ANGLE_DESC : HYPEREXTENSION_ANGLE_DESC}
               </div>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-                {/* Hyperextension has no continuous angle range -- only 2 real
-                    device types exist (see HYPEREXTENSION_ANGLE_DESC), so it
-                    gets exactly 2 buttons here instead of the usual 13. */}
-                {(pattern === 'hyperextension' ? [45, 90] : EMG_ANGLES).map(a => (
-                  <button key={a} style={{ ...tileStyle, flex: '0 0 auto', padding: '7px 10px' }} onClick={() => setAngle(a)}>{a}°</button>
-                ))}
+              {/* Optional target muscle. Picking one marks its best angle on
+                  the slider and reports the gap on confirm — it never moves the
+                  slider on you or restricts which angles you can choose. */}
+              <div style={{ marginBottom: 10 }}>
+                <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, letterSpacing: '.12em', textTransform: 'uppercase', color: 'var(--dim)', marginBottom: 4 }}>
+                  Target muscle <span style={{ textTransform: 'none', letterSpacing: 0 }}>(optional)</span>
+                </div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                  {targetableMuscles([pattern]).map(m => (
+                    <button key={m} onClick={() => setTargetMuscle(targetMuscle === m ? null : m)}
+                      style={{
+                        fontFamily: "'JetBrains Mono',monospace", fontSize: 9, padding: '4px 8px', cursor: 'pointer',
+                        textTransform: 'capitalize', minHeight: 30,
+                        border: `1px solid ${targetMuscle === m ? 'var(--gold)' : 'var(--rule)'}`,
+                        background: targetMuscle === m ? 'var(--gold)' : 'none',
+                        color: targetMuscle === m ? 'var(--paper)' : 'var(--dim)',
+                      }}>{m}</button>
+                  ))}
+                </div>
               </div>
+
+              <AngleSlider pattern={pattern} angle={angle} onChange={setAngle} targetMuscle={targetMuscle} />
+              <MuscleCreditBars pattern={pattern} angle={angle} targetMuscle={targetMuscle} />
+
+              <button onClick={() => setAngleLocked(true)}
+                style={{ ...tileStyle, width: '100%', marginTop: 10, textAlign: 'center', minHeight: 44, background: 'var(--ink)', color: 'var(--paper)', borderColor: 'var(--ink)' }}>
+                Use {angle}°
+              </button>
             </div>
           )}
 
@@ -1880,6 +2119,18 @@ function PressRowBuilder({ onAdd, lifts }) {
               <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 11, color: 'var(--ink)', marginBottom: 8 }}>
                 {equipment[0].toUpperCase() + equipment.slice(1)} {patternLabelFor(pattern)} — {angle}°{brand.trim() ? ` — ${brand.trim()}` : ''}
               </div>
+              {/* Recommended vs chosen. States the gap and leaves the choice
+                  alone — deficitPct is an EMG activation difference against
+                  that muscle's own peak, not a predicted strength or growth
+                  difference, which the tables can't support. */}
+              {targetDeviation && (
+                <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, lineHeight: 1.6, marginBottom: 10, color: targetDeviation.atOptimum ? 'var(--forest)' : 'var(--gold)' }}>
+                  {targetDeviation.atOptimum
+                    ? `Best available angle for ${targetDeviation.muscle} (${Math.round(targetDeviation.peak)}% activation).`
+                    : `${targetDeviation.muscle} at ${Math.round(targetDeviation.current)}% here vs ${Math.round(targetDeviation.peak)}% at ${targetDeviation.peakAngle}° — ${targetDeviation.deficitPct}% below its best angle.`}
+                  <span style={{ display: 'block', color: 'var(--dim)', marginTop: 2 }}>Activation difference only — not a predicted strength or growth difference.</span>
+                </div>
+              )}
               {pattern === 'fly' && flyHeadSplitForAngle(angle) && (() => {
                 const split = flyHeadSplitForAngle(angle);
                 return (
@@ -2014,6 +2265,27 @@ function PlateCalculator() {
 
 const RPE_PLAIN_LANGUAGE = { easy: 6, medium: 8, failure: 10 };
 
+// Which exercises drive the session. The role comes from sessionPlanner's own
+// backbone/accessory split, so this ranks the list the same way the planner
+// built it. Beginner only gets the one label that changes behaviour — which
+// lift to spend the effort on — since "secondary compound vs isolation" is a
+// distinction you can't act on without already knowing the taxonomy.
+const ROLE_LABELS = { primary: 'Primary', secondary: 'Secondary', isolation: 'Isolation' };
+function ExerciseRoleTag({ role }) {
+  const { atMost } = useExpertise();
+  if (atMost('beginner') && role !== 'primary') return null;
+  const label = atMost('beginner') ? 'Main lift' : ROLE_LABELS[role];
+  if (!label) return null;
+  return (
+    <span style={{
+      fontFamily: "'JetBrains Mono',monospace", fontSize: 8, letterSpacing: '.12em',
+      textTransform: 'uppercase', color: role === 'primary' ? 'var(--ink)' : 'var(--dim)',
+      border: `1px solid ${role === 'primary' ? 'var(--ink)' : 'var(--rule)'}`,
+      padding: '1px 5px', whiteSpace: 'nowrap',
+    }}>{label}</span>
+  );
+}
+
 function WorkoutLogger({ planDay, lifts, customExercises, experienceLevel, onClose, refresh }) {
   const isBeginner = experienceLevel === 'New to training';
   // Read once, on mount — a session already restored into `exercises` below
@@ -2130,6 +2402,10 @@ function WorkoutLogger({ planDay, lifts, customExercises, experienceLevel, onClo
       name: ex.name.toLowerCase().trim(),
       targetReps: ex.sets?.[0]?.reps || 8,
       sets: (ex.sets || Array.from({length:3},()=>({type:'N',kg:'',reps:'8'}))).map(s => ({ type: s.type || 'N', kg: String(s.kg || ''), reps: String(s.reps || ''), rpe: '', done: false })),
+      // From generateSessionExercises — which lift actually drives this
+      // session vs. what's supporting it. Carried through rather than
+      // re-derived so the label can't disagree with the plan.
+      ...(ex.role ? { role: ex.role } : {}),
       ...(ex.family ? { pattern: ex.pattern, equipment: ex.equipment, angle: ex.angle, emgWeights: emgForAngle(ex.pattern, ex.angle) } : {}),
     });
 
@@ -2854,6 +3130,7 @@ function WorkoutLogger({ planDay, lifts, customExercises, experienceLevel, onClo
                     {ex.name} {isExpanded ? '▼' : '▸'}
                   </button>
                   <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                    {ex.role && <ExerciseRoleTag role={ex.role} />}
                     {isPR && <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, letterSpacing: '.12em', background: 'var(--gold)', color: 'var(--paper)', padding: '2px 6px' }}>PR</span>}
                     {bestE1rm && <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)' }}>e1RM {bestE1rm}kg</span>}
                     <button onClick={() => removeExercise(i)} style={{ background: 'none', border: 'none', color: 'var(--dim)', cursor: 'pointer', fontSize: 16, lineHeight: 1, padding: 0 }}>×</button>
@@ -3943,7 +4220,120 @@ function GymPickerModal({ activeGym, lastCoordsRef, onClose, onSelect, onClear }
   );
 }
 
-function S3({ s, onStartWorkout, onImport, onHistory, refresh }) {
+// Why today's guidance picked what it picked. Every figure comes from the
+// /plan/recommendation payload (functions/recommendation.js), which re-derives
+// the planner's own terms — nothing here computes or rounds a second opinion.
+// Renders nothing until that fetch lands, which is why it's absent for a beat
+// after first paint rather than flashing a placeholder.
+//
+// The detail levels split cleanly: Beginner gets the lead sentence, so it
+// reads as a coach's reason; Intermediate gets the full reasoning list plus
+// what an override would trade away; Sport Scientist additionally gets the
+// term-by-term arithmetic behind the top muscle's score.
+function RecommendationPanel({ rec, selectedBucket }) {
+  const { atLeast } = useExpertise();
+  if (!rec?.chosen) return null;
+
+  const lead = rec.reasoning[0];
+  const override = selectedBucket && selectedBucket.name !== rec.chosen.name
+    ? rec.comparisons.find(c => c.to === selectedBucket.name)
+    : null;
+  const mono = { fontFamily: "'JetBrains Mono',monospace" };
+  // A bucket can carry a dozen muscles; naming them all turns the trade-off
+  // into a wall of text nobody reads. The count keeps it honest about what's
+  // being elided rather than silently truncating.
+  const muscleList = (muscles, cap = 4) => muscles.length <= cap
+    ? muscles.join(', ')
+    : `${muscles.slice(0, cap).join(', ')} +${muscles.length - cap} more`;
+
+  return (
+    <div style={{ borderTop: '1px solid var(--rule)', paddingTop: 8, marginBottom: 10 }}>
+      <div className="kicker" style={{ marginBottom: 5 }}>Why This</div>
+
+      <Detail max="beginner">
+        {lead && <div style={{ fontSize: 12, fontStyle: 'italic', color: 'var(--dim)', lineHeight: 1.5 }}>{lead.text}</div>}
+      </Detail>
+
+      <Detail min="intermediate">
+        <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
+          {rec.reasoning.map((r, i) => (
+            <li key={i} style={{ ...mono, fontSize: 10, color: 'var(--dim)', lineHeight: 1.7, display: 'flex', gap: 7 }}>
+              <span style={{ color: 'var(--rule)', flexShrink: 0 }}>—</span>
+              <span>{r.text}{r.note && <span style={{ color: 'var(--gold)' }}> {r.note}</span>}</span>
+            </li>
+          ))}
+        </ul>
+
+        {/* The saved plan and today's fatigue have diverged. Worth stating
+            plainly rather than quietly showing a different top pick. */}
+        {rec.supersedes && (
+          <div style={{ ...mono, fontSize: 9, color: 'var(--ember)', marginTop: 6, lineHeight: 1.6 }}>
+            Your saved plan led with {rec.supersedes} — on current fatigue, {rec.chosen.name} now ranks higher.
+          </div>
+        )}
+      </Detail>
+
+      {/* Feature 8: never block the choice, quantify it. Only the measured
+          consequences appear here — muscles traded, muscles that can't be
+          loaded — never a predicted performance drop, which Press has no
+          calibrated model for. */}
+      {override && (
+        <div style={{ borderLeft: '2px solid var(--gold)', paddingLeft: 10, marginTop: 8 }}>
+          <div style={{ ...mono, fontSize: 9, letterSpacing: '.08em', textTransform: 'uppercase', color: 'var(--gold)', marginBottom: 3 }}>
+            Choosing {override.to} instead
+          </div>
+          <div style={{ ...mono, fontSize: 10, color: 'var(--dim)', lineHeight: 1.7 }}>
+            {override.nearTie
+              ? `Scores within ${Math.abs(override.scoreDelta)} points of ${override.from} — effectively an equal choice.`
+              : `Ranks ${override.scoreDelta} points below ${override.from}.`}
+            {override.trades.gaining.length > 0 && <> Trains {muscleList(override.trades.gaining)} instead of {muscleList(override.trades.losing)}.</>}
+          </div>
+          {override.blocked.length > 0 && (
+            <div style={{ ...mono, fontSize: 9, color: 'var(--ember)', marginTop: 3, lineHeight: 1.6 }}>
+              Can't be loaded today: {muscleList(override.blocked.map(b => `${b.muscle} (${b.reason === 'offline' ? 'flagged' : `fatigue ${b.fatigue}`})`), 5)}
+            </div>
+          )}
+        </div>
+      )}
+
+      <Detail min="scientist">
+        {rec.chosen.drivers?.[0] && (
+          <div style={{ marginTop: 8, borderTop: '1px solid var(--paper2)', paddingTop: 6 }}>
+            <div style={{ ...mono, fontSize: 8, letterSpacing: '.12em', textTransform: 'uppercase', color: 'var(--dim)', marginBottom: 4 }}>
+              Score · {rec.chosen.drivers[0].muscle}
+            </div>
+            {rec.chosen.drivers[0].terms.map(t => (
+              <div key={t.key} style={{ ...mono, fontSize: 9, color: 'var(--dim)', display: 'flex', justifyContent: 'space-between', lineHeight: 1.8 }}>
+                <span>{t.label}{t.key === 'staleness' && t.days != null ? ` · ${t.days}d` : ''}</span>
+                <span style={{ color: 'var(--ink)' }}>+{t.value}</span>
+              </div>
+            ))}
+            <div style={{ ...mono, fontSize: 9, display: 'flex', justifyContent: 'space-between', borderTop: '1px solid var(--rule)', marginTop: 3, paddingTop: 3 }}>
+              <span style={{ color: 'var(--dim)' }}>Priority</span>
+              <span>{rec.chosen.drivers[0].priority}</span>
+            </div>
+          </div>
+        )}
+      </Detail>
+
+      {/* A level, never a percentage — see recommendationConfidence for why. */}
+      <Detail min="intermediate">
+        <div style={{ ...mono, fontSize: 9, color: 'var(--dim)', marginTop: 8, lineHeight: 1.6 }}>
+          <span style={{ letterSpacing: '.08em', textTransform: 'uppercase' }}>Confidence</span>
+          {' · '}
+          <span style={{ color: rec.confidence.level === 'high' ? 'var(--forest)' : rec.confidence.level === 'moderate' ? 'var(--gold)' : 'var(--ember)' }}>
+            {rec.confidence.level}
+          </span>
+          {atLeast('scientist') && rec.confidence.limitations.map((l, i) => (
+            <div key={i} style={{ paddingLeft: 10, color: 'var(--dim)' }}>— {l.text}</div>
+          ))}
+        </div>
+      </Detail>
+    </div>
+  );
+}
+
+function S3({ s, recommendation, onStartWorkout, onImport, onHistory, refresh }) {
   const workouts = s?.workouts || [];
   const lifts = s?.lifts || [];
   const liftVol = s?.liftVolume || [];
@@ -4086,8 +4476,10 @@ function S3({ s, onStartWorkout, onImport, onHistory, refresh }) {
           </button>
         </div>
       )}
-      <div className="fade">
-        <div className="kicker" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+      <div className="fade panel-head">
+        {/* paddingRight clears the .panel-toggle, which floats over the top-right
+            corner — this is the only kicker with right-aligned content of its own. */}
+        <div className="kicker" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', paddingRight: 28 }}>
           <span>Performance · Strength · {daysAgo != null ? (daysAgo === 0 ? 'Today' : daysAgo === 1 ? 'Yesterday' : `${daysAgo} Days Ago`) : '—'}</span>
           {lastSession && (
             confirmDeleteLast ? (
@@ -4163,6 +4555,7 @@ function S3({ s, onStartWorkout, onImport, onHistory, refresh }) {
                 })}
               </div>
             )}
+            <RecommendationPanel rec={recommendation} selectedBucket={selectedBucket} />
           </div>
         ) : (
           <div style={{ borderTop: '1px solid var(--rule)', paddingTop: 10, fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)', marginBottom: 8 }}>
@@ -4748,7 +5141,7 @@ function S4({ s, refresh }) {
 
   return (
     <section id="s4" style={{ display: 'flex', flexDirection: 'column' }}>
-      <div className="fade" style={{ flexShrink: 0 }}>
+      <div className="fade panel-head" style={{ flexShrink: 0 }}>
         <div className="kicker">Nutrition · Today</div>
         <div className="headline">
           {cal > 0 ? `${roundCal(cal, exactCal).toLocaleString()} kcal —` : 'Empty Plate —'}<br />
@@ -5191,10 +5584,13 @@ function S5({ s, refresh }) {
   // Adaptation tab's own triptych/refs, same reasoning again.
   const adaptAntRef = useRef(), adaptLatRef = useRef(), adaptPostRef = useRef();
   const [adaptSvgsReady, setAdaptSvgsReady] = useState(false);
+  const { level: expertise } = useExpertise();
   const recoveryTabOrder = s?.profile?.recoveryTabOrder?.length ? s.profile.recoveryTabOrder : DEFAULT_RECOVERY_TAB_ORDER;
-  const hiddenRecoveryTabSet = new Set(s?.profile?.hiddenRecoveryTabs || []);
-  const visibleRecoveryTabs = recoveryTabOrder.filter(id => !hiddenRecoveryTabSet.has(id));
+  const visibleRecoveryTabs = visibleRecoveryTabsFor(recoveryTabOrder, s?.profile?.hiddenRecoveryTabs, expertise);
   const [tab, setTab] = useState(() => (visibleRecoveryTabs.includes('fatigue') ? 'fatigue' : visibleRecoveryTabs[0]) || 'fatigue');
+  // Dropping to a lower detail level can pull the tab you're on out from under
+  // you; without this the section renders with no tab body at all.
+  const activeTab = visibleRecoveryTabs.includes(tab) ? tab : visibleRecoveryTabs[0];
   const [selectedMuscle, setSelectedMuscle] = useState(null);
   const [sliderVal, setSliderVal] = useState(5);
   const [soreLogging, setSoreLogging] = useState(false);
@@ -5447,6 +5843,25 @@ function S5({ s, refresh }) {
   const topPick = s?.weeklyPlan?.muscleFocus?.[0]?.name;
   const hl2 = topPick ? `Train ${cap(topPick)} Today` : 'All Systems Go';
 
+  // The same weekly guidance the headline already reads, restated as a
+  // sentence for Beginner. Deliberately derived from weeklyPlan.muscleFocus
+  // and the fatigue map rather than recomputed — this is a rewording of the
+  // engine's output, not a second opinion about what to train.
+  // Excluding topMuscles matters: with only one or two muscles logged, the
+  // most-loaded and least-loaded ends of the same short list are the same
+  // muscle, and the sentence below would contradict itself.
+  const freshest = [...sortedFatigue].reverse()
+    .filter(([m]) => !topMuscles.includes(m)).slice(0, 2).map(([m]) => m);
+  const recoveryExplainer = (() => {
+    if (!sortedFatigue.length) return 'Nothing logged recently, so every muscle is treated as rested.';
+    const loaded = topMuscles.map(cap).join(' and ');
+    const rested = freshest.map(cap).join(' and ');
+    const lead = topPick
+      ? `${cap(topPick)} is today's pick because it has recovered more than anything else you've trained recently.`
+      : `Nothing is carrying enough fatigue to steer today's session.`;
+    return `${lead} ${loaded} ${topMuscles.length > 1 ? 'are' : 'is'} still carrying the most load from your last sessions${rested ? `, while ${rested} ${freshest.length > 1 ? 'have' : 'has'} had the longest to recover` : ''}.`;
+  })();
+
   const logSoreness = async () => {
     if (!selectedMuscle) return;
     setSoreLogging(true);
@@ -5464,20 +5879,32 @@ function S5({ s, refresh }) {
 
   return (
     <section id="s5" style={{ padding: '18px 20px 12px', display: 'flex', flexDirection: 'column' }}>
-      <div className="fade" style={{ flexShrink: 0 }}>
+      <div className="fade panel-head" style={{ flexShrink: 0 }}>
         <div className="kicker">Recovery · Muscle Fatigue · Post Session</div>
         <div className="headline" style={{ fontSize: 'clamp(24px,6vw,40px)', lineHeight: '.96', marginBottom: 0 }}>{hl1}<br />{hl2}</div>
+        <Detail max="beginner">
+          <div className="deck" style={{ marginTop: 10, marginBottom: 0 }}>{recoveryExplainer}</div>
+        </Detail>
       </div>
 
       <div className="fade tab-bar" style={{ flexShrink: 0 }}>
         {visibleRecoveryTabs.map(id => (
-          <button key={id} className={`tab-btn${tab === id ? ' active' : ''}`} onClick={() => setTab(id)}>
+          <button key={id} className={`tab-btn${activeTab === id ? ' active' : ''}`} onClick={() => setTab(id)}>
             {RECOVERY_TAB_LABELS[id]}{id === 'injuries' && s?.injuries?.length > 0 ? ` (${s.injuries.length})` : ''}
           </button>
         ))}
       </div>
 
-      {tab === 'fatigue' && <>
+      {/* Reachable by hiding tabs in Settings and then dropping to a detail
+          level that gates away whatever's left — otherwise the section just
+          renders an empty tab bar with no hint about where its content went. */}
+      {!visibleRecoveryTabs.length && (
+        <div className="fade" style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, color: 'var(--dim)', fontStyle: 'italic', paddingTop: 12 }}>
+          Every Recovery tab is either hidden or above your current detail level — check Settings → Dashboard Layout and Detail Level.
+        </div>
+      )}
+
+      {activeTab === 'fatigue' && <>
         {/* Body triptych */}
         <div className="fade" style={{ flexShrink: 0, display: 'flex', justifyContent: 'center', alignItems: 'flex-start', borderTop: '2px solid var(--ink)', borderBottom: '2px solid var(--ink)', margin: '6px 0' }}>
           {[['Anterior', antRef], ['Lateral', latRef], ['Posterior', postRef]].map(([label, ref]) => (
@@ -5488,34 +5915,53 @@ function S5({ s, refresh }) {
           ))}
         </div>
 
-        {/* Stats row */}
-        <div className="fade" style={{ flexShrink: 0, display: 'flex', gap: 0 }}>
-          <div className="stat-cell" style={{ flex: '0 0 auto', minWidth: 120 }}>
-            <div className="sc-label">Most Loaded Muscle</div>
-            <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginTop: 2 }}>
-              <div className="sc-num red" style={{ fontSize: 22 }}>{fMax || '—'}<span style={{ fontSize: '.5em', color: 'var(--dim)' }}>/100</span></div>
-              {topMuscles[0] && <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--ember)', textTransform: 'capitalize', letterSpacing: '.06em' }}>{topMuscles[0]}</div>}
+        {/* Stats row. Beginner gets the same two facts stated as words — which
+            muscle is carrying the most load, and how recovered you are overall
+            — without the /100 scores or the resting-HR readout behind them. */}
+        <Detail max="beginner">
+          <div className="fade" style={{ flexShrink: 0, display: 'flex', gap: 0 }}>
+            <div className="stat-cell" style={{ flex: '0 0 auto', minWidth: 150 }}>
+              <div className="sc-label">Most Loaded Muscle</div>
+              <div className="sc-num" style={{ fontSize: 20, textTransform: 'capitalize' }}>{topMuscles[0] || '—'}</div>
+            </div>
+            <div style={{ width: '1px', background: 'var(--rule)', margin: '0 16px', flexShrink: 0 }} />
+            <div className="stat-cell" style={{ flex: 1 }}>
+              <div className="sc-label">Overall</div>
+              <div className="sc-num" style={{ fontSize: 20, color: overallFatigue > 60 ? 'var(--ember)' : overallFatigue > 30 ? 'var(--gold)' : 'var(--forest)' }}>
+                {recoveryWord(overallFatigue) || '—'}
+              </div>
             </div>
           </div>
-          <div style={{ width: '1px', background: 'var(--rule)', margin: '0 16px', flexShrink: 0 }} />
-          <div className="stat-cell" style={{ flex: '0 0 auto' }}>
-            <div className="sc-label">Avg Muscle Fatigue</div>
-            <div className="sc-num" style={{ fontSize: 22, color: overallFatigue > 60 ? 'var(--ember)' : overallFatigue > 30 ? 'var(--gold)' : 'var(--forest)' }}>
-              {overallFatigue ?? '—'}<span style={{ fontSize: '.5em', color: 'var(--dim)' }}>/100</span>
+        </Detail>
+        <Detail min="intermediate">
+          <div className="fade" style={{ flexShrink: 0, display: 'flex', gap: 0 }}>
+            <div className="stat-cell" style={{ flex: '0 0 auto', minWidth: 120 }}>
+              <div className="sc-label">Most Loaded Muscle</div>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginTop: 2 }}>
+                <div className="sc-num red" style={{ fontSize: 22 }}>{fMax || '—'}<span style={{ fontSize: '.5em', color: 'var(--dim)' }}>/100</span></div>
+                {topMuscles[0] && <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--ember)', textTransform: 'capitalize', letterSpacing: '.06em' }}>{topMuscles[0]}</div>}
+              </div>
+            </div>
+            <div style={{ width: '1px', background: 'var(--rule)', margin: '0 16px', flexShrink: 0 }} />
+            <div className="stat-cell" style={{ flex: '0 0 auto' }}>
+              <div className="sc-label">Avg Muscle Fatigue</div>
+              <div className="sc-num" style={{ fontSize: 22, color: overallFatigue > 60 ? 'var(--ember)' : overallFatigue > 30 ? 'var(--gold)' : 'var(--forest)' }}>
+                {overallFatigue ?? '—'}<span style={{ fontSize: '.5em', color: 'var(--dim)' }}>/100</span>
+              </div>
+            </div>
+            <div style={{ width: '1px', background: 'var(--rule)', margin: '0 16px', flexShrink: 0 }} />
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, flex: 1 }}>
+              <div className="stat-cell">
+                <div className="sc-label">Recovery</div>
+                <div className="sc-num forest" style={{ fontSize: 18 }}>{s?.recoveryTrend?.at(-1) ?? '—'}<span style={{ fontSize: '.5em', color: 'var(--dim)' }}>/100</span></div>
+              </div>
+              <div className="stat-cell">
+                <div className="sc-label">Resting HR</div>
+                <div className="sc-num" style={{ fontSize: 18 }}>{s?.rhrSeries?.at(-1) ?? '—'}<span style={{ fontSize: '.5em', color: 'var(--dim)' }}>bpm</span></div>
+              </div>
             </div>
           </div>
-          <div style={{ width: '1px', background: 'var(--rule)', margin: '0 16px', flexShrink: 0 }} />
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, flex: 1 }}>
-            <div className="stat-cell">
-              <div className="sc-label">Recovery</div>
-              <div className="sc-num forest" style={{ fontSize: 18 }}>{s?.recoveryTrend?.at(-1) ?? '—'}<span style={{ fontSize: '.5em', color: 'var(--dim)' }}>/100</span></div>
-            </div>
-            <div className="stat-cell">
-              <div className="sc-label">Resting HR</div>
-              <div className="sc-num" style={{ fontSize: 18 }}>{s?.rhrSeries?.at(-1) ?? '—'}<span style={{ fontSize: '.5em', color: 'var(--dim)' }}>bpm</span></div>
-            </div>
-          </div>
-        </div>
+        </Detail>
 
         {/* Scrollable muscle bars */}
         <div className="muscle-scroll fade">
@@ -5525,7 +5971,10 @@ function S5({ s, refresh }) {
               <div className="muscle-bar-track">
                 <div className="muscle-bar-fill" style={{ width: `${v}%`, background: v < 40 ? 'var(--forest)' : v < 70 ? 'var(--gold)' : 'var(--red)' }} />
               </div>
-              <div className="muscle-pct">{v}%</div>
+              {/* Same bar, same colour, same ordering at every level — only the
+                  readout on the right changes from a number to a word. */}
+              <Detail max="beginner"><div className="muscle-pct" style={{ minWidth: 68 }}>{recoveryWord(v)}</div></Detail>
+              <Detail min="intermediate"><div className="muscle-pct">{v}%</div></Detail>
             </div>
           ))}
           {!sortedFatigue.length && <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, color: 'var(--dim)', paddingTop: 10, fontStyle: 'italic' }}>No recent sessions logged.</div>}
@@ -5541,7 +5990,7 @@ function S5({ s, refresh }) {
         </div>
       </>}
 
-      {tab === 'ranking' && <>
+      {activeTab === 'ranking' && <>
         {/* Body triptych, colored by strength-ranking tier instead of fatigue */}
         <div className="fade" style={{ flexShrink: 0, display: 'flex', justifyContent: 'center', alignItems: 'flex-start', borderTop: '2px solid var(--ink)', borderBottom: '2px solid var(--ink)', margin: '6px 0' }}>
           {[['Anterior', rankAntRef], ['Lateral', rankLatRef], ['Posterior', rankPostRef]].map(([label, ref]) => (
@@ -5584,7 +6033,7 @@ function S5({ s, refresh }) {
         )}
       </>}
 
-      {tab === 'types' && (
+      {activeTab === 'types' && (
         <div className="fade" style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 16, overflowY: 'auto', paddingTop: 8 }}>
           {[
             { label: 'Structural', value: overallFatigue, desc: 'Mechanical tissue damage — per muscle, decays 48–72h. Adjusted by logged soreness.', color: overallFatigue > 60 ? 'var(--red)' : overallFatigue > 30 ? 'var(--gold)' : 'var(--forest)' },
@@ -5612,7 +6061,7 @@ function S5({ s, refresh }) {
         </div>
       )}
 
-      {tab === 'adaptation' && (
+      {activeTab === 'adaptation' && (
         <div className="fade" style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0, overflowY: 'auto' }}>
           <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)', letterSpacing: '.08em', marginBottom: 10 }}>
             Colored by current stimulus level — red means it's effectively atrophying, green means it's actively adapting. Tap a muscle for its full continuous curve below.
@@ -5684,7 +6133,7 @@ function S5({ s, refresh }) {
         </div>
       )}
 
-      {tab === 'soreness' && (
+      {activeTab === 'soreness' && (
         <div className="fade" style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0, overflowY: 'auto' }}>
           <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)', letterSpacing: '.08em', marginBottom: 10 }}>
             Tap a muscle on the diagram (or in the list below it) to log soreness (1–10)
@@ -5751,7 +6200,7 @@ function S5({ s, refresh }) {
         </div>
       )}
 
-      {tab === 'injuries' && (
+      {activeTab === 'injuries' && (
         <div className="fade" style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0, overflowY: 'auto' }}>
           <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)', letterSpacing: '.08em', marginBottom: 6 }}>
             Active injuries — logged to avoid overloading affected areas
@@ -5969,7 +6418,7 @@ function S6({ s, refresh }) {
   };
   return (
     <section id="s6" style={{ display: 'flex', flexDirection: 'column' }}>
-      <div className="fade" style={{ flexShrink: 0 }}>
+      <div className="fade panel-head" style={{ flexShrink: 0 }}>
         <div className="kicker">Profile</div>
         <div className="headline" style={{ fontSize: 'clamp(24px,6vw,44px)', lineHeight: '.96' }}>{s?.profile?.name || 'Profile'}</div>
       </div>
@@ -6196,7 +6645,7 @@ function S7({ s }) {
 
   return (
     <section id="s7" style={{ display: 'flex', flexDirection: 'column' }}>
-      <div className="fade" style={{ flexShrink: 0 }}>
+      <div className="fade panel-head" style={{ flexShrink: 0 }}>
         <div className="kicker">Personal Records · All Time</div>
         <div className="headline" style={{ fontSize: 'clamp(24px,6vw,44px)', lineHeight: '.96' }}>All-Time<br />Bests</div>
         <div className="deck">{prs.length} exercise{prs.length !== 1 ? 's' : ''} tracked</div>
@@ -6808,13 +7257,23 @@ function Onboarding({ onComplete, onOpenImport }) {
 // both stored on the profile (panelOrder/hiddenPanels,
 // recoveryTabOrder/hiddenRecoveryTabs) and consumed by App()/S5. Defaults
 // here double as the fallback when a profile has never set a preference.
-const DEFAULT_PANEL_ORDER = ['s1', 's2', 's3', 's4', 's5', 's6', 's7'];
+// Recommendation-first, not section-numbered: Dispatch carries today's
+// limiting factor, Training carries the recommendation and the reasoning, and
+// Recovery explains the fatigue behind both. Those three answer "what should I
+// train today, and why" and so lead; sleep/nutrition/body/records are the
+// supporting record and follow. Only affects accounts that have never
+// reordered — a stored profile.panelOrder always wins.
+const DEFAULT_PANEL_ORDER = ['s1', 's3', 's5', 's2', 's4', 's6', 's7'];
+// Dashboard panel display states. 'standard' is the natural-height default and
+// is never stored — an unset panel and an explicitly-standard one are the same
+// thing, so nothing has to be migrated when a panel is added.
+const PANEL_STATE_LABELS = { collapsed: 'Collapsed', standard: 'Standard', expanded: 'Wide' };
 const PANEL_LABELS = { s1: 'Dispatch', s2: 'Sleep', s3: 'Training', s4: 'Nutrition', s5: 'Recovery', s6: 'Body & Supplements', s7: 'Personal Records' };
 const DOCK_LABELS = { s1: 'Dispatch', s2: 'Sleep', s3: 'Training', s4: 'Nutrition', s5: 'Recovery', s6: 'Body', s7: 'Records' };
 const DEFAULT_RECOVERY_TAB_ORDER = ['fatigue', 'ranking', 'types', 'adaptation', 'soreness', 'injuries'];
 const RECOVERY_TAB_LABELS = { fatigue: 'Structural', ranking: 'Ranking', types: 'Types', adaptation: 'Adaptation', soreness: 'Soreness', injuries: 'Injuries' };
 
-function PanelOrderEditor({ order, hidden, labels, onChange }) {
+function PanelOrderEditor({ order, hidden, labels, states, expertise, onChange, onStateChange }) {
   const move = (id, dir) => {
     const idx = order.indexOf(id);
     const swap = idx + dir;
@@ -6824,12 +7283,23 @@ function PanelOrderEditor({ order, hidden, labels, onChange }) {
     onChange(next, hidden);
   };
   const toggleHidden = id => onChange(order, hidden.includes(id) ? hidden.filter(h => h !== id) : [...hidden, id]);
+  const stateOf = id => resolvePanelState(id, states, expertise);
+  const cycleState = id => onStateChange(id, PANEL_STATES[(PANEL_STATES.indexOf(stateOf(id)) + 1) % PANEL_STATES.length]);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
       {order.map((id, i) => (
         <div key={id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 0', borderBottom: '1px solid var(--paper2)', opacity: hidden.includes(id) ? 0.45 : 1 }}>
           <span style={{ flex: 1, fontFamily: "'JetBrains Mono',monospace", fontSize: 11, color: 'var(--ink)' }}>{labels[id] || id}</span>
+          {/* Only the home panels have display states — the same editor also
+              drives the Recovery tab list, which has no notion of size. */}
+          {onStateChange && (
+            <button className="ol-btn ol-btn-ghost" style={{ fontSize: 9, padding: '5px 10px', minWidth: 74 }}
+              onClick={() => cycleState(id)} disabled={hidden.includes(id)}
+              aria-label={`${labels[id]} size: ${PANEL_STATE_LABELS[stateOf(id)]}. Change`}>
+              {PANEL_STATE_LABELS[stateOf(id)]}
+            </button>
+          )}
           <button className="ol-btn ol-btn-ghost" style={{ fontSize: 10, padding: '5px 10px' }} disabled={i === 0} onClick={() => move(id, -1)} aria-label={`Move ${labels[id]} up`}>↑</button>
           <button className="ol-btn ol-btn-ghost" style={{ fontSize: 10, padding: '5px 10px' }} disabled={i === order.length - 1} onClick={() => move(id, 1)} aria-label={`Move ${labels[id]} down`}>↓</button>
           <button className="ol-btn ol-btn-ghost" style={{ fontSize: 9, padding: '5px 10px', minWidth: 48 }} onClick={() => toggleHidden(id)}>{hidden.includes(id) ? 'Show' : 'Hide'}</button>
@@ -7041,6 +7511,16 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
   const savePanels = async (order, hidden) => {
     setPanelOrder(order); setHiddenPanels(hidden);
     const profile = await api('profile', { method: 'POST', body: JSON.stringify({ panelOrder: order, hiddenPanels: hidden }) });
+    refresh({ ...s, profile });
+  };
+  const expertiseLevel = normalizeExpertise(s?.profile?.expertiseLevel);
+  const saveExpertiseLevel = async (lvl) => {
+    const profile = await api('profile', { method: 'POST', body: JSON.stringify({ expertiseLevel: lvl }) });
+    refresh({ ...s, profile });
+  };
+  const savePanelState = async (id, next) => {
+    const merged = { ...(s?.profile?.panelStates || {}), [id]: next };
+    const profile = await api('profile', { method: 'POST', body: JSON.stringify({ panelStates: merged }) });
     refresh({ ...s, profile });
   };
   const saveRecoveryTabs = async (order, hidden) => {
@@ -7477,7 +7957,20 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
               placeholder="e.g. 2" style={{ flex: 1, minWidth: 0, maxWidth: 80 }} />
           </div>
           <div className="prof-field">
-            <span className="prof-lbl">Experience Level <span style={{ fontSize: 8, color: 'var(--dim)', textTransform: 'none' }}>(new-lifter fatigue budget)</span></span>
+            <span className="prof-lbl">Detail Level <span style={{ fontSize: 8, color: 'var(--dim)', textTransform: 'none' }}>(how much of the model is shown — never changes what's recommended)</span></span>
+            {EXPERTISE_LEVELS.map(lvl => (
+              <button key={lvl} className={`echelon-card${expertiseLevel === lvl ? ' selected' : ''}`}
+                onClick={() => saveExpertiseLevel(lvl)}>
+                <div className="echelon-card-dot" />
+                <div style={{ flex: 1 }}>
+                  <div className="echelon-card-title">{EXPERTISE_LABELS[lvl]}</div>
+                  <div className="echelon-card-desc">{EXPERTISE_BLURBS[lvl]}</div>
+                </div>
+              </button>
+            ))}
+          </div>
+          <div className="prof-field">
+            <span className="prof-lbl">Experience Level <span style={{ fontSize: 8, color: 'var(--dim)', textTransform: 'none' }}>(new-lifter fatigue budget — unrelated to Detail Level above)</span></span>
             <div style={{ display: 'flex', gap: 6 }}>
               {['New to training', 'Experienced'].map(lvl => (
                 <button key={lvl} className="prof-btn" onClick={() => saveExperienceLevel(lvl)}
@@ -7687,7 +8180,8 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
         {/* ── LAYOUT ── */}
         <div className="settings-sec">
           <div className="settings-sh">Home Screen Order</div>
-          <PanelOrderEditor order={panelOrder} hidden={hiddenPanels} labels={PANEL_LABELS} onChange={savePanels} />
+          <PanelOrderEditor order={panelOrder} hidden={hiddenPanels} labels={PANEL_LABELS}
+            states={s?.profile?.panelStates} expertise={expertiseLevel} onChange={savePanels} onStateChange={savePanelState} />
         </div>
 
         <div className="settings-sec">
@@ -8603,6 +9097,48 @@ function UsernameSetup({ user, onComplete }) {
   );
 }
 
+// Packs the desktop dashboard's panels into the grid masonry described in
+// PRESS_CSS's .scroll block: measure each panel's natural height, express it
+// as a span of 1px grid rows, then redraw the column hairlines from the grid's
+// resolved track widths.
+//
+// Whether masonry is on is read back from the computed grid rather than a JS
+// breakpoint — .scroll is only display:grid above 480px, so gridTemplateColumns
+// is "none" on mobile, and there's no second copy of the breakpoint to drift
+// out of sync with the media query.
+function layoutMasonry() {
+  const scroll = document.getElementById('press-scroll');
+  if (!scroll) return;
+  const panels = [...scroll.querySelectorAll(':scope > .panel')];
+  const tracks = getComputedStyle(scroll).gridTemplateColumns;
+  const host = document.getElementById('col-rules');
+
+  if (!tracks || tracks === 'none') {
+    panels.forEach(panel => { panel.style.gridRowEnd = ''; });
+    if (host) host.replaceChildren();
+    return;
+  }
+
+  panels.forEach(panel => {
+    panel.style.gridRowEnd = `span ${Math.max(1, Math.ceil(panel.getBoundingClientRect().height))}`;
+  });
+
+  if (!host) return;
+  const widths = tracks.split(' ').map(parseFloat).filter(w => w > 0);
+  const wanted = Math.max(0, widths.length - 1);
+  while (host.children.length > wanted) host.lastChild.remove();
+  while (host.children.length < wanted) {
+    const rule = document.createElement('div');
+    rule.className = 'col-rule';
+    host.appendChild(rule);
+  }
+  let x = 0;
+  for (let i = 0; i < wanted; i++) {
+    x += widths[i];
+    host.children[i].style.left = `${x}px`;
+  }
+}
+
 function App() {
   const [user, setUser] = useState(undefined); // undefined = checking, null = signed out
   const [s, setS] = useState(null);
@@ -8616,6 +9152,7 @@ function App() {
   const [chatOpen, setChatOpen] = useState(false);
   const [onboarded, setOnboarded] = useState(() => !!localStorage.getItem('press_onboarded'));
   const [briefing, setBriefing] = useState(null);
+  const [recommendation, setRecommendation] = useState(null);
   const [showBriefing, setShowBriefing] = useState(false);
   const [afternoonNewscast, setAfternoonNewscast] = useState(null);
   const [nightNewscast, setNightNewscast] = useState(null);
@@ -8672,8 +9209,8 @@ function App() {
     if (bubbleDrag.current.moved) { bubbleDrag.current.moved = false; return; }
     setChatOpen(true);
   };
-  // Below 480px the newspaper's column layout collapses to one column anyway
-  // (see .scroll's column-width in PRESS_CSS), which reads as one long
+  // Below 480px .scroll drops out of the masonry grid entirely and falls back
+  // to block flow (see PRESS_CSS's .scroll block), which reads as one long
   // vertical scroll through every section back to back. The dock replaces
   // that with tap-to-switch, one section on screen at a time; above 480px
   // the multi-column scroll layout stays as-is.
@@ -8776,6 +9313,33 @@ function App() {
   }, []);
 
   const refresh = data => { if (data) setS(data); else loadSummary(); };
+
+  // Fetched separately from /summary and after it, so the fatigue pass this
+  // needs never delays the first paint — the "Why This" block fills in a beat
+  // later rather than holding up the whole dashboard. Re-runs when the stored
+  // plan is regenerated or new lifts land, since both change the reasoning.
+  // A failure leaves it null, which RecommendationPanel renders as nothing.
+  const planStamp = s?.weeklyPlan?.generatedAt || null;
+  const liftCount = s?.lifts?.length ?? 0;
+  useEffect(() => {
+    if (!s || !planStamp) { setRecommendation(null); return; }
+    let cancelled = false;
+    api('plan/recommendation')
+      .then(data => { if (!cancelled) setRecommendation(data); })
+      .catch(() => { if (!cancelled) setRecommendation(null); });
+    return () => { cancelled = true; };
+  }, [planStamp, liftCount]);
+
+  const expertise = normalizeExpertise(s?.profile?.expertiseLevel);
+  const panelStates = s?.profile?.panelStates || {};
+  // Optimistic: the panel resizes on click rather than after the round trip,
+  // and layoutMasonry's ResizeObserver repacks off the resulting height change.
+  const setPanelState = async (id, next) => {
+    const merged = { ...panelStates, [id]: next };
+    setS(cur => ({ ...cur, profile: { ...cur.profile, panelStates: merged } }));
+    const profile = await api('profile', { method: 'POST', body: JSON.stringify({ panelStates: merged }) });
+    setS(cur => ({ ...cur, profile }));
+  };
 
   useEffect(() => {
     if (user) loadSummary();
@@ -8882,6 +9446,41 @@ function App() {
     return () => obs.disconnect();
   }, [user, !!s, isMobile, activeSection]);
 
+  // Re-pack the masonry whenever anything that changes a section's height
+  // changes. A ResizeObserver on each section covers the cases a dependency
+  // list can't see — a panel expanding, a chart finishing its first render, an
+  // image or the webfont landing — and observing .scroll itself catches the
+  // viewport width crossing a column-count boundary.
+  //
+  // Writing gridRowEnd back is safe inside a ResizeObserver only because
+  // .panel is align-self:start: the span sizes the grid area, never the
+  // panel, so the observer can't be re-triggered by its own callback.
+  // The rAF still batches the burst of callbacks a resize produces into one
+  // pass, and (running before paint) keeps the repack off-screen.
+  useLayoutEffect(() => {
+    const scroll = document.getElementById('press-scroll');
+    if (!scroll) return;
+
+    let frame = 0;
+    const schedule = () => {
+      if (frame) return;
+      frame = requestAnimationFrame(() => { frame = 0; layoutMasonry(); });
+    };
+
+    layoutMasonry();
+    const obs = new ResizeObserver(schedule);
+    obs.observe(scroll);
+    scroll.querySelectorAll(':scope > .panel').forEach(panel => obs.observe(panel));
+    // Webfonts land after first paint and reflow every headline; without this
+    // every section stays packed at its fallback-font height.
+    document.fonts?.ready.then(schedule).catch(() => {});
+
+    return () => { obs.disconnect(); if (frame) cancelAnimationFrame(frame); };
+    // Keyed off what the rendered section list is derived from further down
+    // (panelOrder/hiddenPanels/trackingLevel) rather than sectionIds itself,
+    // which is declared below the early returns and would be in its TDZ here.
+  }, [user, !!s, isMobile, s?.profile?.panelOrder?.join(','), s?.profile?.hiddenPanels?.join(','), s?.profile?.trackingLevel]);
+
   if (user === undefined) return <LoadingScreen />;
 
   if (!user) return <LoginScreen />;
@@ -8916,14 +9515,14 @@ function App() {
     !hiddenPanelSet.has(id) && (id !== 's2' || showSleep) && (id !== 's4' || showFuel)
   );
   const sectionEls = {
-    s1: <S1 key="s1" s={s} briefing={briefing} onShowBriefing={() => setShowBriefing(true)}
+    s1: <S1 key="s1" s={s} recommendation={recommendation} briefing={briefing} onShowBriefing={() => setShowBriefing(true)}
             onShowAfternoon={() => afternoonNewscast ? setShowAfternoonNewscast(true) : fetchNewscast('afternoon')}
             onShowNight={() => nightNewscast ? setShowNightNewscast(true) : fetchNewscast('night')}
             onShowWeekly={() => weeklyReview ? setShowWeeklyReview(true) : fetchWeeklyReview()}
             afternoonLoaded={!!afternoonNewscast} nightLoaded={!!nightNewscast} weeklyLoaded={!!weeklyReview}
             loadingPeriod={loadingPeriod} newscastError={newscastError} />,
     s2: <S2 key="s2" s={s} refresh={refresh} />,
-    s3: <S3 key="s3" s={s} onStartWorkout={planDay => setLoggerPlanDay(planDay ?? null)} onImport={() => setShowImport(true)} onHistory={() => setShowHistory(true)} refresh={refresh} />,
+    s3: <S3 key="s3" s={s} recommendation={recommendation} onStartWorkout={planDay => setLoggerPlanDay(planDay ?? null)} onImport={() => setShowImport(true)} onHistory={() => setShowHistory(true)} refresh={refresh} />,
     s4: <S4 key="s4" s={s} refresh={refresh} />,
     s5: <S5 key="s5" s={s} refresh={refresh} />,
     s6: <S6 key="s6" s={s} refresh={refresh} />,
@@ -8931,7 +9530,7 @@ function App() {
   };
 
   return (
-    <>
+    <ExpertiseContext.Provider value={expertise}>
       {(!onboarded || forceOnboarding) && (
         <Onboarding
           onComplete={() => { handleOnboardDone(); setForceOnboarding(false); }}
@@ -8949,10 +9548,25 @@ function App() {
         {sectionIds.map(id => <div key={id} className="sn-dot" />)}
       </nav>
       <div className="scroll" id="press-scroll">
+        <div className="col-rules" id="col-rules" aria-hidden="true" />
         {sectionIds.map(id => {
-          if (!isMobile) return sectionEls[id];
           const active = (sectionIds.includes(activeSection) ? activeSection : sectionIds[0]) === id;
-          return <div key={id} style={{ display: active ? 'contents' : 'none' }}>{sectionEls[id]}</div>;
+          const state = resolvePanelState(id, panelStates, expertise);
+          const collapsed = state === 'collapsed';
+          return (
+            <div key={id} className={`panel panel-${state}${isMobile && !active ? ' panel-off' : ''}`}>
+              {/* Dock mode already shows exactly one section at a time, so
+                  there's nothing for collapsing to buy on mobile. */}
+              {!isMobile && (
+                <button className="panel-toggle" aria-expanded={!collapsed} aria-controls={id}
+                  aria-label={`${collapsed ? 'Expand' : 'Collapse'} ${PANEL_LABELS[id] || id}`}
+                  onClick={() => setPanelState(id, collapsed ? 'standard' : 'collapsed')}>
+                  {collapsed ? '+' : '−'}
+                </button>
+              )}
+              {sectionEls[id]}
+            </div>
+          );
         })}
       </div>
       {isMobile && (
@@ -8995,7 +9609,7 @@ function App() {
       )}
       {showImport && <HevyImport onClose={() => setShowImport(false)} refresh={setS} />}
       {showHistory && <WorkoutHistory s={s} onClose={() => setShowHistory(false)} refresh={setS} />}
-    </>
+    </ExpertiseContext.Provider>
   );
 }
 

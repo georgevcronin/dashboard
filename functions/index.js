@@ -6,6 +6,8 @@ const webpush = require("web-push");
 const { EXERCISE_DB, EXERCISE_MAP } = require('./exerciseDb');
 const { isCompoundExercise, findExercise } = require('./muscleTaxonomy');
 const { generateWeeklyGuidance, pickBackboneExercises, computeMusclePriority, scoreBucket, MUSCLE_GROUPS, FATIGUE_CEILING, SECONDARY_FATIGUE_CEILING } = require('./weeklyPlanner');
+const { buildRecommendation } = require('./recommendation');
+const { todaysLimitingFactor } = require('./limitingFactor');
 const { SPLIT_GROUPS, rankMusclesByFreshness, typicalSessionMuscleCount, mostOverdueGroup, detectPreferredSplit, neglectedMuscles } = require('./splitPlanner');
 const { computeMuscleLevels, classifyLift, estimate1RM } = require('./strengthStandards');
 const { loadAllLifts, appendLifts, removeLiftsAndAppend } = require('./liftChunks');
@@ -1751,7 +1753,11 @@ app.post("/import/hevy", async (req, res) => {
 // How many strength sessions this week's fatigue can absorb, and which muscle
 // groups are freshest right now. No days, no locked exercises, nothing that
 // tells the athlete "today is leg day" — see weeklyPlanner.js's header for why.
-function computeWeeklyGuidance() {
+// Split out from computeWeeklyGuidance so the explanation layer can be handed
+// the identical inputs the guidance was produced from. recommendation.js
+// re-derives the planner's own terms rather than recomputing them, and that
+// only holds if it sees exactly the same fatigue map, exclusions and split.
+function weeklyGuidanceInputs() {
   const peaks = musclePeaksFromLifts(db.lifts);
   const structuralFatigue = computeStructuralFatigue(db.lifts, peaks, db.soreness || [], db.muscleSensitivity || {}, personalizedRecoveryHours(db.profile));
   const currentFatigue = applyInjuryTaper(structuralFatigue, db.injuries || []);
@@ -1760,7 +1766,7 @@ function computeWeeklyGuidance() {
   const maturityWeek = computeDataMaturity(db.lifts);
   const muscleFocus = db.profile?.muscleFocus || {};
   const ignoredMuscles = Object.entries(muscleFocus).filter(([,v]) => v === 'ignore').map(([m]) => m);
-  return generateWeeklyGuidance({
+  return {
     currentFatigue, weekMetabolic, weekCNS, offlineMuscles: ignoredMuscles,
     dataMature: maturityWeek.hasEnoughData,
     trainingPriority: db.profile?.trainingPriority || 'strength',
@@ -1771,8 +1777,71 @@ function computeWeeklyGuidance() {
     // must agree on which split is actually in effect.
     preferredSplit: db.profile?.preferredSplit || detectPreferredSplit(db.lifts) || 'Full Body',
     muscleFocus,
-  });
+  };
 }
+
+function computeWeeklyGuidance() {
+  return generateWeeklyGuidance(weeklyGuidanceInputs());
+}
+
+// Why the guidance says what it says: reasoning, the alternatives that lost,
+// what changes if one is picked instead, and how much to trust any of it.
+// Explanation only — it never alters the guidance it describes.
+//
+// Explains a freshly computed guidance rather than the stored db.weeklyPlan,
+// because the stored plan was ranked against whatever fatigue existed when it
+// was saved. Narrating those rankings with today's fatigue terms would produce
+// an explanation that contradicts itself. Instead the live ranking is always
+// self-consistent, and `supersedes` names the stored plan's pick when fatigue
+// has since moved on — which is a fact worth surfacing rather than hiding.
+function computeRecommendation(storedPlan) {
+  const inputs = weeklyGuidanceInputs();
+  const live = generateWeeklyGuidance(inputs);
+  const rec = buildRecommendation({
+    guidance: live,
+    loggedSessionCount: new Set((db.lifts || []).map(l => l.date)).size,
+    ...inputs,
+  });
+  const storedTop = storedPlan?.muscleFocus?.[0]?.name || null;
+
+  // Rides along on this endpoint rather than getting its own: it needs exactly
+  // the fatigue pass already done above, and asking for it separately would
+  // repeat the most expensive part of the request for no benefit.
+  const recentDays = lastN(db.metrics, 30);
+  const todayMetrics = recentDays.at(-1) || {};
+  const limitingFactor = todaysLimitingFactor({
+    cnsFatigue: inputs.weekCNS,
+    metabolicFatigue: inputs.weekMetabolic,
+    currentFatigue: inputs.currentFatigue,
+    // Only the avoid list — that's what actually reaches computeMusclePriority
+    // as a hard exclusion. Injuries go in separately because applyInjuryTaper
+    // floors their fatigue rather than excluding them, which is a different
+    // thing to tell the athlete.
+    offlineMuscles: inputs.offlineMuscles,
+    injuries: (db.injuries || []).filter(i => !i.resolved).map(i => ({
+      area: i.area, muscles: i.muscles || [], penalty: injuryFatiguePenalty(i),
+    })),
+    recoveryScore: getRecoveryScore(db),
+    sleepHours: todayMetrics.sleep_hours ?? null,
+    sleepTarget: personalSleepTarget(recentDays).target,
+  });
+
+  return {
+    ...rec,
+    supersedes: storedTop && rec.chosen && storedTop !== rec.chosen.name ? storedTop : null,
+    limitingFactor,
+  };
+}
+
+// Deliberately its own endpoint rather than a field on /summary. Building it
+// needs a full structural/metabolic/CNS fatigue pass over the lift history,
+// and /summary is the app's cold-start request — already the slowest thing
+// here. The dashboard fetches this after it has painted, so the reasoning
+// arrives a moment late instead of delaying everything else.
+app.get("/plan/recommendation", async (req, res) => {
+  if (!db.weeklyPlan) return res.json(null);
+  res.json(computeRecommendation(db.weeklyPlan));
+});
 
 app.get("/plan/week", async (req, res) => {
   if (!db.weeklyPlan) return res.json(null);

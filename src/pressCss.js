@@ -26,8 +26,65 @@ body{font-family:'Times New Roman',Times,Georgia,serif;color:var(--ink)}
 @keyframes rtl{0%{transform:translateX(0)}100%{transform:translateX(-33.333%)}}
 .tick{display:inline-flex;gap:8px;align-items:center;padding:0 20px;font-size:10px;letter-spacing:.06em;border-right:1px solid var(--rule);font-family:'JetBrains Mono',monospace}
 .t-sym{color:var(--rule)}.t-val{color:var(--dim)}.t-up{color:var(--forest)}.t-dn{color:var(--red)}
-.scroll{padding-top:var(--hdr);column-width:440px;column-gap:0;column-rule:1px solid var(--rule)}
-@media(min-width:481px){.scroll{padding-right:40px}}
+/* Desktop is a masonry grid, not CSS multi-column. Multicol balances every
+   column to one shared height and can't split a section (break-inside:avoid),
+   so a section too tall for the remaining balanced height gets pushed whole to
+   the next column and leaves a large hole under the section before it —
+   Recovery was the usual victim. Grid auto-placement scans row by row for the
+   first free slot instead, which packs into whichever column is currently
+   shortest. Each section's height is expressed as a span of 1px rows, written
+   by layoutMasonry() in app.jsx; align-self:start keeps sections at their
+   natural content height so writing the span back can't change the height it
+   was measured from (no feedback loop). */
+.scroll{padding-top:var(--hdr)}
+@media(min-width:481px){
+.scroll{padding-right:40px;position:relative;display:grid;grid-template-columns:repeat(auto-fill,minmax(440px,1fr));grid-auto-rows:1px;grid-auto-flow:row dense;gap:0}
+}
+/* .panel wraps each section so a display state (collapsed / standard / wide)
+   and the toggle that drives it can be expressed without every section
+   component having to know it's living in a dashboard. It's display:contents
+   on mobile so the dock's one-section-at-a-time block flow is unaffected, and
+   a real grid item only once the masonry is on. */
+.panel{display:contents}
+@media(min-width:481px){
+.panel{display:block;position:relative;align-self:start;min-width:0}
+}
+/* Only once two 440px tracks actually fit. Below that the grid has a single
+   explicit column, and span 2 would make it generate an implicit second one —
+   the panel then overflows the viewport sideways instead of being ignored.
+   The background is load-bearing: panels are otherwise transparent, so the
+   column hairline the wide panel now straddles would show straight down its
+   middle. Only .panel-expanded gets one — putting it on every .panel would
+   paint over every rule, since a standard panel's edge sits exactly on one. */
+@media(min-width:940px){.panel-expanded{grid-column:span 2;background:var(--paper)}}
+.panel-off{display:none}
+/* Everything except the section's own header block hides, which is why each
+   section tags its header .panel-head — "the first .fade child" isn't
+   expressible as a selector, and S3 puts a travel banner ahead of its.
+   Desktop-only: the dock already shows one section at a time on mobile and
+   hides .panel-toggle, so honouring a collapsed panel there would render it
+   empty with no control left to reopen it. */
+@media(min-width:481px){
+.panel-collapsed>section>*:not(.panel-head){display:none}
+.panel-collapsed>section{padding-bottom:14px}
+}
+.panel-toggle{display:none}
+@media(min-width:481px){
+/* --dim, not --rule: --rule is a hairline colour and only reaches 1.73:1 on
+   paper, under the 3:1 WCAG AA wants for a control. --dim is 5.6:1 and is
+   already the token for secondary text in both themes. 24px square is the
+   2.5.8 minimum target — this is a pointer-only control, hidden on mobile. */
+.panel-toggle{display:flex;align-items:center;justify-content:center;position:absolute;top:3px;right:8px;z-index:3;width:24px;height:24px;padding:0;background:none;border:none;cursor:pointer;font-family:'JetBrains Mono',monospace;font-size:14px;line-height:1;color:var(--dim)}
+.panel-toggle:hover{color:var(--ink)}
+.panel-toggle:focus-visible{color:var(--ink);outline:1px solid var(--ink);outline-offset:1px}
+}
+/* The vertical hairlines multicol used to draw for free as column-rule. Sized
+   from the grid's resolved track widths rather than a gradient because .scroll
+   carries a 40px right padding (clearance for .sec-nav) that no percentage
+   split accounts for. */
+.col-rules{display:none}
+@media(min-width:481px){.col-rules{display:block;position:absolute;top:var(--hdr);bottom:0;left:0;right:0;pointer-events:none}}
+.col-rule{position:absolute;top:0;bottom:0;width:1px;background:var(--rule)}
 section{break-inside:avoid;-webkit-column-break-inside:avoid;page-break-inside:avoid;overflow:visible;position:relative;border-bottom:3px solid var(--ink);padding:24px 20px 20px;display:flex;flex-direction:column}
 .fade{opacity:0;transform:translateY(18px);transition:opacity .55s ease,transform .55s ease}
 section.visible .fade{opacity:1;transform:translateY(0)}
@@ -36,7 +93,11 @@ section.visible .fade:nth-child(3){transition-delay:.20s}
 section.visible .fade:nth-child(4){transition-delay:.32s}
 section.visible .fade:nth-child(5){transition-delay:.45s}
 section.visible .fade:nth-child(6){transition-delay:.56s}
-@media(prefers-reduced-motion:reduce){.fade,.ticker-track{animation:none;transition:none}.fade{opacity:1;transform:none}}
+/* .muscle-bar-fill animates its width, which is the parameter sliders' live
+   muscle-credit readout — the one place motion carries meaning here. It still
+   has to stop under reduced-motion: the bars land on the same values either
+   way, they just arrive instantly. */
+@media(prefers-reduced-motion:reduce){.fade,.ticker-track,.muscle-bar-fill{animation:none;transition:none}.fade{opacity:1;transform:none}}
 .hide-scrollbar{-ms-overflow-style:none;scrollbar-width:none}
 .hide-scrollbar::-webkit-scrollbar{display:none}
 .kicker{font-size:8px;letter-spacing:.22em;text-transform:uppercase;color:var(--dim);border-bottom:1px solid var(--ink);display:inline-block;padding-bottom:2px;margin-bottom:8px}

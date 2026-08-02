@@ -312,7 +312,17 @@ function generateWeeklyGuidance({ currentFatigue, weekMetabolic, weekCNS, offlin
     liftSessionsTarget,
     cardioSessionsTarget,
     hiitRecommended: cardioSessionsTarget > 0,
-    muscleFocus: buckets.map(b => ({ name: b.name, muscles: b.muscles, freshness: Math.min(100, Math.round(b.score)) })),
+    // freshness is the display figure and is clamped to 100; score is the raw
+    // ranking value and is not. They diverge whenever the staleness/focus
+    // boosts push a bucket past 100, which is common — anything comparing two
+    // buckets (recommendation.js) has to use score, or three genuinely
+    // different buckets all read as a dead heat at 100.
+    muscleFocus: buckets.map(b => ({
+      name: b.name,
+      muscles: b.muscles,
+      freshness: Math.min(100, Math.round(b.score)),
+      score: Math.round(b.score * 10) / 10,
+    })),
     restingMuscleGroups,
     rationale: guidanceRationale(liftSessionsTarget, cardioSessionsTarget, weekCNS, weekMetabolic, trainingPriority),
     dataMature,
@@ -322,4 +332,8 @@ function generateWeeklyGuidance({ currentFatigue, weekMetabolic, weekCNS, offlin
 module.exports = {
   generateWeeklyGuidance, pickBackboneExercises, computeMusclePriority, scoreBucket, planLiftSessionsTarget, planCardioSessionsTarget,
   stalenessBoost, MUSCLE_GROUPS, FATIGUE_CEILING, SECONDARY_FATIGUE_CEILING, FOCUS_MUSCLE_BONUS, TRAINING_PRIORITIES,
+  // Exported for recommendation.js: a bucket in muscleFocus only carries the
+  // muscles that were *available*, so explaining why one is missing needs the
+  // full membership this resolves.
+  focusGroups,
 };

@@ -4,6 +4,7 @@ const {
   computeStructuralFatigue, musclePeaksFromLifts, applyInjuryTaper,
   injuryFatiguePenalty, computeACWR, computePerformanceTrend, computeCNSFatigue,
   computeMuscleLastTrainedDays, fatigueTimeline, computeCompoundIsolationSplit, computeStabilitySplit,
+  recoveryWord,
 } = require('../functions/fatigue');
 
 const daysAgo = (n) => new Date(Date.now() - n * 86400000).toISOString().slice(0, 10);
@@ -375,4 +376,32 @@ test('computeStabilitySplit ignores lifts outside the 90-day window', () => {
   const lifts = [{ date: daysAgo(200), exercise: 'Leg Press', kg: 150, reps: 8 }];
   const split = computeStabilitySplit(lifts);
   assert.equal(split.total, 0);
+});
+
+// recoveryWord is what Beginner detail level shows instead of a percentage.
+// Its boundaries have to stay pinned to the muscle-bar colour bands in
+// src/app.jsx (green <40, gold <70, red >=70) or the word and the bar beside
+// it will disagree, which is the one failure mode that matters here.
+test('recoveryWord changes word exactly on the muscle-bar colour boundaries', () => {
+  assert.equal(recoveryWord(39), 'Recovering');
+  assert.equal(recoveryWord(40), 'Limited');   // green -> gold
+  assert.equal(recoveryWord(69), 'Limited');
+  assert.equal(recoveryWord(70), 'Fatigued');  // gold -> red
+});
+
+test('recoveryWord splits the green band into Fresh and Recovering at 20', () => {
+  assert.equal(recoveryWord(0), 'Fresh');
+  assert.equal(recoveryWord(19), 'Fresh');
+  assert.equal(recoveryWord(20), 'Recovering');
+});
+
+test('recoveryWord returns null for a missing or non-numeric score rather than a word', () => {
+  assert.equal(recoveryWord(null), null);
+  assert.equal(recoveryWord(undefined), null);
+  assert.equal(recoveryWord(NaN), null);
+  assert.equal(recoveryWord('50'), null);
+});
+
+test('recoveryWord covers the full 0-100 range with no gaps', () => {
+  for (let i = 0; i <= 100; i++) assert.ok(recoveryWord(i), `no word for ${i}`);
 });

@@ -457,6 +457,16 @@ function generateSessionExercises({ type, targetMuscles, backboneExerciseNames, 
     avoidMusclesSecondary: excludeMusclesSecondary, preferStable,
   }) : [];
 
+  // Which exercises actually drive the session, taken from the selection that
+  // already happened rather than re-derived from the name. A backbone pick is
+  // what pickBackboneExercises chose to cover the target muscles; everything
+  // else is support work, split by whether it's multi-joint. Surfaced so the
+  // interface can rank them visually instead of showing a flat list where the
+  // squat and a cable curl look equally important.
+  const backboneNames = new Set(backboneEntries.map(e => e.name.toLowerCase()));
+  const roleFor = e => (backboneNames.has(e.name.toLowerCase()) ? 'primary'
+    : isCompoundExercise(e.name) ? 'secondary' : 'isolation');
+
   const buildEntry = e => {
     const prog = progressionFor(lifts, e.name, warmupScheme);
     const sessionCount = exerciseSessionCount(lifts, e.name);
@@ -476,7 +486,7 @@ function generateSessionExercises({ type, targetMuscles, backboneExerciseNames, 
     // own angle attachment) -- every family entry in the response should
     // always carry SOME angle, not just whichever ones took the normal path.
     return {
-      name: e.name, note, sets,
+      name: e.name, note, sets, role: roleFor(e),
       ...(e.isAngleFamily ? { family: true, pattern: e.pattern, equipment: e.equipment, angle: e.angle ?? idealAngleForMuscle(e.pattern, e.primary[0]) } : {}),
     };
   };

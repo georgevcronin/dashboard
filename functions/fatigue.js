@@ -421,9 +421,32 @@ function computeStabilitySplit(lifts, windowDays = 90) {
   return { stable, unstable, total: stable + unstable };
 }
 
+// Plain-language name for a 0-100 fatigue score, used wherever the interface
+// is showing recovery without a number (Beginner detail level).
+//
+// The 40 and 70 boundaries are not free parameters: they're the same two the
+// muscle bars colour on (green below 40, gold below 70, red above), so the
+// word and the bar it sits next to can never disagree. FRESH_CEILING only
+// subdivides the green band, which is otherwise a 40-point span reading as a
+// single state. Changing a boundary here means changing the bar colours in
+// src/app.jsx to match.
+const RECOVERY_BANDS = [
+  [70, 'Fatigued'],
+  [40, 'Limited'],
+  [20, 'Recovering'],
+  [0, 'Fresh'],
+];
+
+function recoveryWord(fatigue) {
+  if (typeof fatigue !== 'number' || Number.isNaN(fatigue)) return null;
+  for (const [floor, word] of RECOVERY_BANDS) if (fatigue >= floor) return word;
+  return 'Fresh';
+}
+
 module.exports = {
   computeStructuralFatigue, computeCurrentFatigueScores, musclePeaksFromLifts, fatigueTimeline,
   INJURY_HEALING_DAYS, injuryFatiguePenalty, applyInjuryTaper,
   computeACWR, computePerformanceTrend, computeMetabolicFatigue, computeCNSFatigue,
   cnsLoad, computeMuscleLastTrainedDays, computeCompoundIsolationSplit, computeStabilitySplit,
+  recoveryWord, RECOVERY_BANDS,
 };

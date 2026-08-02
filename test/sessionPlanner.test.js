@@ -448,3 +448,47 @@ test('generateSessionExercises surfaces family/pattern/equipment/angle for a hyp
   assert.equal(result[0].equipment, 'bodyweight');
   assert.equal(result[0].angle, 90);
 });
+
+// The exercise role drives visual hierarchy in the session view — the athlete
+// should be able to tell at a glance which lift drives the session and which
+// is support work. It has to come from the selection that actually happened,
+// not from re-guessing the name, or the labelling and the plan can disagree.
+test('generateSessionExercises labels the backbone pick primary and the rest support work', () => {
+  const out = generateSessionExercises({
+    type: 'lift', targetMuscles: ['chest', 'triceps', 'front-delt'],
+    backboneExerciseNames: ['Barbell Bench Press'], lifts: [],
+  });
+  const bench = out.find(e => e.name === 'Barbell Bench Press');
+  assert.equal(bench.role, 'primary');
+  for (const e of out) {
+    assert.ok(['primary', 'secondary', 'isolation'].includes(e.role), `${e.name} got role ${e.role}`);
+    if (e.name !== 'Barbell Bench Press') assert.notEqual(e.role, 'primary');
+  }
+});
+
+test('every generated exercise carries a role, including duration-filled dedicated accessories', () => {
+  const out = generateSessionExercises({
+    type: 'lift', targetMuscles: ['chest', 'triceps', 'front-delt', 'mid-delt'],
+    backboneExerciseNames: ['Barbell Bench Press'], lifts: [], maxDurationMin: 90,
+  });
+  assert.ok(out.length > 2);
+  for (const e of out) assert.ok(e.role, `${e.name} has no role`);
+});
+
+test('role survives a case-mismatched backbone name rather than mislabelling it support work', () => {
+  const out = generateSessionExercises({
+    type: 'lift', targetMuscles: ['chest', 'triceps'],
+    backboneExerciseNames: ['barbell bench press'], lifts: [],
+  });
+  const bench = out.find(e => e.name.toLowerCase() === 'barbell bench press');
+  assert.equal(bench.role, 'primary');
+});
+
+test('an isolation accessory is labelled isolation, not secondary compound', () => {
+  const out = generateSessionExercises({
+    type: 'lift', targetMuscles: ['biceps'],
+    backboneExerciseNames: [], lifts: [], isolationOnly: true,
+  });
+  assert.ok(out.length > 0);
+  for (const e of out) assert.equal(e.role, 'isolation', `${e.name} labelled ${e.role}`);
+});
