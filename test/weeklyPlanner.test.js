@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const {
   computeMusclePriority, scoreBucket, generateWeeklyGuidance,
   pickBackboneExercises, planLiftSessionsTarget, planCardioSessionsTarget,
-  stalenessBoost, MUSCLE_GROUPS, FATIGUE_CEILING, FOCUS_MUSCLE_BONUS,
+  stalenessBoost, MUSCLE_GROUPS, FATIGUE_CEILING, FOCUS_MUSCLE_BONUS, DEPRIORITISE_PENALTY,
 } = require('../functions/weeklyPlanner');
 
 test('computeMusclePriority marks offline muscles as -1 regardless of fatigue', () => {
@@ -322,4 +322,61 @@ test('generateWeeklyGuidance threads muscleLastTrainedDays through so the displa
   const legs = guidance.muscleFocus.find(b => b.name === 'legs');
   const push = guidance.muscleFocus.find(b => b.name === 'push');
   assert.ok(legs.freshness >= push.freshness, 'a bucket with genuinely overdue muscles should not rank behind an unremarkable-freshness bucket');
+});
+
+// ---------------------------------------------------------------------------
+// Deprioritise vs Avoid. These are two different things and the whole point of
+// the setting is that they behave differently: Avoid removes a muscle from
+// selection, Deprioritise only ranks it last while keeping it fully modelled.
+// ---------------------------------------------------------------------------
+
+test('deprioritise lowers a muscle by exactly the mirror of the focus bonus', () => {
+  const fatigue = { chest: 10 };
+  const normal = computeMusclePriority(fatigue, [], null, {});
+  const down = computeMusclePriority(fatigue, [], null, { chest: 'deprioritise' });
+  const up = computeMusclePriority(fatigue, [], null, { chest: 'focus' });
+  assert.equal(normal.chest - down.chest, DEPRIORITISE_PENALTY);
+  assert.equal(up.chest - normal.chest, FOCUS_MUSCLE_BONUS);
+});
+
+// The distinction that makes the setting worth having: a deprioritised muscle
+// is still trainable, still accrues fatigue, still recovers. Only its ranking
+// changes. An avoided muscle leaves selection entirely.
+test('deprioritise keeps a muscle selectable, avoid does not', () => {
+  const fatigue = { chest: 10 };
+  const deprioritised = computeMusclePriority(fatigue, [], null, { chest: 'deprioritise' });
+  assert.ok(deprioritised.chest >= 0, 'deprioritise must not exclude');
+
+  // 'ignore' reaches computeMusclePriority as an offlineMuscles entry — that is
+  // how functions/index.js folds it in.
+  const avoided = computeMusclePriority(fatigue, ['chest'], null, { chest: 'ignore' });
+  assert.equal(avoided.chest, -1);
+});
+
+test('a deprioritised muscle still appears in its bucket, just ranked lower', () => {
+  const fatigue = { chest: 10, 'front-delt': 10, triceps: 10, 'mid-delt': 10, serratus: 10 };
+  const priority = computeMusclePriority(fatigue, [], null, { chest: 'deprioritise' });
+  const bucket = scoreBucket(MUSCLE_GROUPS.push, priority);
+  assert.ok(bucket.muscles.includes('chest'), 'chest dropped out of the bucket entirely');
+  assert.ok(priority.chest < priority['front-delt'], 'chest should rank below an unmodified peer');
+});
+
+// -1 is the sentinel for "do not load". A penalty must never reach it, or
+// deprioritise silently becomes avoid.
+test('deprioritise can never reach the exclusion sentinel', () => {
+  const focus = {};
+  const fatigue = {};
+  for (const m of MUSCLE_GROUPS.push) { focus[m] = 'deprioritise'; fatigue[m] = FATIGUE_CEILING - 1; }
+  const priority = computeMusclePriority(fatigue, [], null, focus);
+  for (const m of MUSCLE_GROUPS.push) {
+    assert.ok(priority[m] >= 0, `${m} fell to ${priority[m]}`);
+    assert.notEqual(priority[m], -1);
+  }
+});
+
+test('an unrecognised muscleFocus value is treated as normal, not as a penalty', () => {
+  const fatigue = { chest: 10 };
+  const normal = computeMusclePriority(fatigue, [], null, {});
+  const odd = computeMusclePriority(fatigue, [], null, { chest: 'whatever' });
+  assert.equal(odd.chest, normal.chest);
 });

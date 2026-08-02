@@ -8,6 +8,7 @@ const { isCompoundExercise, findExercise } = require('./muscleTaxonomy');
 const { generateWeeklyGuidance, pickBackboneExercises, computeMusclePriority, scoreBucket, MUSCLE_GROUPS, FATIGUE_CEILING, SECONDARY_FATIGUE_CEILING } = require('./weeklyPlanner');
 const { buildRecommendation } = require('./recommendation');
 const { todaysLimitingFactor } = require('./limitingFactor');
+const { buildRecoveryForecast } = require('./recoveryForecast');
 const { SPLIT_GROUPS, rankMusclesByFreshness, typicalSessionMuscleCount, mostOverdueGroup, detectPreferredSplit, neglectedMuscles } = require('./splitPlanner');
 const { computeMuscleLevels, classifyLift, estimate1RM } = require('./strengthStandards');
 const { loadAllLifts, appendLifts, removeLiftsAndAppend } = require('./liftChunks');
@@ -1826,10 +1827,20 @@ function computeRecommendation(storedPlan) {
     sleepTarget: personalSleepTarget(recentDays).target,
   });
 
+  // Rides along for the same reason as limitingFactor: it needs the fatigue
+  // map already computed above, and asking for it separately would repeat the
+  // expensive part of the request.
+  const recoveryForecast = buildRecoveryForecast({
+    currentFatigue: inputs.currentFatigue,
+    cnsFatigue: inputs.weekCNS,
+    recoveryHours: personalizedRecoveryHours(db.profile),
+  });
+
   return {
     ...rec,
     supersedes: storedTop && rec.chosen && storedTop !== rec.chosen.name ? storedTop : null,
     limitingFactor,
+    recoveryForecast,
   };
 }
 

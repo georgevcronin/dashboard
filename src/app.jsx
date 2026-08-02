@@ -391,6 +391,56 @@ function LimitingFactorPanel({ limitingFactor }) {
   );
 }
 
+// When each muscle comes back. Every figure is an inversion of the decay
+// fatigue.js already runs (see functions/recoveryForecast.js) — nothing is
+// fitted or predicted, so these are as good as the decay model and no better.
+//
+// Withheld at Beginner: "quads in 14h" is only actionable if you already think
+// in terms of a fatigue ceiling, and Beginner deliberately doesn't show one.
+function RecoveryForecastPanel({ forecast }) {
+  if (!forecast) return null;
+  const waiting = forecast.muscles.filter(m => !m.ready && m.hoursUntilReady != null);
+  const mono = { fontFamily: "'JetBrains Mono',monospace" };
+  const when = h => (h < 1 ? 'under an hour' : h < 24 ? `${Math.round(h)}h` : `${(h / 24).toFixed(1)} days`);
+
+  return (
+    <Detail min="intermediate">
+      <div className="fade" style={{ flexShrink: 0, borderTop: '1px solid var(--rule)', paddingTop: 8, marginTop: 8 }}>
+        <div className="kicker" style={{ marginBottom: 4 }}>Recovery Forecast</div>
+
+        {!waiting.length ? (
+          <div style={{ ...mono, fontSize: 10, color: 'var(--forest)' }}>
+            Every tracked muscle is below the training ceiling.
+          </div>
+        ) : (
+          waiting.slice(0, 6).map(m => (
+            <div key={m.muscle} style={{ ...mono, fontSize: 10, color: 'var(--dim)', display: 'flex', justifyContent: 'space-between', lineHeight: 1.8 }}>
+              <span style={{ textTransform: 'capitalize' }}>
+                {m.muscle}{m.clamped ? ' *' : ''}
+              </span>
+              <span style={{ color: 'var(--ink)' }}>{when(m.hoursUntilReady)}</span>
+            </div>
+          ))
+        )}
+
+        {forecast.cns && forecast.cns.hoursUntilHeavyTrainingAvailable > 0 && (
+          <div style={{ ...mono, fontSize: 10, color: 'var(--dim)', display: 'flex', justifyContent: 'space-between', lineHeight: 1.8, borderTop: '1px solid var(--paper2)', marginTop: 4, paddingTop: 4 }}>
+            <span>CNS (heavy compounds)</span>
+            <span style={{ color: 'var(--ink)' }}>{when(forecast.cns.hoursUntilHeavyTrainingAvailable)}</span>
+          </div>
+        )}
+
+        {/* Both caveats are real and would otherwise be invisible: this assumes
+            you don't train again, and a muscle pinned at the 100 cap may be far
+            above it, making its figure a floor rather than an estimate. */}
+        <div style={{ ...mono, fontSize: 8, color: 'var(--dim)', marginTop: 5, lineHeight: 1.6 }}>
+          Assumes no further training.{waiting.some(m => m.clamped) ? ' * capped at 100 — recovery takes at least this long, possibly longer.' : ''}
+        </div>
+      </div>
+    </Detail>
+  );
+}
+
 function S1({ s, recommendation, briefing, onShowBriefing, onShowAfternoon, onShowNight, onShowWeekly, afternoonLoaded, nightLoaded, weeklyLoaded, loadingPeriod, newscastError }) {
   const today = s?.today || {};
   const recovery = today.recovery ?? s?.recoveryTrend?.at(-1) ?? null;
@@ -957,6 +1007,8 @@ const CHANGELOG = [
     features: [
       'The desktop dashboard now packs its panels like a masonry grid instead of balanced newspaper columns. Previously every column was forced to one shared height and a panel could not be split, so any panel too tall for the space left in its column jumped to the next one and left a large empty block behind it — most visibly under Recovery on a four-column screen. Panels now drop into whichever column is shortest, so there is no gap between stacked panels at any width.',
       'Dashboard panels can be collapsed to just their headline with the − control in the top-right corner, and set to Collapsed, Standard or Wide (double-width) per panel in Settings → Dashboard Layout. Collapsing the long ones — All-Time Bests in particular — is what reclaims the leftover space at the foot of the shorter columns. Both are desktop-only; the phone dock already shows one section at a time.',
+      'Muscle priorities gained a fourth setting. "Ignore" was doing two incompatible jobs, so it is now Lower and Avoid. Lower keeps the muscle fully modelled — it still accumulates fatigue from compounds, still recovers, still appears in Recovery — and only reduces how often it is picked for direct work. Avoid removes it from selection outright, which is right for an injury or a medical restriction and wrong for "I do not care much about calves". The other two are relabelled Priority and Maintain. Nothing was migrated: anything you had set to Ignore is still Avoid, so if you meant "just deprioritise this", move it to Lower.',
+      'New Recovery Forecast (Recovery panel, Intermediate and above): when each muscle drops back below the training ceiling, and when CNS fatigue clears enough for heavy barbell compounds again. It is an exact inversion of the decay the app already runs rather than a new model, so it is as good as that model and no better — it says so, along with the two things that limit it: it assumes you do not train again, and a muscle pinned at the 100 cap may be well above it, making its figure a floor rather than an estimate.',
       'The Build Press/Row/… angle picker is now a slider instead of 13 buttons. Sweeping it updates a live muscle-activation readout underneath, so you can compare positions before committing rather than picking blind and backing out. Optionally pick a target muscle first: the slider then marks that muscle\'s best angle, and the confirm step tells you how far your choice sits from it — stated as an EMG activation difference against that muscle\'s own peak, which is what the data supports, not a predicted strength or growth difference. It never stops you choosing any angle. The bars are drawn against each muscle\'s own peak activation and deliberately don\'t total 100%, because these are per-muscle activation levels rather than shares of the exercise.',
       'Dispatch now leads with Today\'s Limiting Factor — the single biggest thing constraining today\'s session, whether that\'s CNS fatigue, a muscle over the fatigue ceiling, an injury flag, metabolic fatigue, recovery markers below baseline or short sleep. Each one names what it is, what the app is actually doing about it (swapping barbell compounds for machines, capping the week at 2 sessions, capping working sets at 2 per exercise) and what clears it. Nothing is reported unless it has genuinely crossed a threshold the planner acts on, so an empty state means exactly that: nothing is holding you back today.',
       'Generated sessions now mark which exercise drives the session. The backbone lift is tagged Primary and everything else Secondary or Isolation, taken from the planner\'s own selection rather than guessed from the name. At Beginner only the main lift is tagged, since that\'s the part you can act on.',
@@ -4010,6 +4062,23 @@ function diagramFilterForScore(score) {
 // this only changes what this one panel shows, since 'abductors' as a
 // muscle is really gluteus medius/TFL work (see Abductor Machine's own
 // exerciseDb.js note) and that's a clearer label for a ranked score.
+// How much programming emphasis a muscle gets. The stored values stay 'focus'
+// and 'ignore' so no existing profile needs migrating — only the labels and the
+// middle option are new.
+//
+// The important pair is Lower vs Avoid, which used to be one setting called
+// "ignore". Lower keeps the muscle fully modelled — it still accumulates
+// fatigue from compounds, still recovers, still shows in Recovery — and only
+// reduces how often it's picked for direct work. Avoid removes it from
+// selection outright, which is what you want for an injury or a medical
+// restriction and not what you want for "I don't care much about calves".
+const MUSCLE_FOCUS_OPTIONS = [
+  { value: 'focus', label: 'Priority' },
+  { value: 'normal', label: 'Maintain' },
+  { value: 'deprioritise', label: 'Lower' },
+  { value: 'ignore', label: 'Avoid' },
+];
+
 const MUSCLE_DISPLAY_LABELS = { abductors: 'Gluteus Medius' };
 const muscleDisplayLabel = m => MUSCLE_DISPLAY_LABELS[m] || m.replace(/-/g, ' ');
 
@@ -5566,7 +5635,7 @@ const SORENESS_DIAGRAM_MUSCLES = [
   'rear-delt', 'rhomboids', 'traps', 'triceps',
 ];
 
-function S5({ s, refresh }) {
+function S5({ s, recommendation, refresh }) {
   const antRef = useRef(), latRef = useRef(), postRef = useRef();
   const [svgsReady, setSvgsReady] = useState(false);
   // Ranking tab gets its own separate triptych/refs rather than sharing the
@@ -5886,6 +5955,8 @@ function S5({ s, refresh }) {
           <div className="deck" style={{ marginTop: 10, marginBottom: 0 }}>{recoveryExplainer}</div>
         </Detail>
       </div>
+
+      <RecoveryForecastPanel forecast={recommendation?.recoveryForecast} />
 
       <div className="fade tab-bar" style={{ flexShrink: 0 }}>
         {visibleRecoveryTabs.map(id => (
@@ -7091,10 +7162,10 @@ function Onboarding({ onComplete, onOpenImport }) {
                   <div key={m} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0', borderBottom: '1px solid var(--paper2)' }}>
                     <span style={{ flex: 1, fontFamily: "'JetBrains Mono',monospace", fontSize: 11, textTransform: 'capitalize' }}>{muscleDisplayLabel(m)}</span>
                     <div style={{ display: 'flex', gap: 4 }}>
-                      {['focus', 'normal', 'ignore'].map(opt => (
-                        <button key={opt} className={`prof-btn${val === opt ? ' solid' : ''}`} style={{ fontSize: 8, padding: '4px 8px', textTransform: 'capitalize' }}
-                          onClick={() => setMuscleFocus(p => opt === 'normal' ? { ...p, [m]: undefined } : { ...p, [m]: opt })}>
-                          {opt}
+                      {MUSCLE_FOCUS_OPTIONS.map(opt => (
+                        <button key={opt.value} className={`prof-btn${val === opt.value ? ' solid' : ''}`} style={{ fontSize: 8, padding: '4px 6px' }}
+                          onClick={() => setMuscleFocus(p => opt.value === 'normal' ? { ...p, [m]: undefined } : { ...p, [m]: opt.value })}>
+                          {opt.label}
                         </button>
                       ))}
                     </div>
@@ -8048,10 +8119,10 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
                     <div key={m} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 0', borderBottom: '1px solid var(--paper2)' }}>
                       <span style={{ flex: 1, fontFamily: "'JetBrains Mono',monospace", fontSize: 10, textTransform: 'capitalize' }}>{muscleDisplayLabel(m)}</span>
                       <div style={{ display: 'flex', gap: 4 }}>
-                        {['focus', 'normal', 'ignore'].map(opt => (
-                          <button key={opt} className={`prof-btn${val === opt ? ' solid' : ''}`} style={{ fontSize: 8, padding: '4px 8px', textTransform: 'capitalize' }}
-                            onClick={() => saveMuscleFocusValue(m, opt)}>
-                            {opt}
+                        {MUSCLE_FOCUS_OPTIONS.map(opt => (
+                          <button key={opt.value} className={`prof-btn${val === opt.value ? ' solid' : ''}`} style={{ fontSize: 8, padding: '4px 6px' }}
+                            onClick={() => saveMuscleFocusValue(m, opt.value)}>
+                            {opt.label}
                           </button>
                         ))}
                       </div>
@@ -9524,7 +9595,7 @@ function App() {
     s2: <S2 key="s2" s={s} refresh={refresh} />,
     s3: <S3 key="s3" s={s} recommendation={recommendation} onStartWorkout={planDay => setLoggerPlanDay(planDay ?? null)} onImport={() => setShowImport(true)} onHistory={() => setShowHistory(true)} refresh={refresh} />,
     s4: <S4 key="s4" s={s} refresh={refresh} />,
-    s5: <S5 key="s5" s={s} refresh={refresh} />,
+    s5: <S5 key="s5" s={s} recommendation={recommendation} refresh={refresh} />,
     s6: <S6 key="s6" s={s} refresh={refresh} />,
     s7: <S7 key="s7" s={s} />,
   };

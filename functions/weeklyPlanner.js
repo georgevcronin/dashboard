@@ -186,6 +186,19 @@ function stalenessBoost(daysSinceLastTrained) {
 // exclusion as an injury), not a priority adjustment.
 const FOCUS_MUSCLE_BONUS = 25;
 
+// The mirror of FOCUS_MUSCLE_BONUS, and deliberately the same magnitude:
+// "deprioritise" should push a muscle down exactly as hard as "priority" lifts
+// one, and like the bonus it cannot override a hard exclusion.
+//
+// This is the distinction that makes the setting worth having. 'ignore'/'avoid'
+// is a hard -1 that drops a muscle out of selection entirely, which is right
+// for an injury or a medical restriction and wrong for "I don't care much
+// about calves" — the latter still needs the muscle fully modelled, because it
+// still accumulates fatigue from squats and running and still has to recover.
+// Deprioritise keeps every bit of that physiology and only reduces how often
+// the muscle is chosen for direct work.
+const DEPRIORITISE_PENALTY = 25;
+
 // Per-muscle priority: -1 means "do not load right now" (injured, ignored,
 // or already at/over the fatigue ceiling); otherwise higher = fresher/more-
 // overdue = more deserving of stimulus. Called live at guidance time and
@@ -201,8 +214,14 @@ function computeMusclePriority(currentFatigue, offlineMuscles, muscleLastTrained
     const fatigue = currentFatigue[m] || 0;
     if (fatigue >= FATIGUE_CEILING) { priority[m] = -1; continue; }
     const boost = muscleLastTrainedDays ? stalenessBoost(muscleLastTrainedDays[m]) : 0;
-    const focusBoost = muscleFocus[m] === 'focus' ? FOCUS_MUSCLE_BONUS : 0;
-    priority[m] = (100 - fatigue) + boost + focusBoost;
+    const focusAdjust = muscleFocus[m] === 'focus' ? FOCUS_MUSCLE_BONUS
+      : muscleFocus[m] === 'deprioritise' ? -DEPRIORITISE_PENALTY : 0;
+    // Clamped at 0 so a deprioritised muscle can never reach -1, which is the
+    // sentinel for "do not load at all". Deprioritise ranks a muscle last; it
+    // does not remove it. With fatigue below the ceiling the base term is
+    // already > 50, so this clamp never fires today — it's here so the two
+    // concepts can't collide if either constant is retuned later.
+    priority[m] = Math.max(0, (100 - fatigue) + boost + focusAdjust);
   }
   return priority;
 }
@@ -331,7 +350,7 @@ function generateWeeklyGuidance({ currentFatigue, weekMetabolic, weekCNS, offlin
 
 module.exports = {
   generateWeeklyGuidance, pickBackboneExercises, computeMusclePriority, scoreBucket, planLiftSessionsTarget, planCardioSessionsTarget,
-  stalenessBoost, MUSCLE_GROUPS, FATIGUE_CEILING, SECONDARY_FATIGUE_CEILING, FOCUS_MUSCLE_BONUS, TRAINING_PRIORITIES,
+  stalenessBoost, MUSCLE_GROUPS, FATIGUE_CEILING, SECONDARY_FATIGUE_CEILING, FOCUS_MUSCLE_BONUS, DEPRIORITISE_PENALTY, TRAINING_PRIORITIES,
   // Exported for recommendation.js: a bucket in muscleFocus only carries the
   // muscles that were *available*, so explaining why one is missing needs the
   // full membership this resolves.

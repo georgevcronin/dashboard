@@ -40,6 +40,8 @@ functions/          Backend — deployed as the Cloud Function
   parameterExplorer.js  Angle-slider support: what a movement activates at an
                        angle, the best angle for a muscle, and the gap between.
                        Pure lookups over emgActivation.js's tables.
+  recoveryForecast.js   When each muscle and the CNS return to trainable. An
+                       exact inversion of fatigue.js's decay, not a new model.
   analytics.js           Pure summary/reporting helpers (data maturity, CSV export, etc.)
   gemini.js              Gemini API client (retry/fallback logic)
   sleepScore.js           Sleep-score calculation
