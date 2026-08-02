@@ -42,6 +42,8 @@ functions/          Backend — deployed as the Cloud Function
                        Pure lookups over emgActivation.js's tables.
   recoveryForecast.js   When each muscle and the CNS return to trainable. An
                        exact inversion of fatigue.js's decay, not a new model.
+  calendarExport.js     RFC 5545 .ics export for a planned session (escaping,
+                       75-octet line folding, stable UIDs).
   analytics.js           Pure summary/reporting helpers (data maturity, CSV export, etc.)
   gemini.js              Gemini API client (retry/fallback logic)
   sleepScore.js           Sleep-score calculation

@@ -23,6 +23,7 @@ import { EXERCISE_ANGLES } from '../functions/exerciseAngles.js';
 import { EXERCISE_DB, EXERCISE_MUSCLE_GROUPS, EXERCISE_PATTERNS } from '../functions/exerciseDb.js';
 import expertisePkg from '../functions/expertise.js';
 import parameterExplorerPkg from '../functions/parameterExplorer.js';
+import calendarExportPkg from '../functions/calendarExport.js';
 import { PRESS_CSS } from './pressCss.js';
 import { AreaChart, BarChart, Sparkline, AdaptationChart } from './charts.jsx';
 
@@ -50,6 +51,7 @@ const { DEFAULT_WARMUP_SCHEME, WARMUP_SCHEME_PRESETS } = progressionPkg;
 const { validateUsername, validateDisplayName, normalizeUsername, USERNAME_MAX, canChangeUsername, usernameChangeAvailableAt } = identityPkg;
 const { FATIGUE_CEILING } = weeklyPlannerPkg;
 const { angleOptionsFor, activationAt, optimalAngleFor, compareAngle, bestConfigurationsFor, targetableMuscles } = parameterExplorerPkg;
+const { buildSessionICS } = calendarExportPkg;
 const { PRESS_ANGLE_DESC, ROW_ANGLE_DESC, FLY_ANGLE_DESC, CURL_ANGLE_DESC, EXTENSION_ANGLE_DESC, LEG_CURL_ANGLE_DESC, HYPEREXTENSION_ANGLE_DESC, classifyMuscles, emgForAngle, frontalCueForProfile, gripCueForProfile, GRIP_ANGLES_BY_EQUIPMENT } = emgActivationPkg;
 
 // Priority-ordered: checked in this order so a compound phrase like "iso-
@@ -1007,6 +1009,7 @@ const CHANGELOG = [
     features: [
       'The desktop dashboard now packs its panels like a masonry grid instead of balanced newspaper columns. Previously every column was forced to one shared height and a panel could not be split, so any panel too tall for the space left in its column jumped to the next one and left a large empty block behind it — most visibly under Recovery on a four-column screen. Panels now drop into whichever column is shortest, so there is no gap between stacked panels at any width.',
       'Dashboard panels can be collapsed to just their headline with the − control in the top-right corner, and set to Collapsed, Standard or Wide (double-width) per panel in Settings → Dashboard Layout. Collapsing the long ones — All-Time Bests in particular — is what reclaims the leftover space at the foot of the shorter columns. Both are desktop-only; the phone dock already shows one section at a time.',
+      'New Add to Calendar button next to Start Session. Exports the session currently on screen as a standard .ics file — the exercise list with its set scheme, plus the reasoning behind the pick — which opens straight into Apple Calendar and imports into Google or Outlook. It schedules for the next full hour today as a placeholder you can drag: the app has no idea when you actually train, and inferring a time from your history would be inventing a preference you never stated. Re-exporting the same day and muscle group updates the same event rather than stacking duplicates.',
       'Muscle priorities gained a fourth setting. "Ignore" was doing two incompatible jobs, so it is now Lower and Avoid. Lower keeps the muscle fully modelled — it still accumulates fatigue from compounds, still recovers, still appears in Recovery — and only reduces how often it is picked for direct work. Avoid removes it from selection outright, which is right for an injury or a medical restriction and wrong for "I do not care much about calves". The other two are relabelled Priority and Maintain. Nothing was migrated: anything you had set to Ignore is still Avoid, so if you meant "just deprioritise this", move it to Lower.',
       'New Recovery Forecast (Recovery panel, Intermediate and above): when each muscle drops back below the training ceiling, and when CNS fatigue clears enough for heavy barbell compounds again. It is an exact inversion of the decay the app already runs rather than a new model, so it is as good as that model and no better — it says so, along with the two things that limit it: it assumes you do not train again, and a muscle pinned at the 100 cap may be well above it, making its figure a floor rather than an estimate.',
       'The Build Press/Row/… angle picker is now a slider instead of 13 buttons. Sweeping it updates a live muscle-activation readout underneath, so you can compare positions before committing rather than picking blind and backing out. Optionally pick a target muscle first: the slider then marks that muscle\'s best angle, and the confirm step tells you how far your choice sits from it — stated as an EMG activation difference against that muscle\'s own peak, which is what the data supports, not a predicted strength or growth difference. It never stops you choosing any angle. The bars are drawn against each muscle\'s own peak activation and deliberately don\'t total 100%, because these are per-muscle activation levels rather than shares of the exercise.',
@@ -4523,6 +4526,45 @@ function S3({ s, recommendation, onStartWorkout, onImport, onHistory, refresh })
   );
   const estimatedDurationMin = displayedExercises.length ? estimateSessionDurationMin(displayedExercises) : null;
 
+  // Exports the session currently on screen as a .ics the athlete can open in
+  // whatever calendar they use. Scheduled for the next full hour today, which
+  // is a placeholder they can drag — the app has no idea when they train, and
+  // guessing a time from training history would be a fabricated preference.
+  //
+  // The exercise list and reasoning are the ones already displayed, not a
+  // re-fetch, so what lands in the calendar is exactly what was on screen.
+  const addSessionToCalendar = () => {
+    if (!displayedExercises?.length) return;
+    const start = new Date();
+    start.setMinutes(0, 0, 0);
+    start.setHours(start.getHours() + 1);
+
+    const bucket = (selectedBucket || pickedBucket)?.name;
+    const ics = buildSessionICS({
+      title: `Press — ${bucket ? bucket[0].toUpperCase() + bucket.slice(1) : 'Training'}`,
+      start,
+      durationMin: estimatedDurationMin || 60,
+      exercises: displayedExercises,
+      reasoning: recommendation?.reasoning || [],
+      // Stable per day+bucket, so re-exporting updates the same event instead
+      // of stacking duplicates in the calendar.
+      uid: `press-${start.toISOString().slice(0, 10)}-${bucket || 'session'}`,
+      note: 'Planned in Press. Times are a placeholder — move it to suit.',
+    });
+    if (!ics) return;
+
+    const url = URL.createObjectURL(new Blob([ics], { type: 'text/calendar;charset=utf-8' }));
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `press-${start.toISOString().slice(0, 10)}-${bucket || 'session'}.ics`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    // Revoked on the next tick rather than immediately — Safari can abort the
+    // download if the object URL disappears before it has read it.
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+
   const generatePlan = async () => {
     setGenning(true);
     const requests = [authFetch(`${API_BASE}/plan/week`, { method: 'POST' })];
@@ -4724,6 +4766,7 @@ function S3({ s, recommendation, onStartWorkout, onImport, onHistory, refresh })
               if (existing) onStartWorkout(null); else setShowGroupStart(true);
             }}>Group Session</button>
             {selectedBucket && <button className="action-btn" onClick={() => setSelectedBucket(null)}>Auto-Pick Freshest</button>}
+            <button className="action-btn" disabled={!displayedExercises?.length} onClick={addSessionToCalendar}>Add to Calendar</button>
             <button onClick={generatePlan} disabled={genning}
               style={{ marginLeft: 'auto', background: 'none', border: 'none', fontFamily: "'JetBrains Mono',monospace", fontSize: 9, letterSpacing: '.1em', textTransform: 'uppercase', color: 'var(--dim)', cursor: 'pointer', padding: 0 }}>
               {genning ? '…' : guidance ? 'Refresh Guidance' : 'Get Weekly Guidance'}
