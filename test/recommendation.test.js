@@ -6,7 +6,8 @@ const {
   NEAR_TIE_MARGIN, CONFIDENT_SESSION_COUNT,
 } = require('../functions/recommendation');
 const {
-  computeMusclePriority, generateWeeklyGuidance, FATIGUE_CEILING, FOCUS_MUSCLE_BONUS,
+  computeMusclePriority, generateWeeklyGuidance, stalenessBoost,
+  FATIGUE_CEILING, FOCUS_MUSCLE_BONUS,
 } = require('../functions/weeklyPlanner');
 
 // ---------------------------------------------------------------------------
@@ -300,4 +301,36 @@ test('no predicted performance, recovery-hour or stimulus figures are fabricated
   for (const banned of ['performanceDrop', 'recoveryHours', 'stimulusDelta', 'predictedE1rm', 'expectedAdaptation']) {
     assert.ok(!serialized.includes(banned), `${banned} present — that number has no model behind it`);
   }
+});
+
+// computeMuscleLastTrainedDays returns a fractional day count, and it reached
+// the interface raw: "overdue — 59.480495983796295 days since it was last
+// trained". The extra digits are not extra precision, just noise.
+test('the days-overdue figure shown to a reader is a whole number', () => {
+  const explained = explainMusclePriority('quads', {
+    currentFatigue: { quads: 5 },
+    muscleLastTrainedDays: { quads: 59.480495983796295 },
+  });
+  const staleness = explained.terms.find(t => t.key === 'staleness');
+  assert.equal(staleness.days, 59);
+  assert.equal(Number.isInteger(staleness.days), true);
+});
+
+test('rounding the displayed day count does not change the score it produced', () => {
+  const raw = 59.480495983796295;
+  const explained = explainMusclePriority('quads', {
+    currentFatigue: { quads: 0 },
+    muscleLastTrainedDays: { quads: raw },
+  });
+  const staleness = explained.terms.find(t => t.key === 'staleness');
+  // stalenessBoost is still evaluated on the unrounded value.
+  assert.equal(staleness.value, Math.round(stalenessBoost(raw) * 10) / 10);
+});
+
+test('a null last-trained date stays null rather than rounding to 0 days', () => {
+  const explained = explainMusclePriority('quads', {
+    currentFatigue: { quads: 0 }, muscleLastTrainedDays: {},
+  });
+  const staleness = explained.terms.find(t => t.key === 'staleness');
+  assert.equal(staleness.days, null);
 });

@@ -57,7 +57,17 @@ function explainMusclePriority(muscle, {
   if (muscleLastTrainedDays) {
     const days = muscleLastTrainedDays[muscle];
     const boost = stalenessBoost(days);
-    if (boost > 0) terms.push({ key: 'staleness', label: 'Overdue', value: round(boost), days: days ?? null });
+    // computeMuscleLastTrainedDays returns a fractional day count. The boost
+    // is computed from the raw value (stalenessBoost ramps continuously), but
+    // the figure shown to a reader is rounded — "59.480495983796295 days since
+    // it was last trained" is not a more precise fact than "59 days", just a
+    // less readable one.
+    if (boost > 0) {
+      terms.push({
+        key: 'staleness', label: 'Overdue', value: round(boost),
+        days: days == null ? null : Math.round(days),
+      });
+    }
   }
   if (muscleFocus[muscle] === 'focus') {
     terms.push({ key: 'focus', label: 'Your priority', value: FOCUS_MUSCLE_BONUS });
