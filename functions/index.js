@@ -17,6 +17,7 @@ const { computeProgression } = require('./progression');
 const { generateSessionExercises, progressionFor, isLowRepPattern, LOW_REP_THRESHOLD, estimateSessionDurationMin, capSessionDuration, fillSessionToDuration, fatigueCeilingFor } = require('./sessionPlanner');
 const { buildSessionVariants } = require('./sessionVariants');
 const { computeSleepScore } = require('./sleepScore');
+const { computeDay, personalSleepTarget, recoveryDrivers } = require('./recoveryScore');
 const { callGeminiResilient, parseGeminiJSON } = require('./gemini');
 const { unwrapShortcutBody, average, sumForDay, computeSleepMetrics } = require('./shortcutParsing');
 const {
@@ -751,36 +752,6 @@ app.post("/strava/sync", async (req, res) => {
 function lastN(obj, n) {
   return Object.keys(obj).sort().slice(-n).map((k) => ({ date: k, ...((typeof obj[k] === "object") ? obj[k] : { value: obj[k] }) }));
 }
-function personalSleepTarget(days) {
-  const paired = days.filter((d) => d.heart_rate_variability && d.sleep_hours);
-  if (paired.length < 7) return { target: 8, learned: false };
-  const sorted = [...paired].sort((a, b) => b.heart_rate_variability - a.heart_rate_variability);
-  const top = sorted.slice(0, Math.max(2, Math.ceil(sorted.length / 4)));
-  const t = avg(top.map((d) => d.sleep_hours));
-  return { target: Math.min(9.5, Math.max(6.5, Math.round(t * 10) / 10)), learned: true };
-}
-function computeDay(d, baseHRV, baseRHR, sleepTarget, baseWristTemp, baseHR) {
-  const hrv = d.heart_rate_variability, rhr = d.resting_heart_rate, sleepH = d.sleep_hours;
-  const wristTemp = d.wrist_temperature, hr = d.heart_rate, spo2 = d.blood_oxygen;
-  if (!hrv || !baseHRV) return null;
-  const hrvScore = Math.max(0, Math.min(1, hrv / baseHRV - 0.5));
-  const rhrScore = rhr && baseRHR ? Math.max(0, Math.min(1, 1 - (rhr / baseRHR - 1) * 5)) : 0.8;
-  const sleepScore = sleepH ? Math.min(1, sleepH / sleepTarget) : 0.8;
-  // Wrist skin temperature deviation from personal baseline — elevated temp is a
-  // well-established illness/overreaching signal, penalized more steeply than a
-  // below-baseline reading.
-  const tempDev = wristTemp != null && baseWristTemp != null ? wristTemp - baseWristTemp : null;
-  const wristScore = tempDev == null ? 0.8 : tempDev <= 0
-    ? Math.max(0.5, 1 - Math.abs(tempDev) * 0.15)
-    : Math.max(0, 1 - tempDev * 0.4);
-  // Blood oxygen saturation — healthy range is ~96-100%; below that increasingly
-  // signals poor sleep quality or respiratory strain.
-  const spo2Score = spo2 != null ? Math.max(0, Math.min(1, (spo2 - 90) / 8)) : 0.8;
-  // Current/instant heart rate vs. personal baseline — noisier than true resting HR
-  // since it depends on activity at sampling time, so weighted lightly.
-  const hrScore = hr && baseHR ? Math.max(0, Math.min(1, 1 - (hr / baseHR - 1) * 3)) : 0.8;
-  return Math.round(Math.min(99, (hrvScore * 0.40 + rhrScore * 0.15 + sleepScore * 0.20 + wristScore * 0.10 + spo2Score * 0.10 + hrScore * 0.05) * 100));
-}
 // Today's recovery score (HRV/RHR/sleep/wrist-temp/SpO2/HR-derived), used to modulate
 // CNS fatigue. Returns null when there isn't enough HRV history for a personal baseline.
 function getRecoveryScore(db) {
@@ -804,6 +775,12 @@ app.get("/summary", async (req, res) => {
   const baseHR = avg(last14.map(d => d.heart_rate).filter(Boolean));
   const sleep = personalSleepTarget(days);
   const recovery = computeDay(today, baseHRV, baseRHR, sleep.target, baseWristTemp, baseHR);
+  // The same six sub-scores computeDay just summed, reported instead of
+  // discarded. Re-scores those six arithmetic terms; no extra Firestore reads
+  // and no second pass over the metrics history.
+  const recoveryFactors = recoveryDrivers(today, {
+    hrv: baseHRV, rhr: baseRHR, sleepTarget: sleep.target, wristTemp: baseWristTemp, hr: baseHR,
+  });
   const recoveryTrend = last14.map(d => computeDay(d, baseHRV, baseRHR, sleep.target, baseWristTemp, baseHR)).filter(x => x != null);
   const sleepScore = computeSleepScore(today);
   const sleepScoreTrend = last14.map(d => computeSleepScore(d)?.score).filter(v => v != null);
@@ -846,7 +823,7 @@ app.get("/summary", async (req, res) => {
     sleepTarget: sleep.target, sleepTargetLearned: sleep.learned,
     sleepDebtH: Math.round(sleepDebtH * 10) / 10,
     sleepScore, sleepScoreTrend,
-    recoveryTrend, sleepSeries: last14.map(d => d.sleep_hours).filter(Boolean),
+    recoveryTrend, recoveryFactors, sleepSeries: last14.map(d => d.sleep_hours).filter(Boolean),
     rhrSeries: last14.map(d => d.resting_heart_rate).filter(Boolean),
     baselines: { hrv: baseHRV && Math.round(baseHRV), rhr: baseRHR && Math.round(baseRHR), wristTemp: baseWristTemp && Math.round(baseWristTemp * 10) / 10, hr: baseHR && Math.round(baseHR) },
     composition: compVerdict(weights, db.lifts),

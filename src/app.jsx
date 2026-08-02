@@ -397,6 +397,57 @@ function LimitingFactorPanel({ limitingFactor }) {
 // fatigue.js already runs (see functions/recoveryForecast.js) — nothing is
 // fitted or predicted, so these are as good as the decay model and no better.
 //
+// What today's recovery score is actually made of. An exact decomposition of
+// the weighted sum in functions/recoveryScore.js — each bar is that factor's
+// contribution in points of the final score, and they sum back to it.
+//
+// Ranked by cost (points given up against the most that factor could
+// contribute) rather than by contribution, because contribution alone ranks
+// HRV first every single day purely for carrying the largest weight, including
+// on days HRV is the one thing going well.
+//
+// A factor with no reading is drawn hollow and labelled: the engine substitutes
+// 0.8 for a missing sensor, and rendering that as a solid bar would attribute
+// points to data that was never collected.
+function RecoveryDriversPanel({ drivers }) {
+  if (!drivers?.factors?.length || drivers.score == null) return null;
+  const mono = { fontFamily: "'JetBrains Mono',monospace" };
+  const worst = drivers.factors.filter(f => f.measured && f.cost >= 1);
+
+  return (
+    <Detail min="intermediate">
+      <div className="fade" style={{ flexShrink: 0, borderTop: '1px solid var(--rule)', paddingTop: 8, marginTop: 8 }}>
+        <div className="kicker" style={{ marginBottom: 4 }}>What's Driving Recovery</div>
+
+        {drivers.factors.map(f => (
+          <div key={f.key} style={{ marginBottom: 5 }}>
+            <div style={{ ...mono, fontSize: 10, display: 'flex', justifyContent: 'space-between', gap: 8, lineHeight: 1.5 }}>
+              <span style={{ color: f.measured ? 'var(--ink)' : 'var(--dim)' }}>
+                {f.label}{f.measured ? '' : ' (no reading)'}
+              </span>
+              <span style={{ color: 'var(--dim)', whiteSpace: 'nowrap' }}>
+                {f.points} / {f.maxPoints}
+              </span>
+            </div>
+            <div className="driver-track" role="img"
+              aria-label={`${f.label} contributed ${f.points} of a possible ${f.maxPoints} points${f.measured ? '' : ', estimated because there was no reading'}`}>
+              <div className={f.measured ? 'driver-fill' : 'driver-fill driver-fill-estimated'}
+                style={{ width: `${Math.max(0, Math.min(100, (f.points / f.maxPoints) * 100))}%` }} />
+            </div>
+          </div>
+        ))}
+
+        <div style={{ ...mono, fontSize: 8, color: 'var(--dim)', marginTop: 5, lineHeight: 1.6 }}>
+          {worst.length
+            ? `Costing you most: ${worst.slice(0, 2).map(f => `${f.label.toLowerCase()} (${f.cost})`).join(', ')}.`
+            : 'Nothing measured is holding today back.'}
+          {drivers.unmeasured.length > 0 && ` ${drivers.unmeasured.length} factor${drivers.unmeasured.length === 1 ? '' : 's'} estimated — no reading today.`}
+        </div>
+      </div>
+    </Detail>
+  );
+}
+
 // Withheld at Beginner: "quads in 14h" is only actionable if you already think
 // in terms of a fatigue ceiling, and Beginner deliberately doesn't show one.
 function RecoveryForecastPanel({ forecast }) {
@@ -1009,6 +1060,7 @@ const CHANGELOG = [
     features: [
       'New Other Ways button next to Add to Calendar. It rebuilds today\'s session three more times under one changed constraint each — a 30-minute version, a machine-and-cable version that spares the nervous system, and a bodyweight-only version — and states what each one costs. Every trade-off is a measured difference between two sessions that were actually generated: minutes, working sets, and which muscles lose their dedicated exercise. There are no predicted-stimulus percentages, because Press has never checked a prediction against an outcome. Alternatives that come out identical to the recommended session are dropped rather than offered as a choice that changes nothing, so an empty result means today genuinely has one sensible shape. Starting an alternative uses its own exercise list, so a short session stays short rather than being refilled by the Max Length slider.',
       'Fixed: opening Press in a background browser tab could leave the desktop panels overlapping each other until the window was resized. Repacking was queued on an animation frame, which a hidden tab never runs, and switching to the tab did not trigger a new one.',
+      'New What\'s Driving Recovery block in the Recovery panel (Intermediate and above). The recovery score has always been a weighted sum of six things — heart rate variability, sleep, resting heart rate, wrist temperature, blood oxygen and heart rate — and this now shows what each one actually contributed, in points of the final score, ranked by how much it is costing you rather than by how heavily it is weighted. A factor with no reading today is drawn hatched and labelled: the score substitutes a default for a missing sensor, and showing that as a measurement would credit points to data that was never collected. Worth knowing what it revealed: heart rate variability at your own baseline earns half of the 40 points it can contribute, and full marks need about 1.5x baseline, so it will usually rank first. That is how the score has always worked; nothing about it was changed here.',
     ],
   },
   {
@@ -6102,6 +6154,7 @@ function S5({ s, recommendation, refresh }) {
         </Detail>
       </div>
 
+      <RecoveryDriversPanel drivers={s?.recoveryFactors} />
       <RecoveryForecastPanel forecast={recommendation?.recoveryForecast} />
 
       <div className="fade tab-bar" style={{ flexShrink: 0 }}>

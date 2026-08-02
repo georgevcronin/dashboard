@@ -50,6 +50,9 @@ functions/          Backend — deployed as the Cloud Function
   analytics.js           Pure summary/reporting helpers (data maturity, CSV export, etc.)
   gemini.js              Gemini API client (retry/fallback logic)
   sleepScore.js           Sleep-score calculation
+  recoveryScore.js        The daily recovery score (HRV/sleep/RHR/wrist-temp/
+                       SpO2/HR weighted sum) and its exact decomposition —
+                       one factor table serves both, see below
 
 src/app.jsx          Frontend — entire React app in one file, bundled to public/app.js
 
@@ -132,6 +135,39 @@ across all its angles) so a bar chart has a real maximum to draw against.
   prediction against an outcome, so there's nothing to calibrate them against.
   Confidence is a level with named causes for the same reason. A test asserts
   those fields stay out of the payload.
+
+## The recovery score and its decomposition share one factor table
+
+`functions/recoveryScore.js` holds `RECOVERY_FACTORS` — six factors, each with
+a weight and a scorer. `computeDay` sums that table rather than keeping its own
+copy of the weights, so `recoveryDrivers` can never narrate a weight the score
+stopped using. A test asserts the weights sum to 1 and that the decomposition
+adds back to the score across 5,000 random days.
+
+`computeDay` and `personalSleepTarget` were lifted out of `index.js` unchanged.
+`test/recoveryScore.test.js` keeps a verbatim copy of the pre-extraction
+implementation and fuzzes 20,000 days against it — recovery modulates CNS
+fatigue, so a one-point drift would be invisible everywhere and wrong
+everywhere. Keep that reference in place if you touch the scoring.
+
+Two things to know before extending it:
+
+- **A missing input scores `MISSING_FALLBACK` (0.8), not 0.** That stops one
+  absent sensor tanking the score, but it means an unrecorded factor's
+  contribution is a stand-in, not a measurement. Every factor carries
+  `measured`; the interface draws unmeasured bars hatched and says so. Never
+  present a substituted 0.8 as a reading.
+- **Rank drivers by `cost`, not `points`.** Contribution alone ranks HRV first
+  every day purely for carrying the largest weight, including on days HRV is
+  the one thing going well. `cost` is the points a factor gives up against the
+  most it could contribute, which is the part an athlete can act on.
+
+Worth knowing about the model itself (not the decomposition): `hrvScore` is
+`clamp01(hrv / baseline - 0.5)`, so being *at* your own baseline earns half of
+HRV's 40 points, and full marks need 1.5x baseline. The decomposition surfaced
+this by making HRV the top-ranked cost on most ordinary days. That is a
+property of the existing scoring curve, deliberately left alone here — changing
+it would move every historical recovery score.
 
 ## Alternative sessions are generated, not described
 

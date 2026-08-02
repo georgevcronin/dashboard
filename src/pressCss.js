@@ -160,6 +160,11 @@ section.visible .fade:nth-child(6){transition-delay:.56s}
 .action-row{display:flex;gap:10px;margin-top:auto;padding-top:12px;border-top:1px solid var(--rule)}
 .action-btn{flex:1;font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.12em;text-transform:uppercase;padding:8px 12px;cursor:pointer;text-align:center;border:1px solid var(--ink);background:none;color:var(--ink)}
 .action-btn.primary{background:var(--ink);color:var(--paper)}
+.driver-track{height:4px;background:var(--paper2);margin-top:2px}
+.driver-fill{height:100%;background:var(--ink)}
+/* An estimated factor is hatched as well as dimmed — the difference between a
+   measurement and a substituted default must survive without colour vision. */
+.driver-fill-estimated{background:repeating-linear-gradient(90deg,var(--dim) 0 2px,transparent 2px 4px)}
 .variants{margin-top:14px;border-top:1px solid var(--ink)}
 .variants-status{font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.06em;color:var(--dim);line-height:1.7;padding:10px 0}
 .variants-error{color:var(--red)}
