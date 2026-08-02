@@ -57,7 +57,7 @@ app.use((req, res, next) => {
 const {
   computeStructuralFatigue, computeCurrentFatigueScores, musclePeaksFromLifts, fatigueTimeline,
   INJURY_HEALING_DAYS, injuryFatiguePenalty, applyInjuryTaper,
-  computeACWR, computePerformanceTrend, computeMetabolicFatigue, computeCNSFatigue,
+  computeMetabolicFatigue, computeCNSFatigue,
   computeMuscleLastTrainedDays, computeCompoundIsolationSplit, computeStabilitySplit,
 } = require('./fatigue');
 const { personalizedRecoveryHours, trainingMonthsIfKnown } = require('./recoveryPersonalization');

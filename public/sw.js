@@ -1,9 +1,15 @@
 // Only bump this if the caching *strategy* itself changes (asset list,
-// strategy per type) — not on every deploy. Stale-while-revalidate below
-// already keeps app.js/index.html fresh on their own: each fetch overwrites
-// the cached entry with whatever the server just returned, so a new deploy
-// shows up after one extra reload without needing a cache-name bump.
-const CACHE_VERSION = 'press-v1';
+// strategy per type) — not on every deploy. The app shell is network-first
+// (see the fetch handler), so a new deploy is live on the next load without
+// needing a cache-name bump.
+//
+// v2: was stale-while-revalidate for the shell, which served the *previous*
+// app.js on the first load after every deploy. Two problems with that. The
+// mild one is that a fix appears to have not shipped until you reload twice.
+// The serious one is that if a deploy ever goes out broken, the broken bundle
+// stays cached and keeps white-screening you on first load even after the fix
+// is live — which is exactly when you least want to have to know to reload.
+const CACHE_VERSION = 'press-v2';
 
 // Rarely change once shipped — safe to cache-first and hold onto for a
 // year, since firebase.json marks these immutable. If one of these ever
@@ -13,8 +19,10 @@ const STATIC_ASSETS = [
   '/icon-192.png', '/icon-512.png', '/icon-512-maskable.png', '/apple-touch-icon.png',
   '/manifest.json', '/body-anterior.svg', '/body-lateral.svg', '/body-posterior.svg',
 ];
-// Change on every deploy — served stale-while-revalidate so a reload is
-// instant even on a slow connection, but never held onto for long.
+// Change on every deploy — served network-first, with the cache kept only as
+// an offline fallback. This app opens straight into a /summary round trip
+// anyway, so there's no meaningful speed win in painting a stale shell first,
+// and a stale shell can be a *wrong* shell.
 const APP_SHELL = ['/', '/index.html', '/app.js'];
 
 self.addEventListener('install', e => {
@@ -49,16 +57,26 @@ self.addEventListener('fetch', e => {
     return;
   }
 
+  // Network-first. The cached copy is a fallback for being offline, never the
+  // preferred answer — see CACHE_VERSION's note for why serving it first was
+  // worse than the latency it saved. A failed fetch (offline, or the response
+  // never arrives) falls back to cache; if there's no cache either, the
+  // rejection propagates and the browser shows its own offline page, which is
+  // the honest outcome.
   if (APP_SHELL.includes(url.pathname)) {
     e.respondWith(
       caches.open(CACHE_VERSION).then(cache =>
-        cache.match(e.request).then(cached => {
-          const fetchPromise = fetch(e.request).then(res => {
-            cache.put(e.request, res.clone());
+        fetch(e.request)
+          .then(res => {
+            // Only cache a real success. Caching a 5xx or an opaque error
+            // would poison the offline fallback with a broken shell.
+            if (res && res.ok) cache.put(e.request, res.clone());
             return res;
-          }).catch(() => cached);
-          return cached || fetchPromise;
-        })
+          })
+          .catch(() => cache.match(e.request).then(cached => {
+            if (cached) return cached;
+            throw new Error('offline and no cached app shell');
+          }))
       )
     );
   }

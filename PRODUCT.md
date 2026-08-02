@@ -22,7 +22,7 @@ Seven main sections (bottom-nav dock), plus Settings and an always-available men
 2. **Sleep** (`S2`) — sleep score (with deep/REM/light stage breakdown), trends, and recovery-relevant sleep metrics pulled from Apple Health.
 3. **Training** (`S3`) — the core workout logger: start/log a session, exercise picker (212+ exercise database with weighted EMG-based muscle-fatigue attribution), the "Build Press/Row" angle-based exercise builder, live Session Stimulus readout per muscle, workout history, and Hevy import/sync.
 4. **Nutrition** (`S4`) — meal logging (including photo-scan entries), macro targets (manual or auto-calculated from a goal), water tracking, recent-foods, CSV export.
-5. **Recovery** (`S5`) — structural/CNS/metabolic fatigue readouts per muscle, ACWR, injury taper, weekly training guidance (advisory, not a locked schedule), staleness/"days since trained" tracking.
+5. **Recovery** (`S5`) — structural/CNS/metabolic fatigue readouts per muscle, injury taper, weekly training guidance (advisory, not a locked schedule), staleness/"days since trained" tracking, and Today's Limiting Factor. (ACWR is computed inside `fatigue.js` and feeds the fatigue model, but is not surfaced in the interface — it was listed here for a while as though it were.)
 6. **Body** (`S6`) — bodyweight, body-fat, body measurements (neck/chest/waist/hips/limbs), supplement log.
 7. **Records** (`S7`) — PRs and e1RM history per exercise, searchable.
 

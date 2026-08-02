@@ -35,7 +35,7 @@ import { AreaChart, BarChart, Sparkline, AdaptationChart } from './charts.jsx';
 // itself is imported separately for the session-logging autocomplete, which
 // needs the full exercise name list rather than a derived lookup.
 const { ALL_MUSCLES, PRIMARY_MUSCLES, musclesForExercise, isCompoundExercise, findExercise } = muscleTaxonomyPkg;
-const { computeStructuralFatigue, computeACWR, computePerformanceTrend, computeMetabolicFatigue, computeCNSFatigue, cnsLoad, recoveryWord } = fatiguePkg;
+const { computeStructuralFatigue, computeMetabolicFatigue, computeCNSFatigue, cnsLoad, recoveryWord } = fatiguePkg;
 const { progressionFor, suggestedWorkingSetCount, suggestedRirSequence, isLowRepPattern, LOW_REP_THRESHOLD, estimateSessionDurationMin, capSessionDuration, fillSessionToDuration } = sessionPlannerPkg;
 const { e1rm: calcE1RM } = strengthStandardsPkg;
 const { defaultMachineBrands } = machineBrandsPkg;
@@ -7956,8 +7956,8 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
               }}
               placeholder="e.g. 2" style={{ flex: 1, minWidth: 0, maxWidth: 80 }} />
           </div>
-          <div className="prof-field">
-            <span className="prof-lbl">Detail Level <span style={{ fontSize: 8, color: 'var(--dim)', textTransform: 'none' }}>(how much of the model is shown — never changes what's recommended)</span></span>
+          <div className="prof-field" style={{ display: 'block' }}>
+            <span className="prof-lbl" style={{ display: 'block', marginBottom: 8 }}>Detail Level <span style={{ fontSize: 8, color: 'var(--dim)', textTransform: 'none' }}>(how much of the model is shown — never changes what's recommended)</span></span>
             {EXPERTISE_LEVELS.map(lvl => (
               <button key={lvl} className={`echelon-card${expertiseLevel === lvl ? ' selected' : ''}`}
                 onClick={() => saveExpertiseLevel(lvl)}>
