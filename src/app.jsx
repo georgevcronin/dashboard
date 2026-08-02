@@ -5260,6 +5260,11 @@ function S3({ s, recommendation, onStartWorkout, onImport, onHistory, refresh })
               Your split hasn't reached {[...new Set(splitNeglected.map(n => muscleDisplayLabel(n.muscle)))].join(', ')} in {Math.max(...splitNeglected.map(n => n.daysSinceTrained ?? 999))}+ days — worth working in soon, or switching to Full Body in Settings.
             </div>
           )}
+          {displayedExercises?.length > 0 && s?.profile?.warmupScheme?.length && (
+            <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, color: 'var(--dim)', marginBottom: 8, padding: '6px 8px', background: 'var(--paper-alt)', borderRadius: 4 }}>
+              Warmup: {s.profile.warmupScheme.map(w => `${w.reps}@${w.pct}%`).join(' + ')}
+            </div>
+          )}
           {/* Two tiers, because this row had grown to eight identical boxes
               mixing three different kinds of control: things that start a
               session and leave this screen, things that expand a panel in
