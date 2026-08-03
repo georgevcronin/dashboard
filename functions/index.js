@@ -5,7 +5,7 @@ const express = require("express");
 const webpush = require("web-push");
 const { EXERCISE_DB, EXERCISE_MAP } = require('./exerciseDb');
 const { isCompoundExercise, findExercise } = require('./muscleTaxonomy');
-const { generateWeeklyGuidance, pickBackboneExercises, computeMusclePriority, scoreBucket, MUSCLE_GROUPS, FATIGUE_CEILING, SECONDARY_FATIGUE_CEILING } = require('./weeklyPlanner');
+const { generateWeeklyGuidance, pickBackboneExercises, computeMusclePriority, scoreBucket, MUSCLE_GROUPS, FATIGUE_CEILING, SECONDARY_FATIGUE_CEILING, focusGroups } = require('./weeklyPlanner');
 const { buildRecommendation } = require('./recommendation');
 const { todaysLimitingFactor } = require('./limitingFactor');
 const { buildRecoveryForecast } = require('./recoveryForecast');
@@ -1940,6 +1940,39 @@ function computeRecommendation(storedPlan) {
     ...inputs,
   });
   const storedTop = storedPlan?.muscleFocus?.[0]?.name || null;
+
+  // Enrich chosen bucket with actual exercises and sets/reps
+  if (rec.chosen) {
+    const groups = focusGroups(inputs.preferredSplit || 'Full Body');
+    const targetMuscles = groups[rec.chosen.name] || [];
+
+    if (targetMuscles.length > 0) {
+      const backboneNames = pickBackboneExercises(targetMuscles, {
+        travelMode: db.profile?.travelMode || false,
+        lifts: db.lifts || [],
+        favoriteExercises: db.profile?.favoriteExercises || [],
+        preferStable: db.profile?.stableLeaning,
+      });
+
+      const exercises = generateSessionExercises({
+        type: 'lift',
+        targetMuscles,
+        backboneExerciseNames: backboneNames,
+        lifts: db.lifts || [],
+        travelMode: db.profile?.travelMode || false,
+        avoidMuscles: inputs.avoidMuscles || [],
+        avoidMusclesSecondary: inputs.avoidMusclesSecondary || [],
+        offlineMuscles: inputs.offlineMuscles || [],
+        cnsFatigue: inputs.weekCNS || 0,
+        metabolicFatigue: inputs.weekMetabolic || 0,
+        trainingMonths: db.profile?.trainingMonths,
+        favoriteExercises: db.profile?.favoriteExercises || [],
+        preferStable: db.profile?.stableLeaning,
+      });
+
+      rec.chosen.exercises = exercises;
+    }
+  }
 
   // Rides along on this endpoint rather than getting its own: it needs exactly
   // the fatigue pass already done above, and asking for it separately would
