@@ -90,10 +90,11 @@ function computeMuscleLastTrainedDays(lifts) {
     // generated identity, not a static exerciseDb.js entry); (2) a curated
     // FIXED weighted profile for an existing exerciseDb.js exercise
     // (functions/exerciseEmgProfiles.js); (3) the flat primary/secondary
-    // fallback for anything not yet curated.
+    // fallback for anything not yet curated; (4) musclesForExercise keyword
+    // fallback for unrecognized names (single-leg variants, gym-specific tags).
     const weights = l.emgWeights || curatedWeightsForExercise(l.exercise);
-    const primary = weights ? classifyMuscles(weights).primary : findExercise(l.exercise)?.primary;
-    if (!primary) continue;
+    const primary = weights ? classifyMuscles(weights).primary : (findExercise(l.exercise)?.primary || musclesForExercise(l.exercise));
+    if (!primary?.length) continue;
     const t = liftTime(l);
     if (isNaN(t)) continue;
     for (const m of primary) {
