@@ -6,6 +6,14 @@ The canonical scope list for Press. 134 features across 12 categories, as specif
 
 This file records *what Press is meant to do*, not what is built yet. Implementation status lives in `SPEC-PROGRESS.md`.
 
+## Implementation Tracks
+
+**Track A (Advanced Analytics #41–70):** Unified timeline, recovery forecasting, weekly briefings, alternative recommendations, movement pattern analysis.
+
+**Track B (Hybrid Training #79–94):** Multi-activity fatigue, activity weighting, weekly distribution, readiness scoring for strength/running/sport.
+
+**Track C (Running Subsystem #95–113):** Run load estimation, VO₂ max tracking, run readiness, run categorization, training structure.
+
 ---
 
 ## I. Core Architecture & Recommendation Engine
@@ -60,7 +68,7 @@ This file records *what Press is meant to do*, not what is built yet. Implementa
 39. **Equipment Availability Mapping** — Filter exercise selections based on available equipment.
 40. **Editable Central Athlete Profile** — Store all onboarding choices in a unified profile that can be modified at any time.
 
-## V. Advanced Analytics, Adaptive Coaching & Forecasting
+## V. Advanced Analytics, Adaptive Coaching & Forecasting (Track A)
 
 41. **Unified Athlete Timeline** — Display workouts, runs, recovery, sleep, nutrition, injuries, and PRs on a single timeline.
 42. **Training Calendar with Predictive Forecasting** — Show future predicted readiness and recovery completion across a calendar view.
@@ -104,7 +112,7 @@ This file records *what Press is meant to do*, not what is built yet. Implementa
 77. **Adaptive Interface Personalization** — Automatically scale interface density based on user interaction frequency.
 78. **Seamless Mode Migration** — Allow frictionless toggling between experience modes without data loss.
 
-## VII. Unified Hybrid Training & Multi-Sport System
+## VII. Unified Hybrid Training & Multi-Sport System (Track B)
 
 79. **Unified Allocation Architecture** — Allocate total available recovery capacity across lifting, running, and sports within a single engine.
 80. **Activity Priority Weighting** — Rank activity types as Primary, Secondary, or Maintenance.
@@ -123,7 +131,7 @@ This file records *what Press is meant to do*, not what is built yet. Implementa
 93. **Generalized Stimulus Decision Engine** — Evaluate every daily recommendation around maximizing adaptation return.
 94. **Long-Term Hybrid Pathway Simulation** — Simulate future trajectories over extended timelines.
 
-## VIII. Dedicated Running Sub-System
+## VIII. Dedicated Running Sub-System (Track C)
 
 95. **Standalone Running Recommendation Engine** — Provide targeted daily run prescriptions answering "What run should I do today, and why?".
 96. **Adaptive Endurance Structure** — Structure running distribution based on adaptive endurance principles.
