@@ -2,6 +2,11 @@
 
 Sole user is George. See `PRODUCT.md` for what this is and who it's for, `ARCHITECTURE.md` for how it's built. Read both before non-trivial work — this file only covers things they don't.
 
+## Scope is George's to set
+- `FEATURES.md` is the canonical feature list. **Never remove, merge, renumber, or mark a feature out-of-scope without George's explicit permission.** Same for existing behaviour in the app.
+- "Already covered by X", "duplicates Y", "nothing consumes it", and "it's broken anyway" are reasons to *raise it and wait* — not reasons to drop it. Say what you'd cut and why, then stop.
+- Deleting code that implements a listed feature is a removal, even if it's unwired, untested, or was written by another AI. Ask first.
+
 ## Before touching code
 - If a change is ambiguous in scope, which file it belongs in, or whether it should touch `functions/index.js` vs a dedicated module — ask, don't assume.
 - Check `ARCHITECTURE.md`'s "muscle-taxonomy architecture" and "request-scoped state" sections before touching fatigue/planning logic or `functions/index.js`'s `db` handling. Both describe deliberate designs with a documented history of bugs from "fixing" them naively.

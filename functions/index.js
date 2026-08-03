@@ -26,8 +26,8 @@ const {
 } = require('./identity');
 const { computeStimulusContributions } = require('./adaptation');
 const { findNearbyGyms, normalizeExerciseKey, GYM_NEARBY_RADIUS_M } = require('./gyms');
-const { computeSharedFatigue } = require('./sharedFatigueEngine');
-const { computeActivityWeights } = require('./activityWeighting');
+const { buildUnifiedTimeline } = require('./analyticsEngine');
+const { computePatternFatigue } = require('./movementPatterns');
 const { generateWeeklyAllocation } = require('./sessionAllocationEngine');
 
 admin.initializeApp();
@@ -865,6 +865,21 @@ app.get("/summary", async (req, res) => {
     dataMaturity: computeDataMaturity(db.lifts),
     muscleLevels: computeMuscleLevels(db.lifts, db.weight, weights.at(-1)?.value ?? Object.values(db.weight).at(-1), db.profile?.sex, fatigueTimeline(db.lifts, summaryMusclePeaks)),
   });
+});
+
+// ---------- Unified activity feed ----------
+// Deliberately not folded into /summary: the timeline is the whole log
+// history, /summary is fixed short windows, and merging them would push the
+// common dashboard payload up by the size of the entire lift history.
+app.get("/timeline", async (req, res) => {
+  const limit = Math.min(500, Math.max(1, +req.query.limit || 100));
+  const all = buildUnifiedTimeline(db);
+  res.json({ entries: all.slice(0, limit), total: all.length });
+});
+
+// ---------- Movement-pattern fatigue ----------
+app.get("/movement-patterns", async (req, res) => {
+  res.json({ patterns: computePatternFatigue(db.lifts, personalizedRecoveryHours(db.profile)) });
 });
 
 // ---------- Long-arc trends ----------

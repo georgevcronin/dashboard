@@ -1,5 +1,73 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { api, pct, todayLocalStr } from '../shared.js';
+import { AreaChart } from '../charts.jsx';
+
+const TREND_METRICS = [
+  { key: 'weight', label: 'Weight', unit: 'kg', color: 'var(--ink)' },
+  { key: 'bodyFat', label: 'Body Fat', unit: '%', color: 'var(--ember)' },
+  { key: 'recovery', label: 'Recovery', unit: '/100', color: 'var(--gold)' },
+  { key: 'sleepScore', label: 'Sleep Score', unit: '/100', color: 'var(--plum)' },
+  { key: 'sleep', label: 'Sleep', unit: 'h', color: 'var(--plum)' },
+  { key: 'hrv', label: 'HRV', unit: 'ms', color: 'var(--navy)' },
+  { key: 'squat', label: 'Squat e1RM', unit: 'kg', color: 'var(--forest)' },
+  { key: 'bench', label: 'Bench e1RM', unit: 'kg', color: 'var(--forest)' },
+  { key: 'deadlift', label: 'Deadlift e1RM', unit: 'kg', color: 'var(--forest)' },
+  { key: 'overheadPress', label: 'OHP e1RM', unit: 'kg', color: 'var(--forest)' },
+  { key: 'row', label: 'Row e1RM', unit: 'kg', color: 'var(--forest)' },
+];
+const TREND_RANGES = [[14, '14D'], [30, '30D'], [90, '90D'], [365, '1Y']];
+
+function TrendsPanel() {
+  const [metric, setMetric] = useState('weight');
+  const [range, setRange] = useState(30);
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    setLoading(true);
+    api(`trends?metric=${metric}&range=${range}`).then(d => { setData(d); setLoading(false); }).catch(() => setLoading(false));
+  }, [metric, range]);
+
+  const meta = TREND_METRICS.find(m => m.key === metric);
+  const series = data?.series || [];
+  const values = series.map(p => p.value);
+  const first = values[0], last = values.at(-1);
+  const delta = first != null && last != null ? Math.round((last - first) * 10) / 10 : null;
+
+  return (
+    <div style={{ marginBottom: 4 }}>
+      <div className="kicker" style={{ margin: '0 0 10px' }}>Long-Term Trends</div>
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 8 }}>
+        <select value={metric} onChange={e => setMetric(e.target.value)}
+          style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, padding: '6px 8px', border: '1px solid var(--rule)', background: 'var(--paper)', color: 'var(--ink)' }}>
+          {TREND_METRICS.map(m => <option key={m.key} value={m.key}>{m.label}</option>)}
+        </select>
+        <div style={{ display: 'flex', gap: 4 }}>
+          {TREND_RANGES.map(([r, l]) => (
+            <button key={r} onClick={() => setRange(r)}
+              style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, padding: '5px 10px', border: '1px solid var(--rule)', background: range === r ? 'var(--ink)' : 'none', color: range === r ? 'var(--paper)' : 'var(--ink)', cursor: 'pointer' }}>
+              {l}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="chart-wrap" style={{ height: 70, position: 'relative', marginBottom: 4 }}>
+        {loading ? (
+          <div style={{ fontSize: 10, color: 'var(--dim)', fontStyle: 'italic', padding: '20px 0' }}>Loading…</div>
+        ) : values.length > 1 ? (
+          <AreaChart data={values} color={meta.color} id={`trend-${metric}`} />
+        ) : (
+          <div style={{ fontSize: 10, color: 'var(--dim)', fontStyle: 'italic', padding: '20px 0' }}>Not enough data yet for this range.</div>
+        )}
+      </div>
+      {values.length > 1 && (
+        <div className="sc-delta" style={{ color: 'var(--dim)' }}>
+          {first} → {last} {meta.unit} {delta != null && delta !== 0 ? `(${delta > 0 ? '+' : ''}${delta})` : ''}
+        </div>
+      )}
+    </div>
+  );
+}
 
 export function S6({ s, refresh }) {
   const supplements = s?.supplements || [];
@@ -244,7 +312,7 @@ export function S6({ s, refresh }) {
 }
 
 // ── S7: PERSONAL RECORDS ──────────────────────────────────────────────────────
-const MOVEMENT_GROUPS = [
+export const MOVEMENT_GROUPS = [
   { label: 'Lower Push', keys: ['squat','leg press','lunge','hack squat','bulgarian','step up','leg extension'] },
   { label: 'Lower Pull', keys: ['deadlift','rdl','hip thrust','glute','leg curl','nordic','hamstring'] },
   { label: 'Upper Push', keys: ['bench','chest press','overhead press','shoulder press','dip','fly','push up'] },
@@ -253,7 +321,7 @@ const MOVEMENT_GROUPS = [
   { label: 'Calves & Core', keys: ['calf','raise','abs','crunch','plank','oblique'] },
 ];
 
-function groupExercise(name) {
+export function groupExercise(name) {
   const n = name.toLowerCase();
   for (const g of MOVEMENT_GROUPS) if (g.keys.some(k => n.includes(k))) return g.label;
   return 'Other';

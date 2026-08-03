@@ -6,7 +6,7 @@
 const { loadAllLifts, appendLifts } = require('./liftChunks');
 
 const DEFAULTS = () => ({
-  metrics: {}, workouts: [], water: {}, weight: {}, lifts: [],
+  metrics: {}, workouts: [], water: {}, weight: {}, lifts: [], runs: [], sports: [],
   thoughts: [], nutrition: {}, nutritionLog: [], waterEvents: [],
   strava: null, weeklyPlan: null, soreness: [], muscleSensitivity: {}, cnsSensitivity: 1.0,
   injuries: [], measurements: [], supplements: [], supplementLog: [],

@@ -100,10 +100,45 @@ test('a personalised recovery-hours override is honoured over the defaults', () 
 });
 
 // computeStructuralFatigue caps at 100, so a muscle reading exactly 100 may be
-// far above it. The projection is then a floor, and has to say so.
-test('a muscle pinned at the 100 cap is flagged, because its estimate is a floor', () => {
+// far above it. The displayed figure is still capped, and has to say so.
+test('a muscle pinned at the 100 cap is flagged, because its displayed value is a floor', () => {
   assert.equal(forecastMuscleRecovery({ quads: 100 })[0].clamped, true);
   assert.equal(forecastMuscleRecovery({ quads: 99 })[0].clamped, false);
+});
+
+// The other half of the 100-cap defect: What If reads `_raw` for its deltas
+// (whatIfSimulator.js), but the forecast used to decay from the capped value,
+// so two muscles at wildly different real loads both reported the same wait.
+test('forecasting decays from the uncapped score when one is attached', () => {
+  const withRaw = (capped, raw) => {
+    const o = { quads: capped };
+    Object.defineProperty(o, '_raw', { value: { quads: raw }, enumerable: false });
+    return o;
+  };
+
+  const mild = forecastMuscleRecovery(withRaw(100, 110))[0];
+  const severe = forecastMuscleRecovery(withRaw(100, 250))[0];
+
+  assert.ok(severe.hoursUntilReady > mild.hoursUntilReady,
+    `250% raw should take longer than 110%, got ${severe.hoursUntilReady} vs ${mild.hoursUntilReady}`);
+  assert.equal(severe.fatigue, 100, 'the reported figure stays capped');
+  assert.equal(severe.clamped, true);
+});
+
+test('forecasting falls back to the capped value when no _raw is attached', () => {
+  const plain = forecastMuscleRecovery({ quads: 100 })[0];
+  const equivalent = (() => {
+    const o = { quads: 100 };
+    Object.defineProperty(o, '_raw', { value: { quads: 100 }, enumerable: false });
+    return forecastMuscleRecovery(o)[0];
+  })();
+  assert.equal(plain.hoursUntilReady, equivalent.hoursUntilReady);
+});
+
+test('_raw is not mistaken for a muscle', () => {
+  const o = { quads: 80 };
+  Object.defineProperty(o, '_raw', { value: { quads: 200 }, enumerable: false });
+  assert.deepStrictEqual(forecastMuscleRecovery(o).map(r => r.muscle), ['quads']);
 });
 
 test('muscles are ordered slowest-returning first', () => {
@@ -178,4 +213,26 @@ test('an empty or absent fatigue map degrades quietly', () => {
 test('the forecast survives JSON on its way to the frontend', () => {
   const f = buildRecoveryForecast({ currentFatigue: { quads: 90, chest: 20 }, cnsFatigue: 75 });
   assert.deepEqual(JSON.parse(JSON.stringify(f)), f);
+});
+
+// applyInjuryTaper spreads the fatigue map, which drops non-enumerable props.
+// Without an explicit rebuild the uncapped forecast silently reverts to capped
+// on the /summary path, which is the only path the dashboard actually uses.
+test('applyInjuryTaper carries _raw through to the forecast', () => {
+  const { computeStructuralFatigue, musclePeaksFromLifts, applyInjuryTaper } = require('../functions/fatigue');
+  const heavy = Array.from({ length: 8 }, () => (
+    { date: new Date().toISOString().slice(0, 10), start: new Date().toISOString(), exercise: 'Back Squat', kg: 200, reps: 10 }
+  ));
+  const light = [{ date: new Date().toISOString().slice(0, 10), start: new Date().toISOString(), exercise: 'Back Squat', kg: 60, reps: 5 }];
+  const peaks = musclePeaksFromLifts(light);
+
+  const scores = computeStructuralFatigue(heavy, peaks, [], {});
+  assert.ok(scores._raw.quads > 100, `needs a saturated muscle to test, got ${scores._raw.quads}`);
+
+  const tapered = applyInjuryTaper(scores, []);
+  assert.equal(tapered._raw?.quads, scores._raw.quads);
+
+  const before = forecastMuscleRecovery(scores).find(r => r.muscle === 'quads');
+  const after = forecastMuscleRecovery(tapered).find(r => r.muscle === 'quads');
+  assert.equal(after.hoursUntilReady, before.hoursUntilReady);
 });

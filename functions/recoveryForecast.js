@@ -69,7 +69,13 @@ function forecastMuscleRecovery(currentFatigue = {}, {
   return Object.entries(currentFatigue)
     .map(([muscle, fatigue]) => {
       const halfLifeH = recoveryHours[muscle] || RECOVERY_H[muscle] || DEFAULT_HALF_LIFE_H;
-      const hoursUntilReady = hoursToDecayTo(fatigue, target, halfLifeH);
+      // Decay from the uncapped score where one exists. A muscle whose real
+      // load is 250% of its peak takes far longer to fall under the ceiling
+      // than the 100 it displays as, and forecasting from the capped number
+      // under-reports that wait by exactly the amount that matters most.
+      // `_raw` is non-enumerable, so it never appears as a muscle here.
+      const effective = currentFatigue._raw?.[muscle] ?? fatigue;
+      const hoursUntilReady = hoursToDecayTo(effective, target, halfLifeH);
       return {
         muscle,
         fatigue,
@@ -77,10 +83,9 @@ function forecastMuscleRecovery(currentFatigue = {}, {
         target,
         // Kept consistent with hoursUntilReady: a value that can't be read is
         // neither ready nor on a clock, rather than quietly counting as ready.
-        ready: typeof fatigue === 'number' && !Number.isNaN(fatigue) && fatigue <= target,
+        ready: typeof effective === 'number' && !Number.isNaN(effective) && effective <= target,
         hoursUntilReady,
-        // A muscle pinned at the 100 cap may really be well above it, so its
-        // projection is a lower bound rather than an estimate.
+        // The displayed `fatigue` is still capped; hoursUntilReady no longer is.
         clamped: fatigue >= 100,
       };
     })

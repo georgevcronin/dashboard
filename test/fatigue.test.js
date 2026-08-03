@@ -133,7 +133,11 @@ test('musclePeaksFromLifts prefers a recent (90-day) peak over a bigger old one,
     { date: daysAgo(700), exercise: 'Leg Press', kg: 200, reps: 10 },       // 2000 load
     { date: daysAgo(700), exercise: 'Leg Extension', kg: 60, reps: 12 },    // 720 load
     { date: daysAgo(700), exercise: 'Hack Squat (Machine)', kg: 80, reps: 10 }, // 800 load
-    { date: daysAgo(1), exercise: 'Back Squat', kg: 100, reps: 8 },         // 800 load
+    // `start` pinned rather than left to `date`: liftTime resolves a date-only
+    // lift to midnight UTC, so run late enough in the day this is ~48h ago, not
+    // ~24h, and quads decay to exactly 25 — failing the `> 25` bound below on
+    // wall-clock time rather than on anything the model did.
+    { date: daysAgo(1), start: new Date(Date.now() - 24 * 3600_000).toISOString(), exercise: 'Back Squat', kg: 100, reps: 8 }, // 800 load
   ];
   const peaks = musclePeaksFromLifts(lifts);
   const expectedRecentPeak = 800 * BACK_SQUAT_QUADS_RATIO;

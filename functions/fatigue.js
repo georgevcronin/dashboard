@@ -299,13 +299,22 @@ function injuryFatiguePenalty(injury, now = Date.now()) {
 // respects, so a fresh injury (penalty 100) is fully offline and a nearly-healed
 // one (penalty dropping below 65) naturally reopens without any separate
 // binary offline-list mechanism.
+// The spread drops computeStructuralFatigue's non-enumerable `_raw`, so it has
+// to be rebuilt and tapered alongside — recoveryForecast.js decays from it, and
+// silently losing it here turns an uncapped forecast back into a capped one
+// without anything failing.
 function applyInjuryTaper(fatigue, injuries) {
   const out = { ...fatigue };
+  const raw = fatigue?._raw ? { ...fatigue._raw } : null;
   const now = Date.now();
   for (const inj of (injuries || []).filter(i => !i.resolved)) {
     const penalty = injuryFatiguePenalty(inj, now);
-    for (const m of (inj.muscles || [])) out[m] = Math.max(out[m] || 0, penalty);
+    for (const m of (inj.muscles || [])) {
+      out[m] = Math.max(out[m] || 0, penalty);
+      if (raw) raw[m] = Math.max(raw[m] || 0, penalty);
+    }
   }
+  if (raw) Object.defineProperty(out, '_raw', { value: raw, enumerable: false });
   return out;
 }
 

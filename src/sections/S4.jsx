@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { api, pct, roundCal, todayLocalStr } from '../shared.js';
+import { AreaChart } from '../charts.jsx';
 import muscleTaxonomyPkg from '../../functions/muscleTaxonomy.js';
 const { ALL_MUSCLES } = muscleTaxonomyPkg;
 
@@ -760,7 +761,7 @@ export function S4({ s, refresh }) {
 }
 
 // ── S5: FATIGUE ───────────────────────────────────────────────────────────────
-const BODY_BASE = '';
+export const BODY_BASE = '';
 // ALL_MUSCLES is imported (derived from EXERCISE_DB) — note the body-map SVGs
 // (body-anterior.svg etc.) only have data-muscle regions drawn for the
 // original 18 muscles, so newer ones (mid-delt, rotator-cuff, tibialis, ...)
@@ -773,7 +774,7 @@ const BODY_BASE = '';
 // (smaller, since fewer muscles are ranked than tracked) set: gluteus
 // medius/abductors, brachialis, and brachioradialis have no dedicated
 // artwork; mid-delt only has generic "shoulders" regions, not split by head.
-const MUSCLES_WITHOUT_BODY_REGION = ['abductors', 'brachialis', 'brachioradialis', 'mid-delt'];
+export const MUSCLES_WITHOUT_BODY_REGION = ['abductors', 'brachialis', 'brachioradialis', 'mid-delt'];
 
 // Every muscle the SVGs actually have a data-muscle region for (verified
 // directly against the 3 files) — any diagram-based muscle picker (Soreness,
@@ -781,7 +782,7 @@ const MUSCLES_WITHOUT_BODY_REGION = ['abductors', 'brachialis', 'brachioradialis
 // fallback button list alongside it, same reasoning as
 // MUSCLES_WITHOUT_BODY_REGION above. Named for Soreness, where it was first
 // introduced, but not soreness-specific.
-const SORENESS_DIAGRAM_MUSCLES = [
+export const SORENESS_DIAGRAM_MUSCLES = [
   'abs', 'adductors', 'biceps', 'calves', 'chest', 'erectors', 'forearms',
   'front-delt', 'glutes', 'hamstrings', 'lats', 'obliques', 'quads',
   'rear-delt', 'rhomboids', 'traps', 'triceps',
