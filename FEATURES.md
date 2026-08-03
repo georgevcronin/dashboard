@@ -1,0 +1,179 @@
+# Press — Feature List
+
+The canonical scope list for Press. 134 features across 12 categories, as specified by George.
+
+**No feature is to be removed, merged, renumbered, or marked out-of-scope without George's explicit permission.** If a feature looks redundant, already covered, or wrong, say so and wait — don't quietly drop it. See `CLAUDE.md`.
+
+This file records *what Press is meant to do*, not what is built yet. Implementation status lives in `SPEC-PROGRESS.md`.
+
+---
+
+## I. Core Architecture & Recommendation Engine
+
+1. **Recommendation-First Dashboard Transformation** — Replace the workout-tracker-first UI with a recommendation-first dashboard centered around "What should I train today, and why?", including concise explanations, expandable physiological reasoning, and quantified trade-offs.
+2. **Progressive Fatigue Explanations** — Display natural-language reasoning by default, with expandable sections revealing recovery percentages, contributing fatigue factors, and structural, metabolic, and CNS fatigue breakdowns.
+3. **Three Information Visibility Expertise Levels** — Implement Beginner, Intermediate, and Sport Scientist viewing modes that alter only information visibility without changing the underlying recommendation engine.
+4. **Today's Limiting Factor Panel** — Highlight the primary constraint on today's performance using clear explanations, expected performance impacts, and suggested mitigations.
+5. **Exercise Hierarchy Categorisation** — Categorize exercises into Primary Compound, Secondary Compound, and Isolation sections with distinct visual hierarchy.
+6. **Interactive Exercise Parameter Sliders** — Replace parameter dropdowns with real-time sliders (angle, grip width, stance width, etc.) that instantly recalculate muscle emphasis, fatigue, load, stimulus, and recovery cost.
+7. **Target Muscle Planner** — Allow users to select target muscles first so Press can recommend optimal configurations and loading.
+8. **Transparent Override Trade-offs** — Display estimated performance reduction and recovery cost when non-recommended exercises are chosen rather than blocking the selection.
+9. **Recommendation Explainability** — Ensure every workout, exercise, and parameter choice explains why it was recommended, why alternatives were rejected, and what changes if another option is chosen.
+10. **"What If?" Scenario Simulation** — Provide a simulation mode to compare options before committing, showing predicted effects on performance, fatigue, and stimulus.
+
+## II. Responsive Dashboard & Desktop Masonry Layout
+
+11. **Responsive Masonry Grid** — Replace fixed-height layouts with a responsive masonry-style grid using variable-height cards to eliminate empty whitespace.
+12. **Variable Panel Display States** — Equip panels with Collapsed, Standard, and Expanded states that adjust based on expertise level and data density.
+13. **Multi-Row and Multi-Column Spanning** — Allow key recommendation and analytics panels to span multiple rows or columns while keeping smaller widgets compact.
+14. **Priority Scaling Above the Fold** — Position core recommendation-related panels above the fold on desktop.
+15. **Customizable Dashboard Layouts** — Allow users to rearrange, resize, collapse, or hide dashboard panels without altering recommendation logic.
+16. **Expertise-Responsive Panel Resizing** — Automatically scale card sizes based on the active expertise level.
+
+## III. Muscle Visualisation & Scientific Transparency
+
+17. **Live Muscle Recalibration Animations** — Animate muscle recruitment and fatigue allocation in real time as parameters change.
+18. **Recommended vs. Current Parameter Comparison** — Display visual indicators comparing current configurations against the optimal recommended baseline.
+19. **Surface Prediction Confidence** — Expose confidence intervals and statistical uncertainty across advanced views.
+20. **Coaching-First System Philosophy** — Ensure every interface element reinforces that Press is an intelligent recommendation engine where logging refines the internal model.
+
+## IV. Expanded Onboarding & Goal Customization
+
+21. **Multi-Goal Selection** — Allow users to select multiple primary and secondary goals.
+22. **Smart Goal Defaults** — Automatically suggest sleep, hydration, frequency, and volume targets based on goals.
+23. **"Returning After a Break" Baseline** — Include a detraining-aware experience option alongside "New" and "Experienced".
+24. **Broad Activity Selection** — Support primary activities including Strength, Running, Hybrid, Team Sports, Endurance, CrossFit, and Other.
+25. **Entry-Point Prioritisation Options** — Offer Smart Recommendations, Goal-Based Presets, or Custom Priorities for muscle focus.
+26. **Goal-Based Focus Presets** — Provide pre-configured priorities like Balanced Physique, V-Taper, Bigger Arms, etc.
+27. **Layered Muscle Region Editor** — Keep body diagrams simple, opening detailed side panels for sub-muscles upon selection.
+28. **Replace "Ignore" with "Deprioritise"** — Keep non-target muscles modeled physiologically while lowering priority, reserving total exclusion for rehabilitation.
+29. **Sub-Muscle Group Breakdown** — Expand major regions into constituent parts (e.g., Shoulders into anterior, lateral, posterior delts, and rotator cuff).
+30. **Future Activity Integration Architecture** — Design onboarding around generalized activity units for smooth future module integration.
+31. **Categorised Health & Fitness Service Integrations** — Group integrations into Recovery, Activity, and Strength categories.
+32. **Personalised Onboarding Summary Screen** — Conclude onboarding with an overview explaining goals, styles, habits, connected services, and adaptation vectors.
+33. **Progressive Disclosure in Onboarding** — Hide advanced technical questions unless requested.
+34. **Penalty-Free Step Skipping** — Allow users to skip non-essential steps, noting missing data increases uncertainty rather than blocking features.
+35. **Onboarding Recommendation Preview** — Show a sample recommendation preview before entering the app.
+36. **Sport-Specific Context Selection** — Allow users to select active sports for baseline fatigue modeling.
+37. **Movement Preference Prioritisation** — Allow users to prioritize movement categories to weight recommendations.
+38. **Injury & Joint Limitation Profiling** — Capture injuries and restrictions to automatically filter exercise selections.
+39. **Equipment Availability Mapping** — Filter exercise selections based on available equipment.
+40. **Editable Central Athlete Profile** — Store all onboarding choices in a unified profile that can be modified at any time.
+
+## V. Advanced Analytics, Adaptive Coaching & Forecasting
+
+41. **Unified Athlete Timeline** — Display workouts, runs, recovery, sleep, nutrition, injuries, and PRs on a single timeline.
+42. **Training Calendar with Predictive Forecasting** — Show future predicted readiness and recovery completion across a calendar view.
+43. **Weekly Physiological Coaching Brief** — Generate an AI weekly summary detailing physiological adaptations and progress limiters.
+44. **Daily Morning Coaching Brief** — Provide a morning briefing covering recommendations, recovery status, limiting factors, and priority actions.
+45. **Adaptive Deload Detection Engine** — Automatically recommend deloads when accumulated fatigue and performance trends signal diminishing returns.
+46. **Adaptive Progression Engine** — Continuously adjust volume, intensity, and progression rates based on observed adaptation.
+47. **Multi-Horizon Recovery Forecast** — Predict exact recovery completion times for every muscle group, pattern, and CNS state.
+48. **Readiness Confidence Indicators** — Display confidence scores of readiness predictions alongside explanations of missing data.
+49. **Alternative Workout Plan Generation** — Provide multiple evidence-based options for the day with explicit trade-offs.
+50. **Time-Constrained Workout Optimiser** — Rebuild sessions dynamically based on available time limits.
+51. **Whole-Body Fatigue Heatmap** — Provide an interactive body map illustrating structural, metabolic, and neural fatigue.
+52. **Movement Pattern Fatigue Tracking** — Track volume and fatigue by movement patterns alongside muscles.
+53. **Recovery Drivers Decomposition** — Expose specific variables driving daily recovery estimates.
+54. **Long-Term Adaptation Forecasting** — Forecast projected strength, hypertrophy, or endurance gains over coming weeks.
+55. **Goal Progress Simulator** — Allow users to simulate long-term outcomes based on hypothetical training changes.
+56. **Training Consistency Analytics** — Analyze adherence, missed sessions, and recovery consistency.
+57. **Automatic Exercise Substitution Engine** — Rank alternative exercises based on stimulus similarity and current fatigue limits.
+58. **Intelligent Warm-Up Builder** — Generate dynamic warm-up sequences and mobility drills tailored to the day's workout.
+59. **Cool-Down & Recovery Prescriptions** — Recommend post-workout recovery strategies based on session stress.
+60. **Bayesian Session Reflection Engine** — Prompt users with targeted questions when actual performance deviates from expectations to update the athlete model.
+61. **Exercise Knowledge Cards** — Provide coaching details, purpose, and selection logic for every exercise.
+62. **Scientific Evidence Library** — Link fatigue models and algorithms to evidence summaries and primary research.
+63. **Recommendation Delta Explanations** — Explain explicitly when daily recommendations change significantly from previous patterns.
+64. **Seasonal Periodization Planning** — Support long-term training phases with automated phase transitions.
+65. **Integrated AI Coach Assistant** — Embed a chat interface with access to the complete athlete state vector.
+66. **Multi-Objective Optimisation Engine** — Simultaneously optimize competing objectives while transparently presenting trade-offs.
+67. **Habit Recommendation Engine** — Suggest high-impact behavioral changes expected to improve performance.
+68. **Adaptive Physiological Notifications** — Deliver notifications based on physiological readiness thresholds.
+69. **Performance Milestone Detection** — Recognize improvements in work capacity and recovery kinetics beyond standard PRs.
+70. **Digital Twin Dashboard** — Provide an advanced control panel exposing latent physiological states for full state inspection.
+
+## VI. Flexible Experience Modes & Workout Tracking
+
+71. **Standalone Workout Tracker Mode** — Provide a pure logging mode for users who prefer manual entry while the background engine learns.
+72. **Configurable Recommendation Intensity** — Allow users to choose system proactivity (Tracker, Recommendations, Coach).
+73. **Manual Workout Builder with Passive Feedback** — Allow manual routine construction with non-intrusive feedback on recovery and stimulus.
+74. **Passive Athlete Learning System** — Continuously update fatigue, recovery, and volume models from logged workouts regardless of mode.
+75. **Quick-Start Session Templates** — Provide one-tap session starts for common splits.
+76. **Progressive Feature Discovery** — Introduce advanced features over time via contextual tips as history grows.
+77. **Adaptive Interface Personalization** — Automatically scale interface density based on user interaction frequency.
+78. **Seamless Mode Migration** — Allow frictionless toggling between experience modes without data loss.
+
+## VII. Unified Hybrid Training & Multi-Sport System
+
+79. **Unified Allocation Architecture** — Allocate total available recovery capacity across lifting, running, and sports within a single engine.
+80. **Activity Priority Weighting** — Rank activity types as Primary, Secondary, or Maintenance.
+81. **Shared Multi-System Fatigue Engine** — Track local, systemic/CNS, cardiovascular, and connective tissue stress across all training forms.
+82. **Universal Weekly Stress Management** — Coordinate hard days and recovery days across modalities.
+83. **Intelligent Session Pairing** — Pair complimentary high-stress sessions to preserve recovery windows.
+84. **Event & Competition-Aware Tapering** — Adjust training load and tapering automatically around matches or races.
+85. **Adaptive Weekly Distribution Engine** — Distribute weekly sessions dynamically based on physiological state.
+86. **Activity-Specific Readiness Ratings** — Provide separate readiness estimates for Strength, Running, Sport, and Mobility.
+87. **Cross-Activity Trade-Off Quantifier** — Display exact performance trade-offs between modalities.
+88. **Automatic Multi-Sport Stimulus Credit** — Credit physiological stimulus from sport and endurance toward overall weekly targets.
+89. **Active Recovery & Substitution Scheduling** — Recommend low-stress alternatives when high-intensity capacity is exceeded.
+90. **Hybrid Progression Framework** — Manage progression curves independently while capping total systemic stress.
+91. **Unified Athletic Overview Dashboard** — Combine strength, running, sport, and recovery trends into one overview.
+92. **Goal Conflict Detection & Mitigation** — Identify competing adaptations and recommend realistic compromises.
+93. **Generalized Stimulus Decision Engine** — Evaluate every daily recommendation around maximizing adaptation return.
+94. **Long-Term Hybrid Pathway Simulation** — Simulate future trajectories over extended timelines.
+
+## VIII. Dedicated Running Sub-System
+
+95. **Standalone Running Recommendation Engine** — Provide targeted daily run prescriptions answering "What run should I do today, and why?".
+96. **Adaptive Endurance Structure** — Structure running distribution based on adaptive endurance principles.
+97. **Physiological Target-Based Running Prescriptions** — Prescribe runs based on heart rate zones and terrain rather than rigid paces.
+98. **Running Readiness & Performance Scoring** — Evaluate running-specific readiness combining fitness, load, and efficiency.
+99. **Pace-to-Heart Rate Efficiency Tracking** — Track aerobic efficiency changes over time.
+100. **Continuous VO₂ Max Estimation Engine** — Estimate VO₂ max trends, confidence intervals, and race times.
+101. **Diverse Run Session Categorisation** — Generate structured workouts for recovery, base, long runs, thresholds, and intervals.
+102. **Running Injury Risk Mitigation Engine** — Monitor mileage velocity, long-run ratios, and tendon stress to adjust volume.
+103. **Lifting & Running Interference Management** — Schedule high-stress running and heavy leg training to avoid exhaustion.
+104. **Race Goal Periodization Engine** — Construct macrocycles for target distances with structured training phases.
+105. **Coaching-First Running Philosophy** — Prescribe runs based on maximizing adaptation relative to recovery.
+106. **Multi-Factor Running Load Engine** — Quantify running stress using distance, duration, pace, heart rate, and elevation.
+107. **Acute-to-Chronic Running Load Ratio (ACWR)** — Track acute vs. chronic running stress to guide safe progression.
+108. **Running Adaptation Tracking** — Track running economy and threshold speed over time.
+109. **Post-Run Feedback & Recalibration** — Analyze post-run metrics to refine future endurance recommendations.
+110. **Terrain & Environment Auto-Adjustment** — Adjust pace expectations based on elevation and weather.
+111. **Running Biomechanics & Economy Metrics** — Integrate optional running form trends to refine efficiency estimates.
+112. **Endurance Athlete Digital Twin** — Combine logs, wearable health data, and recovery kinetics into a predictive model.
+113. **Multi-Sport Endurance Integration** — Support combined multi-sport endurance athlete profiles.
+
+## IX. Architectural Integrity & System Modes
+
+114. **Primary Focus Mode Selection** — Set primary modes (Weightlifting, Running, Hybrid, Sport, General) while running the central engine.
+115. **Configurable Guidance Persona** — Adjust coaching guidance levels without modifying calculations.
+116. **Lightweight Manual Weights Tracker** — Provide a clean logging experience for basic tracking while the background engine builds the state vector.
+117. **Frictionless Mode Escalation** — Allow users to toggle between experience modes at any point.
+118. **Centralized Unified Athlete Model** — Maintain a single central state vector storing history, recovery, goals, and metrics.
+119. **Recommendation Uncertainty & Confidence Framework** — Expose system confidence metrics and uncertainty drivers alongside recommendations.
+120. **Continuous Learning Loop Engine** — Process every input through Bayesian updating to continuously refine the digital twin.
+
+## X. Practicality & System Architecture Fixes
+
+121. **Data Degradation Fallback Tier** — Implement an automatic fallback mechanism for missing wearable or health data using subjective proxies and rolling averages without breaking recommendations.
+122. **Frictionless Quick-Log Interface** — Provide a fast-logging mode during active workouts to record sets with a single tap, keeping advanced parameters hidden inside drawers.
+123. **Explicit Goal Trade-Off Resolver** — Surface transparent trade-off notifications when competing multi-goal combinations are selected, paired with an interactive priority ranker.
+124. **Offline-First Local State Sync Architecture** — Cache the local athlete state model and recommendation engine client-side on the device to support full offline usage and deferred background synchronization.
+
+## XI. Modular Micro-Widget Structural Filler System
+
+125. **Hydration Ring Micro-Widget** — A 1-unit compact circular progress ring tracking water intake against daily nutritional and health goals.
+126. **Resting Heart Rate Ticker Micro-Widget** — A 1-unit biometric ticker displaying today's resting heart rate alongside variance from the 7-day rolling baseline.
+127. **Training Streak Badge Micro-Widget** — A 1-unit minimalist counter tracking consecutive days of training consistency or macro compliance.
+128. **NEAT / Step Count Mini-Bar Micro-Widget** — A 1-unit slim horizontal progress bar tracking daily step accumulation against target baselines.
+129. **AI Coaching Insight Nugget Micro-Widget** — A 1-unit editorial single-line takeaway driven by the daily physiological briefing engine.
+130. **Optimal Training Window Timer Micro-Widget** — A 1-unit subtle indicator showing peak circadian and physiological windows for high-output training.
+131. **Today's Muscle Focus Mini-Map Micro-Widget** — A 2-unit mini-silhouette highlighting the primary target region for today's scheduled training session.
+132. **Body Weight Delta Tracker Micro-Widget** — A 2-unit trend sparkline showing 7-day scale weight movement relative to bulking or cutting targets.
+133. **Weekly Volume Pace Bar Micro-Widget** — A 2-unit progress breakdown showing completed weekly tonnage or running distance versus the target adaptive curve.
+
+## XII. Modular Unit Panel Length & Column Balancing System
+
+134. **Modular Unit Panel Length Engine** — Standardizes all primary widgets and micro-widgets into a strict modular scale (1, 2, 3, and 4 units) summing to a mathematically divisible total (36 units). This enables the layout engine to dynamically balance columns across 2, 3, or 4 grid tracks by filling vertical gaps with micro-widgets, guaranteeing zero vertical dead space while preserving an editorial magazine aesthetic.

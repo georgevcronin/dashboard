@@ -17,7 +17,7 @@ const TREND_METRICS = [
 ];
 const TREND_RANGES = [[14, '14D'], [30, '30D'], [90, '90D'], [365, '1Y']];
 
-function TrendsPanel() {
+export function TrendsPanel() {
   const [metric, setMetric] = useState('weight');
   const [range, setRange] = useState(30);
   const [data, setData] = useState(null);
