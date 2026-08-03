@@ -303,6 +303,9 @@ function LimitingFactorPanel({ limitingFactor }) {
     <div className="fade" style={{ flexShrink: 0, borderTop: '1px solid var(--rule)', paddingTop: 8, marginTop: 8 }}>
       <div className="kicker" style={{ marginBottom: 3 }}>Today's Limiting Factor</div>
       <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 15, fontWeight: 700, color: tone[primary.severity], lineHeight: 1.25 }}>
+        <span style={{ ...mono, fontSize: 9, letterSpacing: '.08em', textTransform: 'uppercase', marginRight: 6, color: tone[primary.severity] }}>
+          [{primary.severity}]
+        </span>
         {primary.headline}
       </div>
 
@@ -344,7 +347,11 @@ function LimitingFactorPanel({ limitingFactor }) {
             </div>
             {others.map(f => (
               <div key={f.code} style={{ ...mono, fontSize: 9, color: 'var(--dim)', lineHeight: 1.7 }}>
-                <span style={{ color: tone[f.severity] }}>•</span> {f.detail}
+                <span style={{ color: tone[f.severity], marginRight: 4 }}>•</span>
+                <span style={{ color: tone[f.severity], textTransform: 'uppercase', fontSize: 8, letterSpacing: '.06em', marginRight: 6 }}>
+                  [{f.severity}]
+                </span>
+                {f.detail}
               </div>
             ))}
           </div>
@@ -4577,7 +4584,7 @@ function RecommendationPanel({ rec, selectedBucket }) {
         <div style={{ ...mono, fontSize: 9, color: 'var(--dim)', marginTop: 8, lineHeight: 1.6 }}>
           <span style={{ letterSpacing: '.08em', textTransform: 'uppercase' }}>Confidence</span>
           {' · '}
-          <span style={{ color: rec.confidence.level === 'high' ? 'var(--forest)' : rec.confidence.level === 'moderate' ? 'var(--gold)' : 'var(--ember)' }}>
+          <span style={{ color: rec.confidence.level === 'high' ? 'var(--forest)' : rec.confidence.level === 'moderate' ? 'var(--gold)' : 'var(--ember)', textTransform: 'uppercase', letterSpacing: '.06em', fontWeight: 600 }}>
             {rec.confidence.level}
           </span>
           {atLeast('scientist') && rec.confidence.limitations.map((l, i) => (
@@ -6117,6 +6124,7 @@ function S5({ s, recommendation, refresh }) {
             {SORENESS_MUSCLES.filter(m => !SORENESS_DIAGRAM_MUSCLES.includes(m)).map(m => (
               <button key={m} className={`soreness-btn${sorenessSet.has(m) ? ' has-log' : ''}${selectedMuscle === m ? ' active' : ''}`}
                 onClick={() => { setSelectedMuscle(selectedMuscle === m ? null : m); setSliderVal(5); }}
+                aria-label={`${m}${sorenessSet.has(m) ? ', soreness logged' : ''}`}
                 style={selectedMuscle === m ? { borderColor: 'var(--ink)', color: 'var(--ink)' } : {}}>
                 {sorenessSet.has(m) && <span className="soreness-dot" />}
                 {m}

@@ -4,13 +4,13 @@
 export const PRESS_CSS = `
 @import url('https://fonts.googleapis.com/css2?family=Syne:wght@800&family=Playfair+Display:ital,wght@0,700;0,900;1,400;1,700&family=JetBrains+Mono:wght@400;600&display=swap');
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
-:root{--paper:#f5f0e2;--paper2:#ede8d4;--ink:#0d0b08;--rule:#c4b898;--dim:#6b5d44;--gold:#6b5800;--navy:#1a2f54;--forest:#1a4f2a;--ember:#7a3400;--red:#7a1414;--plum:#3d2452;--hdr:72px}
+:root{--paper:#f5f0e2;--paper2:#ede8d4;--ink:#0d0b08;--rule:#c4b898;--dim:#5a4935;--gold:#6b5800;--navy:#1a2f54;--forest:#1a4f2a;--ember:#7a3400;--red:#7a1414;--plum:#3d2452;--hdr:72px}
 /* Night edition — same paper/ink structure inverted, not a generic app dark
    theme: a dark charcoal "newsprint" ground rather than pure black, with
    accent hues brightened (they were tuned as dark text on a light page, so
    need lifting to stay AA-legible on a dark one). Toggled via data-theme,
    set from profile.darkMode once loaded — see App()'s theme effect. */
-:root[data-theme="dark"]{--paper:#1b1812;--paper2:#26221a;--ink:#f0e9d8;--rule:#4a4030;--dim:#ab9a78;--gold:#d9b23c;--navy:#7194d6;--forest:#5cb86f;--ember:#e08a4a;--red:#e0685a;--plum:#b58ee0}
+:root[data-theme="dark"]{--paper:#1b1812;--paper2:#26221a;--ink:#f0e9d8;--rule:#4a4030;--dim:#c9b8a0;--gold:#d9b23c;--navy:#7194d6;--forest:#5cb86f;--ember:#e08a4a;--red:#e0685a;--plum:#b58ee0}
 html,body{height:100%;background:var(--paper)}
 body{font-family:'Times New Roman',Times,Georgia,serif;color:var(--ink)}
 .hdr{position:fixed;top:0;left:0;right:0;z-index:100;background:var(--paper);border-bottom:3px solid var(--ink)}
@@ -82,7 +82,7 @@ body{font-family:'Times New Roman',Times,Georgia,serif;color:var(--ink)}
    2.5.8 minimum target — this is a pointer-only control, hidden on mobile. */
 .panel-toggle{display:flex;align-items:center;justify-content:center;position:absolute;top:3px;right:8px;z-index:3;width:24px;height:24px;padding:0;background:none;border:none;cursor:pointer;font-family:'JetBrains Mono',monospace;font-size:14px;line-height:1;color:var(--dim)}
 .panel-toggle:hover{color:var(--ink)}
-.panel-toggle:focus-visible{color:var(--ink);outline:1px solid var(--ink);outline-offset:1px}
+.panel-toggle:focus-visible{color:var(--ink);outline:2px solid var(--ink);outline-offset:2px}
 }
 /* The vertical hairlines multicol used to draw for free as column-rule. Sized
    from the grid's resolved track widths rather than a gradient because .scroll
@@ -172,7 +172,7 @@ section.visible .fade:nth-child(6){transition-delay:.56s}
 .session-tools-end{display:flex;gap:6px 18px;flex-wrap:wrap;align-items:center;margin-left:auto}
 .tool-btn{display:inline-flex;align-items:center;min-height:44px;padding:0;background:none;border:none;cursor:pointer;font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.12em;text-transform:uppercase;color:var(--dim)}
 .tool-btn:hover{color:var(--ink)}
-.tool-btn:focus-visible{color:var(--ink);outline:1px solid var(--ink);outline-offset:3px}
+.tool-btn:focus-visible{color:var(--ink);outline:2px solid var(--ink);outline-offset:2px}
 /* Open state rides on the glyph and aria-expanded, so the label never changes
    length and the row never reflows mid-toggle. */
 .tool-btn::before{content:'+';display:inline-block;width:9px;margin-right:6px;color:var(--rule)}
@@ -234,7 +234,7 @@ section.visible .fade:nth-child(6){transition-delay:.56s}
 .muscle-row{display:flex;align-items:center;gap:10px;padding:5px 0;border-bottom:1px solid var(--paper2)}
 .muscle-name{font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--dim);width:80px;flex-shrink:0;text-transform:capitalize}
 .muscle-bar-track{flex:1;height:6px;background:var(--paper2);border-radius:1px;overflow:hidden}
-.muscle-bar-fill{height:100%;border-radius:1px;transition:width .4s ease}
+.muscle-bar-fill{height:100%;border-radius:1px;transition:width .4s ease;will-change:width}
 /* The fatigue-cost bar under the activation bar. Shorter and hatched-free but
    deliberately a different weight, so the two are never read as one scale —
    they're different units (% of MVIC vs points of fatigue). */
@@ -257,7 +257,7 @@ section.visible .fade:nth-child(6){transition-delay:.56s}
 .prof-btn.solid{background:var(--ink);color:var(--paper);border-color:var(--ink)}
 .onboard-overlay{position:fixed;inset:0;z-index:9999;background:var(--paper);overflow-y:auto}
 .ob-progress{position:sticky;top:0;left:0;right:0;height:2px;background:var(--rule);z-index:10}
-.ob-progress-fill{height:100%;background:var(--gold);transition:width .4s ease}
+.ob-progress-fill{height:100%;background:var(--gold);transition:width .4s ease;will-change:width}
 .ob-wrap{max-width:480px;margin:0 auto;padding:32px 20px 60px}
 .ob-step-ind{font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.16em;text-transform:uppercase;color:var(--dim);margin-bottom:28px}
 .ob-logo{font-family:'Playfair Display',Georgia,serif;font-weight:900;font-size:clamp(48px,12vw,72px);letter-spacing:-.02em;color:var(--gold);line-height:.9;margin-bottom:10px}
