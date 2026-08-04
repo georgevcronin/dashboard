@@ -40,6 +40,13 @@ body{font-family:'Times New Roman',Times,Georgia,serif;color:var(--ink)}
 @media(min-width:481px){
 .scroll{padding-right:40px;position:relative;display:grid;grid-template-columns:repeat(auto-fill,minmax(440px,1fr));grid-auto-rows:1px;grid-auto-flow:row dense;gap:0}
 }
+/* Fixed track counts replace auto-fill once there's room for real column
+   spanning to mean something (see panel-w2/panel-w3 below) — auto-fill's
+   continuously-variable column count made "span 2" an unpredictable
+   fraction of the row. Below 1380px, auto-fill stays exactly as it was:
+   that range never had spanning, so there's nothing to make predictable. */
+@media(min-width:1380px){.scroll{grid-template-columns:repeat(3,1fr)}}
+@media(min-width:1800px){.scroll{grid-template-columns:repeat(4,1fr)}}
 /* .panel wraps each section so a display state (collapsed / standard / wide)
    and the toggle that drives it can be expressed without every section
    component having to know it's living in a dashboard. It's display:contents
@@ -63,6 +70,16 @@ body{font-family:'Times New Roman',Times,Georgia,serif;color:var(--ink)}
    middle. Only .panel-expanded gets one — putting it on every .panel would
    paint over every rule, since a standard panel's edge sits exactly on one. */
 @media(min-width:1380px){.panel-expanded{grid-column:span 2;background:var(--paper)}}
+/* Real per-panel default width (feature #13), not just the one manually-
+   toggled .panel-expanded case above: app.jsx's PANEL_WIDE set marks a
+   panel wide unconditionally, these two rules decide how wide it actually
+   reads at the current breakpoint. Never full-row at either tier (2 of 3,
+   then 3 of 4) for the same packing reason .panel-expanded isn't 2 of 2.
+   panel-w3 is declared after panel-w2 so it wins at 1800px+ where both
+   classes are present and both rules apply — later source order breaks the
+   equal-specificity tie, not stacking. */
+@media(min-width:1380px){.panel-w2{grid-column:span 2;background:var(--paper)}}
+@media(min-width:1800px){.panel-w3{grid-column:span 3;background:var(--paper)}}
 .panel-off{display:none}
 /* Everything except the section's own header block hides, which is why each
    section tags its header .panel-head — "the first .fade child" isn't

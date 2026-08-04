@@ -8,6 +8,7 @@ const { EXERCISE_DB } = require('./exerciseDb');
 const { computeProgression } = require('./progression');
 const { isCompoundExercise, loggedExerciseNames, isBodyweightOnlyExercise, redundancyPattern } = require('./muscleTaxonomy');
 const { idealAngleForMuscle } = require('./emgActivation');
+const { emgProfileForExercise } = require('./exerciseEmgProfiles');
 
 // Same reasoning/magnitude as weeklyPlanner.js's LOGGED_EXERCISE_BONUS — a
 // heavy preference for whatever the athlete has actually done before,
@@ -66,13 +67,28 @@ function stabilityScore(e, preferStable) {
   return 0;
 }
 
+// Ranks candidates by stimulus similarity to `entry` — how much of its own
+// target muscles' EMG activation a candidate reproduces (exerciseEmgProfiles.js,
+// same curated data targetMusclePlanner.js scores against), not just how many
+// primary-muscle names the two happen to share. Falls back to the original
+// name-overlap count when either exercise has no curated profile, which is
+// most of EXERCISE_DB — the profile only covers commonly-substituted lifts.
+function stimulusSimilarity(entry, candidate) {
+  const entryProfile = emgProfileForExercise(entry.name);
+  const candidateProfile = emgProfileForExercise(candidate.name);
+  if (!entryProfile || !candidateProfile) {
+    return candidate.primary.filter(m => entry.primary.includes(m)).length;
+  }
+  return entry.primary.reduce((sum, m) => sum + Math.min(entryProfile[m] || 0, candidateProfile[m] || 0), 0);
+}
+
 function substituteForCNS(entry, avoidMuscles, avoidMusclesSecondary = []) {
   if (!HIGH_CNS_EQUIPMENT.includes(entry.equipment)) return entry;
   const candidates = EXERCISE_DB
     .filter(e => LOW_CNS_EQUIPMENT.includes(e.equipment)
       && !e.primary.some(m => avoidMuscles.includes(m))
       && !(e.secondary || []).some(m => avoidMusclesSecondary.includes(m)))
-    .map(e => ({ e, score: e.primary.filter(m => entry.primary.includes(m)).length }))
+    .map(e => ({ e, score: stimulusSimilarity(entry, e) }))
     .filter(c => c.score > 0)
     .sort((a, b) => b.score - a.score);
   return candidates[0]?.e || entry;
@@ -666,5 +682,5 @@ module.exports = {
   generateSessionExercises, progressionFor, suggestedWorkingSetCount, suggestedRirSequence,
   isLowRepPattern, LOW_REP_THRESHOLD, isStapleExercise, STAPLE_SESSION_THRESHOLD,
   estimateSessionDurationMin, capSessionDuration, fillSessionToDuration, fatigueCeilingFor,
-  STABLE_EQUIPMENT, UNSTABLE_EQUIPMENT, stabilityScore,
+  STABLE_EQUIPMENT, UNSTABLE_EQUIPMENT, stabilityScore, stimulusSimilarity,
 };

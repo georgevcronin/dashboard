@@ -199,8 +199,14 @@ function computeSleepMetrics(startsStr, endsStr, typesStr) {
   const deepMin = deepRanges.length ? Math.round(unionDurationMs(deepRanges) / 60_000) : null;
   const remMin = remRanges.length ? Math.round(unionDurationMs(remRanges) / 60_000) : null;
   const lightMin = lightRanges.length ? Math.round(unionDurationMs(lightRanges) / 60_000) : null;
+  // Latest end-of-asleep timestamp in the session -- the actual moment they
+  // woke up, not just how long they slept. Feeds the Optimal Training Window
+  // micro-widget (circadian performance rhythm anchors to habitual wake time,
+  // not a fixed clock time -- Facer-Childs & Brandstaetter 2015, Curr Biol
+  // 25(4)); nothing else in the app needed a wake-clock-time before now.
+  const wakeTimeMs = asleepRanges.length ? Math.max(...asleepRanges.map(([, e]) => e)) : null;
 
-  return { asleepHours, wasoMin, sleepEff, deepMin, remMin, lightMin };
+  return { asleepHours, wasoMin, sleepEff, deepMin, remMin, lightMin, wakeTimeMs };
 }
 
 module.exports = {

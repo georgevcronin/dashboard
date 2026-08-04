@@ -28,7 +28,6 @@ const { computeStimulusContributions } = require('./adaptation');
 const { findNearbyGyms, normalizeExerciseKey, GYM_NEARBY_RADIUS_M } = require('./gyms');
 const { buildUnifiedTimeline } = require('./analyticsEngine');
 const { computePatternFatigue } = require('./movementPatterns');
-const { generateWeeklyAllocation } = require('./sessionAllocationEngine');
 
 admin.initializeApp();
 const firestore = admin.firestore();
@@ -339,13 +338,14 @@ app.post("/shortcut", async (req, res) => {
   // only sends a single generic "Sleep"/"Asleep" value still gets a real
   // sleep_hours total, just no stage breakdown for sleepScore.js's
   // deep/rem/light dimensions).
-  const { asleepHours, wasoMin, sleepEff, deepMin, remMin, lightMin } = computeSleepMetrics(d.sleep_start, d.sleep_end, d.sleep_types);
+  const { asleepHours, wasoMin, sleepEff, deepMin, remMin, lightMin, wakeTimeMs } = computeSleepMetrics(d.sleep_start, d.sleep_end, d.sleep_types);
   if (asleepHours != null) db.metrics[k].sleep_hours = asleepHours;
   if (wasoMin != null) db.metrics[k].waso_min = wasoMin;
   if (sleepEff != null) db.metrics[k].sleep_eff = sleepEff;
   if (deepMin != null) db.metrics[k].deep_sleep_min = deepMin;
   if (remMin != null) db.metrics[k].rem_sleep_min = remMin;
   if (lightMin != null) db.metrics[k].light_sleep_min = lightMin;
+  if (wakeTimeMs != null) db.metrics[k].wake_time_ms = wakeTimeMs;
   // Legacy direct-field inputs — still accepted for the /health (Health Auto
   // Export) path or any future manual sync, which send scalars directly
   // rather than the Shortcuts-specific newline-text lists above.
@@ -686,6 +686,28 @@ function ingestActivity(a) {
       updatedAt: now,
     }));
   }
+
+  // Structured capture for the running/hybrid engines (#95-113, #79-94) — the
+  // workout record above stays a generic summary; distance/pace/HR/elevation
+  // only live here. Split by Strava's own sport_type against the app's
+  // existing lifting/running/sports vocabulary (userDoc.js weeklyTargets).
+  if (duration > 0) {
+    const sportType = (a.sport_type || a.type || "").toLowerCase();
+    const isRun = /run/.test(sportType);
+    const target = isRun ? db.runs : db.sports;
+    if (!target.find(r => r.sourceId === String(a.id))) {
+      target.push({
+        date, source: "strava", sourceId: String(a.id),
+        sportType: a.sport_type || a.type || null,
+        durationMin: duration,
+        distanceKm: a.distance ? +(a.distance / 1000).toFixed(2) : null,
+        paceMinPerKm: a.average_speed ? +((1000 / 60) / a.average_speed).toFixed(2) : null,
+        elevationGainM: a.total_elevation_gain ?? null,
+        avgHeartRate: a.average_heartrate ?? null,
+        avgCadence: a.average_cadence ?? null,
+      });
+    }
+  }
 }
 
 async function syncStrava() {
@@ -822,7 +844,7 @@ app.get("/summary", async (req, res) => {
   res.json({
     profile: db.profile, hydrationCurve, hydrationNow: hydrationCurve.at(-1) ?? null,
     liftVolume,
-    today: { recovery, hrv: today.heart_rate_variability ?? null, rhr: today.resting_heart_rate ?? null, sleepH: today.sleep_hours ?? null, sleepEff: today.sleep_eff ?? null, steps: today.step_count ?? null, wristTemp: today.wrist_temperature ?? null, hr: today.heart_rate ?? null, spo2: today.blood_oxygen ?? null },
+    today: { recovery, hrv: today.heart_rate_variability ?? null, rhr: today.resting_heart_rate ?? null, sleepH: today.sleep_hours ?? null, sleepEff: today.sleep_eff ?? null, steps: today.step_count ?? null, wristTemp: today.wrist_temperature ?? null, hr: today.heart_rate ?? null, spo2: today.blood_oxygen ?? null, wakeTimeMs: today.wake_time_ms ?? null },
     sleepTarget: sleep.target, sleepTargetLearned: sleep.learned,
     sleepDebtH: Math.round(sleepDebtH * 10) / 10,
     sleepScore, sleepScoreTrend,

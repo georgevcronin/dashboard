@@ -111,6 +111,19 @@ test('computeSleepMetrics returns nulls when there is no sleep data at all', () 
   assert.equal(sleepEff, null);
 });
 
+test('computeSleepMetrics reports wakeTimeMs as the end of the latest asleep range, not In Bed or Awake', () => {
+  const starts = '19 Jul 2026 at 23:00\n20 Jul 2026 at 01:00\n20 Jul 2026 at 02:00\n19 Jul 2026 at 22:55';
+  const ends = '20 Jul 2026 at 01:00\n20 Jul 2026 at 01:15\n20 Jul 2026 at 07:00\n20 Jul 2026 at 07:05';
+  const types = 'AsleepCore\nAwake\nAsleepDeep\nInBed';
+  const { wakeTimeMs } = computeSleepMetrics(starts, ends, types);
+  assert.equal(wakeTimeMs, parseShortcutDate('20 Jul 2026 at 07:00'), 'should use the AsleepDeep end (07:00), not In Bed\'s later 07:05');
+});
+
+test('computeSleepMetrics returns null wakeTimeMs when there is no asleep data', () => {
+  const { wakeTimeMs } = computeSleepMetrics('19 Jul 2026 at 22:55', '20 Jul 2026 at 07:05', 'InBed');
+  assert.equal(wakeTimeMs, null);
+});
+
 test('computeSleepMetrics ignores entries with a bad or inverted time range', () => {
   const { asleepHours } = computeSleepMetrics('19 Jul 2026 at 23:00', '19 Jul 2026 at 22:00', 'Asleep');
   assert.equal(asleepHours, null, 'end before start should be dropped, not produce negative hours');

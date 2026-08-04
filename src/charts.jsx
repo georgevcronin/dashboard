@@ -62,7 +62,7 @@ export function Sparkline({ data, color = 'var(--gold)', width = 60, height = 20
 // revived from an earlier version of this app (deleted in a full frontend
 // rewrite), restyled to this app's actual CSS-var palette instead of the old
 // hardcoded theme object it was originally written against.
-export function AdaptationChart({ series, atrophyRate, w = 600, h = 100 }) {
+export function AdaptationChart({ series, atrophyRate, peakH = 48, w = 600, h = 100 }) {
   if (!series || series.length < 2) return (
     <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 11, color: 'var(--dim)', fontStyle: 'italic', padding: '20px 0' }}>Log lifts to see the adaptation curve.</div>
   );
@@ -76,7 +76,7 @@ export function AdaptationChart({ series, atrophyRate, w = 600, h = 100 }) {
   const nowAdapt = nowIdx >= 0 ? series[nowIdx].adapt : 0;
   const atFuture = series.filter(p => p.h >= 0).map(p => [xOf(p.h), yOf(Math.max(0, nowAdapt - atrophyRate * p.h))]);
   const atPath = atFuture.length > 1 ? atFuture.map((p, i) => `${i ? 'L' : 'M'}${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(' ') : null;
-  const nowX = xOf(0), peakX = xOf(48);
+  const nowX = xOf(0), peakX = xOf(peakH);
   const dayLabels = [];
   for (let dh = startH; dh <= endH; dh += 3 * 24) {
     const d = new Date(Date.now() + dh * 3600000);
@@ -98,7 +98,7 @@ export function AdaptationChart({ series, atrophyRate, w = 600, h = 100 }) {
       {peakX > nowX && peakX < w && (
         <>
           <line x1={peakX} y1="0" x2={peakX} y2={h} stroke="var(--gold)" strokeWidth="1" strokeOpacity=".45" />
-          <text x={peakX} y="10" fontSize="8" fill="var(--gold)" textAnchor="middle">↑48h</text>
+          <text x={peakX} y="10" fontSize="8" fill="var(--gold)" textAnchor="middle">↑{Math.round(peakH)}h</text>
         </>
       )}
       {atPath && <path d={atPath} fill="none" stroke="var(--red)" strokeWidth="1.5" strokeDasharray="5 3" strokeLinecap="round" />}

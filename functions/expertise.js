@@ -52,6 +52,7 @@ const RECOVERY_TAB_MIN_LEVEL = {
   ranking: 'intermediate',
   types: 'scientist',
   adaptation: 'scientist',
+  patterns: 'scientist',
 };
 
 function visibleRecoveryTabs(order, hidden, level) {
