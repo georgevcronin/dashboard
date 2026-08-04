@@ -1,6 +1,8 @@
 # Claude Code Guidelines — Press (dashboard)
 
-Sole user is George. See `PRODUCT.md` for what this is and who it's for, `ARCHITECTURE.md` for how it's built. Read both before non-trivial work — this file only covers things they don't.
+George is the primary user and owns all product decisions, but Press is moving from a single-user personal tool toward a **commercial, multi-user product** — real second users, public profiles, a username/follow system. See `PRODUCT.md`'s Users and Accessibility & Inclusion sections for the current roadmap note, `.design/feature-brainstorm/USERNAME_AND_COMPARISON.md` for the worked-out username/follow/profile/comparison design, and `.design/feature-brainstorm/SELLABILITY_ANALYSIS.md` §2 for the specific structural liabilities (single-owner webhook ingestion, no real onboarding/account-isolation, unreviewed Firestore rules, request-scoped `db` globals, no deploy alerting) that block real second users until fixed. `MASTER_IMPLEMENTATION_PLAN.md`'s Phase 6.5 sequences that work. See `PRODUCT.md` for what this is and who it's for, `ARCHITECTURE.md` for how it's built. Read both before non-trivial work — this file only covers things they don't.
+
+Anything that assumes single-owner behaviour (`PRESS_OWNER_UID`, the request-scoped `db`/`save` globals treated as "safe because one person uses this") is a known, tracked liability, not a design to extend — don't build new features on top of that assumption without flagging it.
 
 ## Scope is George's to set
 - `FEATURES.md` is the canonical feature list. **Never remove, merge, renumber, or mark a feature out-of-scope without George's explicit permission.** Same for existing behaviour in the app.
