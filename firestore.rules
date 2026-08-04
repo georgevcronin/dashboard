@@ -1,8 +1,17 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+    // peak/state is the pre-migration legacy single-user document (see
+    // commit 6b1ce27) — functions/index.js only ever .get()s it now, inside
+    // fallback branches that don't run in production since PRESS_OWNER_UID
+    // is set there, so nothing server-side needs client-reachable access to
+    // it at all (the Admin SDK bypasses these rules regardless). Previously
+    // `allow read, write: if true` — a fully open, unauthenticated hole on a
+    // document that very likely still holds a stale snapshot of real
+    // personal data from before the migration. Locked down entirely; costs
+    // nothing since it was never meant to be read via a direct client path.
     match /peak/{doc} {
-      allow read, write: if true;
+      allow read, write: if false;
     }
 
     // usernames/{username} maps a claimed username to its owning uid — see

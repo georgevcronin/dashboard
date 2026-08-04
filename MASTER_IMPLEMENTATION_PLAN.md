@@ -372,13 +372,19 @@ phase the first time, not after.
    fallback data even if a future bug wrongly passes it" — the specific
    regression this incident would need to lock in). 785/785 backend tests +
    Jest green.
-2. **Firestore security-rules review.** `firestore.rules`' `usernames`/
-   `liveSessions` rules already exist but are "not currently load-bearing" —
-   confirmed still true even with the shipped username/follow/compare system,
-   since the frontend never talks to Firestore directly (`src/app.jsx` has no
-   `firebase/firestore` import) — every read/write for those features goes
-   through the Express API on the Admin SDK, same as everything else. Review
-   these rules before that ever changes.
+2. **Firestore security-rules review. Done, 2026-08-05.** `usernames`/
+   `liveSessions`/`gyms` rules were already correct and confirmed still not
+   load-bearing (`src/app.jsx` has no `firebase/firestore` import — every
+   read/write goes through the Express API on the Admin SDK). Found one real
+   issue: `match /peak/{doc} { allow read, write: if true; }` — a fully
+   open, unauthenticated hole on the legacy pre-migration document, which
+   very likely still holds a stale snapshot of real personal data from
+   before `6b1ce27`. Locked to `if false` — nothing server-side needs
+   client-reachable access to it (the Admin SDK bypasses rules regardless).
+   Second finding: `firestore.rules` **wasn't in the deploy pipeline at
+   all** — `.github/workflows/deploy.yml` only deployed `hosting,functions`,
+   so this file (and any future rules change) never actually reached
+   production. Added `firestore:rules` to the deploy step's `--only` list.
 3. **Request-scoped `db`/`save` hardening.** The module-level `db`/`save`
    globals in `functions/index.js` are safe today only because gen-1 Cloud
    Functions guarantees one request per instance at a time —
