@@ -6,6 +6,10 @@ Phase 1 (expertise toggle, mode toggle, recommendation-first layout, etc.) —
 all of that was already built. `SPEC-PROGRESS.md` is the audited source of
 truth; this file sequences what's actually left, against it.
 **Owner:** George
+**Note:** `SPEC-PROGRESS.md` was last audited 2026-08-03, before this file's
+Phase 0-4 work landed (#125-134, #13 spanning, defect fixes/deletions below)
+— it doesn't reflect those yet. Trust this file over it for anything Phase 4
+or earlier until it's re-audited.
 
 ## Ground rules
 
@@ -241,6 +245,13 @@ scope for these specifically):
 ---
 
 ## Phase 5 — Plan Ahead
+
+**Feature:** closest match in `FEATURES.md` is `#42` "Training Calendar with
+Predictive Forecasting" — worded as readiness/recovery forecasting on a
+calendar, not explicitly a session-generating solver with drag/drop. Confirm
+with George that #42 is the intended target before building; if it's a
+distinct feature, it needs its own `FEATURES.md` entry first (same rule as
+Phase 7).
 
 **Decision made:** build as spec'd — replaces `weeklyPlanner.js`'s
 `generateWeeklyGuidance` advisory output and deletes `WhatIfSandbox` (#10,
