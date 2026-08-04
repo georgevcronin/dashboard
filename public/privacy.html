@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Privacy Policy - Press</title>
+<style>
+  html { background: #f5f0e2; }
+  @media (prefers-color-scheme: dark) { html { background: #1b1812; } }
+  body {
+    margin: 0; padding: 32px 20px 80px; max-width: 680px; margin-inline: auto;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    line-height: 1.55; color: #2a261c; background: inherit;
+  }
+  @media (prefers-color-scheme: dark) { body { color: #e8e1d0; } }
+  body { font-size: 15px; }
+  h1 { font-size: 27px; margin-bottom: 4px; }
+  h2 { font-size: 18px; margin-top: 34px; }
+  .meta { font-size: 13px; opacity: 0.65; margin-bottom: 28px; }
+  a { color: inherit; }
+  ul { padding-left: 20px; }
+  li { margin-bottom: 6px; }
+  .flag { background: rgba(201,162,39,0.12); border-radius: 6px; padding: 10px 14px; margin: 20px 0; font-size: 13px; opacity: 0.9; }
+</style>
+</head>
+<body>
+
+<h1>Privacy Policy</h1>
+<p class="meta">Effective 5 August 2026. Applies to Press (the app at this domain) and its companion iOS Shortcut integration.</p>
+
+<div class="flag">Draft reviewed by George Cronin, not by a lawyer. Should get a real legal review before Press is opened to public signups. Flagged inline below wherever a placeholder needs a decision.</div>
+
+<h2>Who this is</h2>
+<p>Press is operated by George Cronin, individually, not a registered company. Contact: <a href="mailto:pressnewsletterapp@gmail.com">pressnewsletterapp@gmail.com</a>.</p>
+
+<h2>What we collect</h2>
+<p>When you create an account and connect your data sources, Press stores:</p>
+<ul>
+  <li><strong>Account data:</strong> email address and a Firebase-issued user ID; a username and display name if you use social features.</li>
+  <li><strong>Health and fitness data:</strong> workouts and sets logged in the app; sleep duration, efficiency, and stages; heart rate variability, resting heart rate, wrist temperature; step count; body weight; hydration; nutrition and supplement logs; injuries and physical measurements; free-text journal entries; progress photos, if you upload any.</li>
+  <li><strong>Synced third-party data:</strong> from Apple Health (via an iOS Shortcut you install and run yourself), Hevy, and Strava (activity type, duration, distance, pace, elevation gain, heart rate, cadence). We do not store raw GPS routes, only the summary fields above.</li>
+</ul>
+<p>We do not currently collect payment information. Press has no paid tier.</p>
+
+<h2>How we use it</h2>
+<ul>
+  <li>To generate the recommendations, recovery scoring, and coaching briefings the app is built around.</li>
+  <li>Some of your data (workout history, recovery metrics, and similar summaries, never raw account credentials) is sent to Google's Gemini API to generate natural-language briefings and weekly reviews. Google's own terms govern how they handle that request.</li>
+  <li>We do not sell your data, and we do not use it for advertising.</li>
+</ul>
+
+<h2>Who else sees it</h2>
+<p>Data is processed by the infrastructure Press runs on: Google Firebase (hosting, authentication, and database) and Google's Gemini API (for AI-generated text, as above). If you connect Strava or Hevy, we exchange data with them under your own authorization with those services. We don't control their privacy practices, which are covered by their own policies.</p>
+
+<h2>Your rights</h2>
+<ul>
+  <li>You can request a copy of your stored data or ask for your account and all associated data to be deleted, by emailing <a href="mailto:pressnewsletterapp@gmail.com">pressnewsletterapp@gmail.com</a>.</li>
+  <li>If you're in the EU/UK or California, this includes the right to access, correct, delete, or export your data under GDPR/UK GDPR or CCPA, as applicable.</li>
+</ul>
+<div class="flag">In-app self-service deletion isn't built yet. Deletion currently has to be requested by email and actioned manually. Should be a real in-app control before public launch.</div>
+
+<h2>Data retention</h2>
+<p>We keep your data for as long as your account is active. If you delete your account, we delete the underlying data within 30 days, except where we're required to keep records for legal reasons.</p>
+
+<h2>Security</h2>
+<p>Data is stored in Google Cloud Firestore and accessed only through our own server-side application code (Firebase Cloud Functions). The database itself is not directly reachable by outside clients.</p>
+
+<h2>Children</h2>
+<p>Press is not intended for anyone under 16. We don't knowingly collect data from anyone under that age.</p>
+<div class="flag">16 is a placeholder — confirm the minimum age you want before this goes live; 13 is the US COPPA floor, 16 is the stricter EU/GDPR default for consent without a parent.</div>
+
+<h2>Changes to this policy</h2>
+<p>If this policy changes materially, we'll update the effective date above and, once accounts beyond George's own exist, notify active users.</p>
+
+<h2>Governing law</h2>
+<div class="flag">Placeholder — needs a real jurisdiction before public launch (e.g. England and Wales, matching where the app is currently operated from).</div>
+
+</body>
+</html>
