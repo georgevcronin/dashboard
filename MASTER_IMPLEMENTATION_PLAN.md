@@ -354,15 +354,24 @@ phase the first time, not after.
 
 **What's actually still open in this phase:**
 
-1. **New-account safety (#141).** Guarantee a brand-new signup starts
-   genuinely empty. The account-mixing incident (`6b1ce27`, "Fix account
-   data mixing: scope legacy migration to owner uid only") happened because
-   nothing enforced this — that commit fixed `loadForUser`'s top-level
-   fallback, but the full audit (every path that seeds a doc for a uid with
-   no existing doc — now a larger surface than in `6b1ce27`'s day, given the
-   follow/compare/group-session endpoints that have since shipped — confirming
-   none of them can pull another account's data in, by construction, not by
-   a scoping `if`) hasn't been done. **In progress.**
+1. **New-account safety (#141). Done, audited 2026-08-05.** Guarantee a
+   brand-new signup starts genuinely empty. The account-mixing incident
+   (`6b1ce27`, "Fix account data mixing: scope legacy migration to owner uid
+   only") happened because nothing enforced this. Audit result: it's
+   structurally enforced, not just patched at one call site —
+   `loadForUserDoc` (`functions/userDoc.js`) is the *only* function that
+   seeds a new doc, and `loadForUser`'s `PRESS_OWNER_UID` gate is the *only*
+   caller that ever passes it non-null legacy data; every other `userDocRef`
+   write (follow requests, sync tokens, group-session participant sweep) only
+   ever targets a uid's own doc, using its own verified `req.uid` — checked
+   all 30 `.set()`/`.update()`/`.delete()` calls and all 7 `userDocRef()`
+   calls in `functions/index.js` to confirm. The actual gap was test
+   coverage, not the logic — `loadForUserDoc`/`userDoc.js` had zero tests
+   despite its own comment stating the intent to unit-test it. Added
+   `test/userDoc.test.js` (3 tests, including "an existing account ignores
+   fallback data even if a future bug wrongly passes it" — the specific
+   regression this incident would need to lock in). 785/785 backend tests +
+   Jest green.
 2. **Firestore security-rules review.** `firestore.rules`' `usernames`/
    `liveSessions` rules already exist but are "not currently load-bearing" —
    confirmed still true even with the shipped username/follow/compare system,
