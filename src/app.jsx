@@ -6241,6 +6241,7 @@ function Onboarding({ onComplete, onOpenImport }) {
   const TOTAL = 10;
   const [step, setStep] = useState(0);
   const [echelon, setEchelon] = useState('full');
+  const [agreedToTerms, setAgreedToTerms] = useState(false);
 
   // Step 6 (training background)
   const [split, setSplit] = useState('');
@@ -6951,7 +6952,18 @@ function Onboarding({ onComplete, onOpenImport }) {
               ))}
             </div>
 
-            <button className="ob-next" style={{ width: '100%', padding: '14px 0' }} onClick={onComplete}>Open Press</button>
+            <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, fontSize: 12, color: 'var(--dim)', marginBottom: 16, cursor: 'pointer' }}>
+              <input type="checkbox" checked={agreedToTerms} onChange={e => setAgreedToTerms(e.target.checked)}
+                style={{ marginTop: 2, width: 16, height: 16, flexShrink: 0 }} />
+              <span>
+                I agree to Press's{' '}
+                <a href="/terms.html" target="_blank" rel="noopener" style={{ color: 'var(--ink)' }}>Terms of Service</a>
+                {' '}and{' '}
+                <a href="/privacy.html" target="_blank" rel="noopener" style={{ color: 'var(--ink)' }}>Privacy Policy</a>.
+              </span>
+            </label>
+
+            <button className="ob-next" style={{ width: '100%', padding: '14px 0' }} disabled={!agreedToTerms} onClick={onComplete}>Open Press</button>
           </>
         )}
       </div>
