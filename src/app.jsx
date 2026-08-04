@@ -4,7 +4,9 @@ import { auth, googleProvider, API_BASE, getToken, api, authFetch,
   computeTrainingStreak, computeSleepStreak } from './shared.js';
 import { S4, BODY_BASE, MUSCLES_WITHOUT_BODY_REGION, SORENESS_DIAGRAM_MUSCLES } from './sections/S4.jsx';
 import { S6, MOVEMENT_GROUPS, groupExercise } from './sections/S6.jsx';
-import { MICRO_WIDGET_IDS, MICRO_WIDGET_LABELS, MicroWidget } from './sections/MicroWidgets.jsx';
+import { S8 } from './sections/Goals.jsx';
+import { MICRO_WIDGET_IDS, MICRO_WIDGET_LABELS, MICRO_WIDGET_UNITS, MicroWidget } from './sections/MicroWidgets.jsx';
+import { DashboardGrid, computeColumnCount } from './sections/DashboardGrid.jsx';
 import { createRoot } from "react-dom/client";
 import { flushSync } from "react-dom";
 import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, onAuthStateChanged, signOut, GoogleAuthProvider, signInWithPopup, getRedirectResult } from 'firebase/auth';
@@ -33,7 +35,7 @@ import targetMusclePlannerPkg from '../functions/targetMusclePlanner.js';
 import muscleCreditPkg from '../functions/muscleCredit.js';
 import calendarExportPkg from '../functions/calendarExport.js';
 import splitPlannerPkg from '../functions/splitPlanner.js';
-import { PRESS_CSS } from './pressCss.js';
+import { PRESS_CSS, GRIDSTACK_CSS } from './pressCss.js';
 import { AreaChart, BarChart, Sparkline, AdaptationChart } from './charts.jsx';
 
 // Muscle taxonomy + fatigue math + progression logic are shared with the
@@ -998,12 +1000,31 @@ const glycogenPct = (elapsedS, totalS) => {
 // app's first version — everything before this had no changelog at all.
 const CHANGELOG = [
   {
-    version: '0.71',
+    version: '0.73',
     date: '2026-08-05',
     features: [
       'Added Plan Ahead: a 7/30-day forward calendar (Home → toggle Week/Month) that solves each day\'s actual recommended session from real fatigue, not just a readiness colour. Tap a day to see it; today\'s day still starts your session, logs freestyle, or opens Other Ways/Train A Muscle exactly as before. Replaces the old "This Week\'s Guidance" advisory block.',
       'The calendar is fully optimal to your goal by default. Settings → Profile & Training now has constraints to layer on top: recurring days off, an allow-list of training days, one-off holiday/travel windows (rest, bodyweight-only, or restricted-equipment), a weekly session-count target (auto or manual), and a soft day-of-week split anchor (e.g. "Legs on Friday") — honored when fresh, otherwise the calendar falls back and shows the conflict rather than forcing a fatigued muscle through.',
       'Removed the "What If?" sandbox tool — superseded by the calendar, which now previews a session\'s actual effect before you commit to it.',
+    ],
+  },
+  {
+    version: '0.72',
+    date: '2026-08-05',
+    features: [
+      'Replaced the desktop dashboard\'s auto-packed panel grid with a freeform drag-and-resize one: turn on "Rearrange Panels" (Settings → Dashboard Layout) and drag any panel or micro-widget to reposition it, or drag a corner to resize — everything else auto-compacts around it so there\'s never empty space. Positions save automatically and are remembered separately per column count.',
+      'Added a Columns setting (Settings → Dashboard Layout): Auto tracks your window width (1-4 columns), or pick a fixed count so panels resize in pixels instead of the column count changing as you resize the window.',
+      'The three layout presets (Review, Dense, Retrospective) now also reset the freeform grid to a fresh auto-packed layout in the new order, and include the Goals panel (previously missing from Review/Retrospective\'s order).',
+    ],
+  },
+  {
+    version: '0.71',
+    date: '2026-08-04',
+    features: [
+      'Onboarding\'s Goals step is now a real multi-goal picker: pick any of Lose Fat, Gain Muscle/Strength, Improve Cardiovascular Health, Improve Flexibility, or Improve in a Sport, rank each Primary/Secondary/Minor, and optionally set a concrete target and date (bodyweight, body-fat %, a specific lift, Fat-Free Mass, FFMI, resting heart rate, a benchmark time, or VO₂max) — or leave it open-ended. A new Goals panel shows current-vs-target for anything trackable, and a plain trend or tag for the rest.',
+      'Added an Activities step to onboarding — pick from Strength, Running, Hybrid, Team Sports, Endurance, CrossFit, or Other, each ranked Primary/Secondary/Minor, replacing the old single primary/secondary activity pair. Weekly session and volume defaults now blend across every activity you pick, weighted by rank, instead of only ever reading one "primary" activity.',
+      'Sleep, water, and training-days targets on the Daily Targets step now start from a suggestion based on your training goals (still fully editable) instead of a flat 8h/7 glasses/4 days for everyone.',
+      'Added a third onboarding experience option, "Returning after a break" — asks how long the break was and seeds a conservative starting-point estimate for detraining, automatically replaced by a measured one the moment there\'s real logged history (or an imported one) with an actual gap in it.',
     ],
   },
   {
@@ -1013,6 +1034,7 @@ const CHANGELOG = [
       'Dashboard panels now span a real default width on wide screens instead of every panel being one fixed column — Dispatch and Recovery carry more content, so they default to two columns wide once there\'s room (1380px+), three at the widest tier (1800px+). The zero-gap packing this dashboard has always used is unchanged; wide panels just pack into it.',
       'Added 9 small "micro-widget" cards that fill whatever gaps are left over: Hydration Ring, Resting Heart Rate, Training Streak, Steps, an AI Coaching Insight line, Optimal Training Window, Today\'s Muscle Focus, 7-day Body Weight Delta, and Weekly Volume Pace. All optional — Settings → Dashboard Layout → Micro-Widgets to reorder or hide them. Desktop only.',
       'Optimal Training Window is grounded in your actual wake time (from synced Apple Health sleep data), not a generic clock time — peak physical performance tracks the circadian core-temperature rhythm, roughly 10-12h after waking. Shows a message instead of a guess if sleep data isn\'t synced yet.',
+      'Added one-click desktop layout presets in Settings → Dashboard Layout: Review (Dispatch/Training/Recovery wide and first), Dense (every panel collapsed to its headline — the most panels visible at once), and Retrospective (Sleep/Nutrition/Body/Records wide and first). Training now also gets the wide-panel treatment Dispatch and Recovery already had.',
     ],
   },
   {
@@ -6163,12 +6185,64 @@ function S7({ s }) {
 // ── ONBOARDING ────────────────────────────────────────────────────────────────
 const TRAINING_SPLITS = ['Full Body', 'Upper / Lower', 'Push / Pull / Legs', 'Arnold Split', 'PPL Arnold', 'Other'];
 
+// FEATURES.md #21 -- five goal types. Strength and Hypertrophy stay one
+// mechanism per George's correction (same progressive-overload training,
+// different rep range) -- that's already captured by the existing usual-rep-
+// range fields in Training Background, not a second goal here.
+const GOAL_DEFS = [
+  { key: 'fatLoss', label: 'Lose Fat', desc: 'Calorie deficit, preserve muscle' },
+  { key: 'muscle', label: 'Gain Muscle / Strength', desc: 'Progressive overload — rep range below sets the emphasis' },
+  { key: 'cardio', label: 'Improve Cardiovascular Health', desc: 'Heart rate, endurance, conditioning' },
+  { key: 'flexibility', label: 'Improve Flexibility', desc: 'Mobility and range of motion' },
+  { key: 'sport', label: 'Improve in a Sport', desc: 'Sport-specific performance' },
+];
+const GOAL_PRIORITIES = [
+  { value: 'primary', label: 'Primary' },
+  { value: 'secondary', label: 'Secondary' },
+  { value: 'minor', label: 'Minor' },
+];
+// Metrics for a concrete goal's target, per type -- flexibility/sport are
+// free text (nothing in the app measures either), so they're absent here.
+const GOAL_METRIC_OPTIONS = {
+  fatLoss: [{ value: 'weight', label: 'Bodyweight', unit: 'kg' }, { value: 'bodyFat', label: 'Body Fat %', unit: '%' }],
+  muscle: [{ value: 'lift', label: 'A specific lift', unit: 'kg' }, { value: 'ffm', label: 'Fat-Free Mass', unit: 'kg' }, { value: 'ffmi', label: 'FFMI', unit: '' }],
+  cardio: [{ value: 'rhr', label: 'Resting Heart Rate', unit: 'bpm' }, { value: 'benchmark', label: 'Benchmark time (e.g. 5k)', unit: '' }, { value: 'vo2max', label: 'VO₂ Max', unit: '' }],
+};
+// FEATURES.md #24 -- 7 broad activities, same Primary/Secondary/Minor
+// priority picker as goals (replaces the old single primaryActivity/
+// secondaryActivity pair).
+const ACTIVITY_DEFS = [
+  { key: 'strength', label: 'Strength' }, { key: 'running', label: 'Running' }, { key: 'hybrid', label: 'Hybrid' },
+  { key: 'team_sports', label: 'Team Sports' }, { key: 'endurance', label: 'Endurance' },
+  { key: 'crossfit', label: 'CrossFit' }, { key: 'other', label: 'Other' },
+];
+// FEATURES.md #22 -- suggests a starting point for the sleep/water/frequency
+// steppers on the Targets step from whatever training goals were just
+// picked; still fully editable there. Weighted contributions rather than
+// picking a single winning goal, so two conflicting Primary goals both
+// nudge the number rather than one silently overriding the other.
+function suggestTargets(goals) {
+  const W = { primary: 1, secondary: 0.5, minor: 0.25 };
+  let sleep = 8, water = 7, days = 4;
+  for (const g of goals) {
+    const w = W[g.priority] || 0;
+    if (g.type === 'muscle') sleep += 0.5 * w;
+    if (g.type === 'cardio') { water += 1 * w; days += 0.5 * w; }
+    if (g.type === 'fatLoss') water += 0.5 * w;
+  }
+  return {
+    sleepTarget: Math.min(9.5, Math.round(sleep * 2) / 2),
+    waterTarget: Math.min(12, Math.round(water)),
+    trainingDays: Math.min(6, Math.round(days)),
+  };
+}
+
 function Onboarding({ onComplete, onOpenImport }) {
-  const TOTAL = 8;
+  const TOTAL = 10;
   const [step, setStep] = useState(0);
   const [echelon, setEchelon] = useState('full');
 
-  // Step 4 (training background)
+  // Step 6 (training background)
   const [split, setSplit] = useState('');
   const [usualSets, setUsualSets] = useState('');
   const [usualRepsLow, setUsualRepsLow] = useState('');
@@ -6176,8 +6250,11 @@ function Onboarding({ onComplete, onOpenImport }) {
   const [favoriteInput, setFavoriteInput] = useState('');
   const [favorites, setFavorites] = useState([]);
   const [experienceLevel, setExperienceLevel] = useState('');
+  // FEATURES.md #23 -- only asked/used when experienceLevel is "Returning
+  // after a break"; a brand-new lifter never sees this question.
+  const [returningBreakWeeks, setReturningBreakWeeks] = useState('');
 
-  // Step 5 (muscle focus) -- 'focus' | 'ignore', absent = normal. 'focus'
+  // Step 7 (muscle focus) -- 'focus' | 'ignore', absent = normal. 'focus'
   // gives a real priority boost in session generation (FOCUS_MUSCLE_BONUS,
   // functions/weeklyPlanner.js); 'ignore' hard-excludes the muscle from
   // both fatigue/freshness scales and being a primary target in any
@@ -6195,13 +6272,30 @@ function Onboarding({ onComplete, onOpenImport }) {
   const [bodyFat, setBodyFat] = useState('');
   const [sex, setSex] = useState('');
 
-  // Step 2
+  // Step 2 (training goals) -- each: { type, priority, concrete, metric?,
+  // target?, targetDate?, exercise?, benchmarkLabel? }. See GOAL_DEFS above.
+  const [trainingGoals, setTrainingGoals] = useState([]);
+  const goalFor = key => trainingGoals.find(g => g.type === key);
+  const toggleGoal = key => setTrainingGoals(gs => gs.some(g => g.type === key)
+    ? gs.filter(g => g.type !== key) : [...gs, { type: key, priority: 'secondary', concrete: false }]);
+  const updateGoal = (key, patch) => setTrainingGoals(gs => gs.map(g => g.type === key ? { ...g, ...patch } : g));
+
+  // Step 4 (activities) -- each: { type, priority }. See ACTIVITY_DEFS above.
+  const [activities, setActivities] = useState([]);
+  const activityFor = key => activities.find(a => a.type === key);
+  const toggleActivity = key => setActivities(as => as.some(a => a.type === key)
+    ? as.filter(a => a.type !== key) : [...as, { type: key, priority: 'secondary' }]);
+  const updateActivity = (key, patch) => setActivities(as => as.map(a => a.type === key ? { ...a, ...patch } : a));
+
+  // Step 3 (diet goal + daily targets) -- unchanged single-select diet goal
+  // driving macro-auto; deliberately kept separate from trainingGoals above
+  // (different question: what you eat, not what you train for).
   const [goal, setGoal] = useState('');
   const [sleepTarget, setSleepTarget] = useState(8);
   const [waterTarget, setWaterTarget] = useState(7);
   const [trainingDays, setTrainingDays] = useState(4);
 
-  // Step 3 tracking
+  // Step 5 tracking
   const [stravaStarted, setStravaStarted] = useState(false);
   const [healthGuideOpen, setHealthGuideOpen] = useState(false);
   const [hevyKeyVal, setHevyKeyVal] = useState('');
@@ -6261,10 +6355,32 @@ function Onboarding({ onComplete, onOpenImport }) {
     if (bodyFat) await api('bodyfat', { method: 'POST', body: JSON.stringify({ pct: parseFloat(bodyFat) }), throwOnError: true });
   };
 
+  const saveGoals = async () => {
+    const payload = trainingGoals.map(g => {
+      const out = { type: g.type, priority: g.priority, concrete: !!g.concrete };
+      if (!g.concrete) return out;
+      out.targetDate = g.targetDate;
+      if (GOAL_METRIC_OPTIONS[g.type]) {
+        out.metric = g.metric;
+        out.target = parseFloat(g.target);
+        if (g.metric === 'lift') out.exercise = g.exercise;
+        if (g.metric === 'benchmark') out.benchmarkLabel = g.benchmarkLabel;
+      } else {
+        out.target = g.target;
+      }
+      return out;
+    });
+    await api('profile', { method: 'POST', body: JSON.stringify({ goals: payload }), throwOnError: true });
+  };
+
   const saveStep2 = async () => {
     const macroGoalMap = { 'Lose Fat': 'cut', 'Build Muscle': 'bulk', 'Maintain': 'recomp', 'Athletic Performance': 'recomp' };
     await api('profile', { method: 'POST', body: JSON.stringify({ goal, sleepTarget, waterTarget, trainingDaysPerWeek: trainingDays }), throwOnError: true });
     if (macroGoalMap[goal]) await api('macro-auto', { method: 'POST', body: JSON.stringify({ goal: macroGoalMap[goal] }), throwOnError: true });
+  };
+
+  const saveActivities = async () => {
+    await api('profile', { method: 'POST', body: JSON.stringify({ activities: activities.map(({ type, priority }) => ({ type, priority })) }), throwOnError: true });
   };
 
   const saveStep4 = async () => {
@@ -6275,7 +6391,9 @@ function Onboarding({ onComplete, onOpenImport }) {
       usualRepsHigh: usualRepsHigh ? parseInt(usualRepsHigh) : undefined,
       favoriteExercises: favorites,
     };
-    await api('profile', { method: 'POST', body: JSON.stringify({ trainingBackground, experienceLevel: experienceLevel || undefined }), throwOnError: true });
+    const body = { trainingBackground, experienceLevel: experienceLevel || undefined };
+    if (experienceLevel === 'Returning after a break' && returningBreakWeeks) body.returningBreakWeeks = parseFloat(returningBreakWeeks);
+    await api('profile', { method: 'POST', body: JSON.stringify(body), throwOnError: true });
   };
 
   const saveStep5 = async () => {
@@ -6287,10 +6405,16 @@ function Onboarding({ onComplete, onOpenImport }) {
     setStepError('');
     try {
       if (step === 1) await saveStep1();
-      if (step === 2) await saveStep2();
-      if (step === 3) await api('profile', { method: 'POST', body: JSON.stringify({ trackingLevel: echelon }), throwOnError: true });
-      if (step === 4) await saveStep4();
-      if (step === 5) await saveStep5();
+      if (step === 2) {
+        await saveGoals();
+        const sug = suggestTargets(trainingGoals);
+        setSleepTarget(sug.sleepTarget); setWaterTarget(sug.waterTarget); setTrainingDays(sug.trainingDays);
+      }
+      if (step === 3) await saveStep2();
+      if (step === 4) await saveActivities();
+      if (step === 5) await api('profile', { method: 'POST', body: JSON.stringify({ trackingLevel: echelon }), throwOnError: true });
+      if (step === 6) await saveStep4();
+      if (step === 7) await saveStep5();
       setStep(s => s + 1);
     } catch {
       setStepError('Something didn’t save — check your connection and try again.');
@@ -6390,8 +6514,82 @@ function Onboarding({ onComplete, onOpenImport }) {
           </>
         )}
 
-        {/* ── STEP 2: GOALS ── */}
+        {/* ── STEP 2: TRAINING GOALS ── */}
         {step === 2 && (
+          <>
+            <div className="ob-h">What are you training for?</div>
+            <div className="ob-deck">Pick any that apply, rank each one, and set a target if you have one — vague is fine too.</div>
+
+            {GOAL_DEFS.map(gd => {
+              const g = goalFor(gd.key);
+              const metrics = GOAL_METRIC_OPTIONS[gd.key];
+              const metricDef = metrics?.find(m => m.value === g?.metric);
+              return (
+                <div key={gd.key} style={{ marginBottom: 10 }}>
+                  <button className={`ob-goal-card${g ? ' selected' : ''}`} style={{ width: '100%' }} onClick={() => toggleGoal(gd.key)}>
+                    <div className="ob-goal-card-title">{gd.label}</div>
+                    <div className="ob-goal-card-desc">{gd.desc}</div>
+                  </button>
+                  {g && (
+                    <div style={{ padding: '10px 12px', border: '1px solid var(--rule)', borderTop: 'none' }}>
+                      <div className="ob-label" style={{ marginTop: 0 }}>Priority</div>
+                      <div style={{ display: 'flex', gap: 4, marginBottom: 12 }}>
+                        {GOAL_PRIORITIES.map(p => (
+                          <button key={p.value} className={`prof-btn${g.priority === p.value ? ' solid' : ''}`} onClick={() => updateGoal(gd.key, { priority: p.value })}>{p.label}</button>
+                        ))}
+                      </div>
+
+                      <div className="ob-label">Target</div>
+                      <div style={{ display: 'flex', gap: 4, marginBottom: 12 }}>
+                        <button className={`prof-btn${!g.concrete ? ' solid' : ''}`} onClick={() => updateGoal(gd.key, { concrete: false })}>No specific target</button>
+                        <button className={`prof-btn${g.concrete ? ' solid' : ''}`} onClick={() => updateGoal(gd.key, { concrete: true })}>Set a target</button>
+                      </div>
+
+                      {g.concrete && (
+                        <>
+                          {metrics && (
+                            <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginBottom: 10 }}>
+                              {metrics.map(m => (
+                                <button key={m.value} className={`prof-btn${g.metric === m.value ? ' solid' : ''}`} onClick={() => updateGoal(gd.key, { metric: m.value })}>{m.label}</button>
+                              ))}
+                            </div>
+                          )}
+                          {g.metric === 'lift' && (
+                            <input style={{ ...inputStyle, marginBottom: 10 }} placeholder="Exercise, e.g. Barbell Bench Press"
+                              value={g.exercise || ''} onChange={e => updateGoal(gd.key, { exercise: e.target.value })} />
+                          )}
+                          {g.metric === 'benchmark' && (
+                            <input style={{ ...inputStyle, marginBottom: 10 }} placeholder="What, e.g. 5k"
+                              value={g.benchmarkLabel || ''} onChange={e => updateGoal(gd.key, { benchmarkLabel: e.target.value })} />
+                          )}
+                          <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 4 }}>
+                            {metrics ? (
+                              <input style={{ ...inputStyle, flex: 1, width: 'auto' }} type="number" inputMode="decimal"
+                                placeholder={`Target${metricDef?.unit ? ` (${metricDef.unit})` : ''}`} value={g.target || ''} onChange={e => updateGoal(gd.key, { target: e.target.value })} />
+                            ) : (
+                              <input style={{ ...inputStyle, flex: 1, width: 'auto' }} placeholder="Target, e.g. sub-25min 5k"
+                                value={g.target || ''} onChange={e => updateGoal(gd.key, { target: e.target.value })} />
+                            )}
+                            <input style={{ ...inputStyle, flex: 1, width: 'auto' }} type="date" value={g.targetDate || ''} onChange={e => updateGoal(gd.key, { targetDate: e.target.value })} />
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+
+            {stepError && <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--red)', marginBottom: 6 }}>{stepError}</div>}
+            <div className="ob-nav">
+              <button className="ob-back" onClick={() => { setStepError(''); setStep(1); }}>← Back</button>
+              <button className="ob-next" onClick={advance} disabled={saving}>{saving ? 'Saving…' : stepError ? 'Retry' : 'Continue'}</button>
+            </div>
+          </>
+        )}
+
+        {/* ── STEP 3: DIET GOAL & DAILY TARGETS ── */}
+        {step === 3 && (
           <>
             <div className="ob-h">Your Goals</div>
             <div className="ob-deck">Set your primary objective and daily targets.</div>
@@ -6435,18 +6633,51 @@ function Onboarding({ onComplete, onOpenImport }) {
                 <button className="ob-stepper-btn" onClick={() => setTrainingDays(t => Math.min(7, t + 1))}>+</button>
                 <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 9, color: 'var(--dim)', marginLeft: 6 }}>days</span>
               </div>
+              <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, color: 'var(--dim)', marginTop: 8 }}>Prefilled from your training goals — adjust freely.</div>
             </div>
 
             {stepError && <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--red)', marginBottom: 6 }}>{stepError}</div>}
             <div className="ob-nav">
-              <button className="ob-back" onClick={() => { setStepError(''); setStep(1); }}>← Back</button>
+              <button className="ob-back" onClick={() => { setStepError(''); setStep(2); }}>← Back</button>
               <button className="ob-next" onClick={advance} disabled={saving || !goal}>{saving ? 'Saving…' : stepError ? 'Retry' : 'Continue'}</button>
             </div>
           </>
         )}
 
-        {/* ── STEP 3: TRACKING LEVEL ── */}
-        {step === 3 && (
+        {/* ── STEP 4: ACTIVITIES ── */}
+        {step === 4 && (
+          <>
+            <div className="ob-h">What do you actually do?</div>
+            <div className="ob-deck">Pick what you train and how much each one matters — this shapes weekly session and volume defaults.</div>
+
+            {ACTIVITY_DEFS.map(ad => {
+              const a = activityFor(ad.key);
+              return (
+                <div key={ad.key} style={{ marginBottom: 8 }}>
+                  <button className={`ob-goal-card${a ? ' selected' : ''}`} style={{ width: '100%' }} onClick={() => toggleActivity(ad.key)}>
+                    <div className="ob-goal-card-title">{ad.label}</div>
+                  </button>
+                  {a && (
+                    <div style={{ display: 'flex', gap: 4, padding: '8px 12px', border: '1px solid var(--rule)', borderTop: 'none' }}>
+                      {GOAL_PRIORITIES.map(p => (
+                        <button key={p.value} className={`prof-btn${a.priority === p.value ? ' solid' : ''}`} onClick={() => updateActivity(ad.key, { priority: p.value })}>{p.label}</button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+
+            {stepError && <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--red)', marginBottom: 6 }}>{stepError}</div>}
+            <div className="ob-nav">
+              <button className="ob-back" onClick={() => { setStepError(''); setStep(3); }}>← Back</button>
+              <button className="ob-next" onClick={advance} disabled={saving}>{saving ? 'Saving…' : stepError ? 'Retry' : 'Continue'}</button>
+            </div>
+          </>
+        )}
+
+        {/* ── STEP 5: TRACKING LEVEL ── */}
+        {step === 5 && (
           <>
             <div className="ob-h">How deep do you want to go?</div>
             <div className="ob-deck">Pick your tracking level. You can always change this in Settings.</div>
@@ -6462,14 +6693,14 @@ function Onboarding({ onComplete, onOpenImport }) {
             ))}
             {stepError && <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--red)', marginBottom: 6 }}>{stepError}</div>}
             <div className="ob-nav">
-              <button className="ob-back" onClick={() => { setStepError(''); setStep(2); }}>← Back</button>
+              <button className="ob-back" onClick={() => { setStepError(''); setStep(4); }}>← Back</button>
               <button className="ob-next" onClick={advance} disabled={saving}>{saving ? 'Saving…' : stepError ? 'Retry' : 'Continue'}</button>
             </div>
           </>
         )}
 
-        {/* ── STEP 4: TRAINING BACKGROUND ── */}
-        {step === 4 && (
+        {/* ── STEP 6: TRAINING BACKGROUND ── */}
+        {step === 6 && (
           <>
             <div className="ob-h">Your training so far</div>
             <div className="ob-deck">
@@ -6477,14 +6708,24 @@ function Onboarding({ onComplete, onOpenImport }) {
             </div>
 
             <div className="ob-label">Experience</div>
-            <div style={{ display: 'flex', gap: 6, marginBottom: 20 }}>
-              {['New to training', 'Experienced'].map(lvl => (
-                <button key={lvl} className={`echelon-card${experienceLevel === lvl ? ' selected' : ''}`} style={{ flex: 1, padding: '10px 12px' }}
+            <div style={{ display: 'flex', gap: 6, marginBottom: 12, flexWrap: 'wrap' }}>
+              {['New to training', 'Experienced', 'Returning after a break'].map(lvl => (
+                <button key={lvl} className={`echelon-card${experienceLevel === lvl ? ' selected' : ''}`} style={{ flex: '1 1 30%', padding: '10px 12px' }}
                   onClick={() => setExperienceLevel(lvl)}>
                   <div style={{ flex: 1 }}><div className="echelon-card-title" style={{ fontSize: 13 }}>{lvl}</div></div>
                 </button>
               ))}
             </div>
+            {experienceLevel === 'Returning after a break' && (
+              <>
+                <label className="ob-label">How long was the break?</label>
+                <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 20 }}>
+                  <input style={{ ...inputStyle, flex: 1, width: 'auto' }} type="number" inputMode="decimal" placeholder="e.g. 8"
+                    value={returningBreakWeeks} onChange={e => setReturningBreakWeeks(e.target.value)} />
+                  <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 9, color: 'var(--dim)' }}>weeks</span>
+                </div>
+              </>
+            )}
 
             <div className="ob-label">Typical split</div>
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 20 }}>
@@ -6535,14 +6776,14 @@ function Onboarding({ onComplete, onOpenImport }) {
 
             {stepError && <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--red)', marginBottom: 6 }}>{stepError}</div>}
             <div className="ob-nav">
-              <button className="ob-back" onClick={() => { setStepError(''); setStep(3); }}>← Back</button>
+              <button className="ob-back" onClick={() => { setStepError(''); setStep(5); }}>← Back</button>
               <button className="ob-next" onClick={advance} disabled={saving}>{saving ? 'Saving…' : stepError ? 'Retry' : 'Continue'}</button>
             </div>
           </>
         )}
 
-        {/* ── STEP 5: MUSCLE FOCUS ── */}
-        {step === 5 && (
+        {/* ── STEP 7: MUSCLE FOCUS ── */}
+        {step === 7 && (
           <>
             <div className="ob-h">Muscle focus</div>
             <div className="ob-deck">
@@ -6568,14 +6809,14 @@ function Onboarding({ onComplete, onOpenImport }) {
             </div>
             {stepError && <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--red)', marginBottom: 6 }}>{stepError}</div>}
             <div className="ob-nav">
-              <button className="ob-back" onClick={() => { setStepError(''); setStep(4); }}>← Back</button>
+              <button className="ob-back" onClick={() => { setStepError(''); setStep(6); }}>← Back</button>
               <button className="ob-next" onClick={advance} disabled={saving}>{saving ? 'Saving…' : stepError ? 'Retry' : 'Continue'}</button>
             </div>
           </>
         )}
 
-        {/* ── STEP 6: CONNECT SERVICES ── */}
-        {step === 6 && (
+        {/* ── STEP 8: CONNECT SERVICES ── */}
+        {step === 8 && (
           <>
             <div className="ob-h">Connect Services</div>
             <div className="ob-deck">Optional — you can always connect these later from the Profile page.</div>
@@ -6678,14 +6919,14 @@ function Onboarding({ onComplete, onOpenImport }) {
             </div>
 
             <div className="ob-nav">
-              <button className="ob-back" onClick={() => setStep(5)}>← Back</button>
-              <button className="ob-next" onClick={() => setStep(7)}>Continue</button>
+              <button className="ob-back" onClick={() => setStep(7)}>← Back</button>
+              <button className="ob-next" onClick={() => setStep(9)}>Continue</button>
             </div>
           </>
         )}
 
-        {/* ── STEP 7: ALL SET ── */}
-        {step === 7 && (
+        {/* ── STEP 9: ALL SET ── */}
+        {step === 9 && (
           <>
             <div className="ob-logo" style={{ fontSize: 'clamp(36px,9vw,60px)' }}>You're set up.</div>
             <div className="ob-sub" style={{ marginBottom: 6 }}>Press is ready.</div>
@@ -6694,6 +6935,8 @@ function Onboarding({ onComplete, onOpenImport }) {
             <div style={{ borderTop: '1px solid var(--ink)', borderBottom: '1px solid var(--ink)', margin: '8px 0 28px', padding: '4px 0' }}>
               {[
                 [!!name, name ? `${name}${goal ? ` · ${goal}` : ''}` : 'Profile skipped'],
+                [!!trainingGoals.length, trainingGoals.length ? `${trainingGoals.length} training goal${trainingGoals.length === 1 ? '' : 's'}` : 'No training goals set'],
+                [!!activities.length, activities.length ? `${activities.length} activit${activities.length === 1 ? 'y' : 'ies'}` : 'No activities set'],
                 [!!goal, `${sleepTarget}h sleep · ${waterTarget} glasses water · ${trainingDays} training days`],
                 [true, ECHELONS.find(e => e.key === echelon)?.title || 'Full System'],
                 [!!(split || favorites.length), split ? `${split}${favorites.length ? ` · ${favorites.length} favorite${favorites.length === 1 ? '' : 's'}` : ''}` : 'Training background skipped'],
@@ -6727,20 +6970,46 @@ function Onboarding({ onComplete, onOpenImport }) {
 // train today, and why" and so lead; sleep/nutrition/body/records are the
 // supporting record and follow. Only affects accounts that have never
 // reordered — a stored profile.panelOrder always wins.
-const DEFAULT_PANEL_ORDER = ['s1', 's3', 's5', 's2', 's4', 's6', 's7'];
+const DEFAULT_PANEL_ORDER = ['s1', 's3', 's5', 's2', 's4', 's6', 's7', 's8'];
 // Real per-panel default column-spanning (#13) rather than only the one
-// manually-toggled 'expanded' state — Dispatch and Recovery carry
-// meaningfully more content than the others, so they default wide once
-// there's room (pressCss.js's panel-w2/panel-w3, 1380px/1800px+). Standard
-// state spans 2; expanded spans 3 at the widest tier, 2 below it. Collapsed
-// always forces span 1 regardless (see the panel className below).
-const PANEL_WIDE = new Set(['s1', 's5']);
+// manually-toggled 'expanded' state — Dispatch, Training and Recovery carry
+// meaningfully more content than the others (the same lead-panel trio
+// DEFAULT_PANEL_ORDER puts first), so they default wide once there's room
+// (pressCss.js's panel-w2/panel-w3, 1380px/1800px+). Standard state spans 2;
+// expanded spans 3 at the widest tier, 2 below it. Collapsed always forces
+// span 1 regardless (see the panel className below).
+const PANEL_WIDE = new Set(['s1', 's3', 's5']);
 // Dashboard panel display states. 'standard' is the natural-height default and
 // is never stored — an unset panel and an explicitly-standard one are the same
 // thing, so nothing has to be migrated when a panel is added.
 const PANEL_STATE_LABELS = { collapsed: 'Collapsed', standard: 'Standard', expanded: 'Wide' };
-const PANEL_LABELS = { s1: 'Dispatch', s2: 'Sleep', s3: 'Training', s4: 'Nutrition', s5: 'Recovery', s6: 'Body & Supplements', s7: 'Personal Records' };
-const DOCK_LABELS = { s1: 'Dispatch', s2: 'Sleep', s3: 'Training', s4: 'Nutrition', s5: 'Recovery', s6: 'Body', s7: 'Records' };
+const PANEL_LABELS = { s1: 'Dispatch', s2: 'Sleep', s3: 'Training', s4: 'Nutrition', s5: 'Recovery', s6: 'Body & Supplements', s7: 'Personal Records', s8: 'Goals' };
+const DOCK_LABELS = { s1: 'Dispatch', s2: 'Sleep', s3: 'Training', s4: 'Nutrition', s5: 'Recovery', s6: 'Body', s7: 'Records', s8: 'Goals' };
+// One-click desktop layout presets (order + panelStates together) — not a
+// new layout mechanism, just named combinations of the two settings above.
+// Review and Retrospective are mirror images of the same lead/supporting
+// split DEFAULT_PANEL_ORDER already draws; Dense ignores that split entirely
+// in favour of fitting as many headline-only panels on screen as possible.
+const LAYOUT_PRESETS = [
+  {
+    id: 'review', label: 'Review',
+    desc: 'Dispatch, Training and Recovery wide and first — today\'s decision, biggest.',
+    order: ['s1', 's3', 's5', 's2', 's4', 's6', 's7', 's8'],
+    states: { s1: 'expanded', s3: 'expanded', s5: 'expanded', s2: 'collapsed', s4: 'collapsed', s6: 'collapsed', s7: 'collapsed' },
+  },
+  {
+    id: 'dense', label: 'Dense',
+    desc: 'Every panel collapsed to its headline — the most panels visible without scrolling.',
+    order: DEFAULT_PANEL_ORDER,
+    states: { s1: 'collapsed', s2: 'collapsed', s3: 'collapsed', s4: 'collapsed', s5: 'collapsed', s6: 'collapsed', s7: 'collapsed' },
+  },
+  {
+    id: 'retrospective', label: 'Retrospective',
+    desc: 'Sleep, Nutrition, Body and Records wide and first — the review, not the decision.',
+    order: ['s2', 's4', 's6', 's7', 's1', 's3', 's5', 's8'],
+    states: { s2: 'expanded', s4: 'expanded', s6: 'expanded', s7: 'expanded', s1: 'collapsed', s3: 'collapsed', s5: 'collapsed' },
+  },
+];
 const DEFAULT_RECOVERY_TAB_ORDER = ['fatigue', 'ranking', 'types', 'adaptation', 'patterns', 'soreness', 'injuries'];
 const RECOVERY_TAB_LABELS = { fatigue: 'Structural', ranking: 'Ranking', types: 'Types', adaptation: 'Adaptation', patterns: 'Patterns', soreness: 'Soreness', injuries: 'Injuries' };
 
@@ -6905,7 +7174,7 @@ function ComparisonScreen({ username, otherDisplayNameFirstHint, onClose }) {
   );
 }
 
-function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenWiki, setBriefing, onRestartSetup, followBadge, reloadFollowBadge }) {
+function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenWiki, setBriefing, onRestartSetup, followBadge, reloadFollowBadge, onOpenGridEdit }) {
   const [nameVal, setNameVal] = useState(s?.profile?.name || '');
   const [nameSaving, setNameSaving] = useState(false);
   const [nameSaved, setNameSaved] = useState(false);
@@ -7005,6 +7274,21 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
   const savePanels = async (order, hidden) => {
     setPanelOrder(order); setHiddenPanels(hidden);
     const profile = await api('profile', { method: 'POST', body: JSON.stringify({ panelOrder: order, hiddenPanels: hidden }) });
+    refresh({ ...s, profile });
+  };
+  const applyLayoutPreset = async (preset) => {
+    setPanelOrder(preset.order);
+    // Clearing gridLayouts (rather than writing literal x/y for every column
+    // count) makes the freeform grid regenerate itself from the new order +
+    // states next render, the same auto-place-and-compact pass a brand-new
+    // account's first load already goes through — one regeneration path, not
+    // a second one just for presets.
+    const profile = await api('profile', { method: 'POST', body: JSON.stringify({ panelOrder: preset.order, panelStates: preset.states, gridLayouts: {} }) });
+    refresh({ ...s, profile });
+  };
+  const gridColumnModeVal = s?.profile?.gridColumnMode || 'auto';
+  const saveGridColumnMode = async (mode) => {
+    const profile = await api('profile', { method: 'POST', body: JSON.stringify({ gridColumnMode: mode }) });
     refresh({ ...s, profile });
   };
   const saveMicroWidgets = async (order, hidden) => {
@@ -7678,7 +7962,38 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
         <summary className="settings-group-h">Dashboard Layout</summary>
         {/* ── LAYOUT ── */}
         <div className="settings-sec">
-          <div className="settings-sh">Home Screen Order</div>
+          <div className="settings-sh">Presets <span style={{ fontWeight: 400, textTransform: 'none', fontSize: 9, color: 'var(--dim)' }}>(desktop only — resets the panel grid below to one of these starting layouts)</span></div>
+          {LAYOUT_PRESETS.map(preset => (
+            <button key={preset.id} className="echelon-card" onClick={() => applyLayoutPreset(preset)}>
+              <div className="echelon-card-dot" />
+              <div style={{ flex: 1 }}>
+                <div className="echelon-card-title">{preset.label}</div>
+                <div className="echelon-card-desc">{preset.desc}</div>
+              </div>
+            </button>
+          ))}
+        </div>
+
+        <div className="settings-sec">
+          <div className="settings-sh">Panel Grid <span style={{ fontWeight: 400, textTransform: 'none', fontSize: 9, color: 'var(--dim)' }}>(desktop only)</span></div>
+          <div style={{ fontSize: 11, color: 'var(--dim)', lineHeight: 1.5, marginBottom: 10 }}>
+            Drag panels to reposition, drag a corner to resize — the grid auto-packs so there's no empty space. Columns can track your window width, or stay a fixed count (panels resize in pixels instead).
+          </div>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 10 }}>
+            {['auto', 1, 2, 3, 4].map(mode => (
+              <button key={mode} className={`prof-btn${gridColumnModeVal === mode ? ' solid' : ''}`}
+                onClick={() => saveGridColumnMode(mode)}>
+                {mode === 'auto' ? 'Auto' : `${mode} col`}
+              </button>
+            ))}
+          </div>
+          <button className="prof-btn solid" onClick={() => { onClose(); onOpenGridEdit(); }}>
+            Rearrange Panels
+          </button>
+        </div>
+
+        <div className="settings-sec">
+          <div className="settings-sh">Home Screen Order <span style={{ fontWeight: 400, textTransform: 'none', fontSize: 9, color: 'var(--dim)' }}>(mobile order; also seeds a freshly-added desktop panel's starting spot)</span></div>
           <PanelOrderEditor order={panelOrder} hidden={hiddenPanels} labels={PANEL_LABELS}
             states={s?.profile?.panelStates} expertise={expertiseLevel} onChange={savePanels} onStateChange={savePanelState} />
         </div>
@@ -8998,6 +9313,33 @@ function App() {
     return () => mq.removeEventListener('change', onChange);
   }, []);
 
+  // Desktop dashboard grid (DashboardGrid.jsx) — column count is either fixed
+  // (profile.gridColumnMode 1-4) or tracks window width in the same 900/1380/
+  // 1800 breakpoints the old masonry .scroll grid used. DashboardGrid remounts
+  // (losing any live drag state) on every count change, so this only actually
+  // updates state when the computed count crosses a breakpoint — a resize
+  // event fires continuously while dragging the window edge, but re-deriving
+  // the same number back out is a no-op React bails out of, not a re-render.
+  const gridColumnMode = s?.profile?.gridColumnMode || 'auto';
+  const [columnCount, setColumnCount] = useState(() => computeColumnCount(gridColumnMode, window.innerWidth));
+  useEffect(() => {
+    if (isMobile) return;
+    const recompute = () => setColumnCount(computeColumnCount(gridColumnMode, window.innerWidth));
+    recompute();
+    window.addEventListener('resize', recompute);
+    return () => window.removeEventListener('resize', recompute);
+  }, [isMobile, gridColumnMode]);
+  const [gridEditMode, setGridEditMode] = useState(false);
+  const saveGridLayoutTimer = useRef(null);
+  const saveGridLayout = layout => {
+    if (saveGridLayoutTimer.current) clearTimeout(saveGridLayoutTimer.current);
+    saveGridLayoutTimer.current = setTimeout(() => {
+      const gridLayouts = { ...(s?.profile?.gridLayouts || {}), [columnCount]: layout };
+      setS(cur => ({ ...cur, profile: { ...cur.profile, gridLayouts } }));
+      api('profile', { method: 'POST', body: JSON.stringify({ gridLayouts }) }).catch(() => {});
+    }, 300);
+  };
+
   const loadSummary = () => api('summary', { throwOnError: true })
     .then(data => {
       setS(data);
@@ -9154,7 +9496,7 @@ function App() {
   useEffect(() => {
     const el = document.createElement('style');
     el.id = 'press-css';
-    el.textContent = PRESS_CSS;
+    el.textContent = PRESS_CSS + GRIDSTACK_CSS;
     document.head.appendChild(el);
     return () => el.remove();
   }, []);
@@ -9227,6 +9569,9 @@ function App() {
   // The rAF still batches the burst of callbacks a resize produces into one
   // pass, and (running before paint) keeps the repack off-screen.
   useLayoutEffect(() => {
+    // Desktop now packs via DashboardGrid/GridStack instead — this masonry
+    // pass is mobile-only (see PRESS_CSS's .scroll block, still used there).
+    if (!isMobile) return;
     const scroll = document.getElementById('press-scroll');
     if (!scroll) return;
 
@@ -9315,7 +9660,28 @@ function App() {
     s5: <S5 key="s5" s={s} recommendation={recommendation} refresh={refresh} />,
     s6: <S6 key="s6" s={s} refresh={refresh} />,
     s7: <S7 key="s7" s={s} />,
+    s8: <S8 key="s8" s={s} />,
   };
+  // Default grid size for an item that has no saved x/y/w/h yet — mirrors the
+  // old CSS span logic (PANEL_WIDE + expanded state) so a fresh account's
+  // first-ever layout looks like today's, not an arbitrary 1x1 grid of tiles.
+  const gridItems = isMobile ? [] : [
+    ...sectionIds.map(id => {
+      const state = resolvePanelState(id, panelStates, expertise);
+      const collapsed = state === 'collapsed';
+      const wide = PANEL_WIDE.has(id) && !collapsed;
+      return {
+        id, element: sectionEls[id],
+        w: collapsed ? 1 : wide ? (state === 'expanded' ? 3 : 2) : 1,
+        h: collapsed ? 3 : state === 'expanded' ? 24 : 14,
+      };
+    }),
+    ...visibleMicroWidgets.map(id => ({
+      id: `mw-${id}`, element: <MicroWidget id={id} s={s} briefing={briefing} guidance={weeklyGuidance} />,
+      w: 1, h: MICRO_WIDGET_UNITS[id] === 2 ? 9 : 5,
+    })),
+  ];
+  const savedGridLayout = s?.profile?.gridLayouts?.[columnCount];
 
   return (
     <ExpertiseContext.Provider value={expertise}>
@@ -9332,38 +9698,43 @@ function App() {
           <button onClick={loadSummary} style={{ background: 'none', border: '1px solid rgba(245,240,226,.5)', color: '#f5f0e2', fontFamily: 'JetBrains Mono, monospace', fontSize: 9, letterSpacing: '.1em', textTransform: 'uppercase', padding: '3px 10px', cursor: 'pointer', flexShrink: 0 }}>Retry</button>
         </div>
       )}
-      <nav className="sec-nav" id="sec-nav" aria-hidden="true">
-        {sectionIds.map(id => <div key={id} className="sn-dot" />)}
-      </nav>
-      <div className="scroll" id="press-scroll">
-        <div className="col-rules" id="col-rules" aria-hidden="true" />
-        {sectionIds.map(id => {
-          const active = (sectionIds.includes(activeSection) ? activeSection : sectionIds[0]) === id;
-          const state = resolvePanelState(id, panelStates, expertise);
-          const collapsed = state === 'collapsed';
-          const wide = PANEL_WIDE.has(id) && !collapsed;
-          const wideClass = wide ? (state === 'expanded' ? ' panel-w2 panel-w3' : ' panel-w2') : '';
-          return (
-            <div key={id} className={`panel panel-${state}${wideClass}${isMobile && !active ? ' panel-off' : ''}`}>
-              {/* Dock mode already shows exactly one section at a time, so
-                  there's nothing for collapsing to buy on mobile. */}
-              {!isMobile && (
-                <button className="panel-toggle" aria-expanded={!collapsed} aria-controls={id}
-                  aria-label={`${collapsed ? 'Expand' : 'Collapse'} ${PANEL_LABELS[id] || id}`}
-                  onClick={() => setPanelState(id, collapsed ? 'standard' : 'collapsed')}>
-                  {collapsed ? '+' : '−'}
-                </button>
-              )}
-              {sectionEls[id]}
+      {isMobile ? (
+        <div className="scroll" id="press-scroll">
+          {sectionIds.map(id => {
+            const active = (sectionIds.includes(activeSection) ? activeSection : sectionIds[0]) === id;
+            const state = resolvePanelState(id, panelStates, expertise);
+            const wideClass = PANEL_WIDE.has(id) && state !== 'collapsed'
+              ? (state === 'expanded' ? ' panel-w2 panel-w3' : ' panel-w2') : '';
+            return (
+              <div key={id} className={`panel panel-${state}${wideClass}${!active ? ' panel-off' : ''}`}>
+                {sectionEls[id]}
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        <>
+          {/* Freeform drag/resize dashboard (DashboardGrid.jsx) — desktop only.
+              Arch-widget-editor-style: static until "Rearrange Panels" (Settings)
+              turns dragging/resizing on; positions save per column count as you go. */}
+          <nav className="sec-nav" id="sec-nav" aria-hidden="true">
+            {sectionIds.map(id => <div key={id} className="sn-dot" />)}
+          </nav>
+          {gridEditMode && (
+            <div className="grid-edit-banner">
+              <span>Editing layout — drag to move, drag a corner to resize</span>
+              <button onClick={() => setGridEditMode(false)}>Done</button>
             </div>
-          );
-        })}
-        {visibleMicroWidgets.map(id => (
-          <div key={`mw-${id}`} className="panel panel-standard">
-            <MicroWidget id={id} s={s} briefing={briefing} guidance={weeklyGuidance} />
-          </div>
-        ))}
-      </div>
+          )}
+          {/* Remounted (not just re-rendered) whenever the column count OR the
+              set of visible items changes — GridStack owns live position/size
+              imperatively once mounted and has no way to learn about a panel
+              React added/removed from the DOM underneath it, so a hide/unhide
+              in Settings needs a fresh GridStack instance, not a prop update. */}
+          <DashboardGrid key={`${columnCount}-${gridItems.map(i => i.id).join(',')}`} items={gridItems} columnCount={columnCount}
+            savedLayout={savedGridLayout} editMode={gridEditMode} onLayoutChange={saveGridLayout} />
+        </>
+      )}
       {isMobile && (
         <nav className="dock" aria-label="Sections">
           {sectionIds.map(id => {
@@ -9386,7 +9757,7 @@ function App() {
           onClick={onBubbleClick}>PJ</button>
       )}
       {chatOpen && <MentorChat onClose={() => setChatOpen(false)} />}
-      {showSettings && <SettingsOverlay s={s} onClose={() => { setShowSettings(false); loadFollowRequests(); }} refresh={refresh} onSignOut={() => signOut(auth)} onOpenImport={() => { setShowSettings(false); setShowImport(true); }} onOpenWiki={() => { setShowSettings(false); setShowWiki(true); }} setBriefing={setBriefing} onRestartSetup={() => { setForceOnboarding(true); setShowSettings(false); }} followBadge={followBadge} reloadFollowBadge={loadFollowRequests} />}
+      {showSettings && <SettingsOverlay s={s} onClose={() => { setShowSettings(false); loadFollowRequests(); }} refresh={refresh} onSignOut={() => signOut(auth)} onOpenImport={() => { setShowSettings(false); setShowImport(true); }} onOpenWiki={() => { setShowSettings(false); setShowWiki(true); }} setBriefing={setBriefing} onRestartSetup={() => { setForceOnboarding(true); setShowSettings(false); }} followBadge={followBadge} reloadFollowBadge={loadFollowRequests} onOpenGridEdit={() => setGridEditMode(true)} />}
       {showWiki && <WikiOverlay onClose={() => setShowWiki(false)} />}
       {showTimeline && <TimelineOverlay onClose={() => setShowTimeline(false)} />}
       {showBriefing && briefing && <BriefingOverlay briefing={briefing} onClose={() => setShowBriefing(false)} />}

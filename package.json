@@ -9,6 +9,7 @@
   "dependencies": {
     "esbuild": "^0.28.0",
     "firebase": "^12.15.0",
+    "gridstack": "^13.0.2",
     "react": "^19.2.7",
     "react-dom": "^19.2.7"
   },
