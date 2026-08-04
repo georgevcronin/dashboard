@@ -385,16 +385,23 @@ phase the first time, not after.
    all** — `.github/workflows/deploy.yml` only deployed `hosting,functions`,
    so this file (and any future rules change) never actually reached
    production. Added `firestore:rules` to the deploy step's `--only` list.
-3. **Request-scoped `db`/`save` hardening.** The module-level `db`/`save`
-   globals in `functions/index.js` are safe today only because gen-1 Cloud
-   Functions guarantees one request per instance at a time —
-   `SELLABILITY_ANALYSIS.md` §2.4 flags this as the same category of
-   implicit-invariant risk that caused the account-mixing bug's sibling case.
-   The already-shipped `/compare/:username` endpoint already loads both
-   users' docs into local variables rather than touching the module-level
-   `db` global for exactly this reason — extend that pattern to other
-   multi-account endpoints rather than hardening the global itself unless a
-   real need shows up.
+3. **Request-scoped `db`/`save` hardening. Reviewed 2026-08-05 — no code
+   change.** `SELLABILITY_ANALYSIS.md` §2.4 flagged the module-level
+   `db`/`save` globals as worth hardening (pass `db` explicitly through call
+   chains). `ARCHITECTURE.md`'s "Request-scoped state" section is explicit
+   that this is a *deliberate* design, safe only under 1st-gen Cloud
+   Functions' one-request-per-instance guarantee, and says not to "fix" it
+   into a request-scoped object without first checking whether the
+   deployment model has changed — confirmed unchanged (`exports.api` still
+   uses the 1st-gen `functions.region(...).runWith(...).https.onRequest`
+   API). Rewriting it now would be exactly the naive "fix" both docs warn
+   has caused real bugs before. The actual mitigation that matters for
+   multi-user work is already in place: `/compare/:username`,
+   `/account/:username`, and the stale-session sweep (all audited under
+   #141 above) already load cross-account data into local variables and
+   never touch the module-level `db`/`save` globals — that pattern, not a
+   global rewrite, is what to keep following for any new multi-account
+   endpoint. No further action unless the deployment model changes.
 4. **Deploy pipeline alerting.** Two known-unresolved incidents (a 2+ day
    silent deploy failure; an empty `GEMINI_API_KEY` secret shipped without
    erroring) mean a broken production deploy currently has no alert path.
