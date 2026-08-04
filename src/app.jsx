@@ -8547,6 +8547,10 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
           <div className="settings-sh">Account</div>
           <button className="prof-btn" style={{ width: '100%', padding: '11px', textAlign: 'center', marginTop: 4 }} onClick={onRestartSetup}>Restart Setup</button>
           <button className="prof-btn" style={{ width: '100%', padding: '11px', textAlign: 'center', marginTop: 8 }} onClick={onSignOut}>Sign Out</button>
+          <div style={{ display: 'flex', gap: 14, justifyContent: 'center', marginTop: 14, fontFamily: "'JetBrains Mono',monospace", fontSize: 9, letterSpacing: '.06em' }}>
+            <a href="/privacy.html" target="_blank" rel="noopener" style={{ color: 'var(--dim)' }}>Privacy Policy</a>
+            <a href="/terms.html" target="_blank" rel="noopener" style={{ color: 'var(--dim)' }}>Terms of Service</a>
+          </div>
         </div>
         </details>
 
