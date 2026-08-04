@@ -5,7 +5,8 @@ import { auth, googleProvider, API_BASE, getToken, api, authFetch,
 import { S4, BODY_BASE, MUSCLES_WITHOUT_BODY_REGION, SORENESS_DIAGRAM_MUSCLES } from './sections/S4.jsx';
 import { S6, MOVEMENT_GROUPS, groupExercise } from './sections/S6.jsx';
 import { S8 } from './sections/Goals.jsx';
-import { MICRO_WIDGET_IDS, MICRO_WIDGET_LABELS, MicroWidget } from './sections/MicroWidgets.jsx';
+import { MICRO_WIDGET_IDS, MICRO_WIDGET_LABELS, MICRO_WIDGET_UNITS, MicroWidget } from './sections/MicroWidgets.jsx';
+import { DashboardGrid, computeColumnCount } from './sections/DashboardGrid.jsx';
 import { createRoot } from "react-dom/client";
 import { flushSync } from "react-dom";
 import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, onAuthStateChanged, signOut, GoogleAuthProvider, signInWithPopup, getRedirectResult } from 'firebase/auth';
@@ -34,7 +35,7 @@ import targetMusclePlannerPkg from '../functions/targetMusclePlanner.js';
 import muscleCreditPkg from '../functions/muscleCredit.js';
 import whatIfSimulatorPkg from '../functions/whatIfSimulator.js';
 import calendarExportPkg from '../functions/calendarExport.js';
-import { PRESS_CSS } from './pressCss.js';
+import { PRESS_CSS, GRIDSTACK_CSS } from './pressCss.js';
 import { AreaChart, BarChart, Sparkline, AdaptationChart } from './charts.jsx';
 
 // Muscle taxonomy + fatigue math + progression logic are shared with the
@@ -1011,6 +1012,15 @@ const glycogenPct = (elapsedS, totalS) => {
 // instead of the list. v0.1 is the first tracked release, not literally the
 // app's first version — everything before this had no changelog at all.
 const CHANGELOG = [
+  {
+    version: '0.72',
+    date: '2026-08-05',
+    features: [
+      'Replaced the desktop dashboard\'s auto-packed panel grid with a freeform drag-and-resize one: turn on "Rearrange Panels" (Settings → Dashboard Layout) and drag any panel or micro-widget to reposition it, or drag a corner to resize — everything else auto-compacts around it so there\'s never empty space. Positions save automatically and are remembered separately per column count.',
+      'Added a Columns setting (Settings → Dashboard Layout): Auto tracks your window width (1-4 columns), or pick a fixed count so panels resize in pixels instead of the column count changing as you resize the window.',
+      'The three layout presets (Review, Dense, Retrospective) now also reset the freeform grid to a fresh auto-packed layout in the new order, and include the Goals panel (previously missing from Review/Retrospective\'s order).',
+    ],
+  },
   {
     version: '0.71',
     date: '2026-08-04',
@@ -7219,7 +7229,7 @@ const LAYOUT_PRESETS = [
   {
     id: 'review', label: 'Review',
     desc: 'Dispatch, Training and Recovery wide and first — today\'s decision, biggest.',
-    order: ['s1', 's3', 's5', 's2', 's4', 's6', 's7'],
+    order: ['s1', 's3', 's5', 's2', 's4', 's6', 's7', 's8'],
     states: { s1: 'expanded', s3: 'expanded', s5: 'expanded', s2: 'collapsed', s4: 'collapsed', s6: 'collapsed', s7: 'collapsed' },
   },
   {
@@ -7231,7 +7241,7 @@ const LAYOUT_PRESETS = [
   {
     id: 'retrospective', label: 'Retrospective',
     desc: 'Sleep, Nutrition, Body and Records wide and first — the review, not the decision.',
-    order: ['s2', 's4', 's6', 's7', 's1', 's3', 's5'],
+    order: ['s2', 's4', 's6', 's7', 's1', 's3', 's5', 's8'],
     states: { s2: 'expanded', s4: 'expanded', s6: 'expanded', s7: 'expanded', s1: 'collapsed', s3: 'collapsed', s5: 'collapsed' },
   },
 ];
@@ -7399,7 +7409,7 @@ function ComparisonScreen({ username, otherDisplayNameFirstHint, onClose }) {
   );
 }
 
-function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenWiki, setBriefing, onRestartSetup, followBadge, reloadFollowBadge }) {
+function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenWiki, setBriefing, onRestartSetup, followBadge, reloadFollowBadge, onOpenGridEdit }) {
   const [nameVal, setNameVal] = useState(s?.profile?.name || '');
   const [nameSaving, setNameSaving] = useState(false);
   const [nameSaved, setNameSaved] = useState(false);
@@ -7484,7 +7494,17 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
   };
   const applyLayoutPreset = async (preset) => {
     setPanelOrder(preset.order);
-    const profile = await api('profile', { method: 'POST', body: JSON.stringify({ panelOrder: preset.order, panelStates: preset.states }) });
+    // Clearing gridLayouts (rather than writing literal x/y for every column
+    // count) makes the freeform grid regenerate itself from the new order +
+    // states next render, the same auto-place-and-compact pass a brand-new
+    // account's first load already goes through — one regeneration path, not
+    // a second one just for presets.
+    const profile = await api('profile', { method: 'POST', body: JSON.stringify({ panelOrder: preset.order, panelStates: preset.states, gridLayouts: {} }) });
+    refresh({ ...s, profile });
+  };
+  const gridColumnModeVal = s?.profile?.gridColumnMode || 'auto';
+  const saveGridColumnMode = async (mode) => {
+    const profile = await api('profile', { method: 'POST', body: JSON.stringify({ gridColumnMode: mode }) });
     refresh({ ...s, profile });
   };
   const saveMicroWidgets = async (order, hidden) => {
@@ -8158,7 +8178,7 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
         <summary className="settings-group-h">Dashboard Layout</summary>
         {/* ── LAYOUT ── */}
         <div className="settings-sec">
-          <div className="settings-sh">Presets <span style={{ fontWeight: 400, textTransform: 'none', fontSize: 9, color: 'var(--dim)' }}>(desktop only — sets order and size for all 7 panels below in one click)</span></div>
+          <div className="settings-sh">Presets <span style={{ fontWeight: 400, textTransform: 'none', fontSize: 9, color: 'var(--dim)' }}>(desktop only — resets the panel grid below to one of these starting layouts)</span></div>
           {LAYOUT_PRESETS.map(preset => (
             <button key={preset.id} className="echelon-card" onClick={() => applyLayoutPreset(preset)}>
               <div className="echelon-card-dot" />
@@ -8171,7 +8191,25 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
         </div>
 
         <div className="settings-sec">
-          <div className="settings-sh">Home Screen Order</div>
+          <div className="settings-sh">Panel Grid <span style={{ fontWeight: 400, textTransform: 'none', fontSize: 9, color: 'var(--dim)' }}>(desktop only)</span></div>
+          <div style={{ fontSize: 11, color: 'var(--dim)', lineHeight: 1.5, marginBottom: 10 }}>
+            Drag panels to reposition, drag a corner to resize — the grid auto-packs so there's no empty space. Columns can track your window width, or stay a fixed count (panels resize in pixels instead).
+          </div>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 10 }}>
+            {['auto', 1, 2, 3, 4].map(mode => (
+              <button key={mode} className={`prof-btn${gridColumnModeVal === mode ? ' solid' : ''}`}
+                onClick={() => saveGridColumnMode(mode)}>
+                {mode === 'auto' ? 'Auto' : `${mode} col`}
+              </button>
+            ))}
+          </div>
+          <button className="prof-btn solid" onClick={() => { onClose(); onOpenGridEdit(); }}>
+            Rearrange Panels
+          </button>
+        </div>
+
+        <div className="settings-sec">
+          <div className="settings-sh">Home Screen Order <span style={{ fontWeight: 400, textTransform: 'none', fontSize: 9, color: 'var(--dim)' }}>(mobile order; also seeds a freshly-added desktop panel's starting spot)</span></div>
           <PanelOrderEditor order={panelOrder} hidden={hiddenPanels} labels={PANEL_LABELS}
             states={s?.profile?.panelStates} expertise={expertiseLevel} onChange={savePanels} onStateChange={savePanelState} />
         </div>
@@ -9326,6 +9364,33 @@ function App() {
     return () => mq.removeEventListener('change', onChange);
   }, []);
 
+  // Desktop dashboard grid (DashboardGrid.jsx) — column count is either fixed
+  // (profile.gridColumnMode 1-4) or tracks window width in the same 900/1380/
+  // 1800 breakpoints the old masonry .scroll grid used. DashboardGrid remounts
+  // (losing any live drag state) on every count change, so this only actually
+  // updates state when the computed count crosses a breakpoint — a resize
+  // event fires continuously while dragging the window edge, but re-deriving
+  // the same number back out is a no-op React bails out of, not a re-render.
+  const gridColumnMode = s?.profile?.gridColumnMode || 'auto';
+  const [columnCount, setColumnCount] = useState(() => computeColumnCount(gridColumnMode, window.innerWidth));
+  useEffect(() => {
+    if (isMobile) return;
+    const recompute = () => setColumnCount(computeColumnCount(gridColumnMode, window.innerWidth));
+    recompute();
+    window.addEventListener('resize', recompute);
+    return () => window.removeEventListener('resize', recompute);
+  }, [isMobile, gridColumnMode]);
+  const [gridEditMode, setGridEditMode] = useState(false);
+  const saveGridLayoutTimer = useRef(null);
+  const saveGridLayout = layout => {
+    if (saveGridLayoutTimer.current) clearTimeout(saveGridLayoutTimer.current);
+    saveGridLayoutTimer.current = setTimeout(() => {
+      const gridLayouts = { ...(s?.profile?.gridLayouts || {}), [columnCount]: layout };
+      setS(cur => ({ ...cur, profile: { ...cur.profile, gridLayouts } }));
+      api('profile', { method: 'POST', body: JSON.stringify({ gridLayouts }) }).catch(() => {});
+    }, 300);
+  };
+
   const loadSummary = () => api('summary', { throwOnError: true })
     .then(data => {
       setS(data);
@@ -9482,7 +9547,7 @@ function App() {
   useEffect(() => {
     const el = document.createElement('style');
     el.id = 'press-css';
-    el.textContent = PRESS_CSS;
+    el.textContent = PRESS_CSS + GRIDSTACK_CSS;
     document.head.appendChild(el);
     return () => el.remove();
   }, []);
@@ -9555,6 +9620,9 @@ function App() {
   // The rAF still batches the burst of callbacks a resize produces into one
   // pass, and (running before paint) keeps the repack off-screen.
   useLayoutEffect(() => {
+    // Desktop now packs via DashboardGrid/GridStack instead — this masonry
+    // pass is mobile-only (see PRESS_CSS's .scroll block, still used there).
+    if (!isMobile) return;
     const scroll = document.getElementById('press-scroll');
     if (!scroll) return;
 
@@ -9645,6 +9713,26 @@ function App() {
     s7: <S7 key="s7" s={s} />,
     s8: <S8 key="s8" s={s} />,
   };
+  // Default grid size for an item that has no saved x/y/w/h yet — mirrors the
+  // old CSS span logic (PANEL_WIDE + expanded state) so a fresh account's
+  // first-ever layout looks like today's, not an arbitrary 1x1 grid of tiles.
+  const gridItems = isMobile ? [] : [
+    ...sectionIds.map(id => {
+      const state = resolvePanelState(id, panelStates, expertise);
+      const collapsed = state === 'collapsed';
+      const wide = PANEL_WIDE.has(id) && !collapsed;
+      return {
+        id, element: sectionEls[id],
+        w: collapsed ? 1 : wide ? (state === 'expanded' ? 3 : 2) : 1,
+        h: collapsed ? 3 : state === 'expanded' ? 24 : 14,
+      };
+    }),
+    ...visibleMicroWidgets.map(id => ({
+      id: `mw-${id}`, element: <MicroWidget id={id} s={s} briefing={briefing} guidance={weeklyGuidance} />,
+      w: 1, h: MICRO_WIDGET_UNITS[id] === 2 ? 9 : 5,
+    })),
+  ];
+  const savedGridLayout = s?.profile?.gridLayouts?.[columnCount];
 
   return (
     <ExpertiseContext.Provider value={expertise}>
@@ -9661,38 +9749,43 @@ function App() {
           <button onClick={loadSummary} style={{ background: 'none', border: '1px solid rgba(245,240,226,.5)', color: '#f5f0e2', fontFamily: 'JetBrains Mono, monospace', fontSize: 9, letterSpacing: '.1em', textTransform: 'uppercase', padding: '3px 10px', cursor: 'pointer', flexShrink: 0 }}>Retry</button>
         </div>
       )}
-      <nav className="sec-nav" id="sec-nav" aria-hidden="true">
-        {sectionIds.map(id => <div key={id} className="sn-dot" />)}
-      </nav>
-      <div className="scroll" id="press-scroll">
-        <div className="col-rules" id="col-rules" aria-hidden="true" />
-        {sectionIds.map(id => {
-          const active = (sectionIds.includes(activeSection) ? activeSection : sectionIds[0]) === id;
-          const state = resolvePanelState(id, panelStates, expertise);
-          const collapsed = state === 'collapsed';
-          const wide = PANEL_WIDE.has(id) && !collapsed;
-          const wideClass = wide ? (state === 'expanded' ? ' panel-w2 panel-w3' : ' panel-w2') : '';
-          return (
-            <div key={id} className={`panel panel-${state}${wideClass}${isMobile && !active ? ' panel-off' : ''}`}>
-              {/* Dock mode already shows exactly one section at a time, so
-                  there's nothing for collapsing to buy on mobile. */}
-              {!isMobile && (
-                <button className="panel-toggle" aria-expanded={!collapsed} aria-controls={id}
-                  aria-label={`${collapsed ? 'Expand' : 'Collapse'} ${PANEL_LABELS[id] || id}`}
-                  onClick={() => setPanelState(id, collapsed ? 'standard' : 'collapsed')}>
-                  {collapsed ? '+' : '−'}
-                </button>
-              )}
-              {sectionEls[id]}
+      {isMobile ? (
+        <div className="scroll" id="press-scroll">
+          {sectionIds.map(id => {
+            const active = (sectionIds.includes(activeSection) ? activeSection : sectionIds[0]) === id;
+            const state = resolvePanelState(id, panelStates, expertise);
+            const wideClass = PANEL_WIDE.has(id) && state !== 'collapsed'
+              ? (state === 'expanded' ? ' panel-w2 panel-w3' : ' panel-w2') : '';
+            return (
+              <div key={id} className={`panel panel-${state}${wideClass}${!active ? ' panel-off' : ''}`}>
+                {sectionEls[id]}
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        <>
+          {/* Freeform drag/resize dashboard (DashboardGrid.jsx) — desktop only.
+              Arch-widget-editor-style: static until "Rearrange Panels" (Settings)
+              turns dragging/resizing on; positions save per column count as you go. */}
+          <nav className="sec-nav" id="sec-nav" aria-hidden="true">
+            {sectionIds.map(id => <div key={id} className="sn-dot" />)}
+          </nav>
+          {gridEditMode && (
+            <div className="grid-edit-banner">
+              <span>Editing layout — drag to move, drag a corner to resize</span>
+              <button onClick={() => setGridEditMode(false)}>Done</button>
             </div>
-          );
-        })}
-        {visibleMicroWidgets.map(id => (
-          <div key={`mw-${id}`} className="panel panel-standard">
-            <MicroWidget id={id} s={s} briefing={briefing} guidance={weeklyGuidance} />
-          </div>
-        ))}
-      </div>
+          )}
+          {/* Remounted (not just re-rendered) whenever the column count OR the
+              set of visible items changes — GridStack owns live position/size
+              imperatively once mounted and has no way to learn about a panel
+              React added/removed from the DOM underneath it, so a hide/unhide
+              in Settings needs a fresh GridStack instance, not a prop update. */}
+          <DashboardGrid key={`${columnCount}-${gridItems.map(i => i.id).join(',')}`} items={gridItems} columnCount={columnCount}
+            savedLayout={savedGridLayout} editMode={gridEditMode} onLayoutChange={saveGridLayout} />
+        </>
+      )}
       {isMobile && (
         <nav className="dock" aria-label="Sections">
           {sectionIds.map(id => {
@@ -9715,7 +9808,7 @@ function App() {
           onClick={onBubbleClick}>PJ</button>
       )}
       {chatOpen && <MentorChat onClose={() => setChatOpen(false)} />}
-      {showSettings && <SettingsOverlay s={s} onClose={() => { setShowSettings(false); loadFollowRequests(); }} refresh={refresh} onSignOut={() => signOut(auth)} onOpenImport={() => { setShowSettings(false); setShowImport(true); }} onOpenWiki={() => { setShowSettings(false); setShowWiki(true); }} setBriefing={setBriefing} onRestartSetup={() => { setForceOnboarding(true); setShowSettings(false); }} followBadge={followBadge} reloadFollowBadge={loadFollowRequests} />}
+      {showSettings && <SettingsOverlay s={s} onClose={() => { setShowSettings(false); loadFollowRequests(); }} refresh={refresh} onSignOut={() => signOut(auth)} onOpenImport={() => { setShowSettings(false); setShowImport(true); }} onOpenWiki={() => { setShowSettings(false); setShowWiki(true); }} setBriefing={setBriefing} onRestartSetup={() => { setForceOnboarding(true); setShowSettings(false); }} followBadge={followBadge} reloadFollowBadge={loadFollowRequests} onOpenGridEdit={() => setGridEditMode(true)} />}
       {showWiki && <WikiOverlay onClose={() => setShowWiki(false)} />}
       {showTimeline && <TimelineOverlay onClose={() => setShowTimeline(false)} />}
       {showBriefing && briefing && <BriefingOverlay briefing={briefing} onClose={() => setShowBriefing(false)} />}
