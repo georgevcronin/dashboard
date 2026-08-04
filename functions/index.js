@@ -24,7 +24,8 @@ const {
   normalizeUsername, validateUsername, validateDisplayName, deriveDisplayNameFirst,
   generateUsernameSuggestion, canChangeUsername, usernameChangeAvailableAt,
 } = require('./identity');
-const { computeStimulusContributions } = require('./adaptation');
+const { computeStimulusContributions, estimateAtrophyRate } = require('./adaptation');
+const { validateGoals, validateActivities, applyActivityDefaults, seedReturningAthleteAtrophy } = require('./goalsAndActivities');
 const { findNearbyGyms, normalizeExerciseKey, GYM_NEARBY_RADIUS_M } = require('./gyms');
 const { buildUnifiedTimeline } = require('./analyticsEngine');
 const { computePatternFatigue } = require('./movementPatterns');
@@ -886,6 +887,10 @@ app.get("/summary", async (req, res) => {
     travelMode: db.profile?.travelMode || false,
     dataMaturity: computeDataMaturity(db.lifts),
     muscleLevels: computeMuscleLevels(db.lifts, db.weight, weights.at(-1)?.value ?? Object.values(db.weight).at(-1), db.profile?.sex, fatigueTimeline(db.lifts, summaryMusclePeaks)),
+    // FEATURES.md #23 — the real, measured rate (once there's a logged gap
+    // to measure) always wins over the onboarding self-report; the seed
+    // stored on the profile is only ever a fallback until then.
+    atrophyEstimate: estimateAtrophyRate(db.lifts) || db.profile?.estimatedAtrophyRate || null,
   });
 });
 
@@ -1142,23 +1147,6 @@ app.post("/macro-auto", async (req, res) => {
 });
 app.post("/thought", async (req, res) => { db.thoughts.push({ date: day(), text: req.body.text }); await save(); res.json({ ok: true }); });
 
-// Track 3: Apply smart defaults for new profile fields
-function applyActivityDefaults(body) {
-  if (!body.primaryActivity) return;
-
-  const defaults = {
-    'strength': { lifting: { sessionsPerWeek: 4, avgSessionScore: 2000 } },
-    'running': { running: { sessionsPerWeek: 4, avgSessionDistance: 25 } },
-    'hybrid': { lifting: { sessionsPerWeek: 3, avgSessionScore: 1800 }, running: { sessionsPerWeek: 3, avgSessionDistance: 20 } },
-    'sports': { lifting: { sessionsPerWeek: 2, avgSessionScore: 1500 }, sports: { sessionsPerWeek: 2 } },
-    'crossfit': { lifting: { sessionsPerWeek: 5, avgSessionScore: 2200 } }
-  };
-
-  if (defaults[body.primaryActivity]) {
-    body.weeklyTargets = { ...body.weeklyTargets, ...defaults[body.primaryActivity] };
-  }
-}
-
 app.post("/profile", async (req, res) => {
   const body = { ...req.body };
   // Stamped server-side, never trusting a client-sent timestamp — reset
@@ -1188,19 +1176,24 @@ app.post("/profile", async (req, res) => {
     delete body.visibility;
   }
 
-  // Track 3: Validate new activity fields and apply smart defaults
-  if (body.primaryActivity) {
-    const validActivities = ['strength', 'running', 'hybrid', 'sports', 'crossfit'];
-    if (!validActivities.includes(body.primaryActivity)) {
-      return res.status(400).json({ error: 'Invalid primaryActivity' });
-    }
+  // FEATURES.md #21/#24: goals and activities, each entry independently
+  // prioritised rather than a single primary + single secondary slot.
+  if (body.goals) {
+    const err = validateGoals(body.goals);
+    if (err) return res.status(400).json({ error: err });
+  }
+  if (body.activities) {
+    const err = validateActivities(body.activities);
+    if (err) return res.status(400).json({ error: err });
     applyActivityDefaults(body);
   }
-  if (body.secondaryActivity) {
-    const validActivities = ['strength', 'running', 'hybrid', 'sports', 'crossfit'];
-    if (!validActivities.includes(body.secondaryActivity)) {
-      return res.status(400).json({ error: 'Invalid secondaryActivity' });
-    }
+  // FEATURES.md #23: seed an initial atrophy estimate from the self-reported
+  // break length; cleared if experienceLevel changes away from "returning".
+  if (body.experienceLevel === 'Returning after a break' && body.returningBreakWeeks > 0) {
+    body.estimatedAtrophyRate = seedReturningAthleteAtrophy(body.returningBreakWeeks);
+  } else if (body.experienceLevel && body.experienceLevel !== 'Returning after a break') {
+    body.estimatedAtrophyRate = null;
+    body.returningBreakWeeks = null;
   }
   if (body.equipmentAvailable && Array.isArray(body.equipmentAvailable)) {
     const validEquipment = ['barbell', 'dumbbell', 'cable', 'machine', 'smith', 'bodyweight'];

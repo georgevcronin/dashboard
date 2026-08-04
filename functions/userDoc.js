@@ -13,8 +13,13 @@ const DEFAULTS = () => ({
   alcoholLog: [], photos: [], experiments: [], customExercises: [],
   profile: { name: null, heightCm: null, sex: null, waterTarget: 7,
     macroTargets: { calories: 2400, protein: 160, carbs: 250, fat: 75 }, macroMode: "manual",
-    primaryActivity: null,
-    secondaryActivity: null,
+    // Each entry: { type, priority: 'primary'|'secondary'|'minor', concrete,
+    // metric?, target?, targetDate?, exercise?, benchmarkLabel? }. Replaces
+    // the old single primaryActivity/secondaryActivity pair (see below) with
+    // the same shape George chose for goals — any number of activities, each
+    // independently weighted, rather than exactly one primary + one secondary.
+    goals: [],
+    activities: [],
     equipmentAvailable: [],
     musclePriorities: {},
     weeklyTargets: { lifting: {}, running: {}, sports: {} },

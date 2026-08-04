@@ -275,15 +275,66 @@ never becomes a committed program.
 
 ## Phase 6 — Onboarding gaps + goal system (#21–27)
 
-Multi-goal tick-box (strength and hypertrophy collapsed into one goal per
-George's correction — same mechanism, different rep range), experience-
-calibrated copy, returning-athlete path (`estimateAtrophyRate` already models
-detraining — #23 just needs an onboarding entry point to it), broad activity
-selection.
+**Chunk 1 done (#21, #22, #23, #24).** Correction to this section's own
+premise, found while starting: there was no `goal` field in `userDoc.js`
+DEFAULTS to check, and nothing read one server-side — #21-27 hadn't actually
+been started (the diet-goal single-select feeding macro-auto is a separate,
+older field, left untouched). Built fresh, via George's own answers on a
+round of clarifying questions rather than assumed:
 
-Check the current `goal` field shape in `userDoc.js` DEFAULTS before
-redesigning it — #22's partial smart-defaults logic already reads it; don't
-rebuild what's reusable.
+- **#21 Multi-goal.** New `profile.goals` array (`functions/userDoc.js`
+  DEFAULTS) — any number of entries, each independently `primary`/
+  `secondary`/`minor`, and independently concrete (target + date) or vague.
+  Strength and Hypertrophy stay one goal ("Gain Muscle / Strength" — same
+  progressive-overload mechanism, different rep range, captured by the
+  existing usual-rep-range fields already in Training Background) per
+  George's earlier correction. Concrete targets are structured per type, not
+  free text, so progress can be computed automatically where real data
+  exists: Lose Fat → bodyweight or body-fat %; Gain Muscle/Strength → a
+  specific lift (reuses e1RM the same way S7/Personal Records does), Fat-Free
+  Mass, or FFMI; Cardiovascular → resting HR (live from day one), a benchmark
+  time, or VO₂max (both capture the target now, show "not tracked yet" until
+  the Running Subsystem, #95-113, exists — same honesty pattern as the
+  Optimal Training Window widget, never a fabricated number); Flexibility/
+  Sport → free text, nothing in the app measures either.
+- **#22 Smart defaults.** The Daily Targets step's sleep/water/training-days
+  steppers prefill from a weighted blend of the goals just picked
+  (`suggestTargets()`, `src/app.jsx`) — still fully editable. Multiple
+  conflicting Primary goals blend toward the middle rather than one silently
+  winning, same principle `applyActivityDefaults()` (below) uses for
+  activities.
+- **#23 Returning after a break.** Third onboarding experience option.
+  `estimateAtrophyRate()` (`adaptation.js`) needs a real logged gap to
+  measure, which a brand-new signup doesn't have — `seedReturningAthleteAtrophy()`
+  (new `functions/goalsAndActivities.js`) seeds a conservative estimate from
+  the self-reported break length instead, using the same
+  `DEFAULT_ATROPHY_RATE` constant. `/summary` prefers the real measured rate
+  the instant one exists (`estimateAtrophyRate(db.lifts) || ...seed`), so the
+  seed is automatically superseded, never needs manual clearing. "New to
+  training" never sees the break-length question or any atrophy logic.
+- **#24 Broad activity.** `profile.activities` replaces the old single
+  `primaryActivity`/`secondaryActivity` pair with the same any-number/
+  independently-prioritised shape as goals — expanded from 5 to the full 7
+  (`team_sports`, `endurance`, `other` added). `applyActivityDefaults()`
+  blends weekly session/volume defaults across every selected activity
+  weighted by priority tier, not a single "primary" winner.
+
+New dedicated **Goals dashboard section** (S8, `src/sections/Goals.jsx`) —
+dock entry, panel-order settings entry, same as any other section. Shows
+current-vs-target for concrete goals where Press has real data to compare
+against, a passive trend (weight, resting HR) for vague goals where one
+exists, a plain tag otherwise.
+
+Logic extracted to `functions/goalsAndActivities.js` per CLAUDE.md's rule
+(validation/blending isn't route glue) — `test/goalsAndActivities.test.js`
+covers it, 772/772 backend tests green.
+
+**Not done — #25, #26, #27, deferred to chunk 2** (George's call, to keep
+this pass reviewable): entry-point prioritisation (Smart Recommendations /
+Goal-Based Presets / Custom Priorities), goal-based focus presets (Balanced
+Physique, V-Taper, etc.), and the layered muscle region editor. The existing
+flat Priority/Maintain/Lower/Avoid muscle-focus step is untouched and still
+functions as the de facto "Custom Priorities" path in the meantime.
 
 ---
 
