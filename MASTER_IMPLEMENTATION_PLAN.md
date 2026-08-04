@@ -340,93 +340,54 @@ functions as the de facto "Custom Priorities" path in the meantime.
 
 ## Phase 6.5 — Commercial/multi-user foundation
 
-**New, added 2026-08-05.** Discovered while scoping Phase 7 (below): George's
-actual requirement for exercise preferences is that the ranked list be
-**publicly visible** — which isn't a Phase 7 detail, it's a dependency on
-Press having real public profiles at all. Confirmed with George: build this
-foundation first, as its own initiative, *then* build Phase 7 on top of it.
-Corresponds to `FEATURES.md` #135–141 (new Category XIII). Nothing in this
-phase is built yet.
+**Added 2026-08-05, corrected same day.** Originally scoped as "build the
+whole username/follow/profile/comparison system, then exercise preferences on
+top of it" — written without actually checking whether that system already
+existed. **It did.** `bae1ed2`/`c7f531f`/`0dbadac` (all 2026-07-28, predating
+this phase by a week) already shipped username & display name, search,
+follow, profile views, muscle comparison, and per-user webhook sync tokens —
+backend endpoints, frontend UI (Settings → Social), and CHANGELOG entries all
+present. That's `FEATURES.md` #135–140, now marked Built there. Caught by
+grepping `functions/index.js` for "username" before starting the
+new-account-safety work below — should have been done before writing this
+phase the first time, not after.
 
-**Ground rule specific to this phase:** every item here either fixes a named
-structural liability (`.design/feature-brainstorm/SELLABILITY_ANALYSIS.md`
-§2) or builds the username/follow/profile system
-(`.design/feature-brainstorm/USERNAME_AND_COMPARISON.md`) that public
-features sit on top of. Two sub-groups, sequenced:
-
-### 6.5.a — Fix the liabilities (blocking; do first)
-
-Nothing public should be built on top of these until they're fixed — a
-public profile on an account-isolation bug is worse than no public profile.
+**What's actually still open in this phase:**
 
 1. **New-account safety (#141).** Guarantee a brand-new signup starts
    genuinely empty. The account-mixing incident (`6b1ce27`, "Fix account
    data mixing: scope legacy migration to owner uid only") happened because
-   nothing enforced this — root-cause fix, not a patch on the one migration
-   path that triggered it: audit every code path that seeds a `db` for a
-   `uid` with no existing doc and confirm none of them can pull another
-   account's data in, by construction, not by a scoping `if`.
-2. **Per-user data integrations (#140).** Replace `PRESS_OWNER_UID` +
-   the legacy `peak/state` doc fallback with per-user webhook identifiers for
-   Hevy/Strava/Apple Health/Shortcut ingestion. Needs a concrete mechanism
-   (per-user webhook URL/secret, most likely) — design that as its own
-   question before implementing, don't assume.
-3. **Firestore security-rules review.** `firestore.rules`' `usernames`/
-   `liveSessions` rules already exist but are "not currently load-bearing"
-   (everything today goes through the Admin SDK, which bypasses rules
-   entirely). Before any client ever reads/writes Firestore directly for a
-   social feature, review and harden these rules — this is the point where
-   they become load-bearing for the first time.
-4. **Request-scoped `db`/`save` hardening.** The module-level `db`/`save`
+   nothing enforced this — that commit fixed `loadForUser`'s top-level
+   fallback, but the full audit (every path that seeds a doc for a uid with
+   no existing doc — now a larger surface than in `6b1ce27`'s day, given the
+   follow/compare/group-session endpoints that have since shipped — confirming
+   none of them can pull another account's data in, by construction, not by
+   a scoping `if`) hasn't been done. **In progress.**
+2. **Firestore security-rules review.** `firestore.rules`' `usernames`/
+   `liveSessions` rules already exist but are "not currently load-bearing" —
+   confirmed still true even with the shipped username/follow/compare system,
+   since the frontend never talks to Firestore directly (`src/app.jsx` has no
+   `firebase/firestore` import) — every read/write for those features goes
+   through the Express API on the Admin SDK, same as everything else. Review
+   these rules before that ever changes.
+3. **Request-scoped `db`/`save` hardening.** The module-level `db`/`save`
    globals in `functions/index.js` are safe today only because gen-1 Cloud
    Functions guarantees one request per instance at a time —
    `SELLABILITY_ANALYSIS.md` §2.4 flags this as the same category of
-   implicit-invariant risk that caused the account-mixing bug's sibling
-   case. Harden before real concurrent multi-user traffic: pass `db`
-   explicitly through call chains instead of relying on the module-level
-   global, at least for any new multi-user endpoints (the muscle-comparison
-   endpoint in 6.5.b already has to load two docs into local variables for
-   exactly this reason — extend that pattern rather than reintroducing the
-   global for it).
-5. **Deploy pipeline alerting.** Two known-unresolved incidents (a 2+ day
+   implicit-invariant risk that caused the account-mixing bug's sibling case.
+   The already-shipped `/compare/:username` endpoint already loads both
+   users' docs into local variables rather than touching the module-level
+   `db` global for exactly this reason — extend that pattern to other
+   multi-account endpoints rather than hardening the global itself unless a
+   real need shows up.
+4. **Deploy pipeline alerting.** Two known-unresolved incidents (a 2+ day
    silent deploy failure; an empty `GEMINI_API_KEY` secret shipped without
    erroring) mean a broken production deploy currently has no alert path.
    Needs *some* signal (failed-deploy notification at minimum) before this
    becomes a paid product where "nobody noticed for 2 days" is unacceptable.
 
-Items 3–5 are engineering hardening, not user-facing scope — no `FEATURES.md`
+Items 2–4 are engineering hardening, not user-facing scope — no `FEATURES.md`
 entries for these specifically, tracked here only.
-
-### 6.5.b — Username / follow / profile / comparison system
-
-Build per `.design/feature-brainstorm/USERNAME_AND_COMPARISON.md`'s worked-out
-mechanics — that doc is the spec, this just sequences it:
-
-1. **Username & display name (#135).** Mandatory-on-first-login step
-   (pre-filled suggestion + accept-or-edit), retroactively enforced for
-   existing accounts with no `username` set (including George's own).
-   `usernames/{lowercasedUsername}` doc + transaction for uniqueness, per the
-   design doc §1. Display name captured on the same step, first-name-only
-   external display rule (§2) applied everywhere except the owner's own
-   Settings view.
-2. **Search (#136).** Prefix range query over `usernames`, in a new Profile
-   hub.
-3. **Follow (#137).** One-directional, request-based, badge-based inbox (no
-   dedicated screen) — carried over from the lighter `GROUP_WORKOUT.md`
-   groundwork, extended per §5.
-4. **Profile view screen (#138).** Non-follower minimal view vs. follower
-   view gated by the existing per-category visibility toggles (session data
-   on by default, sleep/nutrition/mentor-chat off) — this feature is a new
-   entry point into those toggles, not a new gating mechanism.
-5. **Muscle comparison (#139).** New `GET /compare/:otherUid` endpoint,
-   mutual-follow + mutual-toggle gated server-side, reusing
-   `computeMuscleLevels` (`strengthStandards.js:394`) and
-   `computeStimulusContributions` (`adaptation.js:86`) — no new fatigue/
-   strength math, just a new read-only two-doc endpoint per §6.
-
-**Depends on 6.5.a's items 1 and 3** — profiles/follow/comparison are exactly
-the kind of public, cross-account surface that shouldn't exist before account
-isolation and Firestore rules are actually solid.
 
 ---
 
