@@ -200,9 +200,6 @@ section.visible .fade:nth-child(6){transition-delay:.56s}
    what makes dimming an unavailable tool acceptable here. */
 .tool-btn:disabled{opacity:.45;cursor:default}
 .tool-btn:disabled:hover{color:var(--dim)}
-/* A bar sitting on the 100 cap is a floor, not a reading. Hatched so that is
-   visible without relying on colour, same as the estimated driver bars. */
-.muscle-bar-clamped{background-image:repeating-linear-gradient(135deg,rgba(0,0,0,.28) 0 3px,transparent 3px 6px)}
 .driver-track{height:4px;background:var(--paper2);margin-top:2px}
 .driver-fill{height:100%;background:var(--ink)}
 /* An estimated factor is hatched as well as dimmed — the difference between a
@@ -256,8 +253,6 @@ section.visible .fade:nth-child(6){transition-delay:.56s}
    deliberately a different weight, so the two are never read as one scale —
    they're different units (% of MVIC vs points of fatigue). */
 .muscle-bar-cost{opacity:.85}
-.whatif-row{display:flex;align-items:baseline;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--rule)}
-.whatif-row:last-child{border-bottom:none}
 .target-config{border:1px solid var(--rule);padding:8px 10px;margin-bottom:6px}
 .target-config.top{border-color:var(--ink)}
 .muscle-pct{font-family:'JetBrains Mono',monospace;font-size:9px;width:30px;text-align:right;color:var(--dim);flex-shrink:0}

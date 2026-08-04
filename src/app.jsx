@@ -33,8 +33,8 @@ import expertisePkg from '../functions/expertise.js';
 import parameterExplorerPkg from '../functions/parameterExplorer.js';
 import targetMusclePlannerPkg from '../functions/targetMusclePlanner.js';
 import muscleCreditPkg from '../functions/muscleCredit.js';
-import whatIfSimulatorPkg from '../functions/whatIfSimulator.js';
 import calendarExportPkg from '../functions/calendarExport.js';
+import splitPlannerPkg from '../functions/splitPlanner.js';
 import { PRESS_CSS, GRIDSTACK_CSS } from './pressCss.js';
 import { AreaChart, BarChart, Sparkline, AdaptationChart } from './charts.jsx';
 
@@ -49,7 +49,7 @@ import { AreaChart, BarChart, Sparkline, AdaptationChart } from './charts.jsx';
 const { ALL_MUSCLES, PRIMARY_MUSCLES, musclesForExercise, isCompoundExercise, findExercise } = muscleTaxonomyPkg;
 const { computeStructuralFatigue, computeMetabolicFatigue, computeCNSFatigue, cnsLoad, recoveryWord } = fatiguePkg;
 const { computePatternFatigue } = movementPatternsPkg;
-const { progressionFor, suggestedWorkingSetCount, suggestedRirSequence, isLowRepPattern, LOW_REP_THRESHOLD, estimateSessionDurationMin, capSessionDuration, fillSessionToDuration } = sessionPlannerPkg;
+const { progressionFor, suggestedWorkingSetCount, suggestedRirSequence, isLowRepPattern, LOW_REP_THRESHOLD } = sessionPlannerPkg;
 const { e1rm: calcE1RM } = strengthStandardsPkg;
 const { defaultMachineBrands } = machineBrandsPkg;
 const { MACHINE_MODELS } = machineModelsPkg;
@@ -65,8 +65,8 @@ const { FATIGUE_CEILING } = weeklyPlannerPkg;
 const { angleOptionsFor, activationAt, optimalAngleFor, compareAngle, bestConfigurationsFor, targetableMuscles, axisOptions, activationOnAxis, axisSensitivity, AXIS_META } = parameterExplorerPkg;
 const { findOptimalConfigurations, fatigueChangedTheAnswer, allTargetableMuscles } = targetMusclePlannerPkg;
 const { muscleCredit } = muscleCreditPkg;
-const { simulateSession } = whatIfSimulatorPkg;
 const { buildSessionICS } = calendarExportPkg;
+const { SPLIT_GROUPS } = splitPlannerPkg;
 const { PRESS_ANGLE_DESC, ROW_ANGLE_DESC, FLY_ANGLE_DESC, CURL_ANGLE_DESC, EXTENSION_ANGLE_DESC, LEG_CURL_ANGLE_DESC, HYPEREXTENSION_ANGLE_DESC, classifyMuscles, emgForAngle, frontalCueForProfile, gripCueForProfile, GRIP_ANGLES_BY_EQUIPMENT } = emgActivationPkg;
 
 // Priority-ordered: checked in this order so a compound phrase like "iso-
@@ -154,19 +154,6 @@ const { buildObservations, solveMuscleCapacities, predictExerciseE1RM, suggested
 
 
 
-
-
-// Ceiling of the Max Length slider (S3's sliderDraft) — the initial
-// /plan/session-exercises fetch always requests generation up to this
-// ceiling (not the athlete's current slider position) so the server-side
-// widening (generateSessionExercises' maxDurationMin, which adds real
-// dedicated exercises for thinly-covered muscles) computes against the
-// largest session the slider could ever ask for. The client then trims
-// that maximal list down reactively as the slider moves below 90
-// (capSessionDuration/fillSessionToDuration, no server round-trip per
-// drag) — computing the widened max once and trimming client-side, rather
-// than re-fetching (and re-widening) on every slider tick.
-const SESSION_MAX_DURATION_MIN = 90;
 
 
 
@@ -1012,6 +999,15 @@ const glycogenPct = (elapsedS, totalS) => {
 // instead of the list. v0.1 is the first tracked release, not literally the
 // app's first version — everything before this had no changelog at all.
 const CHANGELOG = [
+  {
+    version: '0.73',
+    date: '2026-08-05',
+    features: [
+      'Added Plan Ahead: a 7/30-day forward calendar (Home → toggle Week/Month) that solves each day\'s actual recommended session from real fatigue, not just a readiness colour. Tap a day to see it; today\'s day still starts your session, logs freestyle, or opens Other Ways/Train A Muscle exactly as before. Replaces the old "This Week\'s Guidance" advisory block.',
+      'The calendar is fully optimal to your goal by default. Settings → Profile & Training now has constraints to layer on top: recurring days off, an allow-list of training days, one-off holiday/travel windows (rest, bodyweight-only, or restricted-equipment), a weekly session-count target (auto or manual), and a soft day-of-week split anchor (e.g. "Legs on Friday") — honored when fresh, otherwise the calendar falls back and shows the conflict rather than forcing a fatigued muscle through.',
+      'Removed the "What If?" sandbox tool — superseded by the calendar, which now previews a session\'s actual effect before you commit to it.',
+    ],
+  },
   {
     version: '0.72',
     date: '2026-08-05',
@@ -4636,184 +4632,6 @@ function RecommendationPanel({ rec, selectedBucket }) {
   );
 }
 
-// Try a change before committing to it.
-//
-// Everything here runs through functions/whatIfSimulator.js, which appends the
-// candidate session to a copy of the lift history and re-runs the same
-// computeStructuralFatigue / computeCNSFatigue the Recovery panel already
-// shows. So these are not predictions — they are the dashboard as it would
-// read afterwards, and you can check them tomorrow.
-//
-// Deliberately absent: any predicted strength or stimulus change. Press has
-// never compared a prediction of that kind against an outcome (see
-// recommendation.js's header), so a "-4% on your top set" line would be
-// decoration with a decimal point on it. Fatigue and recovery hours are the
-// model's own state read forwards, which is a different kind of claim.
-function WhatIfSandbox({ s, exercises }) {
-  const [dropped, setDropped] = useState(() => new Set());
-  const [setDelta, setSetDelta] = useState(0);
-
-  const baseline = exercises || [];
-  const mono = { fontFamily: "'JetBrains Mono',monospace" };
-
-  // The candidate: the planned session minus anything switched off, with each
-  // exercise's working sets nudged by setDelta. Warmups are left alone — they
-  // aren't the variable anyone is testing.
-  const candidate = useMemo(() => baseline
-    .filter(ex => !dropped.has(ex.name))
-    .map(ex => {
-      const sets = ex.sets || [];
-      if (setDelta === 0) return ex;
-      const working = sets.filter(x => x.type !== 'W');
-      const warmups = sets.filter(x => x.type === 'W');
-      const target = Math.max(1, working.length + setDelta);
-      const adjusted = Array.from({ length: target }, (_, i) => working[Math.min(i, working.length - 1)]).filter(Boolean);
-      return { ...ex, sets: [...warmups, ...adjusted] };
-    }), [baseline, dropped, setDelta]);
-
-  const result = useMemo(() => simulateSession({
-    lifts: s?.lifts || [],
-    exercises: candidate,
-    soreness: s?.soreness || [],
-    sensitivity: s?.muscleSensitivity || {},
-    cnsSensitivity: s?.cnsSensitivity,
-    recoveryScore: s?.today?.recovery ?? null,
-    carbsToday: s?.nutritionToday?.carbs || 0,
-  }), [s?.lifts, candidate, s?.soreness, s?.muscleSensitivity, s?.cnsSensitivity, s?.today?.recovery, s?.nutritionToday?.carbs]);
-
-  const asPlanned = useMemo(() => simulateSession({
-    lifts: s?.lifts || [],
-    exercises: baseline,
-    soreness: s?.soreness || [],
-    sensitivity: s?.muscleSensitivity || {},
-    cnsSensitivity: s?.cnsSensitivity,
-    recoveryScore: s?.today?.recovery ?? null,
-    carbsToday: s?.nutritionToday?.carbs || 0,
-  }), [s?.lifts, baseline, s?.soreness, s?.muscleSensitivity, s?.cnsSensitivity, s?.today?.recovery, s?.nutritionToday?.carbs]);
-
-  if (!baseline.length) return null;
-  const changed = dropped.size > 0 || setDelta !== 0;
-  // Muscles pinned at the 100 cap in the candidate — the reason two very
-  // different sessions can produce identical readings. Declared here rather
-  // than beside the render so it sits after `result` exists.
-  const saturated = (result?.muscles || []).filter(m => m.clamped).map(m => m.muscle);
-
-  const hours = h => (h == null ? '—' : `${h > 0 ? '+' : ''}${h}h`);
-
-  return (
-    <div style={{ marginTop: 10 }}>
-      <div style={{ ...mono, fontSize: 8, letterSpacing: '.12em', textTransform: 'uppercase', color: 'var(--dim)', marginBottom: 6 }}>
-        What if
-      </div>
-
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 8 }}>
-        {baseline.map(ex => {
-          const off = dropped.has(ex.name);
-          return (
-            <button key={ex.name}
-              aria-pressed={!off}
-              onClick={() => setDropped(prev => {
-                const next = new Set(prev);
-                if (next.has(ex.name)) next.delete(ex.name); else next.add(ex.name);
-                return next;
-              })}
-              style={{
-                ...mono, fontSize: 9, padding: '5px 8px', cursor: 'pointer', minHeight: 30,
-                textDecoration: off ? 'line-through' : 'none',
-                border: `1px solid ${off ? 'var(--rule)' : 'var(--ink)'}`,
-                background: 'none', color: off ? 'var(--dim)' : 'var(--ink)',
-              }}>{ex.name}</button>
-          );
-        })}
-      </div>
-
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-        <span style={{ ...mono, fontSize: 9, color: 'var(--dim)' }}>Sets per exercise</span>
-        {[-2, -1, 0, 1, 2].map(d => (
-          <button key={d} onClick={() => setSetDelta(d)}
-            aria-pressed={setDelta === d}
-            style={{
-              ...mono, fontSize: 9, padding: '4px 7px', cursor: 'pointer', minHeight: 30, minWidth: 30,
-              border: `1px solid ${setDelta === d ? 'var(--ink)' : 'var(--rule)'}`,
-              background: setDelta === d ? 'var(--ink)' : 'none',
-              color: setDelta === d ? 'var(--paper)' : 'var(--dim)',
-            }}>{d > 0 ? `+${d}` : d}</button>
-        ))}
-      </div>
-
-      <div className="whatif-row">
-        <span style={{ ...mono, fontSize: 9, color: 'var(--dim)' }}>Working sets</span>
-        <span style={{ ...mono, fontSize: 11, color: 'var(--ink)' }}>
-          {result.setCount}{changed && asPlanned.setCount !== result.setCount && (
-            <span style={{ color: 'var(--dim)' }}> (was {asPlanned.setCount})</span>
-          )}
-        </span>
-      </div>
-      <div className="whatif-row">
-        <span style={{ ...mono, fontSize: 9, color: 'var(--dim)' }}>Everything back under the ceiling</span>
-        <span style={{ ...mono, fontSize: 11, color: 'var(--ink)' }}>
-          {hours(result.recoveryDelayH)}{changed && (
-            <span style={{ color: 'var(--dim)' }}> (was {hours(asPlanned.recoveryDelayH)})</span>
-          )}
-        </span>
-      </div>
-      <div className="whatif-row">
-        <span style={{ ...mono, fontSize: 9, color: 'var(--dim)' }}>CNS fatigue</span>
-        <span style={{ ...mono, fontSize: 11, color: 'var(--ink)' }}>
-          {result.before.cns} → {result.after.cns}
-        </span>
-      </div>
-
-      {result.newlyOverCeiling.length > 0 && (
-        <div style={{ ...mono, fontSize: 9, color: 'var(--ember)', marginTop: 6, lineHeight: 1.6 }}>
-          Puts {result.newlyOverCeiling.join(', ')} over the {result.ceiling}-point ceiling — not selectable for direct work tomorrow.
-        </div>
-      )}
-
-      {result.muscles.length > 0 && (
-        <div style={{ marginTop: 8 }}>
-          {result.muscles.slice(0, 6).map(m => (
-            <div key={m.muscle} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 3 }}>
-              <div style={{ ...mono, fontSize: 9, width: 84, flexShrink: 0, textTransform: 'capitalize', color: 'var(--dim)' }}>
-                {m.muscle}{m.clamped ? ' *' : ''}
-              </div>
-              <div className="muscle-bar-track">
-                <div className={m.clamped ? 'muscle-bar-fill muscle-bar-clamped' : 'muscle-bar-fill'} style={{
-                  width: `${Math.min(100, m.fatigueAfter)}%`,
-                  background: m.crossesCeiling ? 'var(--red)' : 'var(--ember)',
-                }} />
-              </div>
-              <div style={{ ...mono, fontSize: 9, color: 'var(--dim)', width: 56, textAlign: 'right', flexShrink: 0 }}>
-                {m.fatigueBefore}→{m.fatigueAfter}
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* Without this the tool silently reports identical numbers for very
-          different sessions and reads as broken. Fatigue is scored against
-          each muscle's own historical peak load and capped at 100, so a
-          muscle with little direct history saturates on almost any volume —
-          every option then shows 100, and every recovery figure decays from
-          100, which is why halving or doubling the sets changes nothing you
-          can see. Saying so is the difference between a limitation and a bug. */}
-      {saturated.length > 0 && (
-        <div style={{ ...mono, fontSize: 9, color: 'var(--ember)', marginTop: 6, lineHeight: 1.6 }}>
-          * {saturated.join(', ')} {saturated.length === 1 ? 'is' : 'are'} pinned at the 100 cap whichever option you pick,
-          so the figures above are a floor and can't tell these choices apart for {saturated.length === 1 ? 'it' : 'them'}.
-          {' '}That happens when a muscle has little direct training history to scale against — the set count is the honest
-          comparison here.
-        </div>
-      )}
-
-      <div style={{ ...mono, fontSize: 8, color: 'var(--dim)', marginTop: 6, lineHeight: 1.5 }}>
-        Fatigue and recovery hours only, and both assume you train nothing else in between. No predicted strength change — Press has never checked one against an outcome.
-      </div>
-    </div>
-  );
-}
-
 // Pick the muscles, get the movement — the inverse of the usual workflow.
 //
 // Ranked by functions/targetMusclePlanner.js's Score = stimulus / (1 + λ·L),
@@ -4907,13 +4725,53 @@ function TargetMusclePlannerPanel({ fatigue }) {
   );
 }
 
+// One cell per solved day. Color is the bottom border only, not a filled
+// background block or a ring — readiness is real signal from
+// calendarSolver.js's own simulateSession output (see readinessFor there),
+// not decoration.
+const READINESS_COLOR = { green: 'var(--forest)', amber: 'var(--gold)', red: 'var(--red)' };
+// Date#getDay convention (0=Sunday) — shared by CalendarGrid's date labels
+// and Settings' day-of-week constraint pickers.
+const WEEKDAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+// SPLIT_GROUPS keys are camelCase bucket names ('chestBack') for splits
+// whose buckets aren't already single words — spaced out for display.
+const bucketLabel = key => key.replace(/([A-Z])/g, ' $1').replace(/^./, c => c.toUpperCase());
+function CalendarGrid({ days, expandedDate, onSelect }) {
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 4, marginBottom: 10 }}>
+      {days.map(d => {
+        const dateObj = localDateFromYMD(d.date);
+        const isOpen = expandedDate === d.date;
+        return (
+          <button key={d.date} onClick={() => onSelect(isOpen ? null : d.date)}
+            aria-expanded={isOpen}
+            style={{
+              display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2, padding: '6px 2px',
+              minHeight: 44, cursor: 'pointer', background: 'none',
+              border: `1px solid ${isOpen ? 'var(--ink)' : 'var(--rule)'}`,
+              borderBottom: `3px solid ${READINESS_COLOR[d.readiness] || 'var(--rule)'}`,
+              fontFamily: "'JetBrains Mono',monospace",
+            }}>
+            <span style={{ fontSize: 8, color: 'var(--dim)', textTransform: 'uppercase' }}>
+              {dateObj.toLocaleDateString('en-GB', { weekday: 'short' })}
+            </span>
+            <span style={{ fontSize: 10, color: 'var(--ink)' }}>{dateObj.getDate()}</span>
+            <span style={{ fontSize: 7, color: 'var(--dim)', textTransform: 'capitalize', textAlign: 'center', lineHeight: 1.2 }}>
+              {d.type === 'rest' ? 'Rest' : (d.bucket || 'Full Body')}
+            </span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 function S3({ s, recommendation, onStartWorkout, onImport, onHistory, refresh }) {
   const workouts = s?.workouts || [];
   const lifts = s?.lifts || [];
   const liftVol = s?.liftVolume || [];
   const lastSession = workouts[0] || null;
   const sessionLifts = lastSession ? lifts.filter(l => l.date === lastSession.date) : [];
-  const [genning, setGenning] = useState(false);
   const [showGroupStart, setShowGroupStart] = useState(false);
   const [confirmDeleteLast, setConfirmDeleteLast] = useState(false);
   const [deletingLast, setDeletingLast] = useState(false);
@@ -4940,9 +4798,6 @@ function S3({ s, recommendation, onStartWorkout, onImport, onHistory, refresh })
   const daysAgo = lastSession?.date
     ? Math.round((new Date(new Date().setHours(0, 0, 0, 0)) - localDateFromYMD(lastSession.date)) / 86_400_000)
     : null;
-
-  const guidance = s?.weeklyPlan; // advisory only: session-count target + muscle freshness ranking, never a locked day-by-day schedule
-  const [selectedBucket, setSelectedBucket] = useState(null); // null = let the algorithm pick the freshest muscle group live
 
   const experiments = s?.experiments || [];
   const activeExps = experiments.filter(e => e.active);
@@ -4977,94 +4832,85 @@ function S3({ s, recommendation, onStartWorkout, onImport, onHistory, refresh })
     refresh({ ...s, experiments: (s?.experiments || []).filter(e => e.id !== id) });
   };
 
-  // Live-pick a session so it's ready before the user taps Start — no locked
-  // schedule to read back, this always reflects fatigue right now. Auto-picks
-  // the freshest muscle group unless the athlete has overridden that choice
-  // via the muscle-focus chips below.
-  const [rawExercises, setRawExercises] = useState([]);
-  const [currentFatigueMap, setCurrentFatigueMap] = useState({});
-  const [sessionFatigueCeiling, setSessionFatigueCeiling] = useState(4);
-  const [pickedBucket, setPickedBucket] = useState(null);
-  const [preloading, setPreloading] = useState(false);
-  const [splitNeglected, setSplitNeglected] = useState([]);
-  // Persisted per-athlete so it sticks across visits (saved in generatePlan
-  // below) — the slider itself doesn't wait for that, though: it's purely
-  // reactive against whatever was last fetched, see displayedExercises.
-  const [sliderDraft, setSliderDraft] = useState(s?.profile?.maxSessionDurationMin ?? 60);
-  // null = never fetched, [] = fetched and there were no real alternatives.
-  const [variants, setVariants] = useState(null);
-  const [variantsOpen, setVariantsOpen] = useState(false);
-  const [whatIfOpen, setWhatIfOpen] = useState(false);
-  // Ranked against the session that was actually generated, unlike Dispatch's
-  // copy — see sessionLimitingFactor in functions/index.js.
-  const [sessionLimitingFactor, setSessionLimitingFactor] = useState(null);
   const [targetPlannerOpen, setTargetPlannerOpen] = useState(false);
   // The same structural fatigue reading the Recovery panel shows — both the
-  // sandbox and the target planner rank against current state, so they have to
-  // be looking at the same numbers the rest of the app is.
+  // target planner and (formerly) the sandbox rank against current state, so
+  // they have to be looking at the same numbers the rest of the app is.
   const currentFatigue = useMemo(
     () => computeStructuralFatigue(s?.lifts, s?.musclePeaks, s?.soreness, s?.muscleSensitivity),
     [s?.lifts, s?.musclePeaks, s?.soreness, s?.muscleSensitivity],
   );
+
+  // Phase 5 "Plan Ahead" — day-by-day forward solve, replacing both the old
+  // advisory "This Week's Guidance" block and the live single-day picker.
+  // Never stored client-side either: re-fetched on every mount/view change,
+  // same "recomputed fresh, never a locked schedule" rule as the rest of the
+  // planner — see functions/calendarSolver.js's header.
+  const [calendarView, setCalendarView] = useState('week');
+  const [calendar, setCalendar] = useState(null);
+  const [calendarLoading, setCalendarLoading] = useState(true);
+  const [expandedDate, setExpandedDate] = useState(null);
+  useEffect(() => {
+    let cancelled = false;
+    setCalendarLoading(true);
+    api(`plan/calendar?days=${calendarView === 'month' ? 30 : 7}`).then(data => {
+      if (cancelled) return;
+      setCalendar(data);
+      setExpandedDate(prev => prev || data?.days?.[0]?.date || null);
+      setCalendarLoading(false);
+    }).catch(() => { if (!cancelled) setCalendarLoading(false); });
+    return () => { cancelled = true; };
+  }, [calendarView]);
+  // Today's cell specifically — the one Start Session/Other Ways/.ics export
+  // act on. null when today is a rest day or nothing was fetched yet.
+  const today0 = calendar?.days?.[0]?.type === 'session' ? calendar.days[0] : null;
+
+  // null = never fetched, [] = fetched and there were no real alternatives.
+  const [variants, setVariants] = useState(null);
+  const [variantsOpen, setVariantsOpen] = useState(false);
   const [variantsLoading, setVariantsLoading] = useState(false);
   const [variantsError, setVariantsError] = useState('');
   useEffect(() => {
-    setPreloading(true);
-    setRawExercises([]);
-    const body = selectedBucket
-      ? { type: 'lift', targetMuscles: selectedBucket.muscles, bucket: selectedBucket.name, maxDurationMin: SESSION_MAX_DURATION_MIN }
-      : { type: 'lift', maxDurationMin: SESSION_MAX_DURATION_MIN };
-    authFetch(`${API_BASE}/plan/session-exercises`, {
+    if (!variantsOpen || !today0?.exercises?.length) return;
+    let cancelled = false;
+    setVariantsLoading(true);
+    setVariantsError('');
+    authFetch(`${API_BASE}/plan/session-variants`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
+      body: JSON.stringify({
+        targetMuscles: today0.targetMuscles,
+        backboneExercises: today0.exercises.map(e => e.name),
+        exercises: today0.exercises,
+        maxDurationMin: s?.profile?.maxSessionDurationMin ?? null,
+      }),
     }).then(r => r.json()).then(data => {
-      setRawExercises(data.exercises || []);
-      setCurrentFatigueMap(data.currentFatigue || {});
-      setSessionFatigueCeiling(data.fatigueCeiling ?? 4);
-      setPickedBucket(data.bucket ? { name: data.bucket, muscles: data.targetMuscles, backboneExercises: data.backboneExercises } : null);
-      setSplitNeglected(data.neglectedMuscles || []);
-      setSessionLimitingFactor(data.limitingFactor || null);
-      setPreloading(false);
-    }).catch(() => setPreloading(false));
-  }, [selectedBucket?.name]);
+      if (cancelled) return;
+      setVariants(data.variants || []);
+      setVariantsLoading(false);
+    }).catch(() => {
+      if (cancelled) return;
+      setVariantsError('Could not load alternatives.');
+      setVariantsLoading(false);
+    });
+    return () => { cancelled = true; };
+  }, [variantsOpen, today0?.date, today0?.exercises?.length]);
 
-  // Truly reactive: recomputed instantly as the slider moves, no server
-  // round-trip. capSessionDuration/fillSessionToDuration/estimateSessionDurationMin
-  // are the exact same pure functions the backend uses (functions/sessionPlanner.js,
-  // bundled into the frontend via esbuild) — run here against whichever
-  // exercise list + fatigue reading was last fetched, not re-fetched.
-  // fillSessionToDuration is the reverse of capSessionDuration: when the
-  // fetched list comes in well under the slider's length (e.g. backbone+
-  // accessory coverage was satisfied with only 3 exercises against a 90-min
-  // slider), it adds working sets to the exercises already chosen rather
-  // than leaving the requested time unused — never invents a new exercise
-  // for this, since that would reopen the "extra exercise on a muscle
-  // without a specific reason" problem the picker functions themselves fix.
-  const displayedExercises = useMemo(
-    () => fillSessionToDuration(capSessionDuration(rawExercises, currentFatigueMap, sliderDraft), sliderDraft, sessionFatigueCeiling),
-    [rawExercises, currentFatigueMap, sliderDraft, sessionFatigueCeiling]
-  );
-  const estimatedDurationMin = displayedExercises.length ? estimateSessionDurationMin(displayedExercises) : null;
-
-  // Exports the session currently on screen as a .ics the athlete can open in
+  // Exports today's calendar session as a .ics the athlete can open in
   // whatever calendar they use. Scheduled for the next full hour today, which
   // is a placeholder they can drag — the app has no idea when they train, and
   // guessing a time from training history would be a fabricated preference.
-  //
-  // The exercise list and reasoning are the ones already displayed, not a
-  // re-fetch, so what lands in the calendar is exactly what was on screen.
   const addSessionToCalendar = () => {
-    if (!displayedExercises?.length) return;
+    if (!today0?.exercises?.length) return;
     const start = new Date();
     start.setMinutes(0, 0, 0);
     start.setHours(start.getHours() + 1);
 
-    const bucket = (selectedBucket || pickedBucket)?.name;
+    const bucket = today0.bucket;
     const ics = buildSessionICS({
       title: `Press — ${bucket ? bucket[0].toUpperCase() + bucket.slice(1) : 'Training'}`,
       start,
-      durationMin: estimatedDurationMin || 60,
-      exercises: displayedExercises,
+      durationMin: today0.estimatedDurationMin || 60,
+      exercises: today0.exercises,
       reasoning: recommendation?.reasoning || [],
       // Stable per day+bucket, so re-exporting updates the same event instead
       // of stacking duplicates in the calendar.
@@ -5083,58 +4929,6 @@ function S3({ s, recommendation, onStartWorkout, onImport, onHistory, refresh })
     // Revoked on the next tick rather than immediately — Safari can abort the
     // download if the object URL disappears before it has read it.
     setTimeout(() => URL.revokeObjectURL(url), 1000);
-  };
-
-  // Fetched on demand rather than alongside the session: the server generates
-  // the whole session once more per variant, and that cost shouldn't be paid
-  // by every athlete who only ever trains the recommended one.
-  // Every trade-off is a difference against the session currently on screen,
-  // so moving the Max Length slider or switching bucket invalidates them all.
-  // Re-fetching off that signature (rather than caching the first answer) is
-  // what stops the panel claiming "12 minutes shorter" against a session the
-  // athlete has since changed the length of.
-  const variantBase = displayedExercises.map(e => e.name).join('|');
-  useEffect(() => {
-    if (!variantsOpen) return;
-    const muscles = (selectedBucket || pickedBucket)?.muscles;
-    if (!muscles?.length || !displayedExercises.length) return;
-    let cancelled = false;
-    setVariantsLoading(true);
-    setVariantsError('');
-    // Debounced: the base session changes on every tick of the Max Length
-    // slider, and each variant request regenerates the session three times
-    // server-side. Without this, one drag fires a burst of them.
-    const timer = setTimeout(() => {
-      authFetch(`${API_BASE}/plan/session-variants`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          targetMuscles: muscles,
-          backboneExercises: pickedBucket?.backboneExercises || [],
-          exercises: displayedExercises,
-          maxDurationMin: sliderDraft,
-        }),
-      }).then(r => r.json()).then(data => {
-        if (cancelled) return;
-        setVariants(data.variants || []);
-        setVariantsLoading(false);
-      }).catch(() => {
-        if (cancelled) return;
-        setVariantsError('Could not load alternatives.');
-        setVariantsLoading(false);
-      });
-    }, 400);
-    return () => { cancelled = true; clearTimeout(timer); };
-  }, [variantsOpen, variantBase, sliderDraft, (selectedBucket || pickedBucket)?.name]);
-
-  const generatePlan = async () => {
-    setGenning(true);
-    const requests = [authFetch(`${API_BASE}/plan/week`, { method: 'POST' })];
-    if (sliderDraft !== (s?.profile?.maxSessionDurationMin ?? 60)) {
-      requests.push(api('profile', { method: 'POST', body: JSON.stringify({ maxSessionDurationMin: sliderDraft }) }));
-    }
-    await Promise.all(requests);
-    setGenning(false);
-    window.location.reload();
   };
 
   return (
@@ -5205,52 +4999,55 @@ function S3({ s, recommendation, onStartWorkout, onImport, onHistory, refresh })
         </div>
       </div>
       <div className="fade" style={{ marginTop: 'auto' }}>
-        {guidance ? (
-          <div style={{ borderTop: '1px solid var(--rule)', paddingTop: 10 }}>
-            <div className="kicker" style={{ marginBottom: 4 }}>
-              This Week's Guidance · {guidance.sessionsCompletedThisWeek ?? 0}/{guidance.liftSessionsTarget} strength{guidance.cardioSessionsTarget > 0 ? ` · ${guidance.cardioSessionsTarget} cardio` : ''}
-              {guidance.trainingPriority && guidance.trainingPriority !== 'strength' && <span style={{ color: 'var(--gold)', textTransform: 'capitalize' }}> · {guidance.trainingPriority} priority</span>}
+        <div style={{ borderTop: '1px solid var(--rule)', paddingTop: 10 }}>
+          <div className="kicker" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 6 }}>
+            <span>Plan Ahead</span>
+            <div style={{ display: 'flex', gap: 4 }}>
+              <button className={`prof-btn${calendarView === 'week' ? ' solid' : ''}`} style={{ fontSize: 8, padding: '3px 8px' }} onClick={() => setCalendarView('week')}>Week</button>
+              <button className={`prof-btn${calendarView === 'month' ? ' solid' : ''}`} style={{ fontSize: 8, padding: '3px 8px' }} onClick={() => setCalendarView('month')}>Month</button>
             </div>
-            <div style={{ fontFamily: "'Playfair Display',serif", fontStyle: 'italic', fontSize: 13, color: 'var(--dim)', marginBottom: 8, lineHeight: 1.4 }}>
-              {guidance.rationale}
-            </div>
-            {guidance.muscleFocus?.length > 0 && (
-              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 10 }}>
-                {guidance.muscleFocus.map(b => {
-                  const active = selectedBucket ? selectedBucket.name === b.name : pickedBucket?.name === b.name;
-                  return (
-                    <button key={b.name} className={`prof-btn${active ? ' solid' : ''}`} style={{ fontSize: 9, padding: '5px 10px', textTransform: 'capitalize' }}
-                      onClick={() => setSelectedBucket(selectedBucket?.name === b.name ? null : { name: b.name, muscles: b.muscles })}>
-                      {b.name} · {b.freshness}%
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-            <RecommendationPanel rec={recommendation} selectedBucket={selectedBucket} />
           </div>
-        ) : (
-          <div style={{ borderTop: '1px solid var(--rule)', paddingTop: 10, fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)', marginBottom: 8 }}>
-            No weekly guidance yet — purely a session-count suggestion, not required. You can start a session below regardless.
-          </div>
-        )}
 
-        <div style={{ paddingTop: guidance ? 8 : 0 }}>
-          {pickedBucket?.name && displayedExercises?.length > 0 && (
-            <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--gold)', textTransform: 'capitalize', marginBottom: 6, display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-              <span>{selectedBucket ? 'Selected' : 'Freshest right now'}: {pickedBucket.name}</span>
-              {estimatedDurationMin != null && <span style={{ color: 'var(--dim)' }}>~{estimatedDurationMin} min</span>}
+          {calendarLoading && (
+            <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)', padding: '4px 0 10px' }}>Solving…</div>
+          )}
+
+          {!calendarLoading && calendar && (
+            <CalendarGrid days={calendar.days} expandedDate={expandedDate} onSelect={setExpandedDate} />
+          )}
+        </div>
+
+        {!calendarLoading && calendar && expandedDate && (() => {
+          const day = calendar.days.find(d => d.date === expandedDate);
+          if (!day) return null;
+          const isToday = day.date === calendar.days[0]?.date;
+
+          if (day.type === 'rest') {
+            return (
+              <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, color: 'var(--dim)', fontStyle: 'italic', padding: '4px 0 8px' }}>
+                {day.reason || 'Rest day'}
+              </div>
+            );
+          }
+
+          return (
+          <div>
+          {/* Split-day anchor (Settings) couldn't be honored this day — the
+              muscle wasn't fresh enough, so the solver picked the next-best
+              bucket instead of forcing a fatigued one through
+              (TRAINING_ETHOS: autoregulated, never a rigid template). */}
+          {day.bucketConflict && (
+            <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--ember)', marginBottom: 6, lineHeight: 1.5, textTransform: 'capitalize' }}>
+              {day.bucketConflict} was preferred for this day but wasn't fresh enough — {day.bucket} instead.
             </div>
           )}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-            <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, color: 'var(--dim)', whiteSpace: 'nowrap' }}>Max length</span>
-            <input type="range" min="20" max={SESSION_MAX_DURATION_MIN} step="5" value={sliderDraft} onChange={e => setSliderDraft(+e.target.value)}
-              style={{ flex: 1, accentColor: 'var(--ink)' }} />
-            <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, color: 'var(--dim)', minWidth: 44, textAlign: 'right' }}>{sliderDraft} min</span>
+          <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--gold)', textTransform: 'capitalize', marginBottom: 6, display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+            <span>{day.bucket || 'Full Body'}</span>
+            {day.estimatedDurationMin != null && <span style={{ color: 'var(--dim)' }}>~{day.estimatedDurationMin} min</span>}
           </div>
-          {displayedExercises?.length > 0 && (
+          {day.exercises.length > 0 && (
             <div style={{ marginBottom: 10 }}>
-              {displayedExercises.map((ex, i) => {
+              {day.exercises.map((ex, i) => {
                 // Exclude warmup sets ('W') from the summary — prog.suggestKg > 0
                 // (real prior history) prepends 2 warmups ahead of the working
                 // sets, and counting/describing those in the headline made the
@@ -5304,141 +5101,109 @@ function S3({ s, recommendation, onStartWorkout, onImport, onHistory, refresh })
               })}
             </div>
           )}
-          {preloading && (
-            <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)', marginBottom: 8 }}>Preparing exercises…</div>
-          )}
-          {!preloading && displayedExercises?.length === 0 && (
+          {day.exercises.length === 0 && (
             <div style={{ fontSize: 11, color: 'var(--dim)', fontStyle: 'italic', marginBottom: 8 }}>No fresh muscle group available right now — Freestyle, or rest and try again later.</div>
           )}
-          {!preloading && splitNeglected.length > 0 && (
-            <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--red)', marginBottom: 8, lineHeight: 1.5 }}>
-              Your split hasn't reached {[...new Set(splitNeglected.map(n => muscleDisplayLabel(n.muscle)))].join(', ')} in {Math.max(...splitNeglected.map(n => n.daysSinceTrained ?? 999))}+ days — worth working in soon, or switching to Full Body in Settings.
-            </div>
-          )}
-          {displayedExercises?.length > 0 && s?.profile?.warmupScheme?.length && (
+          {day.exercises.length > 0 && s?.profile?.warmupScheme?.length && (
             <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, color: 'var(--dim)', marginBottom: 8, padding: '6px 8px', background: 'var(--paper-alt)', borderRadius: 4 }}>
               Warmup: {s.profile.warmupScheme.map(w => `${w.reps}@${w.pct}%`).join(' + ')}
             </div>
           )}
-          {/* Two tiers, because this row had grown to eight identical boxes
-              mixing three different kinds of control: things that start a
-              session and leave this screen, things that expand a panel in
-              place, and utilities. Boxed buttons are now only ever the first
-              kind, so "Start Session" no longer competes visually with a
-              disclosure toggle. The tools keep a stable label and carry their
-              open state on the +/- glyph rather than swapping to "Hide X",
-              which was also making the row reflow on every toggle. */}
-          <div className="action-row-primary">
-            <button className="action-btn primary" disabled={!displayedExercises?.length}
-              onClick={() => onStartWorkout({ sessions: [{ type: 'lift', targetMuscles: pickedBucket?.muscles, backboneExercises: pickedBucket?.backboneExercises }], preloadedExercises: displayedExercises })}>
-              Start Session
-            </button>
-            <button className="action-btn" onClick={() => onStartWorkout(null)}>Freestyle</button>
-            <button className="action-btn" onClick={() => {
-              let existing = null;
-              try { existing = localStorage.getItem(GROUP_SESSION_KEY); } catch {}
-              if (existing) onStartWorkout(null); else setShowGroupStart(true);
-            }}>Group Session</button>
-          </div>
 
-          <div className="session-tools">
-            <button className="tool-btn" disabled={!displayedExercises?.length}
-              aria-expanded={variantsOpen} aria-controls="session-variants"
-              onClick={() => setVariantsOpen(o => !o)}>
-              Other Ways
-            </button>
-            {/* Both are Intermediate-and-up: they're built on the fatigue
-                numbers, which Beginner doesn't show at all. */}
-            <Detail min="intermediate">
-              <button className="tool-btn" disabled={!displayedExercises?.length}
-                aria-expanded={whatIfOpen} aria-controls="what-if"
-                onClick={() => setWhatIfOpen(o => !o)}>
-                What If
-              </button>
-              <button className="tool-btn"
-                aria-expanded={targetPlannerOpen} aria-controls="target-planner"
-                onClick={() => setTargetPlannerOpen(o => !o)}>
-                Train A Muscle
-              </button>
-            </Detail>
-
-            <div className="session-tools-end">
-              {selectedBucket && (
-                <button className="tool-btn plain" onClick={() => setSelectedBucket(null)}>Auto-Pick Freshest</button>
-              )}
-              <button className="tool-btn plain" disabled={!displayedExercises?.length} onClick={addSessionToCalendar}>
-                Add to Calendar
-              </button>
-              <button className="tool-btn plain" onClick={generatePlan} disabled={genning}>
-                {genning ? '…' : guidance ? 'Refresh Guidance' : 'Get Weekly Guidance'}
-              </button>
-            </div>
-          </div>
-
-          {/* The same factor Dispatch shows, re-ranked against this session
-              rather than in the abstract. Only surfaced when that re-ranking
-              actually changed which factor is on top — otherwise it's the same
-              line twice on one screen. */}
-          {sessionLimitingFactor?.primary && sessionLimitingFactor.sessionAware
-            && sessionLimitingFactor.primary.code !== recommendation?.limitingFactor?.primary?.code && (
-            <Detail min="intermediate">
-              <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--ember)', lineHeight: 1.6, marginTop: 6 }}>
-                For this session specifically: {sessionLimitingFactor.primary.explanations?.intermediate || sessionLimitingFactor.primary.detail}
+          {/* Starting, editing tools, and the .ics export only make sense
+              against today's cell — a future day is a preview, not
+              something to act on yet (it re-solves by the time it arrives
+              anyway, per TRAINING_ETHOS's autoregulated-session-to-session
+              stance). */}
+          {isToday && (
+            <>
+              <div className="action-row-primary">
+                <button className="action-btn primary" disabled={!day.exercises.length}
+                  onClick={() => onStartWorkout({ sessions: [{ type: 'lift', targetMuscles: day.targetMuscles, backboneExercises: day.exercises.map(e => e.name) }], preloadedExercises: day.exercises })}>
+                  Start Session
+                </button>
+                <button className="action-btn" onClick={() => onStartWorkout(null)}>Freestyle</button>
+                <button className="action-btn" onClick={() => {
+                  let existing = null;
+                  try { existing = localStorage.getItem(GROUP_SESSION_KEY); } catch {}
+                  if (existing) onStartWorkout(null); else setShowGroupStart(true);
+                }}>Group Session</button>
               </div>
-            </Detail>
-          )}
 
-          {whatIfOpen && (
-            <div id="what-if">
-              <WhatIfSandbox s={s} exercises={displayedExercises} />
-            </div>
-          )}
+              <div className="session-tools">
+                <button className="tool-btn" disabled={!day.exercises.length}
+                  aria-expanded={variantsOpen} aria-controls="session-variants"
+                  onClick={() => setVariantsOpen(o => !o)}>
+                  Other Ways
+                </button>
+                {/* Intermediate-and-up: built on the fatigue numbers, which
+                    Beginner doesn't show at all. */}
+                <Detail min="intermediate">
+                  <button className="tool-btn"
+                    aria-expanded={targetPlannerOpen} aria-controls="target-planner"
+                    onClick={() => setTargetPlannerOpen(o => !o)}>
+                    Train A Muscle
+                  </button>
+                </Detail>
 
-          {targetPlannerOpen && (
-            <div id="target-planner">
-              <TargetMusclePlannerPanel fatigue={currentFatigue} />
-            </div>
-          )}
-
-          {variantsOpen && (
-            <div id="session-variants" className="variants">
-              {variantsLoading && <div className="variants-status">Building alternatives…</div>}
-              {variantsError && <div className="variants-status variants-error">{variantsError}</div>}
-              {!variantsLoading && !variantsError && variants !== null && variants.length <= 1 && (
-                <div className="variants-status">
-                  No meaningful alternative today — a shorter, machine-only or bodyweight version of this session comes out the same.
-                </div>
-              )}
-              {!variantsLoading && !variantsError && variants?.filter(v => v.key !== 'recommended').map(v => (
-                <div key={v.key} className="variant">
-                  <div className="variant-head">
-                    <span className="variant-label">{v.label}</span>
-                    <span className="variant-stat">{v.durationMin} min · {v.workingSets} working sets</span>
-                  </div>
-                  <p className="variant-premise">{v.premise}</p>
-                  {v.tradeoffs.length > 0 && (
-                    <ul className="variant-tradeoffs">
-                      {v.tradeoffs.map(t => (
-                        <li key={t.key} className={t.direction === 'less' ? 'tradeoff-less' : 'tradeoff-more'}>{t.text}</li>
-                      ))}
-                    </ul>
-                  )}
-                  <div className="variant-exercises">{v.exercises.map(e => e.name).join(' · ')}</div>
-                  <button className="action-btn" onClick={() => onStartWorkout({
-                    sessions: [{ type: 'lift', targetMuscles: (selectedBucket || pickedBucket)?.muscles, backboneExercises: pickedBucket?.backboneExercises }],
-                    // The variant's own exercise list, not the slider-trimmed
-                    // one — starting "Short session" and then having the Max
-                    // Length slider refill it back to 60 minutes would undo
-                    // the only thing the athlete picked it for.
-                    preloadedExercises: v.exercises,
-                  })}>
-                    Start This
+                <div className="session-tools-end">
+                  <button className="tool-btn plain" disabled={!day.exercises.length} onClick={addSessionToCalendar}>
+                    Add to Calendar
                   </button>
                 </div>
-              ))}
-            </div>
+              </div>
+
+              {targetPlannerOpen && (
+                <div id="target-planner">
+                  <TargetMusclePlannerPanel fatigue={currentFatigue} />
+                </div>
+              )}
+
+              {variantsOpen && (
+                <div id="session-variants" className="variants">
+                  {variantsLoading && <div className="variants-status">Building alternatives…</div>}
+                  {variantsError && <div className="variants-status variants-error">{variantsError}</div>}
+                  {!variantsLoading && !variantsError && variants !== null && variants.length <= 1 && (
+                    <div className="variants-status">
+                      No meaningful alternative today — a shorter, machine-only or bodyweight version of this session comes out the same.
+                    </div>
+                  )}
+                  {!variantsLoading && !variantsError && variants?.filter(v => v.key !== 'recommended').map(v => (
+                    <div key={v.key} className="variant">
+                      <div className="variant-head">
+                        <span className="variant-label">{v.label}</span>
+                        <span className="variant-stat">{v.durationMin} min · {v.workingSets} working sets</span>
+                      </div>
+                      <p className="variant-premise">{v.premise}</p>
+                      {v.tradeoffs.length > 0 && (
+                        <ul className="variant-tradeoffs">
+                          {v.tradeoffs.map(t => (
+                            <li key={t.key} className={t.direction === 'less' ? 'tradeoff-less' : 'tradeoff-more'}>{t.text}</li>
+                          ))}
+                        </ul>
+                      )}
+                      <div className="variant-exercises">{v.exercises.map(e => e.name).join(' · ')}</div>
+                      <button className="action-btn" onClick={() => onStartWorkout({
+                        sessions: [{ type: 'lift', targetMuscles: day.targetMuscles, backboneExercises: day.exercises.map(e => e.name) }],
+                        preloadedExercises: v.exercises,
+                      })}>
+                        Start This
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
           )}
-        </div>
+          </div>
+          );
+        })()}
+
+        {!calendarLoading && calendar && !calendar.days.some(d => d.type === 'session') && (
+          <div style={{ fontSize: 11, color: 'var(--dim)', fontStyle: 'italic', padding: '4px 0 8px' }}>
+            No fresh muscle group available across this window right now — Freestyle, or rest and try again later.
+          </div>
+        )}
 
         {/* Week history strip — which days actually had a session, not a forward schedule */}
         {(() => {
@@ -7448,6 +7213,25 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
   const [hevyKeySaved, setHevyKeySaved] = useState(false);
   const [equipmentAvailable, setEquipmentAvailable] = useState(s?.profile?.equipmentAvailable || ['barbell', 'dumbbell', 'machine', 'cable']);
   const [savingEquipment, setSavingEquipment] = useState(false);
+  // Plan Ahead calendar constraints (calendarSolver.js) — durable
+  // preferences only; the day-by-day picks themselves are never stored.
+  const [unavailableDaysOfWeek, setUnavailableDaysOfWeek] = useState(s?.profile?.unavailableDaysOfWeek || []);
+  const [availableDaysOfWeek, setAvailableDaysOfWeek] = useState(s?.profile?.availableDaysOfWeek || []);
+  const [weeklySessionTargetVal, setWeeklySessionTargetVal] = useState(s?.profile?.weeklySessionTarget ?? '');
+  const [splitDayAnchors, setSplitDayAnchors] = useState(s?.profile?.splitDayAnchors || {});
+  const [savingPlanConstraints, setSavingPlanConstraints] = useState(false);
+  const [calendarWindows, setCalendarWindows] = useState([]);
+  const [windowsLoading, setWindowsLoading] = useState(true);
+  const [newWindowStart, setNewWindowStart] = useState('');
+  const [newWindowEnd, setNewWindowEnd] = useState('');
+  const [newWindowLevel, setNewWindowLevel] = useState('rest');
+  const [newWindowEquipment, setNewWindowEquipment] = useState([]);
+  const [newWindowReason, setNewWindowReason] = useState('');
+  const [addingWindow, setAddingWindow] = useState(false);
+  useEffect(() => {
+    api('calendar-windows').then(data => { setCalendarWindows(data?.calendarWindows || []); setWindowsLoading(false); })
+      .catch(() => setWindowsLoading(false));
+  }, []);
   const [savingTargets, setSavingTargets] = useState(false);
   const [regenLoading, setRegenLoading] = useState(false);
   const [mergeFrom, setMergeFrom] = useState('');
@@ -8310,6 +8094,171 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
             }} disabled={savingEquipment}>
             {savingEquipment ? 'Saving…' : 'Save Equipment'}
           </button>
+        </div>
+
+        {/* ── PLAN AHEAD CONSTRAINTS ── */}
+        <div className="settings-sec">
+          <div className="settings-sh">Plan Ahead — Constraints</div>
+          <div style={{ fontSize: 11, color: 'var(--dim)', marginBottom: 10, lineHeight: 1.5 }}>
+            The forward calendar (Home → Plan Ahead) solves fully optimal to your goal by default. These layer in constraints it has to work around — none of them force a fatigued muscle through; the calendar falls back and shows the conflict instead.
+          </div>
+          <div style={{ fontSize: 8, letterSpacing: '.16em', textTransform: 'uppercase', color: 'var(--dim)', marginBottom: 6 }}>
+            Recurring Days Off <span style={{ textTransform: 'none' }}>(never scheduled, indefinite)</span>
+          </div>
+          <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginBottom: 12 }}>
+            {WEEKDAY_LABELS.map((lbl, i) => (
+              <button key={i} className={`prof-btn${unavailableDaysOfWeek.includes(i) ? ' solid' : ''}`}
+                onClick={() => setUnavailableDaysOfWeek(prev => prev.includes(i) ? prev.filter(d => d !== i) : [...prev, i])}
+                style={{ fontSize: 10, padding: '6px 10px' }}>
+                {lbl}
+              </button>
+            ))}
+          </div>
+          <div style={{ fontSize: 8, letterSpacing: '.16em', textTransform: 'uppercase', color: 'var(--dim)', marginBottom: 6 }}>
+            Allow-List Training Days <span style={{ textTransform: 'none' }}>(only these — leave empty for no restriction)</span>
+          </div>
+          <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginBottom: 12 }}>
+            {WEEKDAY_LABELS.map((lbl, i) => (
+              <button key={i} className={`prof-btn${availableDaysOfWeek.includes(i) ? ' solid' : ''}`}
+                onClick={() => setAvailableDaysOfWeek(prev => prev.includes(i) ? prev.filter(d => d !== i) : [...prev, i])}
+                style={{ fontSize: 10, padding: '6px 10px' }}>
+                {lbl}
+              </button>
+            ))}
+          </div>
+          <div className="prof-field">
+            <span className="prof-lbl">Weekly Session Target <span style={{ fontSize: 8, color: 'var(--dim)', textTransform: 'none' }}>(blank = auto, from current fatigue)</span></span>
+            <input className="prof-input" type="number" inputMode="numeric" min="0" max="14" value={weeklySessionTargetVal}
+              onChange={e => setWeeklySessionTargetVal(e.target.value)} placeholder="Auto" style={{ maxWidth: 80 }} />
+          </div>
+          {SPLIT_GROUPS[s?.profile?.preferredSplit] && (
+            <>
+              <div style={{ fontSize: 8, letterSpacing: '.16em', textTransform: 'uppercase', color: 'var(--dim)', margin: '12px 0 6px' }}>
+                Split-Day Anchors <span style={{ textTransform: 'none' }}>(soft — honored only when fresh)</span>
+              </div>
+              {Object.keys(SPLIT_GROUPS[s.profile.preferredSplit]).map(bucket => (
+                <div key={bucket} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0', borderBottom: '1px solid var(--rule)' }}>
+                  <span style={{ fontSize: 11, color: 'var(--ink)', flex: 1 }}>{bucketLabel(bucket)}</span>
+                  <select className="prof-input" style={{ width: 100, textAlign: 'left' }}
+                    value={splitDayAnchors[bucket] ?? ''}
+                    onChange={e => {
+                      const v = e.target.value;
+                      setSplitDayAnchors(prev => {
+                        const next = { ...prev };
+                        if (v === '') delete next[bucket]; else next[bucket] = +v;
+                        return next;
+                      });
+                    }}>
+                    <option value="">No anchor</option>
+                    {WEEKDAY_LABELS.map((lbl, i) => <option key={i} value={i}>{lbl}</option>)}
+                  </select>
+                </div>
+              ))}
+            </>
+          )}
+          <button className="prof-btn solid" style={{ fontSize: 10, padding: '6px 12px', marginTop: 12 }}
+            onClick={async () => {
+              setSavingPlanConstraints(true);
+              const weeklySessionTarget = weeklySessionTargetVal === '' ? null : Math.max(0, Math.min(14, Math.round(+weeklySessionTargetVal)));
+              const profile = await api('profile', {
+                method: 'POST',
+                body: JSON.stringify({ unavailableDaysOfWeek, availableDaysOfWeek, weeklySessionTarget, splitDayAnchors }),
+              });
+              refresh({ ...s, profile });
+              setSavingPlanConstraints(false);
+            }} disabled={savingPlanConstraints}>
+            {savingPlanConstraints ? 'Saving…' : 'Save Plan Ahead Constraints'}
+          </button>
+        </div>
+
+        {/* ── PLAN AHEAD HOLIDAYS/TRAVEL ── */}
+        <div className="settings-sec">
+          <div className="settings-sh">Plan Ahead — Holidays &amp; Travel</div>
+          <div style={{ fontSize: 11, color: 'var(--dim)', marginBottom: 10, lineHeight: 1.5 }}>
+            One-off date ranges the calendar should treat differently — a holiday, a trip with only a hotel gym, a week off entirely.
+          </div>
+          {windowsLoading ? (
+            <div style={{ fontSize: 10, color: 'var(--dim)' }}>Loading…</div>
+          ) : (
+            <>
+              {calendarWindows.length > 0 && (
+                <div style={{ marginBottom: 12 }}>
+                  {calendarWindows.map(w => (
+                    <div key={w.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, padding: '6px 0', borderBottom: '1px solid var(--rule)' }}>
+                      <div style={{ fontSize: 10, color: 'var(--ink)' }}>
+                        {w.start === w.end ? w.start : `${w.start} → ${w.end}`}
+                        <span style={{ color: 'var(--dim)', marginLeft: 6, textTransform: 'capitalize' }}>
+                          {w.level === 'rest' ? 'Full rest' : w.level === 'bodyweight' ? 'Bodyweight only' : `Restricted: ${(w.equipment || []).join(', ')}`}
+                          {w.reason ? ` — ${w.reason}` : ''}
+                        </span>
+                      </div>
+                      <button className="prof-btn" style={{ fontSize: 9, padding: '4px 8px' }}
+                        onClick={async () => {
+                          await api(`calendar-windows/${w.id}`, { method: 'DELETE' });
+                          setCalendarWindows(prev => prev.filter(x => x.id !== w.id));
+                        }}>
+                        Remove
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                <div className="prof-field" style={{ flex: 'none', border: 'none', padding: 0 }}>
+                  <span className="prof-lbl" style={{ marginRight: 8 }}>Start</span>
+                  <input className="prof-input" type="date" value={newWindowStart} onChange={e => setNewWindowStart(e.target.value)} style={{ width: 130 }} />
+                </div>
+                <div className="prof-field" style={{ flex: 'none', border: 'none', padding: 0 }}>
+                  <span className="prof-lbl" style={{ marginRight: 8 }}>End</span>
+                  <input className="prof-input" type="date" value={newWindowEnd} onChange={e => setNewWindowEnd(e.target.value)} style={{ width: 130 }} />
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: 6, margin: '10px 0' }}>
+                {[['rest', 'Full Rest'], ['bodyweight', 'Bodyweight Only'], ['restricted', 'Restricted Equipment']].map(([lvl, lbl]) => (
+                  <button key={lvl} className={`prof-btn${newWindowLevel === lvl ? ' solid' : ''}`}
+                    onClick={() => setNewWindowLevel(lvl)} style={{ fontSize: 9, padding: '5px 8px' }}>
+                    {lbl}
+                  </button>
+                ))}
+              </div>
+              {newWindowLevel === 'restricted' && (
+                <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginBottom: 10 }}>
+                  {['barbell', 'dumbbell', 'machine', 'cable', 'smith', 'bodyweight'].map(eq => (
+                    <button key={eq} className={`prof-btn${newWindowEquipment.includes(eq) ? ' solid' : ''}`}
+                      onClick={() => setNewWindowEquipment(prev => prev.includes(eq) ? prev.filter(e => e !== eq) : [...prev, eq])}
+                      style={{ fontSize: 9, padding: '4px 8px', textTransform: 'capitalize' }}>
+                      {eq}
+                    </button>
+                  ))}
+                </div>
+              )}
+              <input className="prof-input" value={newWindowReason} onChange={e => setNewWindowReason(e.target.value)}
+                placeholder="Reason (optional)" style={{ width: '100%', textAlign: 'left', marginBottom: 10 }} />
+              <button className="prof-btn solid" style={{ fontSize: 10, padding: '6px 12px' }}
+                disabled={addingWindow || !newWindowStart || !newWindowEnd || (newWindowLevel === 'restricted' && !newWindowEquipment.length)}
+                onClick={async () => {
+                  setAddingWindow(true);
+                  const result = await api('calendar-windows', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                      start: newWindowStart, end: newWindowEnd, level: newWindowLevel,
+                      equipment: newWindowLevel === 'restricted' ? newWindowEquipment : undefined,
+                      reason: newWindowReason || undefined,
+                    }),
+                  });
+                  if (result?.ok) {
+                    setCalendarWindows(prev => [...prev, {
+                      id: result.id, start: newWindowStart, end: newWindowEnd, level: newWindowLevel,
+                      equipment: newWindowLevel === 'restricted' ? newWindowEquipment : null, reason: newWindowReason || null,
+                    }]);
+                    setNewWindowStart(''); setNewWindowEnd(''); setNewWindowLevel('rest'); setNewWindowEquipment([]); setNewWindowReason('');
+                  }
+                  setAddingWindow(false);
+                }}>
+                {addingWindow ? 'Adding…' : 'Add Window'}
+              </button>
+            </>
+          )}
         </div>
 
         {/* ── NUTRITION ── */}

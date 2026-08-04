@@ -11,6 +11,11 @@ const DEFAULTS = () => ({
   strava: null, weeklyPlan: null, soreness: [], muscleSensitivity: {}, cnsSensitivity: 1.0,
   injuries: [], measurements: [], supplements: [], supplementLog: [],
   alcoholLog: [], photos: [], experiments: [], customExercises: [],
+  // One-off date-range availability constraints for the Plan Ahead calendar
+  // (calendarSolver.js) — a holiday/travel window, level: 'rest'|'bodyweight'|
+  // 'restricted'. Recurring day-of-week blackouts and the day-of-week split
+  // anchor live on `profile` instead (durable settings, not dated events).
+  calendarWindows: [],
   profile: { name: null, heightCm: null, sex: null, waterTarget: 7,
     macroTargets: { calories: 2400, protein: 160, carbs: 250, fat: 75 }, macroMode: "manual",
     // Each entry: { type, priority: 'primary'|'secondary'|'minor', concrete,
@@ -23,7 +28,11 @@ const DEFAULTS = () => ({
     equipmentAvailable: [],
     musclePriorities: {},
     weeklyTargets: { lifting: {}, running: {}, sports: {} },
-    activityPreferences: { lifting: {}, running: {} }
+    activityPreferences: { lifting: {}, running: {} },
+    unavailableDaysOfWeek: [],
+    availableDaysOfWeek: [],
+    splitDayAnchors: {},
+    weeklySessionTarget: null,
   },
 });
 
