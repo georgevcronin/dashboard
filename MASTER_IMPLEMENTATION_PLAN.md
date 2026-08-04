@@ -422,7 +422,7 @@ entries for these specifically, tracked here only.
 
 ---
 
-## Phase 7 — Exercise preferences (ranked, public) — blocked on Phase 6.5
+## Phase 7 — Exercise preferences (ranked, public) — unblocked, Phase 6.5 closed 2026-08-05
 
 **Not a flat favourites list.** `profile.trainingBackground.favoriteExercises`
 already exists, is fully wired (Settings UI, `FAVORITE_EXERCISE_BONUS = 15` in
