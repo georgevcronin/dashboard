@@ -11,8 +11,8 @@
 // systems by design; structural fatigue has no stimulus attached to it.
 //
 // Model: every session-instance of an exercise contributes a stimulus score
-// (set count + proximity-to-failure), which produces a gamma-shaped
-// "adaptation curve" peaking 48h post-workout. Curves from different
+// (set count + proximity-to-failure), which produces a two-phase gamma-shaped
+// "adaptation curve" peaking around ADAPTATION_PEAK_H post-workout. Curves from different
 // sessions stack (sum), so frequent small sessions accumulate real weekly
 // stimulus even though any single session looks under-dosed in isolation —
 // the actual shape of a frequency-first program, not a per-session split
@@ -22,13 +22,30 @@
 
 const { findExercise, musclesForExercise } = require('./muscleTaxonomy');
 const { e1rm } = require('./strengthStandards');
+const { emgProfileForExercise } = require('./exerciseEmgProfiles');
 
 // Secondary/assistor muscles get real but distinctly lesser credit than the
 // actual primary target of a session — same reasoning and number as
 // stimulus.js's SECONDARY_STIMULUS_WEIGHT (that module is being retired;
 // this is its sole surviving home). A lat row's biceps assist but aren't the
-// prime mover, so shouldn't accumulate adaptation as if they were.
+// prime mover, so shouldn't accumulate adaptation as if they were. Kept as
+// the fallback for the common case (most of EXERCISE_DB has no curated EMG
+// profile) — see secondaryMuscleRatio for when one exists.
 const SECONDARY_MUSCLE_WEIGHT = 0.5;
+
+// A real per-muscle ratio instead of the flat 0.5 above, when
+// exerciseEmgProfiles.js has curated data for this exercise: how strongly
+// `muscle` activates relative to the exercise's own hardest-hit primary
+// muscle. A lat row's biceps assist real but genuinely lesser — this just
+// measures how much lesser instead of assuming a fixed fraction for every
+// secondary muscle on every exercise alike.
+function secondaryMuscleRatio(entry, muscle) {
+  const profile = emgProfileForExercise(entry.name);
+  if (!profile || profile[muscle] == null) return SECONDARY_MUSCLE_WEIGHT;
+  const primaryPeak = Math.max(0, ...(entry.primary || []).map(m => profile[m] || 0));
+  if (!primaryPeak) return SECONDARY_MUSCLE_WEIGHT;
+  return Math.min(1, profile[muscle] / primaryPeak);
+}
 
 // Niv Zinder RIR effectiveness: sigmoid, high at RIR 0, dip around RIR 5-6,
 // moderate at RIR 10 — mechanical-tension-near-failure weighting.
@@ -52,13 +69,46 @@ function sessionStimulusScore(numSets, avgRIR) {
   return volumeResponsePct(numSets) * rirEffectiveness(avgRIR);
 }
 
-// Supercompensation gamma curve — normalized so peak = stimulusScore at
-// t = 48h (k=3, θ=24). Zero at/before the stimulus itself.
+// Two overlapping gamma responses rather than one: fast inflammatory
+// resolution (~30% of the response, peaks ~12h — Clarkson & Hubal 2002, Am J
+// Phys Med Rehabil 81(11 Suppl):S52-69) plus slow tissue remodeling (~70%,
+// peaks ~48h — MacDougall et al. 1995, Can J Appl Physiol 20(4):480-6), the
+// single phase the old model used alone.
+const FAST_PEAK_H = 12, FAST_THETA_H = 6, FAST_WEIGHT = 0.3;
+const SLOW_PEAK_H = 48, SLOW_THETA_H = 24, SLOW_WEIGHT = 0.7;
+
+// Peak-normalized gamma: 1.0 at t = peakT, 0 elsewhere.
+function gammaShape(t, peakT, theta) {
+  if (t <= 0) return 0;
+  const peakRaw = peakT * peakT * Math.exp(-peakT / theta);
+  return (t * t * Math.exp(-t / theta)) / peakRaw;
+}
+
+function combinedShape(t) {
+  return FAST_WEIGHT * gammaShape(t, FAST_PEAK_H, FAST_THETA_H) + SLOW_WEIGHT * gammaShape(t, SLOW_PEAK_H, SLOW_THETA_H);
+}
+
+// The fast phase has mostly decayed by the time the slow phase peaks at 48h,
+// but hasn't fully hit zero — so their weighted sum's true peak sits a few
+// hours before 48h, not at either phase's own peak. Found by numeric search
+// (once, at module load) rather than hand-derived, so it stays correct if
+// the weights/peaks/thetas above are ever retuned.
+function findCombinedPeak() {
+  let bestT = SLOW_PEAK_H, bestV = combinedShape(SLOW_PEAK_H);
+  for (let t = 1; t <= 200; t += 0.1) {
+    const v = combinedShape(t);
+    if (v > bestV) { bestV = v; bestT = t; }
+  }
+  return { t: bestT, v: bestV };
+}
+const { t: ADAPTATION_PEAK_H, v: PEAK_SHAPE_VALUE } = findCombinedPeak();
+
+// Normalized so peak = stimulusScore, same contract as the old single-phase
+// curve — just at ADAPTATION_PEAK_H instead of a hardcoded 48. Zero at/before
+// the stimulus itself.
 function adaptationCurve(hoursAfter, stimulusScore) {
   if (hoursAfter <= 0) return 0;
-  const PEAK_H = 48, THETA = 24;
-  const peakRaw = PEAK_H * PEAK_H * Math.exp(-PEAK_H / THETA);
-  return stimulusScore * (hoursAfter * hoursAfter * Math.exp(-hoursAfter / THETA)) / peakRaw;
+  return stimulusScore * combinedShape(hoursAfter) / PEAK_SHAPE_VALUE;
 }
 
 // RIR per set: prefer an explicit l.rir (Hevy imports carry this), else
@@ -107,7 +157,7 @@ function computeStimulusContributions(lifts) {
     const entry = findExercise(exercise);
     if (entry) {
       for (const m of entry.primary || []) addContrib(m, ms, score);
-      for (const m of entry.secondary || []) addContrib(m, ms, score * SECONDARY_MUSCLE_WEIGHT);
+      for (const m of entry.secondary || []) addContrib(m, ms, score * secondaryMuscleRatio(entry, m));
     } else {
       // Custom/unrecognized names can't distinguish primary from secondary —
       // full credit for everything the keyword fallback matches.
@@ -192,7 +242,7 @@ function estimateAtrophyRate(lifts) {
 }
 
 module.exports = {
-  rirEffectiveness, volumeResponsePct, sessionStimulusScore, adaptationCurve,
+  rirEffectiveness, volumeResponsePct, sessionStimulusScore, adaptationCurve, ADAPTATION_PEAK_H,
   computeStimulusContributions, computeAdaptationLevel, computeAdaptationSeries,
-  estimateAtrophyRate, DEFAULT_ATROPHY_RATE, SECONDARY_MUSCLE_WEIGHT, DEFAULT_RIR,
+  estimateAtrophyRate, DEFAULT_ATROPHY_RATE, SECONDARY_MUSCLE_WEIGHT, secondaryMuscleRatio, DEFAULT_RIR,
 };

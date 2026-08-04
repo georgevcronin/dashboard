@@ -18,6 +18,7 @@ const { PRIMARY_MUSCLES, MUSCLE_GROUPS, loggedExerciseNames, isBodyweightOnlyExe
 const { SPLIT_GROUPS } = require('./splitPlanner');
 const { stabilityScore } = require('./sessionPlanner');
 const { idealAngleForMuscle } = require('./emgActivation');
+const { emgProfileForExercise } = require('./exerciseEmgProfiles');
 
 // Dominates the small (0-4 point) muscle-coverage score below by design — "a
 // heavy preference for exercises you've done before" means history should
@@ -69,6 +70,35 @@ function muscleWeight(m) { return MAJOR_MUSCLES.has(m) ? 1 : ASSISTOR_WEIGHT; }
 // does. Picks the exercises whose primary muscles best cover the target set,
 // heavily boosted (LOGGED_EXERCISE_BONUS) toward whatever the athlete has
 // actually logged before over something novel.
+//
+// Weight by real EMG activation relative to the exercise's own hardest-hit
+// primary muscle, when exerciseEmgProfiles.js has curated data for it — not a
+// flat count of target muscles touched, which structurally favors any
+// exercise that spreads thin across many muscles over one that's a dedicated
+// main-mover for a single muscle, regardless of how adequately either
+// actually trains what it touches. This was the actual root cause of a whole
+// family of reported issues — Sumo Deadlift/Box Squat, Bench Press/Weighted
+// Dips, three lat exercises — all won on the old flat-count formula purely
+// for covering more muscles at once, not for training any of them especially
+// well.
+//
+// Falls back to the previous fix for that same bug (diminishing weight by
+// primary-array position, 1, 1/2, 1/3, ... — exerciseDb.js's primary array is
+// ordered main-mover-first, the same convention "row" and the Sumo
+// Deadlift/Box Squat fix elsewhere in this file rely on) for the majority of
+// EXERCISE_DB that has no curated EMG profile — a real number beats an
+// ordinal proxy when it exists, but the ordinal proxy is still real signal
+// where EMG data doesn't reach.
+function positionalCoverage(e, targetMuscles) {
+  return e.primary.reduce((sum, m, i) => targetMuscles.includes(m) ? sum + 1 / (i + 1) : sum, 0);
+}
+function weightedCoverage(e, targetMuscles) {
+  const profile = emgProfileForExercise(e.name);
+  const peak = profile ? Math.max(0, ...e.primary.map(m => profile[m] || 0)) : 0;
+  if (!peak) return positionalCoverage(e, targetMuscles);
+  return e.primary.reduce((sum, m) => targetMuscles.includes(m) ? sum + (profile[m] || 0) / peak : sum, 0);
+}
+
 function pickBackboneExercises(targetMuscles, { travelMode, lifts, favoriteExercises = [], count = 2, excludeNames = new Set(), preferStable = false } = {}) {
   const logged = loggedExerciseNames(lifts);
   const favorites = new Set(favoriteExercises.map(n => (n || '').toLowerCase()));
@@ -84,22 +114,10 @@ function pickBackboneExercises(targetMuscles, { travelMode, lifts, favoriteExerc
     (travelMode ? e.equipment === 'bodyweight' : true) &&
     e.primary.some(m => targetMuscles.includes(m))
   );
-  // Diminishing weight by primary-array position (1, 1/2, 1/3, ...), not a
-  // flat count of target muscles touched -- a raw count structurally
-  // favors any exercise that spreads thin across many muscles over one
-  // that's a dedicated main-mover for a single muscle, regardless of how
-  // adequately either actually trains what it touches (exerciseDb.js's
-  // primary array is ordered main-mover-first, the same convention "row"
-  // and the Sumo Deadlift/Box Squat fix elsewhere in this file rely on).
-  // This was the actual root cause of a whole family of reported issues —
-  // Sumo Deadlift/Box Squat, Bench Press/Weighted Dips, three lat exercises
-  // — all won on the old formula purely for covering more muscles at once,
-  // not for training any of them especially well.
-  const weightedCoverage = e => e.primary.reduce((sum, m, i) => targetMuscles.includes(m) ? sum + 1 / (i + 1) : sum, 0);
   const scored = pool
     .map(e => ({
       e,
-      score: weightedCoverage(e)
+      score: weightedCoverage(e, targetMuscles)
         + (logged.has(e.name.toLowerCase()) ? LOGGED_EXERCISE_BONUS : 0)
         + (favorites.has(e.name.toLowerCase()) ? FAVORITE_EXERCISE_BONUS : 0)
         + stabilityScore(e, preferStable),
@@ -349,7 +367,7 @@ function generateWeeklyGuidance({ currentFatigue, weekMetabolic, weekCNS, offlin
 }
 
 module.exports = {
-  generateWeeklyGuidance, pickBackboneExercises, computeMusclePriority, scoreBucket, planLiftSessionsTarget, planCardioSessionsTarget,
+  generateWeeklyGuidance, pickBackboneExercises, weightedCoverage, computeMusclePriority, scoreBucket, planLiftSessionsTarget, planCardioSessionsTarget,
   stalenessBoost, MUSCLE_GROUPS, FATIGUE_CEILING, SECONDARY_FATIGUE_CEILING, FOCUS_MUSCLE_BONUS, DEPRIORITISE_PENALTY, TRAINING_PRIORITIES,
   // Exported for recommendation.js: a bucket in muscleFocus only carries the
   // muscles that were *available*, so explaining why one is missing needs the

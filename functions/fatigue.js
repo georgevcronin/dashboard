@@ -319,22 +319,51 @@ function applyInjuryTaper(fatigue, injuries) {
   return out;
 }
 
-// Acute:chronic workload ratio (Gabbett/Hulin) — 7-day load vs. 28-day weekly average.
-// >1.5 signals overreach relative to your adapted baseline; 0.8-1.3 is the established
-// "sweet spot" in the sports-science load-monitoring literature. Returns null with <28
-// days of history since the chronic baseline isn't meaningful yet.
-function computeACWR(lifts) {
-  const now = Date.now();
+// Acute:chronic workload ratio (Gabbett/Hulin) via EWMA (Williams et al.
+// 2017, Br J Sports Med 51(3):209-210) rather than 7-day-sum ÷ 28-day-weekly-
+// average — a simple rolling sum makes a lift disappear from "acute" the
+// instant it turns 8 days old, a same-magnitude overnight step with no
+// physiological basis; EWMA decays every day's contribution continuously
+// instead. >1.5 signals overreach relative to your adapted baseline; 0.8-1.3
+// is the established "sweet spot" in the load-monitoring literature.
+// dailyLoads: { 'YYYY-MM-DD': load }. Exported separately from computeACWR
+// so Track C (running) can feed it running load under the same math instead
+// of a second ACWR implementation.
+function coupledAcwr(dailyLoads, targetDate) {
+  const dates = Object.keys(dailyLoads || {}).filter(d => d <= targetDate).sort();
+  if (!dates.length) return null;
+  // Returns null with <28 days of history since the chronic baseline isn't
+  // meaningful yet — same gate the old sum-based version described in its
+  // comment (though it actually gated on load volume, not span; this is the
+  // literal check now).
+  const spanDays = (new Date(targetDate) - new Date(dates[0])) / 86_400_000;
+  if (spanDays < 28) return null;
+
+  const ALPHA_ACUTE = 2 / (7 + 1), ALPHA_CHRONIC = 2 / (28 + 1);
   let acute = 0, chronic = 0;
-  for (const l of (lifts || [])) {
-    const daysAgo = (now - liftTime(l)) / 86_400_000;
-    if (daysAgo < 0 || daysAgo > 28) continue;
-    const load = (l.kg || 0) * (l.reps || 1);
-    chronic += load;
-    if (daysAgo <= 7) acute += load;
+  const cursor = new Date(dates[0]);
+  const end = new Date(targetDate);
+  while (cursor <= end) {
+    const load = dailyLoads[cursor.toISOString().slice(0, 10)] || 0;
+    acute = load * ALPHA_ACUTE + acute * (1 - ALPHA_ACUTE);
+    chronic = load * ALPHA_CHRONIC + chronic * (1 - ALPHA_CHRONIC);
+    cursor.setDate(cursor.getDate() + 1);
   }
-  const chronicWeekly = chronic / 4;
-  return chronicWeekly < 1 ? null : acute / chronicWeekly;
+  return chronic > 0 ? acute / chronic : null;
+}
+
+function dailyLoadsFromLifts(lifts) {
+  const byDate = {};
+  for (const l of (lifts || [])) {
+    const date = l.date || (l.start || '').slice(0, 10);
+    if (!date) continue;
+    byDate[date] = (byDate[date] || 0) + (l.kg || 0) * (l.reps || 1);
+  }
+  return byDate;
+}
+
+function computeACWR(lifts) {
+  return coupledAcwr(dailyLoadsFromLifts(lifts), new Date().toISOString().slice(0, 10));
 }
 
 // Session-to-session estimated-1RM trend per exercise, most recent 2 sessions vs.
@@ -502,7 +531,7 @@ function recoveryWord(fatigue) {
 module.exports = {
   computeStructuralFatigue, computeCurrentFatigueScores, musclePeaksFromLifts, fatigueTimeline,
   INJURY_HEALING_DAYS, injuryFatiguePenalty, applyInjuryTaper,
-  computeACWR, computePerformanceTrend, computeMetabolicFatigue, computeCNSFatigue,
+  computeACWR, coupledAcwr, dailyLoadsFromLifts, computePerformanceTrend, computeMetabolicFatigue, computeCNSFatigue,
   cnsLoad, computeMuscleLastTrainedDays, computeCompoundIsolationSplit, computeStabilitySplit,
   recoveryWord, RECOVERY_BANDS,
   liftTime, sessionStartStamp, importedStartStamp, MAX_CREDIBLE_SESSION_SEC,

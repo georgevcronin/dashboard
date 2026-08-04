@@ -72,6 +72,32 @@ export const fmtHoursMins = h => {
   return mm ? `${hh}h ${mm}m` : `${hh}h`;
 };
 export const pct = (v, t) => (t && t > 0 ? Math.min(100, Math.round(v / t * 100)) : 0);
+// Consecutive days trained, counting back from today (yesterday if today has
+// no session yet). Shared between S1's streak row and the Training Streak
+// micro-widget so the two never drift apart on what "streak" means.
+export const computeTrainingStreak = (workouts) => {
+  const dates = new Set((workouts || []).map(w => w.date));
+  let streak = 0; const d = new Date();
+  const todayStr = toLocalDateStr(d);
+  if (!dates.has(todayStr)) d.setDate(d.getDate() - 1);
+  while (true) {
+    const k = toLocalDateStr(d);
+    if (!dates.has(k)) break;
+    streak++; d.setDate(d.getDate() - 1);
+  }
+  return streak;
+};
+export const computeSleepStreak = (sleepSeries, sleepTarget) => {
+  const target = sleepTarget || 8;
+  const series = sleepSeries || [];
+  if (!series.length) return 0;
+  let streak = 0;
+  for (let i = series.length - 1; i >= 0; i--) {
+    if (series[i] >= target * 0.9) streak++;
+    else break;
+  }
+  return streak;
+};
 // Calorie display default is approximate (nearest 300) — precision that isn't
 // really there anyway for most logged food, and it's less anxiety-inducing to
 // track than exact numbers. Settings > Nutrition can switch to exact.

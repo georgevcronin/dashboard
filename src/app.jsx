@@ -1,8 +1,12 @@
 import React, { useState, useEffect, useLayoutEffect, useContext, useRef, useMemo } from "react";
 import { auth, googleProvider, API_BASE, getToken, api, authFetch,
-  toLocalDateStr, todayLocalStr, fmtDate, fmtDateShort, fmtHoursMins, pct, roundCal } from './shared.js';
+  toLocalDateStr, todayLocalStr, fmtDate, fmtDateShort, fmtHoursMins, pct, roundCal,
+  computeTrainingStreak, computeSleepStreak } from './shared.js';
 import { S4, BODY_BASE, MUSCLES_WITHOUT_BODY_REGION, SORENESS_DIAGRAM_MUSCLES } from './sections/S4.jsx';
 import { S6, MOVEMENT_GROUPS, groupExercise } from './sections/S6.jsx';
+import { S8 } from './sections/Goals.jsx';
+import { MICRO_WIDGET_IDS, MICRO_WIDGET_LABELS, MICRO_WIDGET_UNITS, MicroWidget } from './sections/MicroWidgets.jsx';
+import { DashboardGrid, computeColumnCount } from './sections/DashboardGrid.jsx';
 import { createRoot } from "react-dom/client";
 import { flushSync } from "react-dom";
 import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, onAuthStateChanged, signOut, GoogleAuthProvider, signInWithPopup, getRedirectResult } from 'firebase/auth';
@@ -18,6 +22,7 @@ import plateCalculatorPkg from '../functions/plateCalculator.js';
 import progressionPkg from '../functions/progression.js';
 import identityPkg from '../functions/identity.js';
 import weeklyPlannerPkg from '../functions/weeklyPlanner.js';
+import movementPatternsPkg from '../functions/movementPatterns.js';
 import emgActivationPkg from '../functions/emgActivation.js';
 import muscleCapacityPkg from '../functions/muscleCapacity.js';
 import { chestSplitForExercise, flyHeadSplitForAngle } from '../functions/chestHeadSplit.js';
@@ -30,7 +35,7 @@ import targetMusclePlannerPkg from '../functions/targetMusclePlanner.js';
 import muscleCreditPkg from '../functions/muscleCredit.js';
 import whatIfSimulatorPkg from '../functions/whatIfSimulator.js';
 import calendarExportPkg from '../functions/calendarExport.js';
-import { PRESS_CSS } from './pressCss.js';
+import { PRESS_CSS, GRIDSTACK_CSS } from './pressCss.js';
 import { AreaChart, BarChart, Sparkline, AdaptationChart } from './charts.jsx';
 
 // Muscle taxonomy + fatigue math + progression logic are shared with the
@@ -43,14 +48,15 @@ import { AreaChart, BarChart, Sparkline, AdaptationChart } from './charts.jsx';
 // needs the full exercise name list rather than a derived lookup.
 const { ALL_MUSCLES, PRIMARY_MUSCLES, musclesForExercise, isCompoundExercise, findExercise } = muscleTaxonomyPkg;
 const { computeStructuralFatigue, computeMetabolicFatigue, computeCNSFatigue, cnsLoad, recoveryWord } = fatiguePkg;
+const { computePatternFatigue } = movementPatternsPkg;
 const { progressionFor, suggestedWorkingSetCount, suggestedRirSequence, isLowRepPattern, LOW_REP_THRESHOLD, estimateSessionDurationMin, capSessionDuration, fillSessionToDuration } = sessionPlannerPkg;
 const { e1rm: calcE1RM } = strengthStandardsPkg;
 const { defaultMachineBrands } = machineBrandsPkg;
 const { MACHINE_MODELS } = machineModelsPkg;
 const { normalize: normalizeExerciseKeyPkg } = resistanceCurvesPkg;
 const {
-  sessionStimulusScore, adaptationCurve, computeStimulusContributions, computeAdaptationLevel,
-  computeAdaptationSeries, estimateAtrophyRate, DEFAULT_ATROPHY_RATE, SECONDARY_MUSCLE_WEIGHT, DEFAULT_RIR,
+  sessionStimulusScore, adaptationCurve, ADAPTATION_PEAK_H, computeStimulusContributions, computeAdaptationLevel,
+  computeAdaptationSeries, estimateAtrophyRate, DEFAULT_ATROPHY_RATE, secondaryMuscleRatio, DEFAULT_RIR,
 } = adaptationPkg;
 const { platesForWeight, STANDARD_PLATES_KG } = plateCalculatorPkg;
 const { DEFAULT_WARMUP_SCHEME, WARMUP_SCHEME_PRESETS } = progressionPkg;
@@ -462,36 +468,13 @@ function RecoveryForecastPanel({ forecast }) {
   );
 }
 
-function S1({ s, recommendation, briefing, onShowBriefing, onShowAfternoon, onShowNight, onShowWeekly, afternoonLoaded, nightLoaded, weeklyLoaded, loadingPeriod, newscastError }) {
+function S1({ s, recommendation, briefing, onShowBriefing, onShowAfternoon, onShowNight, onShowWeekly, afternoonLoaded, nightLoaded, weeklyLoaded, loadingPeriod, newscastError, onShowTimeline }) {
   const today = s?.today || {};
   const recovery = today.recovery ?? s?.recoveryTrend?.at(-1) ?? null;
 
-  const trainingStreak = useMemo(() => {
-    const dates = new Set((s?.workouts || []).map(w => w.date));
-    let streak = 0; const d = new Date();
-    const todayStr = toLocalDateStr(d);
-    if (!dates.has(todayStr)) d.setDate(d.getDate() - 1);
-    while (true) {
-      const k = toLocalDateStr(d);
-      if (!dates.has(k)) break;
-      streak++; d.setDate(d.getDate() - 1);
-    }
-    return streak;
-  }, [s?.workouts]);
-
+  const trainingStreak = useMemo(() => computeTrainingStreak(s?.workouts), [s?.workouts]);
   const waterStreak = s?.waterStats?.streak ?? 0;
-
-  const sleepStreak = useMemo(() => {
-    const target = s?.sleepTarget || 8;
-    const series = s?.sleepSeries || [];
-    if (!series.length) return 0;
-    let streak = 0;
-    for (let i = series.length - 1; i >= 0; i--) {
-      if (series[i] >= target * 0.9) streak++;
-      else break;
-    }
-    return streak;
-  }, [s?.sleepSeries, s?.sleepTarget]);
+  const sleepStreak = useMemo(() => computeSleepStreak(s?.sleepSeries, s?.sleepTarget), [s?.sleepSeries, s?.sleepTarget]);
   const hrv = today.hrv;
   const rhr = today.rhr;
   const sleep = today.sleepH;
@@ -585,6 +568,13 @@ function S1({ s, recommendation, briefing, onShowBriefing, onShowAfternoon, onSh
         </div>
       </div>
       )}
+
+      <div className="briefing-preview fade" style={{ flexShrink: 0, cursor: 'pointer' }} onClick={onShowTimeline}>
+        <div className="kicker" style={{ marginBottom: 3 }}>Timeline</div>
+        <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 11, color: 'var(--dim)', fontStyle: 'italic' }}>
+          Workouts, sleep, injuries and thoughts, newest first
+        </div>
+      </div>
 
       {newscastError && (
         <div className="fade" style={{ flexShrink: 0, fontFamily: "'JetBrains Mono',monospace", fontSize: 10, color: 'var(--red)', padding: '6px 0' }}>
@@ -1022,6 +1012,56 @@ const glycogenPct = (elapsedS, totalS) => {
 // instead of the list. v0.1 is the first tracked release, not literally the
 // app's first version — everything before this had no changelog at all.
 const CHANGELOG = [
+  {
+    version: '0.72',
+    date: '2026-08-05',
+    features: [
+      'Replaced the desktop dashboard\'s auto-packed panel grid with a freeform drag-and-resize one: turn on "Rearrange Panels" (Settings → Dashboard Layout) and drag any panel or micro-widget to reposition it, or drag a corner to resize — everything else auto-compacts around it so there\'s never empty space. Positions save automatically and are remembered separately per column count.',
+      'Added a Columns setting (Settings → Dashboard Layout): Auto tracks your window width (1-4 columns), or pick a fixed count so panels resize in pixels instead of the column count changing as you resize the window.',
+      'The three layout presets (Review, Dense, Retrospective) now also reset the freeform grid to a fresh auto-packed layout in the new order, and include the Goals panel (previously missing from Review/Retrospective\'s order).',
+    ],
+  },
+  {
+    version: '0.71',
+    date: '2026-08-04',
+    features: [
+      'Onboarding\'s Goals step is now a real multi-goal picker: pick any of Lose Fat, Gain Muscle/Strength, Improve Cardiovascular Health, Improve Flexibility, or Improve in a Sport, rank each Primary/Secondary/Minor, and optionally set a concrete target and date (bodyweight, body-fat %, a specific lift, Fat-Free Mass, FFMI, resting heart rate, a benchmark time, or VO₂max) — or leave it open-ended. A new Goals panel shows current-vs-target for anything trackable, and a plain trend or tag for the rest.',
+      'Added an Activities step to onboarding — pick from Strength, Running, Hybrid, Team Sports, Endurance, CrossFit, or Other, each ranked Primary/Secondary/Minor, replacing the old single primary/secondary activity pair. Weekly session and volume defaults now blend across every activity you pick, weighted by rank, instead of only ever reading one "primary" activity.',
+      'Sleep, water, and training-days targets on the Daily Targets step now start from a suggestion based on your training goals (still fully editable) instead of a flat 8h/7 glasses/4 days for everyone.',
+      'Added a third onboarding experience option, "Returning after a break" — asks how long the break was and seeds a conservative starting-point estimate for detraining, automatically replaced by a measured one the moment there\'s real logged history (or an imported one) with an actual gap in it.',
+    ],
+  },
+  {
+    version: '0.70',
+    date: '2026-08-04',
+    features: [
+      'Dashboard panels now span a real default width on wide screens instead of every panel being one fixed column — Dispatch and Recovery carry more content, so they default to two columns wide once there\'s room (1380px+), three at the widest tier (1800px+). The zero-gap packing this dashboard has always used is unchanged; wide panels just pack into it.',
+      'Added 9 small "micro-widget" cards that fill whatever gaps are left over: Hydration Ring, Resting Heart Rate, Training Streak, Steps, an AI Coaching Insight line, Optimal Training Window, Today\'s Muscle Focus, 7-day Body Weight Delta, and Weekly Volume Pace. All optional — Settings → Dashboard Layout → Micro-Widgets to reorder or hide them. Desktop only.',
+      'Optimal Training Window is grounded in your actual wake time (from synced Apple Health sleep data), not a generic clock time — peak physical performance tracks the circadian core-temperature rhythm, roughly 10-12h after waking. Shows a message instead of a guess if sleep data isn\'t synced yet.',
+      'Added one-click desktop layout presets in Settings → Dashboard Layout: Review (Dispatch/Training/Recovery wide and first), Dense (every panel collapsed to its headline — the most panels visible at once), and Retrospective (Sleep/Nutrition/Body/Records wide and first). Training now also gets the wide-panel treatment Dispatch and Recovery already had.',
+    ],
+  },
+  {
+    version: '0.69',
+    date: '2026-08-04',
+    features: [
+      'The adaptation model (Recovery → Adaptation tab) now runs two overlapping recovery phases instead of one — a fast, smaller inflammatory-resolution response peaking around 12 hours, and a slower, larger tissue-remodeling response peaking around 48 hours, combining to a true peak around 45 hours instead of exactly 48. The projected-peak numbers and the chart\'s peak marker move with it.',
+      'Secondary-muscle credit in the adaptation model is no longer a flat half-credit for every assisting muscle on every exercise — where EMG data exists for the exercise, it now credits each assisting muscle by how hard it actually works relative to the prime mover. A Chest Dip, for instance, genuinely hits triceps harder than chest, which a flat rule couldn\'t reflect either way.',
+      'ACWR (the acute:chronic workload ratio behind part of the Metabolic fatigue score) now uses an exponentially-weighted running average instead of a 7-day-sum vs. 28-day-average window — a lift no longer disappears from your "acute" load the instant it turns 8 days old, which used to produce a same-size overnight jump with no physiological basis.',
+      'Backbone exercise selection now weights real EMG data over primary-muscle array position where that data exists, fixing the same "over-broad exercise wins for touching more muscles, not training any of them particularly well" bias its predecessor was built to catch — just with real numbers behind it instead of a proxy.',
+    ],
+  },
+  {
+    version: '0.68',
+    date: '2026-08-04',
+    features: [
+      'Movement pattern fatigue now has somewhere to live. Recovery gained a Patterns tab (Sport Scientist level, alongside Types and Adaptation) showing residual fatigue by pressing/hinging/rowing/squatting/etc., not just by muscle — the tracking shipped in 0.67 with nothing rendering it; now it does.',
+      'Added a Timeline: a teaser under Dispatch opens a full chronological view of workouts, lifts, sleep, injuries, soreness logs and thoughts, newest first.',
+      'The CNS-sparing exercise swap (the one that trades a barbell compound for a machine/cable alternative when CNS fatigue is high) now ranks candidates by actual EMG stimulus similarity where the data exists, instead of just counting how many primary-muscle names two exercises happen to share.',
+      'The Recovery fatigue heatmap now carries a hoverable, screen-reader-readable label per muscle ("Quads: 62% (moderate)") alongside its colour fill, so the fatigue band no longer depends on being able to tell gold from ember by hue alone.',
+      'Fixed stale copy on the Muscle Focus control (onboarding and Settings): it still described the old Focus/Ignore/Normal options after they were renamed to Priority/Maintain/Lower/Avoid, and never mentioned Lower at all.',
+    ],
+  },
   {
     version: '0.67',
     date: '2026-08-03',
@@ -1634,17 +1674,17 @@ const sessionFatigue = exercises => {
 
 // Live preview of the continuous adaptation model (functions/adaptation.js):
 // for each muscle touched so far this session, projects where that muscle's
-// stacked adaptation curve would peak (48h out) if the session ended right
-// now — the already-logged history's own curves at that future point, plus
-// this in-progress session's own contribution evaluated at its peak (48h is
-// exactly the peak for a session dated "now", so this is
-// sessionStimulusScore(...) directly, just expressed via adaptationCurve to
-// stay visibly consistent with the rest of the model). Replaces the old flat
+// stacked adaptation curve would peak (ADAPTATION_PEAK_H out) if the session
+// ended right now — the already-logged history's own curves at that future
+// point, plus this in-progress session's own contribution evaluated at its
+// peak (ADAPTATION_PEAK_H is exactly the peak for a session dated "now", so
+// this is sessionStimulusScore(...) directly, just expressed via
+// adaptationCurve to stay visibly consistent with the rest of the model). Replaces the old flat
 // "hard sets this session ÷ a fixed target" badge, which couldn't see that a
 // frequency-first program's small per-session doses are meant to stack
 // across the week, not clear a bar in any single session.
 const liveAdaptationPreview = (exercises, lifts) => {
-  const peakMs = Date.now() + 48 * 3600000;
+  const peakMs = Date.now() + ADAPTATION_PEAK_H * 3600000;
   const historicalContributions = computeStimulusContributions(lifts);
 
   const liveScore = {};
@@ -1659,7 +1699,7 @@ const liveAdaptationPreview = (exercises, lifts) => {
     const entry = findExercise(ex.name);
     if (entry) {
       for (const m of entry.primary || []) liveScore[m] = (liveScore[m] || 0) + score;
-      for (const m of entry.secondary || []) liveScore[m] = (liveScore[m] || 0) + score * SECONDARY_MUSCLE_WEIGHT;
+      for (const m of entry.secondary || []) liveScore[m] = (liveScore[m] || 0) + score * secondaryMuscleRatio(entry, m);
     } else {
       for (const m of musclesForExercise(ex.name)) liveScore[m] = (liveScore[m] || 0) + score;
     }
@@ -3313,8 +3353,8 @@ function WorkoutLogger({ planDay, lifts, customExercises, experienceLevel, onClo
           )}
 
           {/* Live projected peak — where each muscle's stacked adaptation
-              curve (recent history + this session so far) would peak 48h
-              from now if the session ended right now. 100 = a single maximal
+              curve (recent history + this session so far) would peak
+              ADAPTATION_PEAK_H from now if the session ended right now. 100 = a single maximal
               session's own peak; recent history stacking on top can push
               this past 100, which is expected, not a warning. */}
           {stimulusMuscles.length > 0 && (
@@ -5570,6 +5610,8 @@ function S5({ s, recommendation, refresh }) {
   const recentSoreness = useMemo(() => (s?.soreness || []).filter(e => Date.now() - e.ts < 5 * 24 * 3600000), [s?.soreness]);
   const sorenessSet = new Set(recentSoreness.map(e => e.muscle));
 
+  const patternFatigue = useMemo(() => computePatternFatigue(s?.lifts), [s?.lifts]);
+
   const adaptationSeries = useMemo(() => computeAdaptationSeries(s?.lifts), [s?.lifts]);
   const stimulusContributions = useMemo(() => computeStimulusContributions(s?.lifts), [s?.lifts]);
   // Default diagram view: colors every muscle by its current stimulus level
@@ -5624,8 +5666,22 @@ function S5({ s, recommendation, refresh }) {
     const containers = [antRef.current, latRef.current, postRef.current].filter(Boolean);
     ALL_MUSCLES.forEach(m => {
       const p = fatigue[m] || 0;
+      const band = p < 40 ? 'fresh' : p <= 65 ? 'moderate' : 'high';
       const f = p < 40 ? 'url(#fm-neutral)' : p <= 65 ? 'url(#fm-gold)' : 'url(#fm-ember)';
-      containers.forEach(c => c.querySelectorAll(`[data-muscle="${m}"]`).forEach(el => el.setAttribute('filter', f)));
+      containers.forEach(c => c.querySelectorAll(`[data-muscle="${m}"]`).forEach(el => {
+        el.setAttribute('filter', f);
+        el.setAttribute('data-fatigue', Math.round(p));
+        // Colour alone isn't a safe status signal (PRODUCT.md: colour-blind
+        // fatigue/status indicators must pair with value + label, not hue
+        // alone) — a native <title> gives every muscle a real hover/focus/
+        // screen-reader-accessible number, not just a filter.
+        let title = el.querySelector('title');
+        if (!title) {
+          title = document.createElementNS('http://www.w3.org/2000/svg', 'title');
+          el.appendChild(title);
+        }
+        title.textContent = `${muscleDisplayLabel(m)}: ${Math.round(p)}% (${band})`;
+      }));
     });
   }, [svgsReady, fatigue]);
 
@@ -6065,7 +6121,7 @@ function S5({ s, recommendation, refresh }) {
           {activeAdaptMuscle && (
             <>
               <div className="kicker" style={{ marginTop: 12, marginBottom: 8 }}>{muscleDisplayLabel(activeAdaptMuscle)}</div>
-              <AdaptationChart series={activeAdaptSeries} atrophyRate={atrophyRate} />
+              <AdaptationChart series={activeAdaptSeries} atrophyRate={atrophyRate} peakH={ADAPTATION_PEAK_H} />
 
               <div style={{ marginTop: 14, display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 10 }}>
                 {estimatedAtrophyRate != null ? (
@@ -6088,6 +6144,36 @@ function S5({ s, recommendation, refresh }) {
               </div>
             </>
           )}
+        </div>
+      )}
+
+      {activeTab === 'patterns' && (
+        <div className="fade" style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 16, overflowY: 'auto', paddingTop: 8 }}>
+          {!patternFatigue.length && (
+            <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 11, color: 'var(--dim)', fontStyle: 'italic', padding: '24px 0' }}>No movement pattern volume in the last 14 days.</div>
+          )}
+          {patternFatigue.map(p => {
+            const color = p.fatigue > 60 ? 'var(--red)' : p.fatigue > 30 ? 'var(--gold)' : 'var(--forest)';
+            return (
+              <div key={p.pattern} style={{ borderBottom: '1px solid var(--rule)', paddingBottom: 14 }}>
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, marginBottom: 4 }}>
+                  <div className="sc-label" style={{ width: 80, flexShrink: 0, textTransform: 'capitalize' }}>{p.pattern}</div>
+                  <div style={{ fontFamily: "'Syne',sans-serif", fontWeight: 800, fontSize: 28, letterSpacing: '-.03em', color, lineHeight: 1 }}>
+                    {p.fatigue}%
+                  </div>
+                </div>
+                <div style={{ height: 5, background: 'var(--paper2)', borderRadius: 1, margin: '6px 0', overflow: 'hidden' }}>
+                  <div style={{ width: '100%', height: '100%', background: color, borderRadius: 1, transform: `scaleX(${p.fatigue / 100})`, transformOrigin: 'left', transition: 'transform .4s ease' }} />
+                </div>
+                <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)', lineHeight: 1.6 }}>
+                  {p.volume.toLocaleString()}kg over {p.sets} set{p.sets !== 1 ? 's' : ''} in the last 14 days · last trained {p.hoursSince != null ? `${Math.round(p.hoursSince / 24)}d ago` : '—'}
+                </div>
+              </div>
+            );
+          })}
+          <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)', fontStyle: 'italic', paddingBottom: 8 }}>
+            Tracked alongside muscle fatigue — pressing, hinging, rowing, squatting — since two exercises can share a muscle and still tax a different movement pattern.
+          </div>
         </div>
       )}
 
@@ -6334,12 +6420,64 @@ function S7({ s }) {
 // ── ONBOARDING ────────────────────────────────────────────────────────────────
 const TRAINING_SPLITS = ['Full Body', 'Upper / Lower', 'Push / Pull / Legs', 'Arnold Split', 'PPL Arnold', 'Other'];
 
+// FEATURES.md #21 -- five goal types. Strength and Hypertrophy stay one
+// mechanism per George's correction (same progressive-overload training,
+// different rep range) -- that's already captured by the existing usual-rep-
+// range fields in Training Background, not a second goal here.
+const GOAL_DEFS = [
+  { key: 'fatLoss', label: 'Lose Fat', desc: 'Calorie deficit, preserve muscle' },
+  { key: 'muscle', label: 'Gain Muscle / Strength', desc: 'Progressive overload — rep range below sets the emphasis' },
+  { key: 'cardio', label: 'Improve Cardiovascular Health', desc: 'Heart rate, endurance, conditioning' },
+  { key: 'flexibility', label: 'Improve Flexibility', desc: 'Mobility and range of motion' },
+  { key: 'sport', label: 'Improve in a Sport', desc: 'Sport-specific performance' },
+];
+const GOAL_PRIORITIES = [
+  { value: 'primary', label: 'Primary' },
+  { value: 'secondary', label: 'Secondary' },
+  { value: 'minor', label: 'Minor' },
+];
+// Metrics for a concrete goal's target, per type -- flexibility/sport are
+// free text (nothing in the app measures either), so they're absent here.
+const GOAL_METRIC_OPTIONS = {
+  fatLoss: [{ value: 'weight', label: 'Bodyweight', unit: 'kg' }, { value: 'bodyFat', label: 'Body Fat %', unit: '%' }],
+  muscle: [{ value: 'lift', label: 'A specific lift', unit: 'kg' }, { value: 'ffm', label: 'Fat-Free Mass', unit: 'kg' }, { value: 'ffmi', label: 'FFMI', unit: '' }],
+  cardio: [{ value: 'rhr', label: 'Resting Heart Rate', unit: 'bpm' }, { value: 'benchmark', label: 'Benchmark time (e.g. 5k)', unit: '' }, { value: 'vo2max', label: 'VO₂ Max', unit: '' }],
+};
+// FEATURES.md #24 -- 7 broad activities, same Primary/Secondary/Minor
+// priority picker as goals (replaces the old single primaryActivity/
+// secondaryActivity pair).
+const ACTIVITY_DEFS = [
+  { key: 'strength', label: 'Strength' }, { key: 'running', label: 'Running' }, { key: 'hybrid', label: 'Hybrid' },
+  { key: 'team_sports', label: 'Team Sports' }, { key: 'endurance', label: 'Endurance' },
+  { key: 'crossfit', label: 'CrossFit' }, { key: 'other', label: 'Other' },
+];
+// FEATURES.md #22 -- suggests a starting point for the sleep/water/frequency
+// steppers on the Targets step from whatever training goals were just
+// picked; still fully editable there. Weighted contributions rather than
+// picking a single winning goal, so two conflicting Primary goals both
+// nudge the number rather than one silently overriding the other.
+function suggestTargets(goals) {
+  const W = { primary: 1, secondary: 0.5, minor: 0.25 };
+  let sleep = 8, water = 7, days = 4;
+  for (const g of goals) {
+    const w = W[g.priority] || 0;
+    if (g.type === 'muscle') sleep += 0.5 * w;
+    if (g.type === 'cardio') { water += 1 * w; days += 0.5 * w; }
+    if (g.type === 'fatLoss') water += 0.5 * w;
+  }
+  return {
+    sleepTarget: Math.min(9.5, Math.round(sleep * 2) / 2),
+    waterTarget: Math.min(12, Math.round(water)),
+    trainingDays: Math.min(6, Math.round(days)),
+  };
+}
+
 function Onboarding({ onComplete, onOpenImport }) {
-  const TOTAL = 8;
+  const TOTAL = 10;
   const [step, setStep] = useState(0);
   const [echelon, setEchelon] = useState('full');
 
-  // Step 4 (training background)
+  // Step 6 (training background)
   const [split, setSplit] = useState('');
   const [usualSets, setUsualSets] = useState('');
   const [usualRepsLow, setUsualRepsLow] = useState('');
@@ -6347,8 +6485,11 @@ function Onboarding({ onComplete, onOpenImport }) {
   const [favoriteInput, setFavoriteInput] = useState('');
   const [favorites, setFavorites] = useState([]);
   const [experienceLevel, setExperienceLevel] = useState('');
+  // FEATURES.md #23 -- only asked/used when experienceLevel is "Returning
+  // after a break"; a brand-new lifter never sees this question.
+  const [returningBreakWeeks, setReturningBreakWeeks] = useState('');
 
-  // Step 5 (muscle focus) -- 'focus' | 'ignore', absent = normal. 'focus'
+  // Step 7 (muscle focus) -- 'focus' | 'ignore', absent = normal. 'focus'
   // gives a real priority boost in session generation (FOCUS_MUSCLE_BONUS,
   // functions/weeklyPlanner.js); 'ignore' hard-excludes the muscle from
   // both fatigue/freshness scales and being a primary target in any
@@ -6366,13 +6507,30 @@ function Onboarding({ onComplete, onOpenImport }) {
   const [bodyFat, setBodyFat] = useState('');
   const [sex, setSex] = useState('');
 
-  // Step 2
+  // Step 2 (training goals) -- each: { type, priority, concrete, metric?,
+  // target?, targetDate?, exercise?, benchmarkLabel? }. See GOAL_DEFS above.
+  const [trainingGoals, setTrainingGoals] = useState([]);
+  const goalFor = key => trainingGoals.find(g => g.type === key);
+  const toggleGoal = key => setTrainingGoals(gs => gs.some(g => g.type === key)
+    ? gs.filter(g => g.type !== key) : [...gs, { type: key, priority: 'secondary', concrete: false }]);
+  const updateGoal = (key, patch) => setTrainingGoals(gs => gs.map(g => g.type === key ? { ...g, ...patch } : g));
+
+  // Step 4 (activities) -- each: { type, priority }. See ACTIVITY_DEFS above.
+  const [activities, setActivities] = useState([]);
+  const activityFor = key => activities.find(a => a.type === key);
+  const toggleActivity = key => setActivities(as => as.some(a => a.type === key)
+    ? as.filter(a => a.type !== key) : [...as, { type: key, priority: 'secondary' }]);
+  const updateActivity = (key, patch) => setActivities(as => as.map(a => a.type === key ? { ...a, ...patch } : a));
+
+  // Step 3 (diet goal + daily targets) -- unchanged single-select diet goal
+  // driving macro-auto; deliberately kept separate from trainingGoals above
+  // (different question: what you eat, not what you train for).
   const [goal, setGoal] = useState('');
   const [sleepTarget, setSleepTarget] = useState(8);
   const [waterTarget, setWaterTarget] = useState(7);
   const [trainingDays, setTrainingDays] = useState(4);
 
-  // Step 3 tracking
+  // Step 5 tracking
   const [stravaStarted, setStravaStarted] = useState(false);
   const [healthGuideOpen, setHealthGuideOpen] = useState(false);
   const [hevyKeyVal, setHevyKeyVal] = useState('');
@@ -6432,10 +6590,32 @@ function Onboarding({ onComplete, onOpenImport }) {
     if (bodyFat) await api('bodyfat', { method: 'POST', body: JSON.stringify({ pct: parseFloat(bodyFat) }), throwOnError: true });
   };
 
+  const saveGoals = async () => {
+    const payload = trainingGoals.map(g => {
+      const out = { type: g.type, priority: g.priority, concrete: !!g.concrete };
+      if (!g.concrete) return out;
+      out.targetDate = g.targetDate;
+      if (GOAL_METRIC_OPTIONS[g.type]) {
+        out.metric = g.metric;
+        out.target = parseFloat(g.target);
+        if (g.metric === 'lift') out.exercise = g.exercise;
+        if (g.metric === 'benchmark') out.benchmarkLabel = g.benchmarkLabel;
+      } else {
+        out.target = g.target;
+      }
+      return out;
+    });
+    await api('profile', { method: 'POST', body: JSON.stringify({ goals: payload }), throwOnError: true });
+  };
+
   const saveStep2 = async () => {
     const macroGoalMap = { 'Lose Fat': 'cut', 'Build Muscle': 'bulk', 'Maintain': 'recomp', 'Athletic Performance': 'recomp' };
     await api('profile', { method: 'POST', body: JSON.stringify({ goal, sleepTarget, waterTarget, trainingDaysPerWeek: trainingDays }), throwOnError: true });
     if (macroGoalMap[goal]) await api('macro-auto', { method: 'POST', body: JSON.stringify({ goal: macroGoalMap[goal] }), throwOnError: true });
+  };
+
+  const saveActivities = async () => {
+    await api('profile', { method: 'POST', body: JSON.stringify({ activities: activities.map(({ type, priority }) => ({ type, priority })) }), throwOnError: true });
   };
 
   const saveStep4 = async () => {
@@ -6446,7 +6626,9 @@ function Onboarding({ onComplete, onOpenImport }) {
       usualRepsHigh: usualRepsHigh ? parseInt(usualRepsHigh) : undefined,
       favoriteExercises: favorites,
     };
-    await api('profile', { method: 'POST', body: JSON.stringify({ trainingBackground, experienceLevel: experienceLevel || undefined }), throwOnError: true });
+    const body = { trainingBackground, experienceLevel: experienceLevel || undefined };
+    if (experienceLevel === 'Returning after a break' && returningBreakWeeks) body.returningBreakWeeks = parseFloat(returningBreakWeeks);
+    await api('profile', { method: 'POST', body: JSON.stringify(body), throwOnError: true });
   };
 
   const saveStep5 = async () => {
@@ -6458,10 +6640,16 @@ function Onboarding({ onComplete, onOpenImport }) {
     setStepError('');
     try {
       if (step === 1) await saveStep1();
-      if (step === 2) await saveStep2();
-      if (step === 3) await api('profile', { method: 'POST', body: JSON.stringify({ trackingLevel: echelon }), throwOnError: true });
-      if (step === 4) await saveStep4();
-      if (step === 5) await saveStep5();
+      if (step === 2) {
+        await saveGoals();
+        const sug = suggestTargets(trainingGoals);
+        setSleepTarget(sug.sleepTarget); setWaterTarget(sug.waterTarget); setTrainingDays(sug.trainingDays);
+      }
+      if (step === 3) await saveStep2();
+      if (step === 4) await saveActivities();
+      if (step === 5) await api('profile', { method: 'POST', body: JSON.stringify({ trackingLevel: echelon }), throwOnError: true });
+      if (step === 6) await saveStep4();
+      if (step === 7) await saveStep5();
       setStep(s => s + 1);
     } catch {
       setStepError('Something didn’t save — check your connection and try again.');
@@ -6561,8 +6749,82 @@ function Onboarding({ onComplete, onOpenImport }) {
           </>
         )}
 
-        {/* ── STEP 2: GOALS ── */}
+        {/* ── STEP 2: TRAINING GOALS ── */}
         {step === 2 && (
+          <>
+            <div className="ob-h">What are you training for?</div>
+            <div className="ob-deck">Pick any that apply, rank each one, and set a target if you have one — vague is fine too.</div>
+
+            {GOAL_DEFS.map(gd => {
+              const g = goalFor(gd.key);
+              const metrics = GOAL_METRIC_OPTIONS[gd.key];
+              const metricDef = metrics?.find(m => m.value === g?.metric);
+              return (
+                <div key={gd.key} style={{ marginBottom: 10 }}>
+                  <button className={`ob-goal-card${g ? ' selected' : ''}`} style={{ width: '100%' }} onClick={() => toggleGoal(gd.key)}>
+                    <div className="ob-goal-card-title">{gd.label}</div>
+                    <div className="ob-goal-card-desc">{gd.desc}</div>
+                  </button>
+                  {g && (
+                    <div style={{ padding: '10px 12px', border: '1px solid var(--rule)', borderTop: 'none' }}>
+                      <div className="ob-label" style={{ marginTop: 0 }}>Priority</div>
+                      <div style={{ display: 'flex', gap: 4, marginBottom: 12 }}>
+                        {GOAL_PRIORITIES.map(p => (
+                          <button key={p.value} className={`prof-btn${g.priority === p.value ? ' solid' : ''}`} onClick={() => updateGoal(gd.key, { priority: p.value })}>{p.label}</button>
+                        ))}
+                      </div>
+
+                      <div className="ob-label">Target</div>
+                      <div style={{ display: 'flex', gap: 4, marginBottom: 12 }}>
+                        <button className={`prof-btn${!g.concrete ? ' solid' : ''}`} onClick={() => updateGoal(gd.key, { concrete: false })}>No specific target</button>
+                        <button className={`prof-btn${g.concrete ? ' solid' : ''}`} onClick={() => updateGoal(gd.key, { concrete: true })}>Set a target</button>
+                      </div>
+
+                      {g.concrete && (
+                        <>
+                          {metrics && (
+                            <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginBottom: 10 }}>
+                              {metrics.map(m => (
+                                <button key={m.value} className={`prof-btn${g.metric === m.value ? ' solid' : ''}`} onClick={() => updateGoal(gd.key, { metric: m.value })}>{m.label}</button>
+                              ))}
+                            </div>
+                          )}
+                          {g.metric === 'lift' && (
+                            <input style={{ ...inputStyle, marginBottom: 10 }} placeholder="Exercise, e.g. Barbell Bench Press"
+                              value={g.exercise || ''} onChange={e => updateGoal(gd.key, { exercise: e.target.value })} />
+                          )}
+                          {g.metric === 'benchmark' && (
+                            <input style={{ ...inputStyle, marginBottom: 10 }} placeholder="What, e.g. 5k"
+                              value={g.benchmarkLabel || ''} onChange={e => updateGoal(gd.key, { benchmarkLabel: e.target.value })} />
+                          )}
+                          <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 4 }}>
+                            {metrics ? (
+                              <input style={{ ...inputStyle, flex: 1, width: 'auto' }} type="number" inputMode="decimal"
+                                placeholder={`Target${metricDef?.unit ? ` (${metricDef.unit})` : ''}`} value={g.target || ''} onChange={e => updateGoal(gd.key, { target: e.target.value })} />
+                            ) : (
+                              <input style={{ ...inputStyle, flex: 1, width: 'auto' }} placeholder="Target, e.g. sub-25min 5k"
+                                value={g.target || ''} onChange={e => updateGoal(gd.key, { target: e.target.value })} />
+                            )}
+                            <input style={{ ...inputStyle, flex: 1, width: 'auto' }} type="date" value={g.targetDate || ''} onChange={e => updateGoal(gd.key, { targetDate: e.target.value })} />
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+
+            {stepError && <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--red)', marginBottom: 6 }}>{stepError}</div>}
+            <div className="ob-nav">
+              <button className="ob-back" onClick={() => { setStepError(''); setStep(1); }}>← Back</button>
+              <button className="ob-next" onClick={advance} disabled={saving}>{saving ? 'Saving…' : stepError ? 'Retry' : 'Continue'}</button>
+            </div>
+          </>
+        )}
+
+        {/* ── STEP 3: DIET GOAL & DAILY TARGETS ── */}
+        {step === 3 && (
           <>
             <div className="ob-h">Your Goals</div>
             <div className="ob-deck">Set your primary objective and daily targets.</div>
@@ -6606,18 +6868,51 @@ function Onboarding({ onComplete, onOpenImport }) {
                 <button className="ob-stepper-btn" onClick={() => setTrainingDays(t => Math.min(7, t + 1))}>+</button>
                 <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 9, color: 'var(--dim)', marginLeft: 6 }}>days</span>
               </div>
+              <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, color: 'var(--dim)', marginTop: 8 }}>Prefilled from your training goals — adjust freely.</div>
             </div>
 
             {stepError && <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--red)', marginBottom: 6 }}>{stepError}</div>}
             <div className="ob-nav">
-              <button className="ob-back" onClick={() => { setStepError(''); setStep(1); }}>← Back</button>
+              <button className="ob-back" onClick={() => { setStepError(''); setStep(2); }}>← Back</button>
               <button className="ob-next" onClick={advance} disabled={saving || !goal}>{saving ? 'Saving…' : stepError ? 'Retry' : 'Continue'}</button>
             </div>
           </>
         )}
 
-        {/* ── STEP 3: TRACKING LEVEL ── */}
-        {step === 3 && (
+        {/* ── STEP 4: ACTIVITIES ── */}
+        {step === 4 && (
+          <>
+            <div className="ob-h">What do you actually do?</div>
+            <div className="ob-deck">Pick what you train and how much each one matters — this shapes weekly session and volume defaults.</div>
+
+            {ACTIVITY_DEFS.map(ad => {
+              const a = activityFor(ad.key);
+              return (
+                <div key={ad.key} style={{ marginBottom: 8 }}>
+                  <button className={`ob-goal-card${a ? ' selected' : ''}`} style={{ width: '100%' }} onClick={() => toggleActivity(ad.key)}>
+                    <div className="ob-goal-card-title">{ad.label}</div>
+                  </button>
+                  {a && (
+                    <div style={{ display: 'flex', gap: 4, padding: '8px 12px', border: '1px solid var(--rule)', borderTop: 'none' }}>
+                      {GOAL_PRIORITIES.map(p => (
+                        <button key={p.value} className={`prof-btn${a.priority === p.value ? ' solid' : ''}`} onClick={() => updateActivity(ad.key, { priority: p.value })}>{p.label}</button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+
+            {stepError && <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--red)', marginBottom: 6 }}>{stepError}</div>}
+            <div className="ob-nav">
+              <button className="ob-back" onClick={() => { setStepError(''); setStep(3); }}>← Back</button>
+              <button className="ob-next" onClick={advance} disabled={saving}>{saving ? 'Saving…' : stepError ? 'Retry' : 'Continue'}</button>
+            </div>
+          </>
+        )}
+
+        {/* ── STEP 5: TRACKING LEVEL ── */}
+        {step === 5 && (
           <>
             <div className="ob-h">How deep do you want to go?</div>
             <div className="ob-deck">Pick your tracking level. You can always change this in Settings.</div>
@@ -6633,14 +6928,14 @@ function Onboarding({ onComplete, onOpenImport }) {
             ))}
             {stepError && <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--red)', marginBottom: 6 }}>{stepError}</div>}
             <div className="ob-nav">
-              <button className="ob-back" onClick={() => { setStepError(''); setStep(2); }}>← Back</button>
+              <button className="ob-back" onClick={() => { setStepError(''); setStep(4); }}>← Back</button>
               <button className="ob-next" onClick={advance} disabled={saving}>{saving ? 'Saving…' : stepError ? 'Retry' : 'Continue'}</button>
             </div>
           </>
         )}
 
-        {/* ── STEP 4: TRAINING BACKGROUND ── */}
-        {step === 4 && (
+        {/* ── STEP 6: TRAINING BACKGROUND ── */}
+        {step === 6 && (
           <>
             <div className="ob-h">Your training so far</div>
             <div className="ob-deck">
@@ -6648,14 +6943,24 @@ function Onboarding({ onComplete, onOpenImport }) {
             </div>
 
             <div className="ob-label">Experience</div>
-            <div style={{ display: 'flex', gap: 6, marginBottom: 20 }}>
-              {['New to training', 'Experienced'].map(lvl => (
-                <button key={lvl} className={`echelon-card${experienceLevel === lvl ? ' selected' : ''}`} style={{ flex: 1, padding: '10px 12px' }}
+            <div style={{ display: 'flex', gap: 6, marginBottom: 12, flexWrap: 'wrap' }}>
+              {['New to training', 'Experienced', 'Returning after a break'].map(lvl => (
+                <button key={lvl} className={`echelon-card${experienceLevel === lvl ? ' selected' : ''}`} style={{ flex: '1 1 30%', padding: '10px 12px' }}
                   onClick={() => setExperienceLevel(lvl)}>
                   <div style={{ flex: 1 }}><div className="echelon-card-title" style={{ fontSize: 13 }}>{lvl}</div></div>
                 </button>
               ))}
             </div>
+            {experienceLevel === 'Returning after a break' && (
+              <>
+                <label className="ob-label">How long was the break?</label>
+                <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 20 }}>
+                  <input style={{ ...inputStyle, flex: 1, width: 'auto' }} type="number" inputMode="decimal" placeholder="e.g. 8"
+                    value={returningBreakWeeks} onChange={e => setReturningBreakWeeks(e.target.value)} />
+                  <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 9, color: 'var(--dim)' }}>weeks</span>
+                </div>
+              </>
+            )}
 
             <div className="ob-label">Typical split</div>
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 20 }}>
@@ -6706,18 +7011,18 @@ function Onboarding({ onComplete, onOpenImport }) {
 
             {stepError && <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--red)', marginBottom: 6 }}>{stepError}</div>}
             <div className="ob-nav">
-              <button className="ob-back" onClick={() => { setStepError(''); setStep(3); }}>← Back</button>
+              <button className="ob-back" onClick={() => { setStepError(''); setStep(5); }}>← Back</button>
               <button className="ob-next" onClick={advance} disabled={saving}>{saving ? 'Saving…' : stepError ? 'Retry' : 'Continue'}</button>
             </div>
           </>
         )}
 
-        {/* ── STEP 5: MUSCLE FOCUS ── */}
-        {step === 5 && (
+        {/* ── STEP 7: MUSCLE FOCUS ── */}
+        {step === 7 && (
           <>
             <div className="ob-h">Muscle focus</div>
             <div className="ob-deck">
-              Focus gives a muscle extra priority when picking what's freshest to train. Ignore takes it off the board entirely — no fatigue tracking, never picked as a target. Everything defaults to Normal; only set what you actually want to change.
+              Priority gives a muscle extra weight when picking what's freshest to train. Lower does the opposite without dropping it — still fully modelled and fatigue-tracked, just chosen less often. Avoid excludes it from selection entirely, same as an injury — reserve it for muscles you shouldn't be training right now. Everything defaults to Maintain; only set what you actually want to change.
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 2, marginBottom: 20 }}>
               {PRIMARY_MUSCLES.map(m => {
@@ -6739,14 +7044,14 @@ function Onboarding({ onComplete, onOpenImport }) {
             </div>
             {stepError && <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--red)', marginBottom: 6 }}>{stepError}</div>}
             <div className="ob-nav">
-              <button className="ob-back" onClick={() => { setStepError(''); setStep(4); }}>← Back</button>
+              <button className="ob-back" onClick={() => { setStepError(''); setStep(6); }}>← Back</button>
               <button className="ob-next" onClick={advance} disabled={saving}>{saving ? 'Saving…' : stepError ? 'Retry' : 'Continue'}</button>
             </div>
           </>
         )}
 
-        {/* ── STEP 6: CONNECT SERVICES ── */}
-        {step === 6 && (
+        {/* ── STEP 8: CONNECT SERVICES ── */}
+        {step === 8 && (
           <>
             <div className="ob-h">Connect Services</div>
             <div className="ob-deck">Optional — you can always connect these later from the Profile page.</div>
@@ -6849,14 +7154,14 @@ function Onboarding({ onComplete, onOpenImport }) {
             </div>
 
             <div className="ob-nav">
-              <button className="ob-back" onClick={() => setStep(5)}>← Back</button>
-              <button className="ob-next" onClick={() => setStep(7)}>Continue</button>
+              <button className="ob-back" onClick={() => setStep(7)}>← Back</button>
+              <button className="ob-next" onClick={() => setStep(9)}>Continue</button>
             </div>
           </>
         )}
 
-        {/* ── STEP 7: ALL SET ── */}
-        {step === 7 && (
+        {/* ── STEP 9: ALL SET ── */}
+        {step === 9 && (
           <>
             <div className="ob-logo" style={{ fontSize: 'clamp(36px,9vw,60px)' }}>You're set up.</div>
             <div className="ob-sub" style={{ marginBottom: 6 }}>Press is ready.</div>
@@ -6865,6 +7170,8 @@ function Onboarding({ onComplete, onOpenImport }) {
             <div style={{ borderTop: '1px solid var(--ink)', borderBottom: '1px solid var(--ink)', margin: '8px 0 28px', padding: '4px 0' }}>
               {[
                 [!!name, name ? `${name}${goal ? ` · ${goal}` : ''}` : 'Profile skipped'],
+                [!!trainingGoals.length, trainingGoals.length ? `${trainingGoals.length} training goal${trainingGoals.length === 1 ? '' : 's'}` : 'No training goals set'],
+                [!!activities.length, activities.length ? `${activities.length} activit${activities.length === 1 ? 'y' : 'ies'}` : 'No activities set'],
                 [!!goal, `${sleepTarget}h sleep · ${waterTarget} glasses water · ${trainingDays} training days`],
                 [true, ECHELONS.find(e => e.key === echelon)?.title || 'Full System'],
                 [!!(split || favorites.length), split ? `${split}${favorites.length ? ` · ${favorites.length} favorite${favorites.length === 1 ? '' : 's'}` : ''}` : 'Training background skipped'],
@@ -6898,15 +7205,48 @@ function Onboarding({ onComplete, onOpenImport }) {
 // train today, and why" and so lead; sleep/nutrition/body/records are the
 // supporting record and follow. Only affects accounts that have never
 // reordered — a stored profile.panelOrder always wins.
-const DEFAULT_PANEL_ORDER = ['s1', 's3', 's5', 's2', 's4', 's6', 's7'];
+const DEFAULT_PANEL_ORDER = ['s1', 's3', 's5', 's2', 's4', 's6', 's7', 's8'];
+// Real per-panel default column-spanning (#13) rather than only the one
+// manually-toggled 'expanded' state — Dispatch, Training and Recovery carry
+// meaningfully more content than the others (the same lead-panel trio
+// DEFAULT_PANEL_ORDER puts first), so they default wide once there's room
+// (pressCss.js's panel-w2/panel-w3, 1380px/1800px+). Standard state spans 2;
+// expanded spans 3 at the widest tier, 2 below it. Collapsed always forces
+// span 1 regardless (see the panel className below).
+const PANEL_WIDE = new Set(['s1', 's3', 's5']);
 // Dashboard panel display states. 'standard' is the natural-height default and
 // is never stored — an unset panel and an explicitly-standard one are the same
 // thing, so nothing has to be migrated when a panel is added.
 const PANEL_STATE_LABELS = { collapsed: 'Collapsed', standard: 'Standard', expanded: 'Wide' };
-const PANEL_LABELS = { s1: 'Dispatch', s2: 'Sleep', s3: 'Training', s4: 'Nutrition', s5: 'Recovery', s6: 'Body & Supplements', s7: 'Personal Records' };
-const DOCK_LABELS = { s1: 'Dispatch', s2: 'Sleep', s3: 'Training', s4: 'Nutrition', s5: 'Recovery', s6: 'Body', s7: 'Records' };
-const DEFAULT_RECOVERY_TAB_ORDER = ['fatigue', 'ranking', 'types', 'adaptation', 'soreness', 'injuries'];
-const RECOVERY_TAB_LABELS = { fatigue: 'Structural', ranking: 'Ranking', types: 'Types', adaptation: 'Adaptation', soreness: 'Soreness', injuries: 'Injuries' };
+const PANEL_LABELS = { s1: 'Dispatch', s2: 'Sleep', s3: 'Training', s4: 'Nutrition', s5: 'Recovery', s6: 'Body & Supplements', s7: 'Personal Records', s8: 'Goals' };
+const DOCK_LABELS = { s1: 'Dispatch', s2: 'Sleep', s3: 'Training', s4: 'Nutrition', s5: 'Recovery', s6: 'Body', s7: 'Records', s8: 'Goals' };
+// One-click desktop layout presets (order + panelStates together) — not a
+// new layout mechanism, just named combinations of the two settings above.
+// Review and Retrospective are mirror images of the same lead/supporting
+// split DEFAULT_PANEL_ORDER already draws; Dense ignores that split entirely
+// in favour of fitting as many headline-only panels on screen as possible.
+const LAYOUT_PRESETS = [
+  {
+    id: 'review', label: 'Review',
+    desc: 'Dispatch, Training and Recovery wide and first — today\'s decision, biggest.',
+    order: ['s1', 's3', 's5', 's2', 's4', 's6', 's7', 's8'],
+    states: { s1: 'expanded', s3: 'expanded', s5: 'expanded', s2: 'collapsed', s4: 'collapsed', s6: 'collapsed', s7: 'collapsed' },
+  },
+  {
+    id: 'dense', label: 'Dense',
+    desc: 'Every panel collapsed to its headline — the most panels visible without scrolling.',
+    order: DEFAULT_PANEL_ORDER,
+    states: { s1: 'collapsed', s2: 'collapsed', s3: 'collapsed', s4: 'collapsed', s5: 'collapsed', s6: 'collapsed', s7: 'collapsed' },
+  },
+  {
+    id: 'retrospective', label: 'Retrospective',
+    desc: 'Sleep, Nutrition, Body and Records wide and first — the review, not the decision.',
+    order: ['s2', 's4', 's6', 's7', 's1', 's3', 's5', 's8'],
+    states: { s2: 'expanded', s4: 'expanded', s6: 'expanded', s7: 'expanded', s1: 'collapsed', s3: 'collapsed', s5: 'collapsed' },
+  },
+];
+const DEFAULT_RECOVERY_TAB_ORDER = ['fatigue', 'ranking', 'types', 'adaptation', 'patterns', 'soreness', 'injuries'];
+const RECOVERY_TAB_LABELS = { fatigue: 'Structural', ranking: 'Ranking', types: 'Types', adaptation: 'Adaptation', patterns: 'Patterns', soreness: 'Soreness', injuries: 'Injuries' };
 
 function PanelOrderEditor({ order, hidden, labels, states, expertise, onChange, onStateChange }) {
   const move = (id, dir) => {
@@ -7069,7 +7409,7 @@ function ComparisonScreen({ username, otherDisplayNameFirstHint, onClose }) {
   );
 }
 
-function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenWiki, setBriefing, onRestartSetup, followBadge, reloadFollowBadge }) {
+function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenWiki, setBriefing, onRestartSetup, followBadge, reloadFollowBadge, onOpenGridEdit }) {
   const [nameVal, setNameVal] = useState(s?.profile?.name || '');
   const [nameSaving, setNameSaving] = useState(false);
   const [nameSaved, setNameSaved] = useState(false);
@@ -7127,6 +7467,8 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
   const [newMemoryEntry, setNewMemoryEntry] = useState('');
   const [panelOrder, setPanelOrder] = useState(s?.profile?.panelOrder?.length ? s.profile.panelOrder : DEFAULT_PANEL_ORDER);
   const [hiddenPanels, setHiddenPanels] = useState(s?.profile?.hiddenPanels || []);
+  const [microWidgetOrder, setMicroWidgetOrder] = useState(s?.profile?.microWidgetOrder?.length ? s.profile.microWidgetOrder : MICRO_WIDGET_IDS);
+  const [hiddenMicroWidgets, setHiddenMicroWidgets] = useState(s?.profile?.hiddenMicroWidgets || []);
   const [recoveryTabOrder, setRecoveryTabOrder] = useState(s?.profile?.recoveryTabOrder?.length ? s.profile.recoveryTabOrder : DEFAULT_RECOVERY_TAB_ORDER);
   const [hiddenRecoveryTabs, setHiddenRecoveryTabs] = useState(s?.profile?.hiddenRecoveryTabs || []);
 
@@ -7148,6 +7490,26 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
   const savePanels = async (order, hidden) => {
     setPanelOrder(order); setHiddenPanels(hidden);
     const profile = await api('profile', { method: 'POST', body: JSON.stringify({ panelOrder: order, hiddenPanels: hidden }) });
+    refresh({ ...s, profile });
+  };
+  const applyLayoutPreset = async (preset) => {
+    setPanelOrder(preset.order);
+    // Clearing gridLayouts (rather than writing literal x/y for every column
+    // count) makes the freeform grid regenerate itself from the new order +
+    // states next render, the same auto-place-and-compact pass a brand-new
+    // account's first load already goes through — one regeneration path, not
+    // a second one just for presets.
+    const profile = await api('profile', { method: 'POST', body: JSON.stringify({ panelOrder: preset.order, panelStates: preset.states, gridLayouts: {} }) });
+    refresh({ ...s, profile });
+  };
+  const gridColumnModeVal = s?.profile?.gridColumnMode || 'auto';
+  const saveGridColumnMode = async (mode) => {
+    const profile = await api('profile', { method: 'POST', body: JSON.stringify({ gridColumnMode: mode }) });
+    refresh({ ...s, profile });
+  };
+  const saveMicroWidgets = async (order, hidden) => {
+    setMicroWidgetOrder(order); setHiddenMicroWidgets(hidden);
+    const profile = await api('profile', { method: 'POST', body: JSON.stringify({ microWidgetOrder: order, hiddenMicroWidgets: hidden }) });
     refresh({ ...s, profile });
   };
   const expertiseLevel = normalizeExpertise(s?.profile?.expertiseLevel);
@@ -7673,7 +8035,7 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
             )}
           </div>
           <div className="prof-field">
-            <span className="prof-lbl">Muscle Focus <span style={{ fontSize: 8, color: 'var(--dim)', textTransform: 'none' }}>(Focus/Ignore per muscle)</span></span>
+            <span className="prof-lbl">Muscle Focus <span style={{ fontSize: 8, color: 'var(--dim)', textTransform: 'none' }}>(Priority/Lower/Avoid per muscle)</span></span>
             <button className="prof-btn" onClick={() => setShowMuscleFocus(v => !v)} style={{ marginBottom: showMuscleFocus ? 8 : 0 }}>
               {showMuscleFocus ? 'Hide' : 'Show'} muscle list
             </button>
@@ -7816,9 +8178,45 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
         <summary className="settings-group-h">Dashboard Layout</summary>
         {/* ── LAYOUT ── */}
         <div className="settings-sec">
-          <div className="settings-sh">Home Screen Order</div>
+          <div className="settings-sh">Presets <span style={{ fontWeight: 400, textTransform: 'none', fontSize: 9, color: 'var(--dim)' }}>(desktop only — resets the panel grid below to one of these starting layouts)</span></div>
+          {LAYOUT_PRESETS.map(preset => (
+            <button key={preset.id} className="echelon-card" onClick={() => applyLayoutPreset(preset)}>
+              <div className="echelon-card-dot" />
+              <div style={{ flex: 1 }}>
+                <div className="echelon-card-title">{preset.label}</div>
+                <div className="echelon-card-desc">{preset.desc}</div>
+              </div>
+            </button>
+          ))}
+        </div>
+
+        <div className="settings-sec">
+          <div className="settings-sh">Panel Grid <span style={{ fontWeight: 400, textTransform: 'none', fontSize: 9, color: 'var(--dim)' }}>(desktop only)</span></div>
+          <div style={{ fontSize: 11, color: 'var(--dim)', lineHeight: 1.5, marginBottom: 10 }}>
+            Drag panels to reposition, drag a corner to resize — the grid auto-packs so there's no empty space. Columns can track your window width, or stay a fixed count (panels resize in pixels instead).
+          </div>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 10 }}>
+            {['auto', 1, 2, 3, 4].map(mode => (
+              <button key={mode} className={`prof-btn${gridColumnModeVal === mode ? ' solid' : ''}`}
+                onClick={() => saveGridColumnMode(mode)}>
+                {mode === 'auto' ? 'Auto' : `${mode} col`}
+              </button>
+            ))}
+          </div>
+          <button className="prof-btn solid" onClick={() => { onClose(); onOpenGridEdit(); }}>
+            Rearrange Panels
+          </button>
+        </div>
+
+        <div className="settings-sec">
+          <div className="settings-sh">Home Screen Order <span style={{ fontWeight: 400, textTransform: 'none', fontSize: 9, color: 'var(--dim)' }}>(mobile order; also seeds a freshly-added desktop panel's starting spot)</span></div>
           <PanelOrderEditor order={panelOrder} hidden={hiddenPanels} labels={PANEL_LABELS}
             states={s?.profile?.panelStates} expertise={expertiseLevel} onChange={savePanels} onStateChange={savePanelState} />
+        </div>
+
+        <div className="settings-sec">
+          <div className="settings-sh">Micro-Widgets <span style={{ fontWeight: 400, textTransform: 'none', fontSize: 9, color: 'var(--dim)' }}>(fill gaps left by the panels above, desktop only)</span></div>
+          <PanelOrderEditor order={microWidgetOrder} hidden={hiddenMicroWidgets} labels={MICRO_WIDGET_LABELS} onChange={saveMicroWidgets} />
         </div>
 
         <div className="settings-sec">
@@ -8304,7 +8702,7 @@ const WIKI_CONCEPTS = [
   {
     term: 'Stimulus / Adaptation',
     plain: 'How much productive training effect is currently "banked" for a muscle from recent sessions — separate from fatigue. A muscle can be fatigued and well-stimulated at the same time, or fresh and under-stimulated.',
-    detail: 'Each session contributes a rise-and-decay curve that peaks about 48 hours later; several sessions in a week stack together. Left untouched for long enough, this decays toward atrophy — the Adaptation tab shows this per muscle.',
+    detail: 'Each session contributes a rise-and-decay curve — a fast inflammatory-resolution phase peaking around 12 hours, plus a slower, larger tissue-remodeling phase peaking around 48 hours, combining to a peak around 45 hours — and several sessions in a week stack together. Left untouched for long enough, this decays toward atrophy — the Adaptation tab shows this per muscle.',
   },
   {
     term: 'Frequency over Volume',
@@ -8437,6 +8835,75 @@ function MentorChat({ onClose }) {
           disabled={thinking}
         />
         <button className="chat-send" onClick={send} disabled={thinking || !input.trim()}>Send</button>
+      </div>
+    </div>
+  );
+}
+
+// ── TIMELINE OVERLAY ─────────────────────────────────────────────────────────
+// Fetched on open rather than bundled into /summary — buildUnifiedTimeline
+// (functions/analyticsEngine.js) sorts and merges 6 differently-shaped log
+// types, and nothing else on the dashboard needs that on every load.
+const TIMELINE_TYPE_LABELS = { workout: 'Workout', lift: 'Lift', sleep: 'Sleep', injury: 'Injury', soreness: 'Soreness', thought: 'Thought' };
+
+function timelineEntryLine(e) {
+  const d = e.data || {};
+  switch (e.type) {
+    case 'workout': return `${d.name || 'Session'} — ${d.exercises?.length || 0} exercise${d.exercises?.length === 1 ? '' : 's'}`;
+    case 'lift': return `${d.exercise} · ${d.kg}kg × ${d.reps}`;
+    case 'sleep': return `${d.hours}h${d.efficiency != null ? ` · ${d.efficiency}% efficiency` : ''}`;
+    case 'injury': return `${d.area} — ${d.severity}${d.resolved ? ' (resolved)' : ''}`;
+    case 'soreness': return `${d.muscle} · ${d.score}/10`;
+    case 'thought': return `"${d.text}"`;
+    default: return '';
+  }
+}
+
+function TimelineOverlay({ onClose }) {
+  const [entries, setEntries] = useState(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    api('timeline').then(d => { if (!cancelled) setEntries(d?.entries || []); }).catch(() => { if (!cancelled) setEntries([]); });
+    return () => { cancelled = true; };
+  }, []);
+
+  const grouped = useMemo(() => {
+    const map = {};
+    for (const e of entries || []) {
+      if (!map[e.date]) map[e.date] = [];
+      map[e.date].push(e);
+    }
+    return map;
+  }, [entries]);
+  const dates = Object.keys(grouped).sort().reverse();
+
+  return (
+    <div className="settings-overlay">
+      <div className="settings-hdr">
+        <div className="settings-hdr-title">Timeline</div>
+        <button className="settings-close" onClick={onClose}>Close ×</button>
+      </div>
+      <div className="settings-body">
+        {entries === null && (
+          <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 11, color: 'var(--dim)', fontStyle: 'italic', padding: '24px 0' }}>Loading…</div>
+        )}
+        {entries?.length === 0 && (
+          <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 11, color: 'var(--dim)', fontStyle: 'italic', padding: '24px 0' }}>Nothing logged yet.</div>
+        )}
+        {dates.map(date => (
+          <div key={date}>
+            <div className="pr-group-hdr">{date}</div>
+            {grouped[date].map((e, i) => (
+              <div key={i} style={{ display: 'flex', alignItems: 'baseline', gap: 10, padding: '8px 0', borderBottom: '1px solid var(--rule)' }}>
+                <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, letterSpacing: '.08em', textTransform: 'uppercase', color: 'var(--dim)', width: 62, flexShrink: 0 }}>
+                  {TIMELINE_TYPE_LABELS[e.type] || e.type}
+                </span>
+                <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 11, color: 'var(--ink)' }}>{timelineEntryLine(e)}</span>
+              </div>
+            ))}
+          </div>
+        ))}
       </div>
     </div>
   );
@@ -8831,6 +9298,7 @@ function App() {
   const [newscastError, setNewscastError] = useState('');
   const [showSettings, setShowSettings] = useState(false);
   const [showWiki, setShowWiki] = useState(false);
+  const [showTimeline, setShowTimeline] = useState(false);
   const [summaryError, setSummaryError] = useState('');
   const [bubblePos, setBubblePos] = useState(() => {
     try {
@@ -8895,6 +9363,33 @@ function App() {
     mq.addEventListener('change', onChange);
     return () => mq.removeEventListener('change', onChange);
   }, []);
+
+  // Desktop dashboard grid (DashboardGrid.jsx) — column count is either fixed
+  // (profile.gridColumnMode 1-4) or tracks window width in the same 900/1380/
+  // 1800 breakpoints the old masonry .scroll grid used. DashboardGrid remounts
+  // (losing any live drag state) on every count change, so this only actually
+  // updates state when the computed count crosses a breakpoint — a resize
+  // event fires continuously while dragging the window edge, but re-deriving
+  // the same number back out is a no-op React bails out of, not a re-render.
+  const gridColumnMode = s?.profile?.gridColumnMode || 'auto';
+  const [columnCount, setColumnCount] = useState(() => computeColumnCount(gridColumnMode, window.innerWidth));
+  useEffect(() => {
+    if (isMobile) return;
+    const recompute = () => setColumnCount(computeColumnCount(gridColumnMode, window.innerWidth));
+    recompute();
+    window.addEventListener('resize', recompute);
+    return () => window.removeEventListener('resize', recompute);
+  }, [isMobile, gridColumnMode]);
+  const [gridEditMode, setGridEditMode] = useState(false);
+  const saveGridLayoutTimer = useRef(null);
+  const saveGridLayout = layout => {
+    if (saveGridLayoutTimer.current) clearTimeout(saveGridLayoutTimer.current);
+    saveGridLayoutTimer.current = setTimeout(() => {
+      const gridLayouts = { ...(s?.profile?.gridLayouts || {}), [columnCount]: layout };
+      setS(cur => ({ ...cur, profile: { ...cur.profile, gridLayouts } }));
+      api('profile', { method: 'POST', body: JSON.stringify({ gridLayouts }) }).catch(() => {});
+    }, 300);
+  };
 
   const loadSummary = () => api('summary', { throwOnError: true })
     .then(data => {
@@ -9052,7 +9547,7 @@ function App() {
   useEffect(() => {
     const el = document.createElement('style');
     el.id = 'press-css';
-    el.textContent = PRESS_CSS;
+    el.textContent = PRESS_CSS + GRIDSTACK_CSS;
     document.head.appendChild(el);
     return () => el.remove();
   }, []);
@@ -9125,6 +9620,9 @@ function App() {
   // The rAF still batches the burst of callbacks a resize produces into one
   // pass, and (running before paint) keeps the repack off-screen.
   useLayoutEffect(() => {
+    // Desktop now packs via DashboardGrid/GridStack instead — this masonry
+    // pass is mobile-only (see PRESS_CSS's .scroll block, still used there).
+    if (!isMobile) return;
     const scroll = document.getElementById('press-scroll');
     if (!scroll) return;
 
@@ -9193,20 +9691,48 @@ function App() {
   const sectionIds = panelOrder.filter(id =>
     !hiddenPanelSet.has(id) && (id !== 's2' || showSleep) && (id !== 's4' || showFuel)
   );
+  // Desktop-only structural filler (FEATURES.md #125-134) — mobile has no
+  // multi-column grid for these to fill gaps in, just the dock's one-section
+  // stack, so they're left out entirely rather than rendered hidden.
+  const microWidgetOrderIds = s?.profile?.microWidgetOrder?.length ? s.profile.microWidgetOrder : MICRO_WIDGET_IDS;
+  const hiddenMicroWidgetSet = new Set(s?.profile?.hiddenMicroWidgets || []);
+  const visibleMicroWidgets = isMobile ? [] : microWidgetOrderIds.filter(id => !hiddenMicroWidgetSet.has(id));
+  const weeklyGuidance = s?.weeklyPlan;
   const sectionEls = {
     s1: <S1 key="s1" s={s} recommendation={recommendation} briefing={briefing} onShowBriefing={() => setShowBriefing(true)}
             onShowAfternoon={() => afternoonNewscast ? setShowAfternoonNewscast(true) : fetchNewscast('afternoon')}
             onShowNight={() => nightNewscast ? setShowNightNewscast(true) : fetchNewscast('night')}
             onShowWeekly={() => weeklyReview ? setShowWeeklyReview(true) : fetchWeeklyReview()}
             afternoonLoaded={!!afternoonNewscast} nightLoaded={!!nightNewscast} weeklyLoaded={!!weeklyReview}
-            loadingPeriod={loadingPeriod} newscastError={newscastError} />,
+            loadingPeriod={loadingPeriod} newscastError={newscastError} onShowTimeline={() => setShowTimeline(true)} />,
     s2: <S2 key="s2" s={s} refresh={refresh} />,
     s3: <S3 key="s3" s={s} recommendation={recommendation} onStartWorkout={planDay => setLoggerPlanDay(planDay ?? null)} onImport={() => setShowImport(true)} onHistory={() => setShowHistory(true)} refresh={refresh} />,
     s4: <S4 key="s4" s={s} refresh={refresh} />,
     s5: <S5 key="s5" s={s} recommendation={recommendation} refresh={refresh} />,
     s6: <S6 key="s6" s={s} refresh={refresh} />,
     s7: <S7 key="s7" s={s} />,
+    s8: <S8 key="s8" s={s} />,
   };
+  // Default grid size for an item that has no saved x/y/w/h yet — mirrors the
+  // old CSS span logic (PANEL_WIDE + expanded state) so a fresh account's
+  // first-ever layout looks like today's, not an arbitrary 1x1 grid of tiles.
+  const gridItems = isMobile ? [] : [
+    ...sectionIds.map(id => {
+      const state = resolvePanelState(id, panelStates, expertise);
+      const collapsed = state === 'collapsed';
+      const wide = PANEL_WIDE.has(id) && !collapsed;
+      return {
+        id, element: sectionEls[id],
+        w: collapsed ? 1 : wide ? (state === 'expanded' ? 3 : 2) : 1,
+        h: collapsed ? 3 : state === 'expanded' ? 24 : 14,
+      };
+    }),
+    ...visibleMicroWidgets.map(id => ({
+      id: `mw-${id}`, element: <MicroWidget id={id} s={s} briefing={briefing} guidance={weeklyGuidance} />,
+      w: 1, h: MICRO_WIDGET_UNITS[id] === 2 ? 9 : 5,
+    })),
+  ];
+  const savedGridLayout = s?.profile?.gridLayouts?.[columnCount];
 
   return (
     <ExpertiseContext.Provider value={expertise}>
@@ -9223,31 +9749,43 @@ function App() {
           <button onClick={loadSummary} style={{ background: 'none', border: '1px solid rgba(245,240,226,.5)', color: '#f5f0e2', fontFamily: 'JetBrains Mono, monospace', fontSize: 9, letterSpacing: '.1em', textTransform: 'uppercase', padding: '3px 10px', cursor: 'pointer', flexShrink: 0 }}>Retry</button>
         </div>
       )}
-      <nav className="sec-nav" id="sec-nav" aria-hidden="true">
-        {sectionIds.map(id => <div key={id} className="sn-dot" />)}
-      </nav>
-      <div className="scroll" id="press-scroll">
-        <div className="col-rules" id="col-rules" aria-hidden="true" />
-        {sectionIds.map(id => {
-          const active = (sectionIds.includes(activeSection) ? activeSection : sectionIds[0]) === id;
-          const state = resolvePanelState(id, panelStates, expertise);
-          const collapsed = state === 'collapsed';
-          return (
-            <div key={id} className={`panel panel-${state}${isMobile && !active ? ' panel-off' : ''}`}>
-              {/* Dock mode already shows exactly one section at a time, so
-                  there's nothing for collapsing to buy on mobile. */}
-              {!isMobile && (
-                <button className="panel-toggle" aria-expanded={!collapsed} aria-controls={id}
-                  aria-label={`${collapsed ? 'Expand' : 'Collapse'} ${PANEL_LABELS[id] || id}`}
-                  onClick={() => setPanelState(id, collapsed ? 'standard' : 'collapsed')}>
-                  {collapsed ? '+' : '−'}
-                </button>
-              )}
-              {sectionEls[id]}
+      {isMobile ? (
+        <div className="scroll" id="press-scroll">
+          {sectionIds.map(id => {
+            const active = (sectionIds.includes(activeSection) ? activeSection : sectionIds[0]) === id;
+            const state = resolvePanelState(id, panelStates, expertise);
+            const wideClass = PANEL_WIDE.has(id) && state !== 'collapsed'
+              ? (state === 'expanded' ? ' panel-w2 panel-w3' : ' panel-w2') : '';
+            return (
+              <div key={id} className={`panel panel-${state}${wideClass}${!active ? ' panel-off' : ''}`}>
+                {sectionEls[id]}
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        <>
+          {/* Freeform drag/resize dashboard (DashboardGrid.jsx) — desktop only.
+              Arch-widget-editor-style: static until "Rearrange Panels" (Settings)
+              turns dragging/resizing on; positions save per column count as you go. */}
+          <nav className="sec-nav" id="sec-nav" aria-hidden="true">
+            {sectionIds.map(id => <div key={id} className="sn-dot" />)}
+          </nav>
+          {gridEditMode && (
+            <div className="grid-edit-banner">
+              <span>Editing layout — drag to move, drag a corner to resize</span>
+              <button onClick={() => setGridEditMode(false)}>Done</button>
             </div>
-          );
-        })}
-      </div>
+          )}
+          {/* Remounted (not just re-rendered) whenever the column count OR the
+              set of visible items changes — GridStack owns live position/size
+              imperatively once mounted and has no way to learn about a panel
+              React added/removed from the DOM underneath it, so a hide/unhide
+              in Settings needs a fresh GridStack instance, not a prop update. */}
+          <DashboardGrid key={`${columnCount}-${gridItems.map(i => i.id).join(',')}`} items={gridItems} columnCount={columnCount}
+            savedLayout={savedGridLayout} editMode={gridEditMode} onLayoutChange={saveGridLayout} />
+        </>
+      )}
       {isMobile && (
         <nav className="dock" aria-label="Sections">
           {sectionIds.map(id => {
@@ -9270,8 +9808,9 @@ function App() {
           onClick={onBubbleClick}>PJ</button>
       )}
       {chatOpen && <MentorChat onClose={() => setChatOpen(false)} />}
-      {showSettings && <SettingsOverlay s={s} onClose={() => { setShowSettings(false); loadFollowRequests(); }} refresh={refresh} onSignOut={() => signOut(auth)} onOpenImport={() => { setShowSettings(false); setShowImport(true); }} onOpenWiki={() => { setShowSettings(false); setShowWiki(true); }} setBriefing={setBriefing} onRestartSetup={() => { setForceOnboarding(true); setShowSettings(false); }} followBadge={followBadge} reloadFollowBadge={loadFollowRequests} />}
+      {showSettings && <SettingsOverlay s={s} onClose={() => { setShowSettings(false); loadFollowRequests(); }} refresh={refresh} onSignOut={() => signOut(auth)} onOpenImport={() => { setShowSettings(false); setShowImport(true); }} onOpenWiki={() => { setShowSettings(false); setShowWiki(true); }} setBriefing={setBriefing} onRestartSetup={() => { setForceOnboarding(true); setShowSettings(false); }} followBadge={followBadge} reloadFollowBadge={loadFollowRequests} onOpenGridEdit={() => setGridEditMode(true)} />}
       {showWiki && <WikiOverlay onClose={() => setShowWiki(false)} />}
+      {showTimeline && <TimelineOverlay onClose={() => setShowTimeline(false)} />}
       {showBriefing && briefing && <BriefingOverlay briefing={briefing} onClose={() => setShowBriefing(false)} />}
       {showAfternoonNewscast && afternoonNewscast && <NewscastOverlay newscast={afternoonNewscast} onClose={() => setShowAfternoonNewscast(false)} />}
       {showNightNewscast && nightNewscast && <NewscastOverlay newscast={nightNewscast} onClose={() => setShowNightNewscast(false)} />}

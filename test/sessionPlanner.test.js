@@ -1,6 +1,7 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { generateSessionExercises, progressionFor, suggestedWorkingSetCount, suggestedRirSequence, isLowRepPattern, LOW_REP_THRESHOLD, isStapleExercise, STAPLE_SESSION_THRESHOLD, estimateSessionDurationMin, capSessionDuration, fillSessionToDuration, fatigueCeilingFor } = require('../functions/sessionPlanner');
+const { generateSessionExercises, progressionFor, suggestedWorkingSetCount, suggestedRirSequence, isLowRepPattern, LOW_REP_THRESHOLD, isStapleExercise, STAPLE_SESSION_THRESHOLD, estimateSessionDurationMin, capSessionDuration, fillSessionToDuration, fatigueCeilingFor, stimulusSimilarity } = require('../functions/sessionPlanner');
+const { EXERCISE_DB } = require('../functions/exerciseDb');
 const daysAgo = (n) => new Date(Date.now() - n * 86400000).toISOString().slice(0, 10);
 const { isCompoundExercise } = require('../functions/muscleTaxonomy');
 
@@ -114,6 +115,20 @@ test('CNS-fatigue substitution swaps a barbell/dumbbell backbone for a machine/c
   });
   const backbone = out[0];
   assert.notEqual(backbone.name, 'Barbell Bench Press', 'high CNS fatigue should substitute away from a barbell compound');
+});
+
+test('stimulusSimilarity scores an identical EMG profile at the sum of its own activations', () => {
+  const bench = EXERCISE_DB.find(e => e.name === 'Barbell Bench Press');
+  const machinePress = EXERCISE_DB.find(e => e.name === 'Machine Chest Press');
+  // Both curated at front-delt 85 / chest 68.7 / triceps 58 — an identical
+  // profile, so min(a,b) per muscle is just that muscle's own value.
+  assert.equal(stimulusSimilarity(bench, machinePress), 85 + 68.7 + 58);
+});
+
+test('stimulusSimilarity falls back to primary-muscle overlap count when either exercise has no curated EMG profile', () => {
+  const bench = EXERCISE_DB.find(e => e.name === 'Barbell Bench Press');
+  const cablePress = EXERCISE_DB.find(e => e.name === 'Cable Press');
+  assert.equal(stimulusSimilarity(bench, cablePress), 3, 'same 3 primary muscles, no EMG profile for Cable Press');
 });
 
 test('excludes exercises hitting an offline (injured) muscle entirely', () => {

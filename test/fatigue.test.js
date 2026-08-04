@@ -2,7 +2,7 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const {
   computeStructuralFatigue, musclePeaksFromLifts, applyInjuryTaper,
-  injuryFatiguePenalty, computeACWR, computePerformanceTrend, computeCNSFatigue,
+  injuryFatiguePenalty, computeACWR, coupledAcwr, computePerformanceTrend, computeCNSFatigue,
   computeMuscleLastTrainedDays, fatigueTimeline, computeCompoundIsolationSplit, computeStabilitySplit,
   recoveryWord, liftTime, sessionStartStamp, importedStartStamp, MAX_CREDIBLE_SESSION_SEC,
 } = require('../functions/fatigue');
@@ -197,6 +197,30 @@ test('computeACWR flags overreach when acute load exceeds chronic baseline', () 
   lifts.push({ date: daysAgo(1), exercise: 'Back Squat', kg: 500, reps: 10 });
   const acwr = computeACWR(lifts);
   assert.ok(acwr > 1.5, `expected overreach signal, got ${acwr}`);
+});
+
+test('coupledAcwr returns null with less than 28 days between the first entry and the target date', () => {
+  const dailyLoads = { [daysAgo(20)]: 1000, [daysAgo(1)]: 1000 };
+  assert.equal(coupledAcwr(dailyLoads, daysAgo(0)), null);
+});
+
+test('coupledAcwr reads close to 1.0 for a perfectly steady daily load once both EWMAs have converged, and rises for a recent spike vs. the same spike further back', () => {
+  const today = daysAgo(0);
+  // Both EWMAs start ramping from 0, and the slower (28-day time-constant)
+  // chronic average takes longer to reach steady-state than the acute one —
+  // 120 days is enough for chronic to be >99.9% converged, so this reads the
+  // true steady-state ratio rather than mid-ramp-up noise.
+  const steady = {};
+  for (let d = 120; d >= 0; d--) steady[daysAgo(d)] = 500;
+  const steadyAcwr = coupledAcwr(steady, today);
+  assert.ok(Math.abs(steadyAcwr - 1) < 0.01, `converged steady load should read ~1.0, got ${steadyAcwr}`);
+
+  // Same total extra load, but EWMA should weight the one closer to today
+  // more heavily than the simple 7-day-window method would (which would
+  // treat any day within 7 days identically and ignore anything past it).
+  const spikeRecent = { ...steady, [daysAgo(1)]: 3000 };
+  const spikeOld = { ...steady, [daysAgo(6)]: 3000 };
+  assert.ok(coupledAcwr(spikeRecent, today) > coupledAcwr(spikeOld, today), 'a spike 1 day ago should push ACWR higher than the same spike 6 days ago');
 });
 
 test('computePerformanceTrend groups the same exercise across differently-cased log entries', () => {

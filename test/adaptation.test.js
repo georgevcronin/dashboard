@@ -1,10 +1,11 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const {
-  rirEffectiveness, volumeResponsePct, sessionStimulusScore, adaptationCurve,
+  rirEffectiveness, volumeResponsePct, sessionStimulusScore, adaptationCurve, ADAPTATION_PEAK_H,
   computeStimulusContributions, computeAdaptationLevel, computeAdaptationSeries,
-  estimateAtrophyRate, DEFAULT_ATROPHY_RATE, SECONDARY_MUSCLE_WEIGHT,
+  estimateAtrophyRate, DEFAULT_ATROPHY_RATE, SECONDARY_MUSCLE_WEIGHT, secondaryMuscleRatio,
 } = require('../functions/adaptation');
+const { findExercise } = require('../functions/muscleTaxonomy');
 
 const daysAgo = (n) => new Date(Date.now() - n * 86400000).toISOString().slice(0, 10);
 
@@ -33,27 +34,50 @@ test('adaptationCurve is zero at or before the stimulus itself', () => {
   assert.equal(adaptationCurve(-5, 1), 0);
 });
 
-test('adaptationCurve peaks at 48h and equals the input stimulus score there', () => {
+test('adaptationCurve peaks at ADAPTATION_PEAK_H and equals the input stimulus score there', () => {
   const score = 0.7;
-  const at48 = adaptationCurve(48, score);
+  const atPeak = adaptationCurve(ADAPTATION_PEAK_H, score);
   const at10 = adaptationCurve(10, score);
   const at100 = adaptationCurve(100, score);
-  assert.ok(Math.abs(at48 - score) < 1e-9, 'peak value should equal the stimulus score exactly at 48h by construction');
-  assert.ok(at48 > at10, 'should still be rising before 48h');
-  assert.ok(at48 > at100, 'should be decaying after 48h');
+  assert.ok(ADAPTATION_PEAK_H > 40 && ADAPTATION_PEAK_H < 48, 'the fast + slow phases combined should peak a bit before the slow phase\'s own 48h peak');
+  assert.ok(Math.abs(atPeak - score) < 1e-9, 'peak value should equal the stimulus score exactly at the true peak, by construction (normalized)');
+  assert.ok(atPeak > at10, 'should still be rising well before the peak');
+  assert.ok(atPeak > at100, 'should be decaying well after the peak');
+  assert.ok(adaptationCurve(ADAPTATION_PEAK_H + 0.5, score) < atPeak, 'a point just after the peak should be lower');
+  assert.ok(adaptationCurve(ADAPTATION_PEAK_H - 0.5, score) < atPeak, 'a point just before the peak should be lower');
 });
 
-test('computeStimulusContributions credits a secondary muscle at half weight, not the same as the primary target', () => {
-  // T-Bar Row: lats/rhomboids/mid-traps primary, biceps secondary.
+test('computeStimulusContributions credits a secondary muscle by its real EMG ratio when curated data exists, not a flat weight', () => {
+  // T-Bar Row: lats/rhomboids/mid-traps primary, biceps secondary — and
+  // exerciseEmgProfiles.js curates this one, so biceps should get its real
+  // (much higher than 0.5) relative share, not the flat fallback.
   const lifts = [
     { date: daysAgo(1), exercise: 'T-Bar Row', kg: 60, reps: 8, rpe: 9 },
   ];
   const contributions = computeStimulusContributions(lifts);
+  const entry = findExercise('T-Bar Row');
+  const expectedRatio = secondaryMuscleRatio(entry, 'biceps');
   assert.ok(contributions.lats?.length, 'primary muscle should have a contribution');
   assert.ok(contributions.biceps?.length, 'secondary muscle should have a contribution');
+  assert.notEqual(expectedRatio, SECONDARY_MUSCLE_WEIGHT, 'T-Bar Row has a curated EMG profile, so the ratio should differ from the flat fallback');
   assert.ok(
-    Math.abs(contributions.biceps[0].contrib - contributions.lats[0].contrib * SECONDARY_MUSCLE_WEIGHT) < 1e-9,
-    'secondary contribution should be exactly SECONDARY_MUSCLE_WEIGHT of the primary contribution from the same session'
+    Math.abs(contributions.biceps[0].contrib - contributions.lats[0].contrib * expectedRatio) < 1e-9,
+    'secondary contribution should be exactly the EMG-derived ratio of the primary contribution from the same session'
+  );
+});
+
+test('computeStimulusContributions falls back to SECONDARY_MUSCLE_WEIGHT when the exercise has no curated EMG profile', () => {
+  // Machine Shoulder Press: front-delt/mid-delt primary, triceps secondary,
+  // no exerciseEmgProfiles.js entry.
+  const lifts = [
+    { date: daysAgo(1), exercise: 'Machine Shoulder Press', kg: 40, reps: 8, rpe: 9 },
+  ];
+  const contributions = computeStimulusContributions(lifts);
+  assert.ok(contributions['front-delt']?.length, 'primary muscle should have a contribution');
+  assert.ok(contributions.triceps?.length, 'secondary muscle should have a contribution');
+  assert.ok(
+    Math.abs(contributions.triceps[0].contrib - contributions['front-delt'][0].contrib * SECONDARY_MUSCLE_WEIGHT) < 1e-9,
+    'without curated EMG data, secondary contribution should still be exactly SECONDARY_MUSCLE_WEIGHT of the primary'
   );
 });
 

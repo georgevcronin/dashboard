@@ -1,7 +1,6 @@
 # Press Dashboard — Master Implementation Plan
 
-**Last Updated:** 2026-08-05
-**Supersedes:** the previous version of this file, which assumed a near-empty
+**Last Updated:** 2026-08-05**Supersedes:** the previous version of this file, which assumed a near-empty
 Phase 1 (expertise toggle, mode toggle, recommendation-first layout, etc.) —
 all of that was already built. `SPEC-PROGRESS.md` is the audited source of
 truth; this file sequences what's actually left, against it.
@@ -22,8 +21,7 @@ or earlier until it's re-audited.
 - **FEATURES.md stays the scope authority.** Nothing here removes a feature
   without saying so explicitly (Phase 4, Phase 5). Anything here that *isn't*
   in `FEATURES.md`'s scope gets flagged as new scope, not built quietly
-  (Phase 6.5, Phase 7).
-- **Defer the speculative.** Forecasting/simulation features (#54, #55, #94,
+  (Phase 6.5, Phase 7).- **Defer the speculative.** Forecasting/simulation features (#54, #55, #94,
   #60) need a calibration loop (log a prediction → compare to the actual
   outcome) that doesn't exist yet. Building them first is exactly the
   "does this need to exist yet" case — they stay in the long tail until that
@@ -252,7 +250,6 @@ calendar, not explicitly a session-generating solver with drag/drop. Confirm
 with George that #42 is the intended target before building; if it's a
 distinct feature, it needs its own `FEATURES.md` entry first (same rule as
 Phase 6.5/7).
-
 **Decision made:** build as spec'd — replaces `weeklyPlanner.js`'s
 `generateWeeklyGuidance` advisory output and deletes `WhatIfSandbox` (#10,
 currently Built). Also logged as a removal per `CLAUDE.md` — approved.
@@ -489,7 +486,6 @@ UI for a prediction Press has never validated is the thing YAGNI exists to
 catch.
 
 ---
-
 ## Open items needing a decision (unchanged from prior audit)
 
 - `#64` Seasonal Periodization directly contradicts `TRAINING_ETHOS.md`'s "no

@@ -40,6 +40,13 @@ body{font-family:'Times New Roman',Times,Georgia,serif;color:var(--ink)}
 @media(min-width:481px){
 .scroll{padding-right:40px;position:relative;display:grid;grid-template-columns:repeat(auto-fill,minmax(440px,1fr));grid-auto-rows:1px;grid-auto-flow:row dense;gap:0}
 }
+/* Fixed track counts replace auto-fill once there's room for real column
+   spanning to mean something (see panel-w2/panel-w3 below) — auto-fill's
+   continuously-variable column count made "span 2" an unpredictable
+   fraction of the row. Below 1380px, auto-fill stays exactly as it was:
+   that range never had spanning, so there's nothing to make predictable. */
+@media(min-width:1380px){.scroll{grid-template-columns:repeat(3,1fr)}}
+@media(min-width:1800px){.scroll{grid-template-columns:repeat(4,1fr)}}
 /* .panel wraps each section so a display state (collapsed / standard / wide)
    and the toggle that drives it can be expressed without every section
    component having to know it's living in a dashboard. It's display:contents
@@ -63,6 +70,16 @@ body{font-family:'Times New Roman',Times,Georgia,serif;color:var(--ink)}
    middle. Only .panel-expanded gets one — putting it on every .panel would
    paint over every rule, since a standard panel's edge sits exactly on one. */
 @media(min-width:1380px){.panel-expanded{grid-column:span 2;background:var(--paper)}}
+/* Real per-panel default width (feature #13), not just the one manually-
+   toggled .panel-expanded case above: app.jsx's PANEL_WIDE set marks a
+   panel wide unconditionally, these two rules decide how wide it actually
+   reads at the current breakpoint. Never full-row at either tier (2 of 3,
+   then 3 of 4) for the same packing reason .panel-expanded isn't 2 of 2.
+   panel-w3 is declared after panel-w2 so it wins at 1800px+ where both
+   classes are present and both rules apply — later source order breaks the
+   equal-specificity tie, not stacking. */
+@media(min-width:1380px){.panel-w2{grid-column:span 2;background:var(--paper)}}
+@media(min-width:1800px){.panel-w3{grid-column:span 3;background:var(--paper)}}
 .panel-off{display:none}
 /* Everything except the section's own header block hides, which is why each
    section tags its header .panel-head — "the first .fade child" isn't
@@ -464,5 +481,27 @@ section.visible .fade:nth-child(6){transition-delay:.56s}
 .chat-bubble{bottom:calc(68px + env(safe-area-inset-bottom))}
 .dock-btn.active{color:var(--ink);font-weight:600;border-top-color:var(--ink);margin-top:-2px}
 }
+`;
+
+// gridstack.js's own dist/gridstack.min.css (v13.0.2, vendored as a string
+// rather than an esbuild import — matches this file's own no-CSS-loader
+// convention, see the header comment above) followed by paper/ink overrides.
+// Structural rules (position:absolute, the ui-resizable-* handle geometry)
+// are load-bearing — don't trim those. Only .grid-stack-static (edit mode
+// off) ships to a normal session; DD chrome only exists while editing.
+export const GRIDSTACK_CSS = `
+.grid-stack{position:relative}.grid-stack-placeholder>.placeholder-content{background-color:rgba(0,0,0,.1);margin:0;position:absolute;width:auto;z-index:0!important}.grid-stack>.grid-stack-item{position:absolute;padding:0;top:0;width:var(--gs-column-width);height:var(--gs-cell-height)}.grid-stack>.grid-stack-item>.grid-stack-item-content{margin:0;position:absolute;width:auto;overflow-x:hidden;overflow-y:auto}.grid-stack>.grid-stack-item.size-to-content:not(.size-to-content-max)>.grid-stack-item-content{overflow-y:hidden}.grid-stack:not(.grid-stack-rtl)>.grid-stack-item{left:0}.grid-stack.grid-stack-rtl>.grid-stack-item{right:0}.grid-stack>.grid-stack-item>.grid-stack-item-content,.grid-stack>.grid-stack-placeholder>.placeholder-content{top:var(--gs-item-margin-top);right:var(--gs-item-margin-right);bottom:var(--gs-item-margin-bottom);left:var(--gs-item-margin-left)}.grid-stack-item>.ui-resizable-handle{position:absolute;font-size:.1px;display:block;-ms-touch-action:none;touch-action:none;user-select:none;z-index:100}.grid-stack-item.ui-resizable-autohide>.ui-resizable-handle,.grid-stack-item.ui-resizable-disabled>.ui-resizable-handle{display:none}.grid-stack-item>.ui-resizable-ne,.grid-stack-item>.ui-resizable-nw,.grid-stack-item>.ui-resizable-se,.grid-stack-item>.ui-resizable-sw{background-image:url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="%23666" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewBox="0 0 20 20"><path d="m10 3 2 2H8l2-2v14l-2-2h4l-2 2"/></svg>');background-repeat:no-repeat;background-position:center;z-index:101}.grid-stack-item>.ui-resizable-ne{transform:rotate(45deg)}.grid-stack-item>.ui-resizable-sw{transform:rotate(45deg)}.grid-stack-item>.ui-resizable-nw{transform:rotate(-45deg)}.grid-stack-item>.ui-resizable-se{transform:rotate(-45deg)}.grid-stack-item>.ui-resizable-nw{cursor:nw-resize;width:20px;height:20px;top:var(--gs-item-margin-top);left:var(--gs-item-margin-left)}.grid-stack-item>.ui-resizable-n{cursor:n-resize;height:10px;top:var(--gs-item-margin-top);left:25px;right:25px}.grid-stack-item>.ui-resizable-ne{cursor:ne-resize;width:20px;height:20px;top:var(--gs-item-margin-top);right:var(--gs-item-margin-right)}.grid-stack-item>.ui-resizable-e{cursor:e-resize;width:10px;top:15px;bottom:15px;right:var(--gs-item-margin-right)}.grid-stack-item>.ui-resizable-se{cursor:se-resize;width:20px;height:20px;bottom:var(--gs-item-margin-bottom);right:var(--gs-item-margin-right)}.grid-stack-item>.ui-resizable-s{cursor:s-resize;height:10px;left:25px;bottom:var(--gs-item-margin-bottom);right:25px}.grid-stack-item>.ui-resizable-sw{cursor:sw-resize;width:20px;height:20px;bottom:var(--gs-item-margin-bottom);left:var(--gs-item-margin-left)}.grid-stack-item>.ui-resizable-w{cursor:w-resize;width:10px;top:15px;bottom:15px;left:var(--gs-item-margin-left)}.grid-stack-item.ui-draggable-dragging>.ui-resizable-handle{display:none!important}.grid-stack-item.ui-draggable-dragging{will-change:left,right,top}.grid-stack-item.ui-resizable-resizing{will-change:width,height}.ui-draggable-dragging,.ui-resizable-resizing{z-index:10000}.ui-draggable-dragging>.grid-stack-item-content,.ui-resizable-resizing>.grid-stack-item-content{box-shadow:1px 4px 6px rgba(0,0,0,.2);opacity:.8}.grid-stack-animate,.grid-stack-animate .grid-stack-item{transition:left .3s,right .3s,top .3s,height .3s,width .3s}.grid-stack-animate .grid-stack-item.grid-stack-placeholder,.grid-stack-animate .grid-stack-item.ui-draggable-dragging,.grid-stack-animate .grid-stack-item.ui-resizable-resizing{transition:left 0s,right 0s,top 0s,height 0s,width 0s}.grid-stack>.grid-stack-item[gs-y="0"]{top:0}.grid-stack:not(.grid-stack-rtl)>.grid-stack-item[gs-x="0"]{left:0}.grid-stack.grid-stack-rtl>.grid-stack-item[gs-x="0"]{right:0}
+
+.press-grid{padding-top:var(--hdr);padding-right:40px;padding-bottom:60px;min-height:calc(100vh - var(--hdr))}
+.press-grid .grid-stack-item-content{background:var(--paper)}
+.press-grid .grid-stack-item-content>section{min-height:100%}
+.press-grid.grid-stack-static .grid-stack-item-content{cursor:default}
+.press-grid:not(.grid-stack-static) .grid-stack-item-content{outline:1px dashed var(--rule);cursor:grab;transition:outline-color .15s}
+.press-grid:not(.grid-stack-static) .grid-stack-item-content:hover{outline-color:var(--ink)}
+.grid-stack-placeholder>.placeholder-content{background:var(--paper2)!important;border:2px dashed var(--gold)}
+.ui-draggable-dragging>.grid-stack-item-content,.ui-resizable-resizing>.grid-stack-item-content{box-shadow:2px 6px 10px rgba(13,11,8,.25)}
+.grid-edit-banner{position:fixed;top:var(--hdr);left:0;right:0;z-index:150;display:flex;align-items:center;justify-content:center;gap:14px;padding:8px 16px;background:var(--ink);color:var(--paper);font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:.08em;text-transform:uppercase}
+.grid-edit-banner button{background:var(--paper);color:var(--ink);border:none;padding:5px 16px;font-family:inherit;font-size:inherit;letter-spacing:inherit;text-transform:inherit;cursor:pointer;min-height:28px}
+.press-grid.editing{padding-top:calc(var(--hdr) + 34px)}
 `;
 

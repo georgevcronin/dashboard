@@ -2,9 +2,10 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const {
   computeMusclePriority, scoreBucket, generateWeeklyGuidance,
-  pickBackboneExercises, planLiftSessionsTarget, planCardioSessionsTarget,
+  pickBackboneExercises, weightedCoverage, planLiftSessionsTarget, planCardioSessionsTarget,
   stalenessBoost, MUSCLE_GROUPS, FATIGUE_CEILING, FOCUS_MUSCLE_BONUS, DEPRIORITISE_PENALTY,
 } = require('../functions/weeklyPlanner');
+const { EXERCISE_DB } = require('../functions/exerciseDb');
 
 test('computeMusclePriority marks offline muscles as -1 regardless of fatigue', () => {
   const priority = computeMusclePriority({ quads: 0 }, ['quads']);
@@ -176,6 +177,26 @@ test('pickBackboneExercises still allows overlapping-muscle picks in travelMode,
   const picks = pickBackboneExercises(['abs', 'transverse-abs'], { count: 10, travelMode: true });
   assert.ok(picks.some(p => p.name === 'Dead Bug'));
   assert.ok(picks.some(p => p.name === 'Ab Wheel Rollout'));
+});
+
+// Chest Dips: primary ['chest', 'triceps'], curated EMG {chest: 31.7,
+// triceps: 38} — triceps is the exercise's real dominant mover despite chest
+// being listed first. The old array-position formula would have scored
+// triceps at only 1/(1+1)=0.5 (second in the array) and chest at 1/(0+1)=1
+// (first) — exactly backwards from what the muscle actually experiences.
+test('weightedCoverage uses real EMG data to outrank array position, not just follow it', () => {
+  const chestDips = EXERCISE_DB.find(e => e.name === 'Chest Dips');
+  const forTriceps = weightedCoverage(chestDips, ['triceps']);
+  const forChest = weightedCoverage(chestDips, ['chest']);
+  assert.ok(Math.abs(forTriceps - 1) < 1e-9, `triceps is Chest Dips' own peak primary muscle, should score 1.0, got ${forTriceps}`);
+  assert.ok(Math.abs(forChest - 31.7 / 38) < 1e-9, `chest should score its real ratio to the peak (31.7/38), got ${forChest}`);
+  assert.ok(forTriceps > forChest, 'the real dominant mover (triceps) should outscore the array-first muscle (chest) here, the opposite of the old ordinal formula');
+});
+
+test('weightedCoverage falls back to the old array-position formula when the exercise has no curated EMG profile', () => {
+  const shoulderPress = EXERCISE_DB.find(e => e.name === 'Machine Shoulder Press'); // ['front-delt', 'mid-delt'], no profile
+  assert.ok(Math.abs(weightedCoverage(shoulderPress, ['front-delt']) - 1) < 1e-9);
+  assert.ok(Math.abs(weightedCoverage(shoulderPress, ['mid-delt']) - 0.5) < 1e-9);
 });
 
 test('planLiftSessionsTarget caps sessions hard when systemic fatigue is very high', () => {
