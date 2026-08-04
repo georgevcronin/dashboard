@@ -1017,6 +1017,7 @@ const CHANGELOG = [
       'Dashboard panels now span a real default width on wide screens instead of every panel being one fixed column — Dispatch and Recovery carry more content, so they default to two columns wide once there\'s room (1380px+), three at the widest tier (1800px+). The zero-gap packing this dashboard has always used is unchanged; wide panels just pack into it.',
       'Added 9 small "micro-widget" cards that fill whatever gaps are left over: Hydration Ring, Resting Heart Rate, Training Streak, Steps, an AI Coaching Insight line, Optimal Training Window, Today\'s Muscle Focus, 7-day Body Weight Delta, and Weekly Volume Pace. All optional — Settings → Dashboard Layout → Micro-Widgets to reorder or hide them. Desktop only.',
       'Optimal Training Window is grounded in your actual wake time (from synced Apple Health sleep data), not a generic clock time — peak physical performance tracks the circadian core-temperature rhythm, roughly 10-12h after waking. Shows a message instead of a guess if sleep data isn\'t synced yet.',
+      'Added one-click desktop layout presets in Settings → Dashboard Layout: Review (Dispatch/Training/Recovery wide and first), Dense (every panel collapsed to its headline — the most panels visible at once), and Retrospective (Sleep/Nutrition/Body/Records wide and first). Training now also gets the wide-panel treatment Dispatch and Recovery already had.',
     ],
   },
   {
@@ -6964,18 +6965,44 @@ function Onboarding({ onComplete, onOpenImport }) {
 // reordered — a stored profile.panelOrder always wins.
 const DEFAULT_PANEL_ORDER = ['s1', 's3', 's5', 's2', 's4', 's6', 's7'];
 // Real per-panel default column-spanning (#13) rather than only the one
-// manually-toggled 'expanded' state — Dispatch and Recovery carry
-// meaningfully more content than the others, so they default wide once
-// there's room (pressCss.js's panel-w2/panel-w3, 1380px/1800px+). Standard
-// state spans 2; expanded spans 3 at the widest tier, 2 below it. Collapsed
-// always forces span 1 regardless (see the panel className below).
-const PANEL_WIDE = new Set(['s1', 's5']);
+// manually-toggled 'expanded' state — Dispatch, Training and Recovery carry
+// meaningfully more content than the others (the same lead-panel trio
+// DEFAULT_PANEL_ORDER puts first), so they default wide once there's room
+// (pressCss.js's panel-w2/panel-w3, 1380px/1800px+). Standard state spans 2;
+// expanded spans 3 at the widest tier, 2 below it. Collapsed always forces
+// span 1 regardless (see the panel className below).
+const PANEL_WIDE = new Set(['s1', 's3', 's5']);
 // Dashboard panel display states. 'standard' is the natural-height default and
 // is never stored — an unset panel and an explicitly-standard one are the same
 // thing, so nothing has to be migrated when a panel is added.
 const PANEL_STATE_LABELS = { collapsed: 'Collapsed', standard: 'Standard', expanded: 'Wide' };
 const PANEL_LABELS = { s1: 'Dispatch', s2: 'Sleep', s3: 'Training', s4: 'Nutrition', s5: 'Recovery', s6: 'Body & Supplements', s7: 'Personal Records' };
 const DOCK_LABELS = { s1: 'Dispatch', s2: 'Sleep', s3: 'Training', s4: 'Nutrition', s5: 'Recovery', s6: 'Body', s7: 'Records' };
+// One-click desktop layout presets (order + panelStates together) — not a
+// new layout mechanism, just named combinations of the two settings above.
+// Review and Retrospective are mirror images of the same lead/supporting
+// split DEFAULT_PANEL_ORDER already draws; Dense ignores that split entirely
+// in favour of fitting as many headline-only panels on screen as possible.
+const LAYOUT_PRESETS = [
+  {
+    id: 'review', label: 'Review',
+    desc: 'Dispatch, Training and Recovery wide and first — today\'s decision, biggest.',
+    order: ['s1', 's3', 's5', 's2', 's4', 's6', 's7'],
+    states: { s1: 'expanded', s3: 'expanded', s5: 'expanded', s2: 'collapsed', s4: 'collapsed', s6: 'collapsed', s7: 'collapsed' },
+  },
+  {
+    id: 'dense', label: 'Dense',
+    desc: 'Every panel collapsed to its headline — the most panels visible without scrolling.',
+    order: DEFAULT_PANEL_ORDER,
+    states: { s1: 'collapsed', s2: 'collapsed', s3: 'collapsed', s4: 'collapsed', s5: 'collapsed', s6: 'collapsed', s7: 'collapsed' },
+  },
+  {
+    id: 'retrospective', label: 'Retrospective',
+    desc: 'Sleep, Nutrition, Body and Records wide and first — the review, not the decision.',
+    order: ['s2', 's4', 's6', 's7', 's1', 's3', 's5'],
+    states: { s2: 'expanded', s4: 'expanded', s6: 'expanded', s7: 'expanded', s1: 'collapsed', s3: 'collapsed', s5: 'collapsed' },
+  },
+];
 const DEFAULT_RECOVERY_TAB_ORDER = ['fatigue', 'ranking', 'types', 'adaptation', 'patterns', 'soreness', 'injuries'];
 const RECOVERY_TAB_LABELS = { fatigue: 'Structural', ranking: 'Ranking', types: 'Types', adaptation: 'Adaptation', patterns: 'Patterns', soreness: 'Soreness', injuries: 'Injuries' };
 
@@ -7221,6 +7248,11 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
   const savePanels = async (order, hidden) => {
     setPanelOrder(order); setHiddenPanels(hidden);
     const profile = await api('profile', { method: 'POST', body: JSON.stringify({ panelOrder: order, hiddenPanels: hidden }) });
+    refresh({ ...s, profile });
+  };
+  const applyLayoutPreset = async (preset) => {
+    setPanelOrder(preset.order);
+    const profile = await api('profile', { method: 'POST', body: JSON.stringify({ panelOrder: preset.order, panelStates: preset.states }) });
     refresh({ ...s, profile });
   };
   const saveMicroWidgets = async (order, hidden) => {
@@ -7893,6 +7925,19 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
         <details className="settings-group">
         <summary className="settings-group-h">Dashboard Layout</summary>
         {/* ── LAYOUT ── */}
+        <div className="settings-sec">
+          <div className="settings-sh">Presets <span style={{ fontWeight: 400, textTransform: 'none', fontSize: 9, color: 'var(--dim)' }}>(desktop only — sets order and size for all 7 panels below in one click)</span></div>
+          {LAYOUT_PRESETS.map(preset => (
+            <button key={preset.id} className="echelon-card" onClick={() => applyLayoutPreset(preset)}>
+              <div className="echelon-card-dot" />
+              <div style={{ flex: 1 }}>
+                <div className="echelon-card-title">{preset.label}</div>
+                <div className="echelon-card-desc">{preset.desc}</div>
+              </div>
+            </button>
+          ))}
+        </div>
+
         <div className="settings-sec">
           <div className="settings-sh">Home Screen Order</div>
           <PanelOrderEditor order={panelOrder} hidden={hiddenPanels} labels={PANEL_LABELS}
