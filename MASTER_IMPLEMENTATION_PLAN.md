@@ -402,11 +402,20 @@ phase the first time, not after.
    never touch the module-level `db`/`save` globals — that pattern, not a
    global rewrite, is what to keep following for any new multi-account
    endpoint. No further action unless the deployment model changes.
-4. **Deploy pipeline alerting.** Two known-unresolved incidents (a 2+ day
-   silent deploy failure; an empty `GEMINI_API_KEY` secret shipped without
-   erroring) mean a broken production deploy currently has no alert path.
-   Needs *some* signal (failed-deploy notification at minimum) before this
-   becomes a paid product where "nobody noticed for 2 days" is unacceptable.
+4. **Deploy pipeline alerting. Done, 2026-08-05 — two separate incidents,
+   two separate fixes.** The empty-`GEMINI_API_KEY` incident wasn't a
+   *failed* deploy — the workflow exited 0, it just shipped a blank secret,
+   so no failure-notification of any kind would ever have caught it. Added a
+   validation step to `.github/workflows/deploy.yml` that fails the run
+   loudly if `GEMINI_API_KEY`/`HEVY_API_KEY`/`PRESS_OWNER_UID` resolve empty
+   (`GEMINI_API_KEY_FALLBACK` deliberately excluded — it's documented as an
+   optional second key in `gemini.js`). The separate 2+ day silent *failure*
+   is a different problem — George's call: keep relying on GitHub's built-in
+   failed-workflow email rather than add a new webhook/secret. That's a
+   personal GitHub.com notification setting (Settings → Notifications →
+   Actions), not something a workflow file or I can turn on — worth George
+   confirming it's actually enabled, since it evidently didn't surface loudly
+   enough last time.
 
 Items 2–4 are engineering hardening, not user-facing scope — no `FEATURES.md`
 entries for these specifically, tracked here only.

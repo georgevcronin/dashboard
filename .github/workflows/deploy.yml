@@ -35,6 +35,24 @@ jobs:
       - run: echo "HEVY_API_KEY=${{ secrets.HEVY_API_KEY }}" >> functions/.env
       - run: echo "PRESS_OWNER_UID=uqJcOkpVXGYLjngCWCi0LvmSv8q1" >> functions/.env
 
+      # A blank secret (e.g. GEMINI_API_KEY resolving to "") isn't a workflow
+      # failure by itself — the deploy step above still exits 0, so this run
+      # would show green and nobody finds out until a user notices the
+      # mentor/briefings have gone quiet. GEMINI_API_KEY_FALLBACK is
+      # deliberately excluded — it's an optional second key (see gemini.js).
+      - name: Validate required secrets resolved to a real value
+        working-directory: functions
+        run: |
+          missing=""
+          for key in GEMINI_API_KEY HEVY_API_KEY PRESS_OWNER_UID; do
+            value=$(grep "^${key}=" .env | cut -d= -f2-)
+            if [ -z "$value" ]; then missing="$missing $key"; fi
+          done
+          if [ -n "$missing" ]; then
+            echo "::error::Required secret(s) resolved empty, refusing to deploy:$missing"
+            exit 1
+          fi
+
       - uses: google-github-actions/auth@v2
         with:
           credentials_json: ${{ secrets.GCP_SA_KEY }}
