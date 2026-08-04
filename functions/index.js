@@ -10,6 +10,8 @@ const { buildRecommendation } = require('./recommendation');
 const { todaysLimitingFactor } = require('./limitingFactor');
 const { buildRecoveryForecast } = require('./recoveryForecast');
 const { SPLIT_GROUPS, rankMusclesByFreshness, typicalSessionMuscleCount, mostOverdueGroup, detectPreferredSplit, neglectedMuscles } = require('./splitPlanner');
+const { autoPickFullBodySession } = require('./autoPick');
+const { solveCalendarWindow } = require('./calendarSolver');
 const { computeMuscleLevels, classifyLift, estimate1RM } = require('./strengthStandards');
 const { loadAllLifts, appendLifts, removeLiftsAndAppend } = require('./liftChunks');
 const { DEFAULTS, loadForUserDoc, saveDocExcludingLifts } = require('./userDoc');
@@ -1217,6 +1219,37 @@ app.post("/profile", async (req, res) => {
       }
     }
   }
+  // Recurring "no gym Tuesday/Thursday"-style blackout, indefinite — see
+  // calendarSolver.js. Date#getDay convention: 0=Sunday..6=Saturday.
+  if (body.unavailableDaysOfWeek) {
+    if (!Array.isArray(body.unavailableDaysOfWeek) || body.unavailableDaysOfWeek.some(d => !Number.isInteger(d) || d < 0 || d > 6)) {
+      return res.status(400).json({ error: 'unavailableDaysOfWeek must be an array of integers 0-6' });
+    }
+  }
+  // Allow-list, the inverse shape — "I only ever train Mon/Wed/Fri". Empty
+  // means unset (no restriction); see calendarSolver.js's constraintForDate.
+  if (body.availableDaysOfWeek) {
+    if (!Array.isArray(body.availableDaysOfWeek) || body.availableDaysOfWeek.some(d => !Number.isInteger(d) || d < 0 || d > 6)) {
+      return res.status(400).json({ error: 'availableDaysOfWeek must be an array of integers 0-6' });
+    }
+  }
+  // Soft "Legs on Friday"-style preference — { [splitBucketName]: dayOfWeek }.
+  // Only meaningful against a named preferredSplit (Full Body has no fixed
+  // buckets to anchor); calendarSolver.js falls back and reports a conflict
+  // rather than forcing a fatigued muscle through when it can't be honored.
+  if (body.splitDayAnchors) {
+    if (typeof body.splitDayAnchors !== 'object' || Array.isArray(body.splitDayAnchors)
+      || Object.values(body.splitDayAnchors).some(d => !Number.isInteger(d) || d < 0 || d > 6)) {
+      return res.status(400).json({ error: 'splitDayAnchors must be an object of bucket name -> integer 0-6' });
+    }
+  }
+  // Manual override of the calendar's auto-computed weekly session count —
+  // null (default) lets calendarSolver.js derive it from real fatigue instead.
+  if (body.weeklySessionTarget != null) {
+    if (!Number.isInteger(body.weeklySessionTarget) || body.weeklySessionTarget < 0 || body.weeklySessionTarget > 14) {
+      return res.status(400).json({ error: 'weeklySessionTarget must be an integer 0-14' });
+    }
+  }
 
   db.profile = { ...db.profile, ...body };
   await save();
@@ -1702,75 +1735,28 @@ app.post("/plan/session-exercises", async (req, res) => {
 
   if (type === 'lift' && !targetMuscles?.length && !reqBucket) {
     const muscleLastTrainedDays = computeMuscleLastTrainedDays(lifts);
-    const priority = computeMusclePriority(currentFatigue, offlineMuscles, muscleLastTrainedDays, muscleFocus);
-
     // Explicit choice always wins; auto-detect only fills in a default for
     // an account that's never set one — never silently overrides a real
     // choice, even if later history stops matching what detectPreferredSplit
     // would currently guess.
     const preferredSplit = db.profile?.preferredSplit || detectPreferredSplit(lifts) || 'Full Body';
-
-    let musclePicks;
-    if (preferredSplit === 'Full Body' || !SPLIT_GROUPS[preferredSplit]) {
-      // No fixed categories — every available muscle ranked by freshness
-      // directly, top N picked, where N is THIS athlete's own real median
-      // session size (typicalSessionMuscleCount), not a fixed constant. Can
-      // lean push-heavy or pull-heavy on a given day if that's genuinely
-      // what's freshest; balance happens across the week, not forced into
-      // every single session.
-      musclePicks = rankMusclesByFreshness(priority).slice(0, typicalSessionMuscleCount(lifts));
-    } else {
-      // Named split: which part is next is itself autoregulated — whichever
-      // group has gone longest since it was trained at all, not a fixed
-      // calendar assignment — then every available (fresh enough) muscle in
-      // that group gets a slot, same as a real split "day" would cover.
-      const group = mostOverdueGroup(SPLIT_GROUPS[preferredSplit], muscleLastTrainedDays);
-      musclePicks = group.muscles.filter(m => priority[m] >= 0);
-    }
-
-    targetMuscles = musclePicks;
-    // Coverage-based, not one-exercise-slot-per-muscle: a single compound
-    // (Barbell Bench Press: chest+triceps+front-delt) gives real stimulus to
-    // several of the lowest-freshness muscles at once, so it should count
-    // toward all of them rather than each muscle separately demanding its
-    // own dedicated pair. backboneCount scales sub-linearly with how many
-    // muscles are in play (compounds cover ~2-3 primaries each); whatever
-    // musclePicks the backbone picks don't happen to cover gets exactly one
-    // accessory each via generateSessionExercises' own remaining-muscle
-    // logic (pickAccessories in sessionPlanner.js), so total exercise count
-    // tracks how much is actually left uncovered, not a fixed multiplier.
-    // Explicit choice always wins — same rule as preferredSplit above.
-    // Auto-detect (the athlete's own last-90-days compound/isolation split)
-    // only fills in a default for an account that's never set a preference.
-    const compoundIsolationSplit = computeCompoundIsolationSplit(lifts);
-    const autoIsolationLeaning = compoundIsolationSplit.isolation > compoundIsolationSplit.compound;
-    const isolationLeaning = db.profile?.compoundIsolationPreference
-      ? db.profile.compoundIsolationPreference === 'isolation'
-      : autoIsolationLeaning;
-    // isolationLeaning previously only reached the accessory picker
-    // (isolationOnly below) -- backbone picking never saw it at all, so a
-    // compound like Back Squat (naturally the top scorer for covering
-    // several target muscles at once, see pickBackboneExercises) still got
-    // force-picked as backbone regardless of the preference. Skipping
-    // backbone selection entirely when isolation-leaning routes every
-    // target muscle through the isolation-aware accessory picker instead
-    // (uncoveredCount below becomes every muscle, since coveredMuscles is
-    // empty with no backbone picks).
-    const backboneCount = isolationLeaning ? 0 : Math.max(2, Math.ceil(musclePicks.length / 2));
-    const backbone = pickBackboneExercises(musclePicks, { travelMode, lifts, favoriteExercises, count: backboneCount, preferStable: stableLeaning });
-    const coveredMuscles = new Set(backbone.flatMap(e => e.primary));
-    const uncoveredCount = musclePicks.filter(m => !coveredMuscles.has(m)).length;
-    const exercises = fillSessionToDuration(capSessionDuration(generateSessionExercises({
-      type, targetMuscles: musclePicks, backboneExerciseNames: backbone.map(e => e.name), lifts, travelMode,
-      avoidMuscles, avoidMusclesSecondary, offlineMuscles, cnsFatigue, metabolicFatigue, trainingMonths, favoriteExercises,
-      accessoryCountOverride: uncoveredCount, isolationOnly: isolationLeaning, warmupScheme: db.profile?.warmupScheme,
-      maxDurationMin, preferStable: stableLeaning,
-    }), currentFatigue, maxDurationMin), maxDurationMin, fatigueCeilingFor(metabolicFatigue));
+    // Picking logic itself lives in autoPick.js, parameterized rather than
+    // reading `db`/Date.now() directly, so calendarSolver.js's day-by-day
+    // loop can run the identical "what's the next session" logic against a
+    // simulated future day — see MASTER_IMPLEMENTATION_PLAN.md Phase 5's
+    // "no parallel implementations" rule.
+    const picked = autoPickFullBodySession({
+      lifts, currentFatigue, offlineMuscles, muscleFocus, muscleLastTrainedDays,
+      preferredSplit, travelMode, favoriteExercises, avoidMuscles, avoidMusclesSecondary,
+      cnsFatigue, metabolicFatigue, trainingMonths, preferStable: stableLeaning, maxDurationMin,
+      warmupScheme: db.profile?.warmupScheme,
+      compoundIsolationSplit: computeCompoundIsolationSplit(lifts),
+      compoundIsolationPreference: db.profile?.compoundIsolationPreference || null,
+    });
     return res.json({
-      exercises, targetMuscles, backboneExercises: exercises.map(e => e.name), bucket: 'full body', preferredSplit,
-      neglectedMuscles: neglectedMuscles(preferredSplit, muscleLastTrainedDays),
-      estimatedDurationMin: estimateSessionDurationMin(exercises),
-      limitingFactor: sessionLimitingFactor(exercises, { currentFatigue, cnsFatigue, metabolicFatigue, offlineMuscles }),
+      ...picked,
+      backboneExercises: picked.exercises.map(e => e.name),
+      limitingFactor: sessionLimitingFactor(picked.exercises, { currentFatigue, cnsFatigue, metabolicFatigue, offlineMuscles }),
       // currentFatigue: lets the frontend re-run capSessionDuration itself
       // as the Max Length slider moves, instantly, instead of a network
       // round-trip per drag tick — see S3's displayedExercises in
@@ -1778,13 +1764,6 @@ app.post("/plan/session-exercises", async (req, res) => {
       // already implicitly visible via the freshness percentages shown
       // elsewhere on the same screen.
       currentFatigue,
-      // fatigueCeiling: same reactive-slider reasoning, for fillSessionToDuration
-      // (the reverse of capSessionDuration -- adds volume instead of trimming
-      // when the slider moves UP past what the fetched exercise list already
-      // fills). The frontend never sent maxDurationMin to this endpoint at all
-      // (it's applied entirely client-side against the slider), so without
-      // this the fill logic could never actually run.
-      fatigueCeiling: fatigueCeilingFor(metabolicFatigue),
     });
   }
 
@@ -2057,6 +2036,55 @@ app.post("/plan/week", async (req, res) => {
   res.json({ ...db.weeklyPlan, sessionsCompletedThisWeek: weekLiftSessionsCompleted(db.lifts) });
 });
 
+// ---------- Plan Ahead calendar (Phase 5) ----------
+// The forward-looking replacement for the "This Week's Guidance" advisory
+// display: an actual day-by-day solve instead of just a session-count target
+// + freshness ranking. db.weeklyPlan (above) stays as-is — #131/#133's
+// micro-widgets still read it — this is additive, not a replacement of that
+// stored shape.
+//
+// Never stored. TRAINING_ETHOS.md is explicit this is autoregulated
+// session-to-session, never a locked program — recomputed fresh from live
+// fatigue on every request, same as /plan/recommendation already does for a
+// single day. Only the constraints (calendarWindows, unavailableDaysOfWeek,
+// availableDaysOfWeek, splitDayAnchors, weeklySessionTarget) are durable;
+// the picks never are.
+app.get('/plan/calendar', async (req, res) => {
+  const days = +req.query.days === 30 ? 30 : 7;
+  const ctx = sessionPlanContext();
+  const preferredSplit = db.profile?.preferredSplit || detectPreferredSplit(db.lifts) || 'Full Body';
+  const result = solveCalendarWindow({
+    lifts: ctx.lifts,
+    soreness: db.soreness || [],
+    sensitivity: db.muscleSensitivity || {},
+    recoveryHours: personalizedRecoveryHours(db.profile),
+    cnsSensitivity: db.cnsSensitivity || 1.0,
+    recoveryScore: getRecoveryScore(db),
+    carbsToday: (db.nutrition || {})[day()]?.carbs || 0,
+    injuries: db.injuries || [],
+    muscleFocus: ctx.muscleFocus,
+    preferredSplit,
+    travelMode: ctx.travelMode,
+    favoriteExercises: ctx.favoriteExercises,
+    trainingMonths: ctx.trainingMonths,
+    preferStable: ctx.preferStable,
+    maxDurationMin: db.profile?.maxSessionDurationMin || null,
+    warmupScheme: ctx.warmupScheme,
+    compoundIsolationPreference: db.profile?.compoundIsolationPreference || null,
+    // Empty/unset means "never configured", not "only bodyweight allowed" —
+    // same null-means-unrestricted convention as everywhere else this flows.
+    equipmentAvailable: db.profile?.equipmentAvailable?.length ? db.profile.equipmentAvailable : null,
+    calendarWindows: db.calendarWindows || [],
+    unavailableDaysOfWeek: db.profile?.unavailableDaysOfWeek || [],
+    availableDaysOfWeek: db.profile?.availableDaysOfWeek || [],
+    splitDayAnchors: db.profile?.splitDayAnchors || {},
+    weeklySessionTarget: db.profile?.weeklySessionTarget ?? null,
+    trainingPriority: db.profile?.trainingPriority || 'strength',
+    days,
+  });
+  res.json(result);
+});
+
 // ---------- Soreness logging + personal sensitivity ----------
 app.post("/soreness", async (req, res) => {
   const { muscle, score, calcFatigue } = req.body;
@@ -2102,6 +2130,35 @@ app.post('/injuries/:id/resolve', async (req, res) => {
   if (!injury) return res.status(404).json({ error: 'not found' });
   injury.resolved = true;
   injury.resolvedAt = Date.now();
+  await save();
+  res.json({ ok: true });
+});
+
+// ---------- Calendar constraint windows (Plan Ahead — see calendarSolver.js) ----------
+// One-off date-range availability constraints: a holiday, a trip with only a
+// hotel gym, a week you can't train at all. Recurring day-of-week blackouts
+// and the split-day anchor are durable profile settings instead (POST
+// /profile) — these are dated events, same shape-of-concern as injuries.
+const CALENDAR_WINDOW_LEVELS = ['rest', 'bodyweight', 'restricted'];
+app.get('/calendar-windows', async (req, res) => {
+  res.json({ calendarWindows: db.calendarWindows || [] });
+});
+
+app.post('/calendar-windows', async (req, res) => {
+  const { start, end, level, equipment, reason } = req.body || {};
+  if (!start || !end) return res.status(400).json({ error: 'start and end (YYYY-MM-DD) required' });
+  if (end < start) return res.status(400).json({ error: 'end must not be before start' });
+  if (!CALENDAR_WINDOW_LEVELS.includes(level)) return res.status(400).json({ error: `level must be one of ${CALENDAR_WINDOW_LEVELS.join(', ')}` });
+  if (level === 'restricted' && !Array.isArray(equipment)) return res.status(400).json({ error: 'restricted level requires an equipment array' });
+  db.calendarWindows = db.calendarWindows || [];
+  const id = Date.now();
+  db.calendarWindows.push({ id, start, end, level, equipment: level === 'restricted' ? equipment : null, reason: reason || null });
+  await save();
+  res.json({ ok: true, id });
+});
+
+app.delete('/calendar-windows/:id', async (req, res) => {
+  db.calendarWindows = (db.calendarWindows || []).filter(w => w.id !== +req.params.id);
   await save();
   res.json({ ok: true });
 });

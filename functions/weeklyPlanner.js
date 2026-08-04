@@ -99,7 +99,7 @@ function weightedCoverage(e, targetMuscles) {
   return e.primary.reduce((sum, m) => targetMuscles.includes(m) ? sum + (profile[m] || 0) / peak : sum, 0);
 }
 
-function pickBackboneExercises(targetMuscles, { travelMode, lifts, favoriteExercises = [], count = 2, excludeNames = new Set(), preferStable = false } = {}) {
+function pickBackboneExercises(targetMuscles, { travelMode, lifts, favoriteExercises = [], count = 2, excludeNames = new Set(), preferStable = false, equipmentAvailable = null } = {}) {
   const logged = loggedExerciseNames(lifts);
   const favorites = new Set(favoriteExercises.map(n => (n || '').toLowerCase()));
   // Bodyweight exercises excluded from normal selection — see
@@ -107,11 +107,17 @@ function pickBackboneExercises(targetMuscles, { travelMode, lifts, favoriteExerc
   // (travelMode, "Weighted X" variants, Russian Twist).
   // excludeNames: names already used elsewhere in the same session — see
   // generateSessionExercises' sessionExcludeNames for why this matters.
+  // equipmentAvailable: same optional allow-list pickAccessories/
+  // pickDedicatedAccessory already respect (sessionPlanner.js) — backbone
+  // picks went through travelMode's binary bodyweight-only gate only, no
+  // finer-grained filter, until calendarSolver.js's restricted-equipment
+  // calendar windows needed one too.
   const pool = EXERCISE_DB.filter(e =>
     !e.lesserKnown && !e.isometric &&
     !excludeNames.has(e.name) &&
     !(isBodyweightOnlyExercise(e) && !travelMode) &&
     (travelMode ? e.equipment === 'bodyweight' : true) &&
+    (equipmentAvailable == null || equipmentAvailable.includes(e.equipment)) &&
     e.primary.some(m => targetMuscles.includes(m))
   );
   const scored = pool

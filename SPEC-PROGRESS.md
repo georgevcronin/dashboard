@@ -30,7 +30,6 @@ missing so the call can be checked.
 | 7 | Target muscle planner | `targetMusclePlanner.js`, `TargetMusclePlannerPanel` |
 | 8 | Override trade-offs | `RecommendationPanel` comparisons |
 | 9 | Recommendation explainability | "Why This" blocks, term-by-term at scientist |
-| 10 | What If simulation | `whatIfSimulator.js`, `WhatIfSandbox` |
 | 11 | Masonry grid | `pressCss.js:41` — `grid-auto-rows:1px`, `row dense` |
 | 12 | Panel display states | `panelStates`, `resolvePanelState` |
 | 16 | Expertise-responsive sizing | `resolvePanelState(id, states, expertise)` |
@@ -40,6 +39,7 @@ missing so the call can be checked.
 | 38 | Injury profiling | `/injury`, `/injuries`, `offlineMuscles` |
 | 39 | Equipment availability | gyms, machine models, `travelMode` |
 | 40 | Editable central profile | `POST /profile`, Settings |
+| 42 | Calendar + forecasting | `calendarSolver.js`, `GET /plan/calendar`, `CalendarGrid` — day-by-day 7/30-day solve with readiness, plus constraints (recurring/allow-list days, holiday windows, weekly session target, split anchor) in Settings |
 | 43 | Weekly coaching brief | `generateWeeklyReview`, `/weekly-review`, S1 (Mon–Wed) |
 | 44 | Daily coaching brief | `/briefing`, `/newscast` (mid-day + night editions) |
 | 46 | Adaptive progression | `progression.js`, double progression |
@@ -67,6 +67,7 @@ it, so it is counted under Partial below.
 | # | Feature | What's missing |
 |---|---|---|
 | 1 | Recommendation-first dashboard | Engine exists; layout doesn't. Recommendation sits inside Training, the 3rd panel |
+| 10 | What If simulation | Dedicated `WhatIfSandbox` (parameter sliders, side-by-side comparison) removed — superseded by the Plan Ahead calendar, which previews a session's predicted fatigue/stimulus effect (`simulateSession`) before you commit, but doesn't let you compare multiple hand-tuned options against each other |
 | 13 | Row/column spanning | Row spanning works via masonry; no column spanning |
 | 15 | Customizable layouts | Reorder, hide, collapse — no resize or drag |
 | 17 | Live recalibration animation | Bars recalculate live; nothing animates |
@@ -81,7 +82,6 @@ it, so it is counted under Partial below.
 | 34 | Penalty-free skipping | Summary shows gaps without blocking; no explicit skip control |
 | 37 | Movement preferences | Compound/Isolation slider only, not movement categories |
 | 41 | Unified timeline | `/timeline` built; nothing renders it |
-| 42 | Calendar + forecasting | `.ics` export works; no forecast calendar view |
 | 45 | Deload detection | Per-exercise deload in `progression.js`; no systemic trigger |
 | 48 | Readiness confidence | see #19 |
 | 51 | Fatigue heatmap | `public/body-*.svg` + `MiniBodyDiagram`; not the 3-type interactive map |
