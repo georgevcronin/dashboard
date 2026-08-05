@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const {
   DEFAULT_RATING, K_EXPLICIT, K_IMPLICIT,
   eloUpdate, applyComparison, recencyWeightedFrequency, rawFrequency,
-  exerciseE1rmTrend, resolveImplicitWinner, rankExercises,
+  exerciseE1rmTrend, resolveImplicitWinner, detectComparisonCandidates, rankExercises,
 } = require('../functions/exercisePreferenceRanking');
 
 test('eloUpdate: equal ratings split the K-factor evenly', () => {
@@ -115,6 +115,64 @@ test('resolveImplicitWinner: a 1-1 split (frequency favors A, trend favors B) re
   ];
   // A wins frequency (recent, half-life-weighted), B wins trend (real climbing slope vs A's flat/no-trend) — 1-1 tie.
   assert.equal(resolveImplicitWinner(lifts, 'A', 'B', new Date('2026-08-05').getTime()), null);
+});
+
+test('detectComparisonCandidates: pairs a new exercise with a different prior exercise sharing a primary muscle', () => {
+  const newLiftEntries = [{ exercise: 'Leg Extension', date: '2026-08-05', kg: 60, reps: 12 }];
+  const priorLifts = [{ exercise: 'Front Squat', date: '2026-08-01', kg: 80, reps: 6 }];
+  const candidates = detectComparisonCandidates(newLiftEntries, priorLifts);
+  assert.equal(candidates.length, 1);
+  assert.equal(candidates[0].a, 'Leg Extension');
+  assert.equal(candidates[0].b, 'Front Squat');
+  assert.equal(candidates[0].muscle, 'quads');
+});
+
+test('detectComparisonCandidates: a real multi-primary-muscle exercise gets one candidate per shared muscle', () => {
+  // Barbell Bench Press and Incline Barbell Bench Press genuinely share all
+  // three of their primary muscles (chest, triceps, front-delt) — that's
+  // three real candidates, not a bug; "one per overlapping muscle" means
+  // exactly that, not "one per exercise pair" (see the next test for the
+  // actual collapse case: two DIFFERENT new exercises landing on the same
+  // muscle only produce one candidate for that muscle).
+  const newLiftEntries = [{ exercise: 'Barbell Bench Press', date: '2026-08-05', kg: 100, reps: 5 }];
+  const priorLifts = [{ exercise: 'Incline Barbell Bench Press', date: '2026-08-01', kg: 60, reps: 8 }];
+  const candidates = detectComparisonCandidates(newLiftEntries, priorLifts);
+  assert.deepEqual(candidates.map(c => c.muscle).sort(), ['chest', 'front-delt', 'triceps']);
+});
+
+test('detectComparisonCandidates: one candidate per overlapping muscle, not one per exercise pair', () => {
+  // Both new exercises are single-primary quads exercises; both would
+  // independently pair with the one prior quads exercise — must collapse to
+  // a single "quads" candidate, not fire once per new exercise.
+  const newLiftEntries = [
+    { exercise: 'Leg Extension', date: '2026-08-05', kg: 60, reps: 12 },
+    { exercise: 'Sissy Squat', date: '2026-08-05', kg: 0, reps: 10 },
+  ];
+  const priorLifts = [{ exercise: 'Front Squat', date: '2026-08-01', kg: 80, reps: 6 }];
+  const candidates = detectComparisonCandidates(newLiftEntries, priorLifts);
+  assert.equal(candidates.length, 1);
+  assert.equal(candidates[0].muscle, 'quads');
+});
+
+test('detectComparisonCandidates: picks the most recently-logged prior exercise when more than one shares the muscle', () => {
+  const newLiftEntries = [{ exercise: 'Barbell Bench Press', date: '2026-08-05', kg: 100, reps: 5 }];
+  const priorLifts = [
+    { exercise: 'Incline Barbell Bench Press', date: '2026-07-01', kg: 60, reps: 8 },
+    { exercise: 'Close-Grip Bench Press', date: '2026-08-01', kg: 80, reps: 6 }, // more recent
+  ];
+  const candidates = detectComparisonCandidates(newLiftEntries, priorLifts);
+  assert.equal(candidates[0].b, 'Close-Grip Bench Press');
+});
+
+test('detectComparisonCandidates: no candidate when there is no prior history at all', () => {
+  const newLiftEntries = [{ exercise: 'Barbell Bench Press', date: '2026-08-05', kg: 100, reps: 5 }];
+  assert.deepEqual(detectComparisonCandidates(newLiftEntries, []), []);
+});
+
+test('detectComparisonCandidates: no candidate when a muscle is only ever trained by the same exercise (self-pairing excluded)', () => {
+  const newLiftEntries = [{ exercise: 'Barbell Bench Press', date: '2026-08-05', kg: 100, reps: 5 }];
+  const priorLifts = [{ exercise: 'Barbell Bench Press', date: '2026-08-01', kg: 95, reps: 5 }];
+  assert.deepEqual(detectComparisonCandidates(newLiftEntries, priorLifts), []);
 });
 
 test('rankExercises: sorts highest rating first and carries comparison counts through', () => {

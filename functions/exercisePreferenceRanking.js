@@ -8,6 +8,7 @@
 // see its own doc comment for why it already returns exactly "improving or
 // no signal," which is what "improvement" as a ranking factor means here.
 const { e1rmTrendSlope, estimate1RM } = require('./strengthStandards');
+const { findExercise, musclesForExercise } = require('./muscleTaxonomy');
 
 const DEFAULT_RATING = 1500;
 // A real vote should move the needle much more than a same-signal implicit
@@ -120,6 +121,48 @@ function resolveImplicitWinner(lifts, nameA, nameB, now) {
   return null;
 }
 
+function primaryMusclesOf(exerciseName) {
+  return findExercise(exerciseName)?.primary || musclesForExercise(exerciseName);
+}
+
+// Finish-workout comparison trigger: for each primary muscle trained by an
+// exercise in the just-logged session, find a *different* exercise sharing
+// that primary muscle from the athlete's prior history (excluding this
+// session's own new entries), and pair them up — one candidate per
+// overlapping primary muscle, not one per exercise-pair combination (so a
+// session with 3 exercises sharing the same muscle doesn't fire 3 near-
+// identical prompts). Ties on "most relevant prior exercise for this
+// muscle" go to whichever was logged most recently, matching how "recent"
+// already reads as "relevant" elsewhere in the app (favourites, staleness).
+function detectComparisonCandidates(newLiftEntries, priorLifts) {
+  const newExerciseNames = [...new Set(newLiftEntries.map(l => l.exercise))];
+  const lastLoggedDate = {};
+  for (const l of priorLifts) {
+    if (!l.date) continue;
+    if (!lastLoggedDate[l.exercise] || l.date > lastLoggedDate[l.exercise]) lastLoggedDate[l.exercise] = l.date;
+  }
+  const priorExerciseNames = Object.keys(lastLoggedDate);
+
+  const seenMuscles = new Set();
+  const candidates = [];
+  for (const name of newExerciseNames) {
+    for (const muscle of primaryMusclesOf(name)) {
+      if (seenMuscles.has(muscle)) continue;
+      let best = null;
+      for (const priorName of priorExerciseNames) {
+        if (priorName === name) continue;
+        if (!primaryMusclesOf(priorName).includes(muscle)) continue;
+        if (!best || lastLoggedDate[priorName] > lastLoggedDate[best]) best = priorName;
+      }
+      if (best) {
+        seenMuscles.add(muscle);
+        candidates.push({ muscle, a: name, b: best });
+      }
+    }
+  }
+  return candidates;
+}
+
 // Sorted highest-rated first — what the ranked Settings display and the
 // public profile list both read directly.
 function rankExercises(ratings) {
@@ -131,5 +174,5 @@ function rankExercises(ratings) {
 module.exports = {
   DEFAULT_RATING, K_EXPLICIT, K_IMPLICIT, RECENCY_HALF_LIFE_DAYS,
   eloUpdate, applyComparison, recencyWeightedFrequency, rawFrequency,
-  exerciseE1rmTrend, resolveImplicitWinner, rankExercises,
+  exerciseE1rmTrend, resolveImplicitWinner, detectComparisonCandidates, rankExercises,
 };

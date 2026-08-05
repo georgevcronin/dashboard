@@ -31,6 +31,7 @@ const { validateGoals, validateActivities, applyActivityDefaults, seedReturningA
 const { findNearbyGyms, normalizeExerciseKey, GYM_NEARBY_RADIUS_M } = require('./gyms');
 const { buildUnifiedTimeline } = require('./analyticsEngine');
 const { computePatternFatigue } = require('./movementPatterns');
+const { detectComparisonCandidates, resolveImplicitWinner, applyComparison, rankExercises } = require('./exercisePreferenceRanking');
 
 admin.initializeApp();
 const firestore = admin.firestore();
@@ -1161,6 +1162,10 @@ app.post("/profile", async (req, res) => {
   // keeps this generic endpoint safe against a client just including them
   // in a broader profile-save payload without meaning to bypass anything.
   delete body.username; delete body.displayName; delete body.lastUsernameChangeAt;
+  // Elo-style exercise ratings (FEATURES.md #142) are server-computed only
+  // — from real pairwise comparisons and import seeding, never a client-
+  // supplied value — same protection as username/visibility above.
+  delete body.exerciseRatings;
   // Per-category visibility toggles, gating what a follower can see (see
   // USERNAME_AND_COMPARISON.md §4/§6). Only the two known keys are ever
   // merged in, whitelisted rather than trusting an arbitrary client object,
@@ -2302,7 +2307,8 @@ async function applySessionComplete(data, liftsRef, saveFn, { workout, sets = []
 
   const isReplacedToday = l => l.date === workout.date && newLiftEntries.some(s => s.exercise === l.exercise);
   await removeLiftsAndAppend(liftsRef, isReplacedToday, newLiftEntries);
-  data.lifts = data.lifts.filter(l => !isReplacedToday(l));
+  const priorLifts = data.lifts.filter(l => !isReplacedToday(l));
+  data.lifts = priorLifts;
   data.lifts.push(...newLiftEntries);
 
   if (customExercises.length) {
@@ -2312,8 +2318,15 @@ async function applySessionComplete(data, liftsRef, saveFn, { workout, sets = []
     });
   }
 
+  // FEATURES.md #142: candidate pairwise-preference prompts for the finish-
+  // workout screen — computed against history as it stood *before* this
+  // session's own new entries, per priorLifts above, so an exercise doesn't
+  // get offered as its own comparison partner via a set logged seconds ago
+  // in the same session.
+  const comparisonCandidates = detectComparisonCandidates(newLiftEntries, priorLifts);
+
   await saveFn();
-  return newLiftEntries.length;
+  return { setsLogged: newLiftEntries.length, comparisonCandidates };
 }
 
 app.post('/session/complete', async (req, res) => {
@@ -2322,8 +2335,9 @@ app.post('/session/complete', async (req, res) => {
     if (!workout?.date) return res.status(400).json({ error: 'workout.date required' });
     if (typeof elapsed !== 'number' || elapsed < 0) return res.status(400).json({ error: 'elapsed (ms) must be non-negative number' });
 
-    const setsLogged = await applySessionComplete(db, liftsDocRef, save, { workout, sets, customExercises, elapsed });
-    if (setsLogged === null) return res.json({ ok: true, setsLogged: 0, atlasSummary: null });
+    const sessionResult = await applySessionComplete(db, liftsDocRef, save, { workout, sets, customExercises, elapsed });
+    if (sessionResult === null) return res.json({ ok: true, setsLogged: 0, atlasSummary: null, comparisonCandidates: [] });
+    const { setsLogged, comparisonCandidates } = sessionResult;
 
     let atlasSummary = null;
     if (process.env.GEMINI_API_KEY && setsLogged > 0) {
@@ -2347,8 +2361,31 @@ Write a brief post-session note highlighting what the numbers say — mechanical
       atlasSummary = result.ok ? result.content.trim() : null;
     }
 
-    res.json({ ok: true, setsLogged, atlasSummary });
+    res.json({ ok: true, setsLogged, atlasSummary, comparisonCandidates });
   } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ---------- Exercise preference ranking (FEATURES.md #142) ----------
+// Records the answer to a finish-workout "X vs Y" prompt (a and b from a
+// comparisonCandidates entry above). winner === a or b for a real vote; omit
+// it (or send skip: true) to fall back to the implicit signal instead —
+// same resolveImplicitWinner used for bulk-import seeding, just applied to
+// one specific pair instead of a whole imported history at once.
+app.post('/preferences/compare', async (req, res) => {
+  const { a, b, winner } = req.body || {};
+  if (!a || !b || typeof a !== 'string' || typeof b !== 'string' || a === b) {
+    return res.status(400).json({ error: 'a and b (two different exercise names) required' });
+  }
+  const ratings = db.profile.exerciseRatings || {};
+  let resolvedWinner = winner === a || winner === b ? winner : null;
+  const implicit = !resolvedWinner;
+  if (implicit) resolvedWinner = resolveImplicitWinner(db.lifts || [], a, b, Date.now());
+  if (!resolvedWinner) return res.json({ ok: true, applied: false });
+
+  const loser = resolvedWinner === a ? b : a;
+  db.profile.exerciseRatings = applyComparison(ratings, resolvedWinner, loser, { implicit });
+  await save();
+  res.json({ ok: true, applied: true, implicit, winner: resolvedWinner });
 });
 
 app.delete('/workout/:date', async (req, res) => {
@@ -2687,14 +2724,15 @@ app.post('/session/:id/finish', async (req, res) => {
     if (!data.participants.find(p => p.uid === req.uid)) return res.status(403).json({ error: 'Not a participant of this session' });
 
     const groupWith = data.participants.filter(p => p.uid !== req.uid).map(p => ({ uid: p.uid, username: p.username, displayNameFirst: p.displayNameFirst }));
-    const setsLogged = await applySessionComplete(db, liftsDocRef, save, { workout, sets, customExercises, groupWith: groupWith.length ? groupWith : null, elapsed });
-    if (setsLogged === null) return res.json({ ok: true, setsLogged: 0 });
+    const sessionResult = await applySessionComplete(db, liftsDocRef, save, { workout, sets, customExercises, groupWith: groupWith.length ? groupWith : null, elapsed });
+    if (sessionResult === null) return res.json({ ok: true, setsLogged: 0, comparisonCandidates: [] });
+    const { setsLogged, comparisonCandidates } = sessionResult;
 
     const now = new Date().toISOString();
     const updatedParticipants = data.participants.map(p => p.uid === req.uid ? { ...p, status: 'finished', lastActivityAt: now } : p);
     await ref.update({ participants: updatedParticipants, participantUids: participantUidsOf(updatedParticipants) });
     await deleteSessionIfDone(ref, updatedParticipants);
-    res.json({ ok: true, setsLogged });
+    res.json({ ok: true, setsLogged, comparisonCandidates });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
