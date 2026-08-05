@@ -6321,10 +6321,53 @@ function suggestTargets(goals) {
 function Onboarding({ onComplete, onOpenImport }) {
   const TOTAL = 10;
   const [step, setStep] = useState(0);
-  const [echelon, setEchelon] = useState('full');
-  const [agreedToTerms, setAgreedToTerms] = useState(false);
+  const [saving, setSaving] = useState(false);
+  // Surfaced when a step's save genuinely fails — advance() previously
+  // swallowed every save error and moved to the next step regardless (api()
+  // only rejects on network failure, not on an HTTP error response, and
+  // nothing here checked for either), so a real save failure looked
+  // identical to success: "Saving…" then straight through to "You're set
+  // up" with nothing actually written. Now it stops on the current step and
+  // lets the athlete retry instead.
+  const [stepError, setStepError] = useState('');
 
-  // Step 6 (training background)
+  // Step 1 — About You
+  const [name, setName] = useState('');
+  const [dob, setDob] = useState('');
+  const [heightUnit, setHeightUnit] = useState('cm');
+  const [heightVal, setHeightVal] = useState('');
+  const [weightUnit, setWeightUnit] = useState('kg');
+  const [weightVal, setWeightVal] = useState('');
+  const [bodyFat, setBodyFat] = useState('');
+  const [sex, setSex] = useState('');
+
+  // Step 2 — Training Goals -- each: { type, priority, concrete, metric?,
+  // target?, targetDate?, exercise?, benchmarkLabel? }. See GOAL_DEFS above.
+  const [trainingGoals, setTrainingGoals] = useState([]);
+  const goalFor = key => trainingGoals.find(g => g.type === key);
+  const toggleGoal = key => setTrainingGoals(gs => gs.some(g => g.type === key)
+    ? gs.filter(g => g.type !== key) : [...gs, { type: key, priority: 'secondary', concrete: false }]);
+  const updateGoal = (key, patch) => setTrainingGoals(gs => gs.map(g => g.type === key ? { ...g, ...patch } : g));
+
+  // Step 3 — Diet Goal & Daily Targets -- unchanged single-select diet goal
+  // driving macro-auto; deliberately kept separate from trainingGoals above
+  // (different question: what you eat, not what you train for).
+  const [goal, setGoal] = useState('');
+  const [sleepTarget, setSleepTarget] = useState(8);
+  const [waterTarget, setWaterTarget] = useState(7);
+  const [trainingDays, setTrainingDays] = useState(4);
+
+  // Step 4 — Activities -- each: { type, priority }. See ACTIVITY_DEFS above.
+  const [activities, setActivities] = useState([]);
+  const activityFor = key => activities.find(a => a.type === key);
+  const toggleActivity = key => setActivities(as => as.some(a => a.type === key)
+    ? as.filter(a => a.type !== key) : [...as, { type: key, priority: 'secondary' }]);
+  const updateActivity = (key, patch) => setActivities(as => as.map(a => a.type === key ? { ...a, ...patch } : a));
+
+  // Step 5 — Tracking Level
+  const [echelon, setEchelon] = useState('full');
+
+  // Step 6 — Training Background
   const [split, setSplit] = useState('');
   const [usualSets, setUsualSets] = useState('');
   const [usualRepsLow, setUsualRepsLow] = useState('');
@@ -6336,7 +6379,7 @@ function Onboarding({ onComplete, onOpenImport }) {
   // after a break"; a brand-new lifter never sees this question.
   const [returningBreakWeeks, setReturningBreakWeeks] = useState('');
 
-  // Step 7 (muscle focus) -- 'focus' | 'ignore', absent = normal. 'focus'
+  // Step 7 — Muscle Focus -- 'focus' | 'ignore', absent = normal. 'focus'
   // gives a real priority boost in session generation (FOCUS_MUSCLE_BONUS,
   // functions/weeklyPlanner.js); 'ignore' hard-excludes the muscle from
   // both fatigue/freshness scales and being a primary target in any
@@ -6344,56 +6387,13 @@ function Onboarding({ onComplete, onOpenImport }) {
   // mechanism as an injury).
   const [muscleFocus, setMuscleFocus] = useState({});
 
-  // Step 1
-  const [name, setName] = useState('');
-  const [dob, setDob] = useState('');
-  const [heightUnit, setHeightUnit] = useState('cm');
-  const [heightVal, setHeightVal] = useState('');
-  const [weightUnit, setWeightUnit] = useState('kg');
-  const [weightVal, setWeightVal] = useState('');
-  const [bodyFat, setBodyFat] = useState('');
-  const [sex, setSex] = useState('');
-
-  // Step 2 (training goals) -- each: { type, priority, concrete, metric?,
-  // target?, targetDate?, exercise?, benchmarkLabel? }. See GOAL_DEFS above.
-  const [trainingGoals, setTrainingGoals] = useState([]);
-  const goalFor = key => trainingGoals.find(g => g.type === key);
-  const toggleGoal = key => setTrainingGoals(gs => gs.some(g => g.type === key)
-    ? gs.filter(g => g.type !== key) : [...gs, { type: key, priority: 'secondary', concrete: false }]);
-  const updateGoal = (key, patch) => setTrainingGoals(gs => gs.map(g => g.type === key ? { ...g, ...patch } : g));
-
-  // Step 4 (activities) -- each: { type, priority }. See ACTIVITY_DEFS above.
-  const [activities, setActivities] = useState([]);
-  const activityFor = key => activities.find(a => a.type === key);
-  const toggleActivity = key => setActivities(as => as.some(a => a.type === key)
-    ? as.filter(a => a.type !== key) : [...as, { type: key, priority: 'secondary' }]);
-  const updateActivity = (key, patch) => setActivities(as => as.map(a => a.type === key ? { ...a, ...patch } : a));
-
-  // Step 3 (diet goal + daily targets) -- unchanged single-select diet goal
-  // driving macro-auto; deliberately kept separate from trainingGoals above
-  // (different question: what you eat, not what you train for).
-  const [goal, setGoal] = useState('');
-  const [sleepTarget, setSleepTarget] = useState(8);
-  const [waterTarget, setWaterTarget] = useState(7);
-  const [trainingDays, setTrainingDays] = useState(4);
-
-  // Step 5 tracking
+  // Step 8 — Connect Services
   const [stravaStarted, setStravaStarted] = useState(false);
   const [healthGuideOpen, setHealthGuideOpen] = useState(false);
   const [hevyKeyVal, setHevyKeyVal] = useState('');
   const [hevyKeyMode, setHevyKeyMode] = useState(null);
   const [hevyKeySaved, setHevyKeySaved] = useState(false);
   const [urlCopied, setUrlCopied] = useState(false);
-  const [saving, setSaving] = useState(false);
-  // Surfaced when a step's save genuinely fails — advance() previously
-  // swallowed every save error and moved to the next step regardless (api()
-  // only rejects on network failure, not on an HTTP error response, and
-  // nothing here checked for either), so a real save failure looked
-  // identical to success: "Saving…" then straight through to "You're set
-  // up" with nothing actually written. Now it stops on the current step and
-  // lets the athlete retry instead.
-  const [stepError, setStepError] = useState('');
-
   const SHORTCUT_URL = `${API_BASE}/shortcut`;
   // Personal sync URL — each account gets its own token so its data lands
   // in its own account rather than everyone sharing the owner's URL (which
@@ -6415,19 +6415,25 @@ function Onboarding({ onComplete, onOpenImport }) {
       return next;
     });
   };
-
   const copyUrl = () => {
     navigator.clipboard?.writeText(syncUrl).then(() => {
       setUrlCopied(true); setTimeout(() => setUrlCopied(false), 2000);
     });
   };
 
-  // throwOnError on every call below — api() otherwise only rejects on a
+  // Step 9 — All Set
+  const [agreedToTerms, setAgreedToTerms] = useState(false);
+
+  // throwOnError on every save below — api() otherwise only rejects on a
   // network-level failure, not an HTTP error response, so a genuine save
   // failure (auth hiccup, timeout, 500, whatever) would resolve normally
   // and look identical to success. advance()'s try/catch is the single
-  // place that reacts to a real failure now.
-  const saveStep1 = async () => {
+  // place that reacts to a real failure now. Named for what each one saves,
+  // not its step number — steps have already been inserted/reordered once
+  // (Training Goals/Activities split out of an older single primary/
+  // secondary pair per FEATURES.md #21/#24) and a number in the name just
+  // goes stale again the next time that happens.
+  const saveAboutYou = async () => {
     const kg = weightUnit === 'kg' ? parseFloat(weightVal) : parseFloat(weightVal) * 0.453592;
     const cm = heightUnit === 'cm' ? parseFloat(heightVal) : parseFloat(heightVal) * 30.48;
     const age = dob ? Math.floor((Date.now() - new Date(dob)) / (365.25 * 24 * 3600 * 1000)) : null;
@@ -6437,7 +6443,7 @@ function Onboarding({ onComplete, onOpenImport }) {
     if (bodyFat) await api('bodyfat', { method: 'POST', body: JSON.stringify({ pct: parseFloat(bodyFat) }), throwOnError: true });
   };
 
-  const saveGoals = async () => {
+  const saveTrainingGoals = async () => {
     const payload = trainingGoals.map(g => {
       const out = { type: g.type, priority: g.priority, concrete: !!g.concrete };
       if (!g.concrete) return out;
@@ -6455,7 +6461,7 @@ function Onboarding({ onComplete, onOpenImport }) {
     await api('profile', { method: 'POST', body: JSON.stringify({ goals: payload }), throwOnError: true });
   };
 
-  const saveStep2 = async () => {
+  const saveDietGoalAndTargets = async () => {
     await api('profile', { method: 'POST', body: JSON.stringify({ goal, sleepTarget, waterTarget, trainingDaysPerWeek: trainingDays }), throwOnError: true });
     if (DIET_GOAL_MACRO_MAP[goal]) await api('macro-auto', { method: 'POST', body: JSON.stringify({ goal: DIET_GOAL_MACRO_MAP[goal] }), throwOnError: true });
   };
@@ -6464,7 +6470,11 @@ function Onboarding({ onComplete, onOpenImport }) {
     await api('profile', { method: 'POST', body: JSON.stringify({ activities: activities.map(({ type, priority }) => ({ type, priority })) }), throwOnError: true });
   };
 
-  const saveStep4 = async () => {
+  const saveTrackingLevel = async () => {
+    await api('profile', { method: 'POST', body: JSON.stringify({ trackingLevel: echelon }), throwOnError: true });
+  };
+
+  const saveTrainingBackground = async () => {
     const trainingBackground = {
       split: split || undefined,
       usualSets: usualSets ? parseInt(usualSets) : undefined,
@@ -6477,7 +6487,7 @@ function Onboarding({ onComplete, onOpenImport }) {
     await api('profile', { method: 'POST', body: JSON.stringify(body), throwOnError: true });
   };
 
-  const saveStep5 = async () => {
+  const saveMuscleFocus = async () => {
     await api('profile', { method: 'POST', body: JSON.stringify({ muscleFocus }), throwOnError: true });
   };
 
@@ -6485,17 +6495,17 @@ function Onboarding({ onComplete, onOpenImport }) {
     setSaving(true);
     setStepError('');
     try {
-      if (step === 1) await saveStep1();
+      if (step === 1) await saveAboutYou();
       if (step === 2) {
-        await saveGoals();
+        await saveTrainingGoals();
         const sug = suggestTargets(trainingGoals);
         setSleepTarget(sug.sleepTarget); setWaterTarget(sug.waterTarget); setTrainingDays(sug.trainingDays);
       }
-      if (step === 3) await saveStep2();
+      if (step === 3) await saveDietGoalAndTargets();
       if (step === 4) await saveActivities();
-      if (step === 5) await api('profile', { method: 'POST', body: JSON.stringify({ trackingLevel: echelon }), throwOnError: true });
-      if (step === 6) await saveStep4();
-      if (step === 7) await saveStep5();
+      if (step === 5) await saveTrackingLevel();
+      if (step === 6) await saveTrainingBackground();
+      if (step === 7) await saveMuscleFocus();
       setStep(s => s + 1);
     } catch {
       setStepError('Something didn’t save — check your connection and try again.');
@@ -7738,7 +7748,7 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
   // seedReturningAthleteAtrophy) — Settings previously didn't offer that
   // experience option at all, so there was no way to reach this after
   // Onboarding. Sent together with experienceLevel in one request, same as
-  // Onboarding's saveStep4, since the backend only seeds/reseeds the
+  // Onboarding's saveTrainingBackground, since the backend only seeds/reseeds the
   // atrophy estimate when both arrive together.
   const [returningBreakWeeksVal, setReturningBreakWeeksVal] = useState(s?.profile?.returningBreakWeeks ?? '');
   const saveReturningBreakWeeks = () => {
