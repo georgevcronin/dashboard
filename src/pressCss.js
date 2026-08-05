@@ -80,7 +80,6 @@ body{font-family:'Times New Roman',Times,Georgia,serif;color:var(--ink)}
    equal-specificity tie, not stacking. */
 @media(min-width:1380px){.panel-w2{grid-column:span 2;background:var(--paper)}}
 @media(min-width:1800px){.panel-w3{grid-column:span 3;background:var(--paper)}}
-.panel-off{display:none}
 /* Everything except the section's own header block hides, which is why each
    section tags its header .panel-head — "the first .fade child" isn't
    expressible as a selector, and S3 puts a travel banner ahead of its.
@@ -119,8 +118,10 @@ section.visible .fade:nth-child(6){transition-delay:.56s}
 /* .muscle-bar-fill animates its width, which is the parameter sliders' live
    muscle-credit readout — the one place motion carries meaning here. It still
    has to stop under reduced-motion: the bars land on the same values either
-   way, they just arrive instantly. */
-@media(prefers-reduced-motion:reduce){.fade,.ticker-track,.muscle-bar-fill{animation:none;transition:none}.fade{opacity:1;transform:none}}
+   way, they just arrive instantly. .mobile-track is the swipe carousel's
+   slide transition (below, mobile-only) — same rule, a swipe or dock tap
+   still switches section instantly, just without the animated slide. */
+@media(prefers-reduced-motion:reduce){.fade,.ticker-track,.muscle-bar-fill,.mobile-track{animation:none;transition:none}.fade{opacity:1;transform:none}}
 .hide-scrollbar{-ms-overflow-style:none;scrollbar-width:none}
 .hide-scrollbar::-webkit-scrollbar{display:none}
 .kicker{font-size:8px;letter-spacing:.22em;text-transform:uppercase;color:var(--dim);border-bottom:1px solid var(--ink);display:inline-block;padding-bottom:2px;margin-bottom:8px}
@@ -418,7 +419,12 @@ section.visible .fade:nth-child(6){transition-delay:.56s}
 .briefing-fatigue-detail{font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--dim);margin-top:4px;line-height:1.6}
 .briefing-preview{border-bottom:1px solid var(--rule);padding:10px 0;cursor:pointer}
 .fatigue-banner{background:var(--ember);padding:10px 12px;margin:8px 0;border-left:3px solid var(--ink)}
-.week-strip{display:flex;gap:3px;overflow-x:auto;padding:8px 0;border-top:1px solid var(--rule);margin-top:8px;scrollbar-width:none}
+/* touch-action:pan-x restores this strip's own horizontal scroll on narrow
+   phones where it can overflow (7 44px-min day cells) — .scroll's pan-y
+   below claims horizontal drags for the section swipe carousel, and without
+   this a drag started on the strip would be read as a section swipe instead
+   of scrolling the strip. */
+.week-strip{display:flex;gap:3px;overflow-x:auto;padding:8px 0;border-top:1px solid var(--rule);margin-top:8px;scrollbar-width:none;touch-action:pan-x}
 .week-strip::-webkit-scrollbar{display:none}
 .week-day{flex:1 0 0;min-width:34px;min-height:44px;padding:6px 3px 5px;border:1px solid var(--rule);text-align:center;cursor:default;position:relative;display:flex;flex-direction:column;justify-content:center;align-items:center}
 .week-day.today{border:2px solid var(--ink)}
@@ -500,7 +506,20 @@ section.visible .fade:nth-child(6){transition-delay:.56s}
 .mast-right-row{justify-content:center}
 .week-day{min-width:44px}
 .sec-nav{display:none}
-.scroll{padding-bottom:60px}
+/* The section swipe carousel. #press-scroll is the fixed viewport — its own
+   height is pinned in JS (App()'s height-sync effect) to the active panel's
+   height, so overflow:hidden here only ever clips the other panels sitting
+   beside it, never the active one's own content. touch-action:pan-y hands
+   vertical scrolling to the browser untouched and leaves horizontal drags to
+   the touch handlers below (see .week-strip above for the one nested
+   exception). .mobile-track is the flex row every panel sits in side by
+   side; its transform (driven by App()'s activeIdx, live-updated 1:1 during
+   a drag) is the only thing that actually moves. align-items:flex-start
+   stops a flex row's default stretch from forcing every panel to the height
+   of the tallest one. */
+.scroll{padding-bottom:60px;overflow:hidden;touch-action:pan-y}
+.mobile-track{display:flex;align-items:flex-start;transition:transform .32s ease}
+.panel{display:block;flex:0 0 100%;min-width:0}
 .dock{display:flex;position:fixed;bottom:0;left:0;right:0;z-index:200;background:var(--paper);border-top:2px solid var(--ink);padding-bottom:env(safe-area-inset-bottom)}
 .dock-btn{flex:1;min-height:44px;background:none;border:none;border-top:2px solid transparent;font-family:'JetBrains Mono',monospace;font-size:8px;letter-spacing:.08em;text-transform:uppercase;color:var(--dim);cursor:pointer;padding:6px 2px}
 .chat-bubble{bottom:calc(68px + env(safe-area-inset-bottom))}
