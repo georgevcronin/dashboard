@@ -1002,6 +1002,13 @@ const glycogenPct = (elapsedS, totalS) => {
 // app's first version — everything before this had no changelog at all.
 const CHANGELOG = [
   {
+    version: '0.76',
+    date: '2026-08-05',
+    features: [
+      'Fixed the dashboard and Settings scrolling sideways on narrow phone screens — several grids (stat readouts, soreness picker, onboarding goal cards, the weekly calendar strip, briefing stats) could get pushed wider than the screen by a single long number, muscle name, or split label instead of wrapping.',
+    ],
+  },
+  {
     version: '0.75',
     date: '2026-08-05',
     features: [
@@ -4790,7 +4797,13 @@ const WEEKDAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const bucketLabel = key => key.replace(/([A-Z])/g, ' $1').replace(/^./, c => c.toUpperCase());
 function CalendarGrid({ days, expandedDate, onSelect }) {
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 4, marginBottom: 10 }}>
+    // minmax(0,1fr), not bare 1fr — a raw SPLIT_GROUPS bucket name
+    // ('shouldersArms', 'chestBack') is one unbroken word that's wider than
+    // 1/7 of a narrow phone's width, and a bare 1fr track's implicit
+    // min-width is its content's min-content size, not 0, so it forces the
+    // whole grid wider than the viewport instead of shrinking (confirmed:
+    // this is the dashboard-panel side of the mobile horizontal-scroll bug).
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, minmax(0, 1fr))', gap: 4, marginBottom: 10 }}>
       {days.map(d => {
         const dateObj = localDateFromYMD(d.date);
         const isOpen = expandedDate === d.date;
@@ -4799,7 +4812,7 @@ function CalendarGrid({ days, expandedDate, onSelect }) {
             aria-expanded={isOpen}
             style={{
               display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2, padding: '6px 2px',
-              minHeight: 44, cursor: 'pointer', background: 'none',
+              minHeight: 44, cursor: 'pointer', background: 'none', minWidth: 0, overflowWrap: 'anywhere',
               border: `1px solid ${isOpen ? 'var(--ink)' : 'var(--rule)'}`,
               borderBottom: `3px solid ${READINESS_COLOR[d.readiness] || 'var(--rule)'}`,
               fontFamily: "'JetBrains Mono',monospace",
