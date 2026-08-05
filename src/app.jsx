@@ -32,6 +32,7 @@ import { EXERCISE_DB, EXERCISE_MUSCLE_GROUPS, EXERCISE_PATTERNS } from '../funct
 import expertisePkg from '../functions/expertise.js';
 import parameterExplorerPkg from '../functions/parameterExplorer.js';
 import targetMusclePlannerPkg from '../functions/targetMusclePlanner.js';
+import exercisePreferenceRankingPkg from '../functions/exercisePreferenceRanking.js';
 import muscleCreditPkg from '../functions/muscleCredit.js';
 import calendarExportPkg from '../functions/calendarExport.js';
 import splitPlannerPkg from '../functions/splitPlanner.js';
@@ -51,6 +52,7 @@ const { computeStructuralFatigue, computeMetabolicFatigue, computeCNSFatigue, cn
 const { computePatternFatigue } = movementPatternsPkg;
 const { progressionFor, suggestedWorkingSetCount, suggestedRirSequence, isLowRepPattern, LOW_REP_THRESHOLD } = sessionPlannerPkg;
 const { e1rm: calcE1RM } = strengthStandardsPkg;
+const { rankExercises, DEFAULT_RATING: DEFAULT_EXERCISE_RATING } = exercisePreferenceRankingPkg;
 const { defaultMachineBrands } = machineBrandsPkg;
 const { MACHINE_MODELS } = machineModelsPkg;
 const { normalize: normalizeExerciseKeyPkg } = resistanceCurvesPkg;
@@ -7807,16 +7809,37 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
             <datalist id="settings-exercise-options">
               {BASE_EXERCISES.map(n => <option key={n} value={n} />)}
             </datalist>
-            {favoritesVal.length > 0 && (
-              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                {favoritesVal.map(f => (
-                  <span key={f} className="prof-btn solid" style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'default' }}>
-                    {f}
-                    <span style={{ cursor: 'pointer' }} onClick={() => removeFavorite(f)}>×</span>
-                  </span>
-                ))}
-              </div>
-            )}
+            {(() => {
+              // FEATURES.md #142: shown ranked, not as an unordered pile of
+              // pills — built from real pairwise comparisons (finish-workout
+              // prompts) and import/frequency seeding, not just this
+              // manually-typed list. A hand-added favorite with no
+              // comparisons yet still shows, at the unrated baseline, so
+              // adding one doesn't make it vanish until it happens to get
+              // compared. favoriteExercises itself is untouched underneath —
+              // Add/× still only ever edit that list, same as before.
+              const ratings = s?.profile?.exerciseRatings || {};
+              const merged = { ...ratings };
+              for (const f of favoritesVal) if (!merged[f]) merged[f] = { rating: DEFAULT_EXERCISE_RATING, comparisons: 0 };
+              const ranked = rankExercises(merged);
+              if (!ranked.length) return null;
+              return (
+                <ol style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  {ranked.map((r, i) => (
+                    <li key={r.name} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11 }}>
+                      <span style={{ color: 'var(--dim)', width: 18, textAlign: 'right', flexShrink: 0 }}>{i + 1}.</span>
+                      <span style={{ flex: 1 }}>{r.name}</span>
+                      {expertiseAtLeast(expertiseLevel, 'scientist') && (
+                        <span style={{ color: 'var(--dim)', fontSize: 9 }}>{Math.round(r.rating)} · {r.comparisons}×</span>
+                      )}
+                      {favoritesVal.includes(r.name) && (
+                        <span style={{ cursor: 'pointer', color: 'var(--dim)' }} onClick={() => removeFavorite(r.name)}>×</span>
+                      )}
+                    </li>
+                  ))}
+                </ol>
+              );
+            })()}
           </div>
           <div className="prof-field">
             <span className="prof-lbl">Muscle Focus <span style={{ fontSize: 8, color: 'var(--dim)', textTransform: 'none' }}>(Priority/Lower/Avoid per muscle)</span></span>
