@@ -1002,6 +1002,13 @@ const glycogenPct = (elapsedS, totalS) => {
 // app's first version — everything before this had no changelog at all.
 const CHANGELOG = [
   {
+    version: '0.77',
+    date: '2026-08-05',
+    features: [
+      'Settings is now a wiki-style page instead of a stack of accordions: a left table of contents lists every group and section and jumps straight to it, while the body stays one continuous document you can still just scroll through by hand — nothing collapses or hides content anymore. The TOC tracks your position as you scroll and highlights the section you\'re currently reading. On phone, the sidebar becomes a horizontal scrollable strip of section names pinned above the content.',
+    ],
+  },
+  {
     version: '0.76',
     date: '2026-08-05',
     features: [
@@ -7740,18 +7747,117 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
       .then(profile => refresh({ ...s, profile }));
   };
 
+  // ── Wiki-style left TOC — every group stays permanently expanded (no more
+  // <details> accordion swallowing content), so the body is one continuous
+  // document you can still just scroll top to bottom by hand; the TOC is a
+  // shortcut on top of that, not a replacement for it. Accepted/Follow
+  // Requests only appear here when their section will actually render
+  // (below, in Social), so a link never points at nothing.
+  const tocGroups = [
+    { id: 'sec-grp-profile', label: 'Profile & Training', subs: [
+      { id: 'sec-identity', label: 'Identity' },
+      { id: 'sec-training-goals', label: 'Training Goals' },
+      { id: 'sec-activities', label: 'Activities' },
+      { id: 'sec-diet-goal', label: 'Diet Goal' },
+      { id: 'sec-tracking-level', label: 'Tracking Level' },
+      { id: 'sec-training-preferences', label: 'Training Preferences' },
+      { id: 'sec-training-background', label: 'Training Background' },
+      { id: 'sec-appearance', label: 'Appearance' },
+      { id: 'sec-mentor-memory', label: 'Personal Journalist' },
+    ] },
+    { id: 'sec-grp-social', label: 'Social', subs: [
+      ...(followBadge?.recentlyAccepted?.length > 0 ? [{ id: 'sec-accepted', label: 'Accepted' }] : []),
+      ...(followBadge?.incoming?.length > 0 ? [{ id: 'sec-follow-requests', label: 'Follow Requests' }] : []),
+      { id: 'sec-find-people', label: 'Find People' },
+      { id: 'sec-visibility', label: 'Visibility' },
+    ] },
+    { id: 'sec-grp-layout', label: 'Dashboard Layout', subs: [
+      { id: 'sec-presets', label: 'Presets' },
+      { id: 'sec-panel-grid', label: 'Panel Grid' },
+      { id: 'sec-home-order', label: 'Home Screen Order' },
+      { id: 'sec-micro-widgets', label: 'Micro-Widgets' },
+      { id: 'sec-recovery-tab-order', label: 'Recovery Tab Order' },
+    ] },
+    { id: 'sec-grp-targets', label: 'Targets & Nutrition', subs: [
+      { id: 'sec-targets', label: 'Targets' },
+      { id: 'sec-warmup-ramp', label: 'Warmup Ramp' },
+      { id: 'sec-equipment', label: 'Equipment' },
+      { id: 'sec-plan-constraints', label: 'Plan Ahead — Constraints' },
+      { id: 'sec-plan-holidays', label: 'Plan Ahead — Holidays' },
+      { id: 'sec-nutrition', label: 'Nutrition' },
+    ] },
+    { id: 'sec-grp-connected', label: 'Connected Data', subs: [
+      { id: 'sec-connected-services', label: 'Connected Services' },
+      { id: 'sec-supplement-stack', label: 'Supplement Stack' },
+      { id: 'sec-muscle-sensitivity', label: 'Muscle Sensitivity' },
+    ] },
+    { id: 'sec-grp-tools', label: 'Tools', subs: [
+      { id: 'sec-app', label: 'App' },
+      { id: 'sec-data-export', label: 'Data Export' },
+      { id: 'sec-merge-exercises', label: 'Merge Exercises' },
+      { id: 'sec-learn', label: 'Learn' },
+    ] },
+    { id: 'sec-grp-account', label: 'Account', subs: [] },
+    { id: 'sec-grp-whatsnew', label: "What's New", subs: [] },
+  ];
+
+  const settingsBodyRef = useRef(null);
+  const [activeSecId, setActiveSecId] = useState(tocGroups[0].subs[0]?.id || tocGroups[0].id);
+  const jumpToSection = (id) => {
+    const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    document.getElementById(id)?.scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth', block: 'start' });
+  };
+  // Scrollspy: highlights whichever section is currently nearest the top of
+  // the body as you scroll by hand — cosmetic only, jumpToSection above
+  // never depends on this having run. Only observes the ids the TOC
+  // actually links to (a group's subs, or the group itself when it has
+  // none) — mixing those in with the tall group-wrapper elements too would
+  // make a wrapper whose top scrolled off-screen ages ago outrank the sub
+  // section genuinely at the top edge, since "intersecting" only means any
+  // overlap with the top-30% band, not being closest to it.
+  useEffect(() => {
+    const root = settingsBodyRef.current;
+    if (!root) return;
+    const ids = tocGroups.flatMap(g => g.subs.length ? g.subs.map(sub => sub.id) : [g.id]);
+    const targets = ids.map(id => document.getElementById(id)).filter(Boolean);
+    const observer = new IntersectionObserver(entries => {
+      const visible = entries.filter(e => e.isIntersecting).sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top);
+      if (visible[0]) setActiveSecId(visible[0].target.id);
+    }, { root, rootMargin: '0px 0px -70% 0px', threshold: 0 });
+    targets.forEach(t => observer.observe(t));
+    return () => observer.disconnect();
+  }, []);
+
   return (
     <div className="settings-overlay">
       <div className="settings-hdr">
         <div className="settings-hdr-title">Settings</div>
         <button className="settings-close" onClick={onClose}>Close ×</button>
       </div>
-      <div className="settings-body">
+      <div className="settings-layout">
+        <nav className="settings-toc" aria-label="Settings sections">
+          {tocGroups.map(grp => (
+            <div key={grp.id} className="settings-toc-group">
+              <button type="button"
+                className={`settings-toc-group-h${grp.id === activeSecId || grp.subs.some(sub => sub.id === activeSecId) ? ' active' : ''}`}
+                onClick={() => jumpToSection(grp.id)}>
+                {grp.label}
+              </button>
+              {grp.subs.map(sub => (
+                <button key={sub.id} type="button" className={`settings-toc-sub${sub.id === activeSecId ? ' active' : ''}`}
+                  onClick={() => jumpToSection(sub.id)}>
+                  {sub.label}
+                </button>
+              ))}
+            </div>
+          ))}
+        </nav>
+        <div className="settings-body" ref={settingsBodyRef}>
 
-        <details className="settings-group" open>
-        <summary className="settings-group-h">Profile &amp; Training</summary>
+        <div className="settings-group" id="sec-grp-profile">
+        <button type="button" className="settings-group-h" onClick={() => jumpToSection('sec-grp-profile')}>Profile &amp; Training</button>
         {/* ── IDENTITY ── */}
-        <div className="settings-sec">
+        <div className="settings-sec" id="sec-identity">
           <div className="settings-sh">Identity</div>
           <div className="prof-field">
             <span className="prof-lbl">Name</span>
@@ -7818,7 +7924,7 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
         </div>
 
         {/* ── TRAINING GOALS ── */}
-        <div className="settings-sec">
+        <div className="settings-sec" id="sec-training-goals">
           <div className="settings-sh">Training Goals <span style={{ fontWeight: 400, textTransform: 'none', fontSize: 9, color: 'var(--dim)' }}>(shown on the Goals panel, tracked against real data where Press has it)</span></div>
           {GOAL_DEFS.map(gd => {
             const g = goalDraftFor(gd.key);
@@ -7887,7 +7993,7 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
         </div>
 
         {/* ── ACTIVITIES ── */}
-        <div className="settings-sec">
+        <div className="settings-sec" id="sec-activities">
           <div className="settings-sh">Activities <span style={{ fontWeight: 400, textTransform: 'none', fontSize: 9, color: 'var(--dim)' }}>(sets default weekly session targets, blended across whatever's ranked Primary/Secondary/Minor)</span></div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 12 }}>
             {ACTIVITY_DEFS.map(ad => {
@@ -7915,7 +8021,7 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
         </div>
 
         {/* ── DIET GOAL ── */}
-        <div className="settings-sec">
+        <div className="settings-sec" id="sec-diet-goal">
           <div className="settings-sh">Diet Goal <span style={{ fontWeight: 400, textTransform: 'none', fontSize: 9, color: 'var(--dim)' }}>(drives auto-calculated macro targets)</span></div>
           <div className="ob-goal-grid">
             {DIET_GOAL_DEFS.map(([g, d]) => (
@@ -7928,7 +8034,7 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
         </div>
 
         {/* ── TRACKING LEVEL ── */}
-        <div className="settings-sec">
+        <div className="settings-sec" id="sec-tracking-level">
           <div className="settings-sh">Tracking Level</div>
           {ECHELONS.map(e => (
             <button key={e.key} className={`echelon-card${trackingLevel === e.key ? ' selected' : ''}`}
@@ -7943,7 +8049,7 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
         </div>
 
         {/* ── TRAINING PREFERENCES ── */}
-        <div className="settings-sec">
+        <div className="settings-sec" id="sec-training-preferences">
           <div className="settings-sh">Training Preferences <span style={{ fontWeight: 400, textTransform: 'none', fontSize: 9, color: 'var(--dim)' }}>(shape auto-generated sessions)</span></div>
           <div className="prof-field">
             <span className="prof-lbl">Training Priority <span style={{ fontSize: 8, color: 'var(--dim)', textTransform: 'none' }}>(shapes weekly guidance)</span></span>
@@ -8017,7 +8123,7 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
         </div>
 
         {/* ── TRAINING BACKGROUND ── */}
-        <div className="settings-sec">
+        <div className="settings-sec" id="sec-training-background">
           <div className="settings-sh">Training Background <span style={{ fontWeight: 400, textTransform: 'none', fontSize: 9, color: 'var(--dim)' }}>(a starting anchor before Press has your real logged history)</span></div>
           <div className="prof-field">
             <span className="prof-lbl">Experience Level <span style={{ fontSize: 8, color: 'var(--dim)', textTransform: 'none' }}>(new-lifter fatigue budget — unrelated to Detail Level below)</span></span>
@@ -8158,7 +8264,7 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
         </div>
 
         {/* ── APPEARANCE ── */}
-        <div className="settings-sec">
+        <div className="settings-sec" id="sec-appearance">
           <div className="settings-sh">Appearance</div>
           <div className="prof-field">
             <span className="prof-lbl">Dark Mode</span>
@@ -8191,7 +8297,7 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
         </div>
 
         {/* ── PERSONAL JOURNALIST MEMORY ── */}
-        <div className="settings-sec">
+        <div className="settings-sec" id="sec-mentor-memory">
           <div className="settings-sh">Personal Journalist Memory <span style={{ fontWeight: 400, textTransform: 'none', fontSize: 9, color: 'var(--dim)' }}>(facts it remembers across chats)</span></div>
           {mentorMemory.length === 0 && (
             <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)', fontStyle: 'italic' }}>Nothing saved yet — it fills in as you chat.</div>
@@ -8210,13 +8316,13 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
             <button className="prof-btn" onClick={addMemoryEntry} disabled={!newMemoryEntry.trim()} style={{ fontSize: 8, padding: '5px 14px', flexShrink: 0 }}>Add</button>
           </div>
         </div>
-        </details>
+        </div>
 
-        <details className="settings-group">
-        <summary className="settings-group-h">Social{followBadge && (followBadge.incoming.length + followBadge.recentlyAccepted.length) > 0 ? ` (${followBadge.incoming.length + followBadge.recentlyAccepted.length})` : ''}</summary>
+        <div className="settings-group" id="sec-grp-social">
+        <button type="button" className="settings-group-h" onClick={() => jumpToSection('sec-grp-social')}>Social{followBadge && (followBadge.incoming.length + followBadge.recentlyAccepted.length) > 0 ? ` (${followBadge.incoming.length + followBadge.recentlyAccepted.length})` : ''}</button>
 
         {followBadge?.recentlyAccepted?.length > 0 && (
-          <div className="settings-sec">
+          <div className="settings-sec" id="sec-accepted">
             <div className="settings-sh">Accepted</div>
             {followBadge.recentlyAccepted.map(r => (
               <div key={r.toUid} style={{ fontSize: 11, color: 'var(--dim)', marginBottom: 4 }}>
@@ -8228,7 +8334,7 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
         )}
 
         {followBadge?.incoming?.length > 0 && (
-          <div className="settings-sec">
+          <div className="settings-sec" id="sec-follow-requests">
             <div className="settings-sh">Follow Requests</div>
             {followBadge.incoming.map(r => (
               <div key={r.fromUid} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
@@ -8239,7 +8345,7 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
           </div>
         )}
 
-        <div className="settings-sec">
+        <div className="settings-sec" id="sec-find-people">
           <div className="settings-sh">Find People</div>
           <input className="prof-input" style={{ width: '100%', boxSizing: 'border-box' }} value={searchQuery}
             onChange={e => runSearch(e.target.value)} placeholder="Search by username" autoCapitalize="none" autoCorrect="off" />
@@ -8257,7 +8363,7 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
           ))}
         </div>
 
-        <div className="settings-sec">
+        <div className="settings-sec" id="sec-visibility">
           <div className="settings-sh">Visibility</div>
           <div className="prof-field">
             <span className="prof-lbl">Workout sessions visible to followers</span>
@@ -8272,12 +8378,12 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
             </button>
           </div>
         </div>
-        </details>
+        </div>
 
-        <details className="settings-group">
-        <summary className="settings-group-h">Dashboard Layout</summary>
+        <div className="settings-group" id="sec-grp-layout">
+        <button type="button" className="settings-group-h" onClick={() => jumpToSection('sec-grp-layout')}>Dashboard Layout</button>
         {/* ── LAYOUT ── */}
-        <div className="settings-sec">
+        <div className="settings-sec" id="sec-presets">
           <div className="settings-sh">Presets <span style={{ fontWeight: 400, textTransform: 'none', fontSize: 9, color: 'var(--dim)' }}>(desktop only — resets the panel grid below to one of these starting layouts)</span></div>
           {LAYOUT_PRESETS.map(preset => (
             <button key={preset.id} className="echelon-card" onClick={() => applyLayoutPreset(preset)}>
@@ -8290,7 +8396,7 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
           ))}
         </div>
 
-        <div className="settings-sec">
+        <div className="settings-sec" id="sec-panel-grid">
           <div className="settings-sh">Panel Grid <span style={{ fontWeight: 400, textTransform: 'none', fontSize: 9, color: 'var(--dim)' }}>(desktop only)</span></div>
           <div style={{ fontSize: 11, color: 'var(--dim)', lineHeight: 1.5, marginBottom: 10 }}>
             Drag panels to reposition, drag a corner to resize — the grid auto-packs so there's no empty space. Columns can track your window width, or stay a fixed count (panels resize in pixels instead).
@@ -8308,27 +8414,27 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
           </button>
         </div>
 
-        <div className="settings-sec">
+        <div className="settings-sec" id="sec-home-order">
           <div className="settings-sh">Home Screen Order <span style={{ fontWeight: 400, textTransform: 'none', fontSize: 9, color: 'var(--dim)' }}>(mobile order; also seeds a freshly-added desktop panel's starting spot)</span></div>
           <PanelOrderEditor order={panelOrder} hidden={hiddenPanels} labels={PANEL_LABELS}
             states={s?.profile?.panelStates} expertise={expertiseLevel} onChange={savePanels} onStateChange={savePanelState} />
         </div>
 
-        <div className="settings-sec">
+        <div className="settings-sec" id="sec-micro-widgets">
           <div className="settings-sh">Micro-Widgets <span style={{ fontWeight: 400, textTransform: 'none', fontSize: 9, color: 'var(--dim)' }}>(fill gaps left by the panels above, desktop only)</span></div>
           <PanelOrderEditor order={microWidgetOrder} hidden={hiddenMicroWidgets} labels={MICRO_WIDGET_LABELS} onChange={saveMicroWidgets} />
         </div>
 
-        <div className="settings-sec">
+        <div className="settings-sec" id="sec-recovery-tab-order">
           <div className="settings-sh">Recovery Tab Order</div>
           <PanelOrderEditor order={recoveryTabOrder} hidden={hiddenRecoveryTabs} labels={RECOVERY_TAB_LABELS} onChange={saveRecoveryTabs} />
         </div>
-        </details>
+        </div>
 
-        <details className="settings-group">
-        <summary className="settings-group-h">Targets &amp; Nutrition</summary>
+        <div className="settings-group" id="sec-grp-targets">
+        <button type="button" className="settings-group-h" onClick={() => jumpToSection('sec-grp-targets')}>Targets &amp; Nutrition</button>
         {/* ── TARGETS ── */}
-        <div className="settings-sec">
+        <div className="settings-sec" id="sec-targets">
           <div className="settings-sh">Targets</div>
           {[
             ['Sleep Target', sleepTarget, v => setSleepTarget(v), .5, 5, 12, v => `${v}h`],
@@ -8351,7 +8457,7 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
         </div>
 
         {/* ── WARMUP RAMP ── */}
-        <div className="settings-sec">
+        <div className="settings-sec" id="sec-warmup-ramp">
           <div className="settings-sh">Warmup Ramp</div>
           <div style={{ fontSize: 11, color: 'var(--dim)', marginBottom: 10, lineHeight: 1.5 }}>
             Applied to every auto-generated session's warmup sets, as a percentage of that session's suggested working weight.
@@ -8383,7 +8489,7 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
         </div>
 
         {/* ── EQUIPMENT ── */}
-        <div className="settings-sec">
+        <div className="settings-sec" id="sec-equipment">
           <div className="settings-sh">Equipment Availability</div>
           <div style={{ fontSize: 11, color: 'var(--dim)', marginBottom: 10, lineHeight: 1.5 }}>
             Select which equipment you have access to. Used to filter session recommendations.
@@ -8413,7 +8519,7 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
         </div>
 
         {/* ── PLAN AHEAD CONSTRAINTS ── */}
-        <div className="settings-sec">
+        <div className="settings-sec" id="sec-plan-constraints">
           <div className="settings-sh">Plan Ahead — Constraints</div>
           <div style={{ fontSize: 11, color: 'var(--dim)', marginBottom: 10, lineHeight: 1.5 }}>
             The forward calendar (Home → Plan Ahead) solves fully optimal to your goal by default. These layer in constraints it has to work around — none of them force a fatigued muscle through; the calendar falls back and shows the conflict instead.
@@ -8488,7 +8594,7 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
         </div>
 
         {/* ── PLAN AHEAD HOLIDAYS/TRAVEL ── */}
-        <div className="settings-sec">
+        <div className="settings-sec" id="sec-plan-holidays">
           <div className="settings-sh">Plan Ahead — Holidays &amp; Travel</div>
           <div style={{ fontSize: 11, color: 'var(--dim)', marginBottom: 10, lineHeight: 1.5 }}>
             One-off date ranges the calendar should treat differently — a holiday, a trip with only a hotel gym, a week off entirely.
@@ -8578,7 +8684,7 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
         </div>
 
         {/* ── NUTRITION ── */}
-        <div className="settings-sec">
+        <div className="settings-sec" id="sec-nutrition">
           <div className="settings-sh">Nutrition</div>
           <div className="prof-field">
             <span className="prof-lbl">Exact Calories <span style={{ fontSize: 8, color: 'var(--dim)', textTransform: 'none' }}>(default: nearest 300)</span></span>
@@ -8592,12 +8698,12 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
             </button>
           </div>
         </div>
-        </details>
+        </div>
 
-        <details className="settings-group">
-        <summary className="settings-group-h">Connected Data</summary>
+        <div className="settings-group" id="sec-grp-connected">
+        <button type="button" className="settings-group-h" onClick={() => jumpToSection('sec-grp-connected')}>Connected Data</button>
         {/* ── CONNECTED SERVICES ── */}
-        <div className="settings-sec">
+        <div className="settings-sec" id="sec-connected-services">
           <div className="settings-sh">Connected Services</div>
 
           <div className="ob-service-row">
@@ -8690,7 +8796,7 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
         </div>
 
         {/* ── SUPPLEMENT STACK ── */}
-        <div className="settings-sec">
+        <div className="settings-sec" id="sec-supplement-stack">
           <div className="settings-sh">Supplement Stack</div>
           {supplements.length > 0 && (
             <div style={{ marginBottom: 14 }}>
@@ -8724,7 +8830,7 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
         </div>
 
         {/* ── MUSCLE SENSITIVITY ── */}
-        <div className="settings-sec">
+        <div className="settings-sec" id="sec-muscle-sensitivity">
           <div className="settings-sh">Muscle Sensitivity</div>
           <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)', lineHeight: 1.6, marginBottom: 12 }}>
             Fatigue tracking auto-tunes per muscle from soreness logs. Override a muscle directly here if it's drifted wrong — 1.0 is neutral, higher means it fatigues faster than average.
@@ -8752,12 +8858,12 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
             </button>
           </div>
         </div>
-        </details>
+        </div>
 
-        <details className="settings-group">
-        <summary className="settings-group-h">Tools</summary>
+        <div className="settings-group" id="sec-grp-tools">
+        <button type="button" className="settings-group-h" onClick={() => jumpToSection('sec-grp-tools')}>Tools</button>
         {/* ── APP ── */}
-        <div className="settings-sec">
+        <div className="settings-sec" id="sec-app">
           <div className="settings-sh">App</div>
           <div className="prof-field" style={{ marginBottom: 14 }}>
             <span className="prof-lbl">Morning Briefing</span>
@@ -8792,7 +8898,7 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
         </div>
 
         {/* ── DATA EXPORT ── */}
-        <div className="settings-sec">
+        <div className="settings-sec" id="sec-data-export">
           <div className="settings-sh">Data Export</div>
           <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)', lineHeight: 1.6, marginBottom: 12 }}>
             Download your data as CSV, readable in Excel, Numbers, Sheets, or any spreadsheet tool.
@@ -8815,7 +8921,7 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
         </div>
 
         {/* ── MERGE EXERCISES ── */}
-        <div className="settings-sec">
+        <div className="settings-sec" id="sec-merge-exercises">
           <div className="settings-sh">Merge Exercises</div>
           <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)', lineHeight: 1.6, marginBottom: 12 }}>
             For two entries that are really the same exercise but got logged under different names (a typo, or an import source that didn't match) — folds all history from the first into the second.
@@ -8847,19 +8953,19 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
         </div>
 
         {/* ── WIKI ── */}
-        <div className="settings-sec">
+        <div className="settings-sec" id="sec-learn">
           <div className="settings-sh">Learn</div>
           <button className="settings-open-btn" onClick={onOpenWiki}>
             <span>Exercise & Training Wiki</span><span>→</span>
           </button>
         </div>
 
-        </details>
+        </div>
 
-        <details className="settings-group">
-        <summary className="settings-group-h">Account</summary>
+        <div className="settings-group" id="sec-grp-account">
+        <button type="button" className="settings-group-h" onClick={() => jumpToSection('sec-grp-account')}>Account</button>
         {/* ── ACCOUNT ── */}
-        <div className="settings-sec">
+        <div className="settings-sec" id="sec-account-fields">
           <div className="settings-sh">Account</div>
           <button className="prof-btn" style={{ width: '100%', padding: '11px', textAlign: 'center', marginTop: 4 }} onClick={onRestartSetup}>Restart Setup</button>
           <button className="prof-btn" style={{ width: '100%', padding: '11px', textAlign: 'center', marginTop: 8 }} onClick={onSignOut}>Sign Out</button>
@@ -8868,10 +8974,10 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
             <a href="/terms.html" target="_blank" rel="noopener" style={{ color: 'var(--dim)' }}>Terms of Service</a>
           </div>
         </div>
-        </details>
+        </div>
 
-        <details className="settings-group">
-        <summary className="settings-group-h">v{CHANGELOG[0].version} · What's New</summary>
+        <div className="settings-group" id="sec-grp-whatsnew">
+        <button type="button" className="settings-group-h" onClick={() => jumpToSection('sec-grp-whatsnew')}>v{CHANGELOG[0].version} · What's New</button>
         {/* ── WHAT'S NEW ── */}
         <div className="settings-sec">
           {CHANGELOG.map(entry => (
@@ -8885,8 +8991,9 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
             </div>
           ))}
         </div>
-        </details>
+        </div>
 
+        </div>
       </div>
       {viewingUsername && (
         <div className="onboard-overlay" style={{ zIndex: 10000 }} onClick={() => setViewingUsername(null)}>
