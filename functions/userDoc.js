@@ -33,6 +33,17 @@ const DEFAULTS = () => ({
     availableDaysOfWeek: [],
     splitDayAnchors: {},
     weeklySessionTarget: null,
+    // Elo-style { [exerciseName]: { rating, comparisons } } — see
+    // functions/exercisePreferenceRanking.js. Deliberately a top-level
+    // profile field, not nested under trainingBackground: the frontend's
+    // saveTrainingBackground always reconstructs and POSTs the *entire*
+    // trainingBackground object from its own local state (it has no
+    // knowledge of server-computed ratings), so nesting this there would
+    // get silently wiped out the next time someone e.g. added a favourite.
+    // Server-only-written (POST /profile explicitly strips this field,
+    // same protection as username/visibility) — never built from a client-
+    // supplied value, only real comparisons and import seeding.
+    exerciseRatings: {},
   },
 });
 

@@ -1458,7 +1458,15 @@ app.get('/account/:username', async (req, res) => {
   const canCompare = mutualFollow && isComparisonVisible(db.profile) && isComparisonVisible(targetData.profile);
 
   const workoutsVisible = isWorkoutSessionsVisible(targetData.profile);
-  res.json({ ...base, canCompare, ...(workoutsVisible ? { workouts: targetData.workouts || [] } : {}) });
+  // FEATURES.md #142: the ranked exercise-preference list, gated by the
+  // same workoutSessions toggle as workout history — real per-muscle
+  // training data at a similar sensitivity level, not the separate
+  // (off-by-default, mutual) comparison toggle, and not shown to a
+  // non-follower at all per USERNAME_AND_COMPARISON.md §4's minimal-view
+  // rule (no extra data beyond name/username/Follow for someone who hasn't
+  // been accepted).
+  const rankedExercises = workoutsVisible ? rankExercises(targetData.profile?.exerciseRatings || {}) : undefined;
+  res.json({ ...base, canCompare, ...(workoutsVisible ? { workouts: targetData.workouts || [], rankedExercises } : {}) });
 });
 
 // ---------- Muscle comparison ----------

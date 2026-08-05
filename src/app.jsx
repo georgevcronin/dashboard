@@ -1002,6 +1002,15 @@ const glycogenPct = (elapsedS, totalS) => {
 // app's first version — everything before this had no changelog at all.
 const CHANGELOG = [
   {
+    version: '0.74',
+    date: '2026-08-05',
+    features: [
+      'Favorite exercises are now a real ranked order, not just a list. Finish a workout that shares a primary muscle with something you\'ve logged before, and you\'ll sometimes see a quick "which do you prefer?" prompt — answer it or skip it, it\'s never blocking. Skipped comparisons (and exercises you haven\'t been asked about yet) still nudge the ranking a little from how often you actually train each one and whether your numbers are climbing on it, so the order reflects real training, not just what got typed into a box once.',
+      'Settings → Profile & Training\'s favorites list now shows that ranked order (Scientist mode also shows the underlying rating and comparison count) instead of an unordered pile — adding/removing favorites still works exactly as before underneath.',
+      'A first bulk history import now seeds the ranking from that history\'s own frequency, so it starts somewhere sensible instead of blank.',
+    ],
+  },
+  {
     version: '0.73',
     date: '2026-08-05',
     features: [
@@ -8659,6 +8668,21 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
                         {localDateFromYMD(w.date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })} — {w.name} ({w.sets} sets)
                       </div>
                     ))}
+                  </div>
+                )}
+                {/* FEATURES.md #142: same visibility gate as Recent Workouts
+                    above — see index.js's /account/:username comment. */}
+                {viewedProfile.rankedExercises?.length > 0 && (
+                  <div style={{ marginTop: 16 }}>
+                    <div className="settings-sh">Ranked Favorite Exercises</div>
+                    <ol style={{ listStyle: 'none', padding: 0, margin: 0 }}>
+                      {viewedProfile.rankedExercises.slice(0, 10).map((r, i) => (
+                        <li key={r.name} style={{ display: 'flex', gap: 8, fontSize: 12, padding: '6px 0', borderBottom: '1px solid var(--paper2)' }}>
+                          <span style={{ color: 'var(--dim)', width: 16, textAlign: 'right', flexShrink: 0 }}>{i + 1}.</span>
+                          <span>{r.name}</span>
+                        </li>
+                      ))}
+                    </ol>
                   </div>
                 )}
               </>

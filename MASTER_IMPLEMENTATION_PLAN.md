@@ -419,43 +419,61 @@ entries for these specifically, tracked here only.
 
 ---
 
-## Phase 7 — Exercise preferences (ranked, public) — unblocked, Phase 6.5 closed 2026-08-05
+## Phase 7 — Exercise preferences (ranked, public) — Done, 2026-08-05
 
 **Not a flat favourites list.** `profile.trainingBackground.favoriteExercises`
-already exists, is fully wired (Settings UI, `FAVORITE_EXERCISE_BONUS = 15` in
-both `weeklyPlanner.js` and `sessionPlanner.js`), and stays as-is — this phase
-is a separate, additive system, not a replacement. Corresponds to `FEATURES.md`
-#142 (new Category XIII). Design settled via a grilling interview with George
-2026-08-05:
+still exists, is still fully wired (Settings UI, `FAVORITE_EXERCISE_BONUS = 15`
+in both `weeklyPlanner.js` and `sessionPlanner.js`), and was left as-is per
+plan — this phase is a separate, additive system. Corresponds to `FEATURES.md`
+#142 (new Category XIII).
 
-- **Ranked, not flat.** A per-user ordering of exercises by preference, built
-  from pairwise comparisons — not a numeric rating, not a second favourites
-  list.
-- **Comparison trigger.** On the finish-workout screen: when the just-logged
-  session contains an exercise sharing a primary muscle with a different
-  exercise logged previously, prompt "X vs Y — which do you prefer?". One
-  comparison per overlapping primary muscle per session. Skippable,
-  non-blocking.
-- **Implicit fallback on skip (or before any real comparisons exist).**
-  Nudge the ranking based on relative logged/imported frequency — smaller
-  magnitude than an explicit vote, so real comparisons always dominate once
-  they exist.
-- **Additional implicit factors (confirmed v1 set, nothing else):**
-  frequency (raw and recency-weighted) and e1RM improvement trend for that
-  exercise, via the existing `calcE1RM`/`prData` machinery (`src/app.jsx`) —
-  no new PR-tracking infrastructure needed.
-- **Bulk import seeding.** A multi-year history import pre-seeds the ranked
-  order from import frequency before any real comparisons occur, rather than
-  starting from an unranked/empty state.
-- **Public.** The ranked list is visible on the user's profile screen
-  (Phase 6.5.b's #138) — this is the reason this phase is sequenced after
-  Phase 6.5, not before it.
+**Algorithm decisions (grilling pass, 2026-08-05):** Elo-style rating
+(`functions/exercisePreferenceRanking.js`) over a simple win/loss ratio — one
+mechanism handles explicit votes and implicit nudges alike via the K-factor
+(`K_EXPLICIT = 32`, `K_IMPLICIT = 8`, a 4x ratio matching
+`LOGGED_EXERCISE_BONUS`/`FAVORITE_EXERCISE_BONUS`'s existing precedent for
+"real behaviour outweighs a softer signal"). Recency-weighted frequency uses
+a 30-day half-life (matches the muscle-comparison feature's own 7/14/30-day
+windows). The Settings display replaces the favourites section's list
+in-place rather than adding a new section.
 
-**Not yet designed:** the ranking algorithm itself (Elo-style pairwise update
-vs. something simpler), exact recency-weighting decay, and where the ranked
-list surfaces in Settings alongside the existing flat favourites list. Scope
-those before writing code, same "ask, don't assume" rule as everything else
-in this file.
+**Built:**
+- **Core module** (`functions/exercisePreferenceRanking.js`, 25 tests) — Elo
+  update, `resolveImplicitWinner`/`resolveImplicitWinnerFromScores` (one rule
+  for both the skip fallback and import seeding: two independent points —
+  recency-weighted frequency, e1RM improvement trend via
+  `strengthStandards.js`'s existing `e1rmTrendSlope` — never a weighted sum of
+  incomparable-scale numbers), `detectComparisonCandidates`,
+  `seedRatingsFromImport`, `rankExercises`.
+- **Schema** — `profile.exerciseRatings` in `userDoc.js` DEFAULTS,
+  deliberately top-level rather than nested under `trainingBackground` (the
+  frontend always reconstructs and POSTs the whole `trainingBackground`
+  object from local state, which would silently wipe server-computed ratings
+  on any unrelated save). Server-only-written — `POST /profile` strips a
+  client-supplied `exerciseRatings`, same protection as `username`.
+- **Comparison flow** — `applySessionComplete` returns `comparisonCandidates`
+  alongside `setsLogged` (wired through `/session/complete` and the
+  group-session finish route); `POST /preferences/compare` records a real
+  vote (`winner` named) or falls back to the implicit signal (omitted).
+- **Bulk-import seeding** — wired into `/import/hevy`, `/import`, and
+  `/hevy/backfill`; a no-op once any rating already exists.
+- **Settings display** (`SettingsOverlay`) — the favourites section now shows
+  rank order (number + name; rating/comparison count at Scientist level
+  only), built from `favoriteExercises ∪ exerciseRatings`. Add/× still only
+  ever edit `favoriteExercises`.
+- **Finish-workout prompt** — one "X vs Y — which do you prefer?" at a time
+  on the session-complete summary screen, non-blocking, skip omits the
+  winner so the backend applies the implicit fallback itself.
+- **Public profile** — `GET /account/:username` now returns `rankedExercises`
+  under the same `workoutSessions` visibility gate as workout history (not
+  the separate off-by-default `comparison` toggle, and not shown to a
+  non-follower at all, per `USERNAME_AND_COMPARISON.md` §4's minimal-view
+  rule) — **this gating choice wasn't re-confirmed with George**, flagged in
+  case he wants it fully public (no follow gate) instead, matching the
+  original "publicly accessible" phrasing more literally.
+
+CHANGELOG bumped to v0.74. 813/813 backend tests green, build clean, Jest
+green (5/5).
 
 ---
 
