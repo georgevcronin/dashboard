@@ -10,6 +10,7 @@
 const { computeRunningReadiness, readinessLabel } = require('./runningReadiness');
 const { computeRunningACWR } = require('./fatigue');
 const { weeklyEfficiencyTrend, detectSessionDistanceSpike } = require('./runningLoad');
+const { prescribeWorkout, karvonen5Zones, estimateMaxHeartRate } = require('./runningPrescription');
 
 // Map readiness score to session type distribution (polarized 80/20)
 // Healthy athletes should do mostly easy runs with occasional hard sessions
@@ -115,6 +116,9 @@ function buildRunningRecommendation({
   lastSpikeDetection,
   vo2maxResolution,
   vdotTrainingPaces,
+  age,
+  maxHeartRate,
+  restingHeartRate,
 } = {}) {
   if (!baseRecoveryScore || baseRecoveryScore < 0 || baseRecoveryScore > 100) {
     return null;
@@ -146,6 +150,21 @@ function buildRunningRecommendation({
   // Pace zones
   const paceZones = paceZonesFromVO2max(vo2maxResolution?.vo2max, vdotTrainingPaces);
 
+  // HR zones (Karvonen) with workout prescription
+  const estimatedMaxHR = maxHeartRate || (age ? estimateMaxHeartRate(age) : null);
+  const rhr = restingHeartRate || profile?.baselines?.restingHeartRate || 60;
+  const hrZones = estimatedMaxHR ? karvonen5Zones(estimatedMaxHR, rhr) : null;
+  const workoutPrescription = estimatedMaxHR && vo2maxResolution?.vo2max
+    ? prescribeWorkout({
+        sessionType: sessionRec.recommended,
+        maxHR: estimatedMaxHR,
+        vo2max: vo2maxResolution.vo2max,
+        vdotPaces: vdotTrainingPaces,
+        durationMin: duration.target,
+        restingHR: rhr,
+      })
+    : null;
+
   // Warnings and cautions
   const cautions = [];
   if (lastSpikeDetection && lastSpikeDetection.risk === 'very_high') {
@@ -169,6 +188,8 @@ function buildRunningRecommendation({
     readinessLabel: label,
     duration,
     paceZones,
+    hrZones,
+    workoutPrescription,
     vo2maxSource: vo2maxResolution?.source || null,
     vo2maxValue: vo2maxResolution?.vo2max || null,
     efficiencyTrend,

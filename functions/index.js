@@ -2103,6 +2103,9 @@ app.get("/run/recommendation", async (req, res) => {
     lastSpikeDetection,
     vo2maxResolution,
     vdotTrainingPaces: paces,
+    age: db.profile?.age,
+    maxHeartRate: db.profile?.baselines?.maxHeartRate,
+    restingHeartRate: db.profile?.baselines?.restingHeartRate,
   });
 
   res.json(rec);
