@@ -6277,6 +6277,27 @@ const GOAL_METRIC_OPTIONS = {
   muscle: [{ value: 'lift', label: 'A specific lift', unit: 'kg' }, { value: 'ffm', label: 'Fat-Free Mass', unit: 'kg' }, { value: 'ffmi', label: 'FFMI', unit: '' }],
   cardio: [{ value: 'rhr', label: 'Resting Heart Rate', unit: 'bpm' }, { value: 'benchmark', label: 'Benchmark time (e.g. 5k)', unit: '' }, { value: 'vo2max', label: 'VO₂ Max', unit: '' }],
 };
+// Shapes a raw trainingGoals draft (as edited by the GOAL_DEFS card UI,
+// concrete/metric/target/etc. all still loose strings) into the payload
+// /profile's validateGoals expects. Shared by Onboarding step 2 and
+// Settings' Training Goals editor so the two can't quietly diverge —
+// this exact transform used to be copy-pasted in both places.
+function buildGoalsPayload(goals) {
+  return goals.map(g => {
+    const out = { type: g.type, priority: g.priority, concrete: !!g.concrete };
+    if (!g.concrete) return out;
+    out.targetDate = g.targetDate;
+    if (GOAL_METRIC_OPTIONS[g.type]) {
+      out.metric = g.metric;
+      out.target = parseFloat(g.target);
+      if (g.metric === 'lift') out.exercise = g.exercise;
+      if (g.metric === 'benchmark') out.benchmarkLabel = g.benchmarkLabel;
+    } else {
+      out.target = g.target;
+    }
+    return out;
+  });
+}
 // FEATURES.md #24 -- 7 broad activities, same Primary/Secondary/Minor
 // priority picker as goals (replaces the old single primaryActivity/
 // secondaryActivity pair).
@@ -6444,21 +6465,7 @@ function Onboarding({ onComplete, onOpenImport }) {
   };
 
   const saveTrainingGoals = async () => {
-    const payload = trainingGoals.map(g => {
-      const out = { type: g.type, priority: g.priority, concrete: !!g.concrete };
-      if (!g.concrete) return out;
-      out.targetDate = g.targetDate;
-      if (GOAL_METRIC_OPTIONS[g.type]) {
-        out.metric = g.metric;
-        out.target = parseFloat(g.target);
-        if (g.metric === 'lift') out.exercise = g.exercise;
-        if (g.metric === 'benchmark') out.benchmarkLabel = g.benchmarkLabel;
-      } else {
-        out.target = g.target;
-      }
-      return out;
-    });
-    await api('profile', { method: 'POST', body: JSON.stringify({ goals: payload }), throwOnError: true });
+    await api('profile', { method: 'POST', body: JSON.stringify({ goals: buildGoalsPayload(trainingGoals) }), throwOnError: true });
   };
 
   const saveDietGoalAndTargets = async () => {
@@ -7689,22 +7696,8 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
   const saveGoalsDraft = async () => {
     setSavingGoals(true);
     setGoalsError('');
-    const payload = goalsDraft.map(g => {
-      const out = { type: g.type, priority: g.priority, concrete: !!g.concrete };
-      if (!g.concrete) return out;
-      out.targetDate = g.targetDate;
-      if (GOAL_METRIC_OPTIONS[g.type]) {
-        out.metric = g.metric;
-        out.target = parseFloat(g.target);
-        if (g.metric === 'lift') out.exercise = g.exercise;
-        if (g.metric === 'benchmark') out.benchmarkLabel = g.benchmarkLabel;
-      } else {
-        out.target = g.target;
-      }
-      return out;
-    });
     try {
-      const profile = await api('profile', { method: 'POST', body: JSON.stringify({ goals: payload }), throwOnError: true });
+      const profile = await api('profile', { method: 'POST', body: JSON.stringify({ goals: buildGoalsPayload(goalsDraft) }), throwOnError: true });
       refresh({ ...s, profile });
     } catch {
       setGoalsError('Save failed — check every concrete goal has a target and date, then try again.');
