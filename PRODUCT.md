@@ -55,6 +55,8 @@ Note: the in-progress social mode (visible-by-default workout feed, live shared 
 4. **Data before decoration** — every visual element must help you understand something. Decoration that doesn't carry information is noise.
 5. **Personal scale** — designed for one person who knows this tool intimately. No onboarding copy, no empty-state evangelism. Sparse where data is absent, dense where it's rich.
 
+Note: the interactive section walkthrough (FEATURES.md #145 — spotlight tooltips that auto-show once per section, the first time a user encounters it) is a deliberate departure from this principle, confirmed directly with George. It exists because a growing second-user base can't be assumed to "know this tool intimately" the way George does, and George decided the trade-off is worth it for that specific onboarding gap. It doesn't relax this principle for anything else in the app: Settings still has no empty-state hand-holding, no other feature gets an unprompted tour, and the walkthrough itself is written in the same dry, factual voice as the rest of the product (no onboarding-copy enthusiasm) and never shows again automatically once a section has been seen once.
+
 ## Accessibility & Inclusion
 
 Currently sole-user. A social mode is actively being planned (see below) — Google/Apple sign-in, mandatory username on first login, per-category visibility toggles in Settings (workout sessions visible by default; sleep/nutrition/mentor-chat/etc. off by default), and live shared workout sessions where each participant logs their own sets independently while watching the other's progress in real time. Build to WCAG AA from the start — retrofitting contrast and keyboard nav is expensive. Specific considerations:

@@ -44,6 +44,13 @@ const DEFAULTS = () => ({
     // same protection as username/visibility) — never built from a client-
     // supplied value, only real comparisons and import seeding.
     exerciseRatings: {},
+    // Per-section interactive walkthrough (FEATURES.md #145): { s1: true,
+    // s3: true, ... }, one key per section id the user has ever been
+    // auto-shown that section's spotlight tour. Only ever grows via /profile's
+    // walkthroughSeen merge (mark one section) or gets wiped by
+    // resetWalkthroughs ("Replay Walkthrough" in Settings) — never written
+    // wholesale by the client, same pattern as `visibility` above.
+    walkthroughsSeen: {},
   },
 });
 

@@ -120,8 +120,34 @@ section.visible .fade:nth-child(6){transition-delay:.56s}
    has to stop under reduced-motion: the bars land on the same values either
    way, they just arrive instantly. .mobile-track is the swipe carousel's
    slide transition (below, mobile-only) — same rule, a swipe or dock tap
-   still switches section instantly, just without the animated slide. */
-@media(prefers-reduced-motion:reduce){.fade,.ticker-track,.muscle-bar-fill,.mobile-track{animation:none;transition:none}.fade{opacity:1;transform:none}}
+   still switches section instantly, just without the animated slide.
+   .tour-spotlight/.tour-tooltip are the interactive walkthrough's (below) —
+   same rule, Skip/Back/Next still work, just without the animated glide
+   between targets. */
+@media(prefers-reduced-motion:reduce){.fade,.ticker-track,.muscle-bar-fill,.mobile-track,.tour-spotlight,.tour-tooltip{animation:none;transition:none}.fade{opacity:1;transform:none}}
+/* Interactive section walkthrough (FEATURES.md #145) — a spotlight box drawn
+   exactly over the live target element with a huge box-shadow standing in
+   for a dimmed backdrop-with-a-hole, so the real control shows through
+   rather than a screenshot of it. Deliberately pointer-events:none on both
+   the overlay and the spotlight: the point is to explain the live UI, not
+   to block interaction with it, so nothing here can trap a user. Only the
+   tooltip itself (and its Skip/Back/Next controls) accepts clicks. */
+.tour-overlay{position:fixed;inset:0;z-index:10500;pointer-events:none}
+.tour-spotlight{position:fixed;border-radius:8px;border:2px solid var(--gold);box-shadow:0 0 0 9999px rgba(13,11,8,.6);transition:top .3s ease,left .3s ease,width .3s ease,height .3s ease,opacity .25s ease}
+.tour-tooltip{position:fixed;pointer-events:auto;width:min(300px,calc(100vw - 24px));background:var(--paper);color:var(--ink);border:2px solid var(--ink);padding:16px;box-shadow:0 6px 24px rgba(13,11,8,.3);transition:top .3s ease,bottom .3s ease,left .3s ease,opacity .25s ease}
+.tour-close{position:absolute;top:0;right:0;width:44px;height:44px;background:none;border:none;cursor:pointer;font-size:20px;line-height:1;color:var(--dim);display:flex;align-items:center;justify-content:center}
+.tour-close:hover{color:var(--ink)}
+.tour-close:focus-visible{color:var(--ink);outline:2px solid var(--ink);outline-offset:-2px}
+.tour-kicker{font-family:'JetBrains Mono',monospace;font-size:8px;letter-spacing:.18em;text-transform:uppercase;color:var(--dim);margin-bottom:6px;padding-right:36px}
+.tour-title{font-family:'Playfair Display',serif;font-weight:700;font-size:16px;color:var(--ink);line-height:1.2;margin-bottom:6px;padding-right:20px}
+.tour-body{font-family:'Times New Roman',serif;font-size:13px;line-height:1.55;color:var(--ink)}
+.tour-actions{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:14px}
+.tour-actions-end{display:flex;gap:6px}
+.tour-skip,.tour-btn{display:inline-flex;align-items:center;justify-content:center;font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.1em;text-transform:uppercase;cursor:pointer;min-height:44px;padding:0 12px;border:1px solid var(--rule);background:none;color:var(--dim)}
+.tour-skip{border-color:transparent;padding:0}
+.tour-skip:hover,.tour-btn:hover{color:var(--ink)}
+.tour-btn.solid{background:var(--ink);color:var(--paper);border-color:var(--ink)}
+.tour-skip:focus-visible,.tour-btn:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
 .hide-scrollbar{-ms-overflow-style:none;scrollbar-width:none}
 .hide-scrollbar::-webkit-scrollbar{display:none}
 .kicker{font-size:8px;letter-spacing:.22em;text-transform:uppercase;color:var(--dim);border-bottom:1px solid var(--ink);display:inline-block;padding-bottom:2px;margin-bottom:8px}
