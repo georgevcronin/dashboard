@@ -1,5 +1,19 @@
 # Idea list triage — 2026-08-05
 
+## Decisions confirmed with George, 2026-08-05 (grilled via follow-up questions)
+
+- **#8 "check period software"** → menstrual cycle tracking (new feature), not periodization. `#64`/`TRAINING_ETHOS.md` conflict is unrelated and still open separately.
+- **#5 "fix social functions"** → not a bug report — wants the follow-request/username-search mechanics moved out of Settings onto their own front-page panel, plus a new **activity feed of followed users' visible workout sessions**. The feed isn't new tension with `PRODUCT.md`'s anti-references — the roadmap note in `PRODUCT.md`'s Accessibility & Inclusion section already names "visible-by-default workout feed" as planned; this is building that. **Feed visibility is its own separate opt-in**, off by default even when workout-session visibility is on — a feed is a bigger exposure step than a profile page someone has to visit to see.
+- **#9 mobile-too-wide** → confirmed real bug: horizontal scrollbar / sideways page scroll, on both the dashboard panels (S1–S7) and the Settings screen. **Priority: fix this first**, ahead of the three items below.
+- **#1 "layout transitions"** → wants mobile section switching to become a swipeable left-right carousel (seamless swipe between Dispatch/Sleep/Training/etc.), not just instant tap-to-switch. **Both swipe and dock-tap stay live** — tapping a dock icon still jumps directly to a section; swipe moves one neighbor at a time. Standard carousel + tab-bar pattern, not a gesture-only replacement.
+- **#4 "clean up setup"** → the onboarding wizard steps themselves (too many/confusing/stale), not Settings' organization.
+- **#14/#15 tracking-level checkboxes** → **replace the `ECHELONS` 3-preset radio outright** with independent Training/Sleep/Nutrition checkboxes. Requires migrating existing users' saved `profile.trackingLevel` string value to the new shape — not additive, not a 4th "Custom" preset alongside the old three.
+- **#6 languages** → flagged for later, not being scoped now.
+
+**Sequencing, per George: mobile overflow fix → social panel → swipe nav → onboarding cleanup**, though the middle two aren't strictly ordered against each other — the four are independent workstreams now that they're all scoped, just tackled in that priority order.
+
+---
+
 George dropped a raw list of 17 short topics with no detail, closing with "take these features and flesh them out and brainstorm them." This document does that: each topic gets researched against what's already built (so nothing gets re-proposed), fleshed into a concrete shape, and flagged with what it actually is — a bug, a decision, an already-scoped `FEATURES.md` item, or genuinely new scope.
 
 Per `CLAUDE.md`: nothing here is built yet. Several of these are one-line bug fixes that could just be done; several are real product decisions (pricing, new tracked data categories, scope changes to `FEATURES.md`) that need George's call first. Each entry says which.
