@@ -1006,6 +1006,8 @@ const CHANGELOG = [
     date: '2026-08-05',
     features: [
       'Fixed the dashboard and Settings scrolling sideways on narrow phone screens — several grids (stat readouts, soreness picker, onboarding goal cards, the weekly calendar strip, briefing stats) could get pushed wider than the screen by a single long number, muscle name, or split label instead of wrapping.',
+      'Added Social, a new front-page section: follow requests and username search — previously only in Settings → Social, which still works too — plus muscle comparison, now reachable directly from the front page instead of only after opening a profile via Settings.',
+      'New activity feed on that section shows recent sessions from people you follow, one line each (who, what, when — no likes or streaks). It\'s a separate opt-in from "workout sessions visible to followers" and stays off by default even if that one is already on — turn it on in Settings → Social → Visibility to include your own sessions in it.',
     ],
   },
   {
@@ -7047,7 +7049,17 @@ function Onboarding({ onComplete, onOpenImport }) {
 // train today, and why" and so lead; sleep/nutrition/body/records are the
 // supporting record and follow. Only affects accounts that have never
 // reordered — a stored profile.panelOrder always wins.
-const DEFAULT_PANEL_ORDER = ['s1', 's3', 's5', 's2', 's4', 's6', 's7', 's8'];
+const DEFAULT_PANEL_ORDER = ['s1', 's3', 's5', 's2', 's4', 's6', 's7', 's8', 's9'];
+// A stored panelOrder always wins (see above), but it was captured at
+// whatever point the account last touched Settings → Dashboard Layout —
+// pre-dating panels added since then, which would otherwise never appear
+// for that account (the render below only ever iterates ids that ARE in
+// panelOrder, it doesn't add missing ones). Appending anything in
+// DEFAULT_PANEL_ORDER the stored order is missing keeps a newly-shipped
+// panel visible for existing accounts too, at the end, without disturbing
+// any position that account has already chosen.
+const withNewDefaultsAppended = order =>
+  [...order, ...DEFAULT_PANEL_ORDER.filter(id => !order.includes(id))];
 // Real per-panel default column-spanning (#13) rather than only the one
 // manually-toggled 'expanded' state — Dispatch, Training and Recovery carry
 // meaningfully more content than the others (the same lead-panel trio
@@ -7060,8 +7072,8 @@ const PANEL_WIDE = new Set(['s1', 's3', 's5']);
 // is never stored — an unset panel and an explicitly-standard one are the same
 // thing, so nothing has to be migrated when a panel is added.
 const PANEL_STATE_LABELS = { collapsed: 'Collapsed', standard: 'Standard', expanded: 'Wide' };
-const PANEL_LABELS = { s1: 'Dispatch', s2: 'Sleep', s3: 'Training', s4: 'Nutrition', s5: 'Recovery', s6: 'Body & Supplements', s7: 'Personal Records', s8: 'Goals' };
-const DOCK_LABELS = { s1: 'Dispatch', s2: 'Sleep', s3: 'Training', s4: 'Nutrition', s5: 'Recovery', s6: 'Body', s7: 'Records', s8: 'Goals' };
+const PANEL_LABELS = { s1: 'Dispatch', s2: 'Sleep', s3: 'Training', s4: 'Nutrition', s5: 'Recovery', s6: 'Body & Supplements', s7: 'Personal Records', s8: 'Goals', s9: 'Social' };
+const DOCK_LABELS = { s1: 'Dispatch', s2: 'Sleep', s3: 'Training', s4: 'Nutrition', s5: 'Recovery', s6: 'Body', s7: 'Records', s8: 'Goals', s9: 'Social' };
 // One-click desktop layout presets (order + panelStates together) — not a
 // new layout mechanism, just named combinations of the two settings above.
 // Review and Retrospective are mirror images of the same lead/supporting
@@ -7071,7 +7083,7 @@ const LAYOUT_PRESETS = [
   {
     id: 'review', label: 'Review',
     desc: 'Dispatch, Training and Recovery wide and first — today\'s decision, biggest.',
-    order: ['s1', 's3', 's5', 's2', 's4', 's6', 's7', 's8'],
+    order: ['s1', 's3', 's5', 's2', 's4', 's6', 's7', 's8', 's9'],
     states: { s1: 'expanded', s3: 'expanded', s5: 'expanded', s2: 'collapsed', s4: 'collapsed', s6: 'collapsed', s7: 'collapsed' },
   },
   {
@@ -7083,7 +7095,7 @@ const LAYOUT_PRESETS = [
   {
     id: 'retrospective', label: 'Retrospective',
     desc: 'Sleep, Nutrition, Body and Records wide and first — the review, not the decision.',
-    order: ['s2', 's4', 's6', 's7', 's1', 's3', 's5', 's8'],
+    order: ['s2', 's4', 's6', 's7', 's1', 's3', 's5', 's8', 's9'],
     states: { s2: 'expanded', s4: 'expanded', s6: 'expanded', s7: 'expanded', s1: 'collapsed', s3: 'collapsed', s5: 'collapsed' },
   },
 ];
@@ -7251,6 +7263,227 @@ function ComparisonScreen({ username, otherDisplayNameFirstHint, onClose }) {
   );
 }
 
+// ── S9: SOCIAL ───────────────────────────────────────────────────────────────
+// Front-page home for the follow/search/comparison system (FEATURES.md
+// #135-139), previously reachable only via Settings → Social, plus the new
+// activity feed (#144). Settings → Social stays in place as a secondary
+// entry point (CLAUDE.md: additive, not a removal) — this panel reuses the
+// exact same endpoints and the same ComparisonScreen/profile-overlay flow
+// rather than rebuilding either, so there is exactly one implementation of
+// each behind two entry points, not two implementations to drift apart.
+function S9({ s, followBadge, reloadFollowBadge }) {
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState([]);
+  const [searching, setSearching] = useState(false);
+  const [followingPending, setFollowingPending] = useState({});
+  const [viewingUsername, setViewingUsername] = useState(null);
+  const [viewedProfile, setViewedProfile] = useState(null);
+  const [profileLoading, setProfileLoading] = useState(false);
+  const [comparingUsername, setComparingUsername] = useState(null);
+  const [feed, setFeed] = useState(null);
+  const [feedError, setFeedError] = useState('');
+  const [feedLoading, setFeedLoading] = useState(true);
+
+  const feedVisible = s?.profile?.visibility?.feed === true;
+
+  useEffect(() => {
+    let cancelled = false;
+    setFeedLoading(true);
+    api('feed')
+      .then(r => { if (!cancelled) setFeed(r.entries || []); })
+      .catch(() => { if (!cancelled) setFeedError('Connection error — try again.'); })
+      .finally(() => { if (!cancelled) setFeedLoading(false); });
+    return () => { cancelled = true; };
+  }, []);
+
+  const runSearch = (q) => {
+    setSearchQuery(q);
+    if (!q.trim()) { setSearchResults([]); return; }
+    setSearching(true);
+    api(`account/search?prefix=${encodeURIComponent(q.trim())}`)
+      .then(r => setSearchResults(r.results || []))
+      .catch(() => {})
+      .finally(() => setSearching(false));
+  };
+
+  const openProfile = (username) => {
+    setViewingUsername(username);
+    setViewedProfile(null);
+    setProfileLoading(true);
+    api(`account/${encodeURIComponent(username)}`)
+      .then(r => setViewedProfile(r))
+      .catch(() => setViewedProfile({ error: true }))
+      .finally(() => setProfileLoading(false));
+  };
+
+  const sendFollowRequest = async (username) => {
+    setFollowingPending(p => ({ ...p, [username]: true }));
+    try {
+      await api('follow-request', { method: 'POST', body: JSON.stringify({ toUsername: username }) });
+    } catch {
+      setFollowingPending(p => ({ ...p, [username]: false }));
+    }
+  };
+
+  const acceptFollowRequest = async (fromUid) => {
+    await api(`follow-requests/${fromUid}/accept`, { method: 'POST' });
+    reloadFollowBadge?.();
+  };
+
+  const ackAccepted = async () => {
+    await api('follow-requests/ack-accepted', { method: 'POST' });
+    reloadFollowBadge?.();
+  };
+
+  const requestCount = (followBadge?.incoming?.length || 0) + (followBadge?.recentlyAccepted?.length || 0);
+
+  return (
+    <section id="s9" style={{ display: 'flex', flexDirection: 'column' }}>
+      <div className="fade panel-head" style={{ flexShrink: 0 }}>
+        <div className="kicker">Social</div>
+        <div className="headline" style={{ fontSize: 'clamp(24px,6vw,44px)', lineHeight: '.96' }}>Follow &amp;<br />Compare</div>
+        <div className="deck">
+          {feed ? `${feed.length} recent entr${feed.length !== 1 ? 'ies' : 'y'}` : '—'}
+          {requestCount > 0 ? ` · ${requestCount} request${requestCount !== 1 ? 's' : ''}` : ''}
+        </div>
+      </div>
+      <div className="fade" style={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>
+
+        {followBadge?.recentlyAccepted?.length > 0 && (
+          <div style={{ marginBottom: 14 }}>
+            <div className="pr-group-hdr">Accepted</div>
+            {followBadge.recentlyAccepted.map(r => (
+              <div key={r.toUid} className="notif-row">
+                <span style={{ fontSize: 12 }}>{r.toDisplayNameFirst} accepted your follow request</span>
+              </div>
+            ))}
+            <button className="prof-btn" onClick={ackAccepted} style={{ marginTop: 6 }}>Dismiss</button>
+          </div>
+        )}
+
+        {followBadge?.incoming?.length > 0 && (
+          <div style={{ marginBottom: 14 }}>
+            <div className="pr-group-hdr">Follow Requests</div>
+            {followBadge.incoming.map(r => (
+              <div key={r.fromUid} className="notif-row">
+                <span style={{ fontSize: 12 }}>{r.fromDisplayNameFirst} <span style={{ color: 'var(--dim)', fontFamily: "'JetBrains Mono',monospace", fontSize: 9 }}>@{r.fromUsername}</span></span>
+                <button className="prof-btn solid" style={{ fontSize: 9, padding: '4px 10px' }} onClick={() => acceptFollowRequest(r.fromUid)}>Accept</button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div style={{ marginBottom: 16 }}>
+          <div className="pr-group-hdr">Find People</div>
+          <input className="pr-search" value={searchQuery} onChange={e => runSearch(e.target.value)}
+            placeholder="Search by username" autoCapitalize="none" autoCorrect="off" />
+          {searching && <div style={{ fontSize: 10, color: 'var(--dim)', marginTop: 4 }}>Searching…</div>}
+          {searchResults.map(r => (
+            <div key={r.uid} className="notif-row">
+              <button onClick={() => openProfile(r.username)} style={{ background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left', padding: 0, fontSize: 12, color: 'var(--ink)' }}>
+                {r.displayNameFirst} <span style={{ color: 'var(--dim)', fontFamily: "'JetBrains Mono',monospace", fontSize: 9 }}>@{r.username}</span>
+              </button>
+              <button className="prof-btn" style={{ fontSize: 9, padding: '4px 10px' }}
+                disabled={followingPending[r.username]} onClick={() => sendFollowRequest(r.username)}>
+                {followingPending[r.username] ? 'Requested' : 'Follow'}
+              </button>
+            </div>
+          ))}
+        </div>
+
+        <div>
+          <div className="pr-group-hdr">Activity</div>
+          {!feedVisible && (
+            <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, color: 'var(--dim)', lineHeight: 1.5, padding: '6px 0 12px' }}>
+              Your own sessions aren't included in anyone else's feed — turn on "Activity feed" in Settings → Social → Visibility to opt in.
+            </div>
+          )}
+          {feedLoading && <div style={{ fontSize: 11, color: 'var(--dim)' }}>Loading…</div>}
+          {feedError && <div style={{ fontSize: 11, color: 'var(--red)' }}>{feedError}</div>}
+          {!feedLoading && !feedError && feed?.length === 0 && (
+            <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 11, color: 'var(--dim)', fontStyle: 'italic', padding: '12px 0' }}>
+              Nothing yet — follow people with sessions and the activity feed both visible to see their training here.
+            </div>
+          )}
+          {feed?.map((e, i) => (
+            <div key={i} className="hist-row" style={{ cursor: 'default' }}>
+              <div className="hist-row-hdr">
+                <span className="hist-date">{e.date}</span>
+                <button onClick={() => openProfile(e.username)} className="hist-name"
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, textTransform: 'none' }}>
+                  {e.displayNameFirst}
+                </button>
+                <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)' }}>
+                  trained {e.name}{e.sets ? ` · ${e.sets} sets` : ''}{e.duration ? ` · ${e.duration}min` : ''}
+                </span>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {viewingUsername && (
+        <div className="onboard-overlay" style={{ zIndex: 10000 }} onClick={() => setViewingUsername(null)}>
+          <div className="ob-wrap" onClick={e => e.stopPropagation()}>
+            <button onClick={() => setViewingUsername(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--dim)', fontFamily: "'JetBrains Mono',monospace", fontSize: 9, letterSpacing: '.12em', textTransform: 'uppercase', padding: 0, marginBottom: 20 }}>← Back</button>
+            {profileLoading && <div style={{ fontSize: 12, color: 'var(--dim)' }}>Loading…</div>}
+            {!profileLoading && viewedProfile?.error && <div style={{ fontSize: 12, color: 'var(--red)' }}>Couldn't load this profile.</div>}
+            {!profileLoading && viewedProfile && !viewedProfile.error && (
+              <>
+                <div className="ob-h">{viewedProfile.displayNameFirst}</div>
+                <div className="ob-deck">@{viewedProfile.username}</div>
+                {!viewedProfile.isFollowing && !viewedProfile.isSelf && (
+                  <button className="prof-btn solid" style={{ marginTop: 12 }}
+                    disabled={followingPending[viewedProfile.username]}
+                    onClick={() => sendFollowRequest(viewedProfile.username)}>
+                    {followingPending[viewedProfile.username] ? 'Requested' : 'Follow'}
+                  </button>
+                )}
+                {viewedProfile.isFollowing && !viewedProfile.workouts && (
+                  <div style={{ fontSize: 11, color: 'var(--dim)', marginTop: 12 }}>Workout sessions aren't visible for this account.</div>
+                )}
+                {viewedProfile.canCompare && (
+                  <button className="prof-btn" style={{ marginTop: 12, marginLeft: viewedProfile.isFollowing && !viewedProfile.workouts ? 0 : 8 }}
+                    onClick={() => setComparingUsername(viewedProfile.username)}>
+                    Compare
+                  </button>
+                )}
+                {viewedProfile.workouts && (
+                  <div style={{ marginTop: 16 }}>
+                    <div className="settings-sh">Recent Workouts</div>
+                    {viewedProfile.workouts.slice(-10).reverse().map((w, i) => (
+                      <div key={i} style={{ fontSize: 12, padding: '6px 0', borderBottom: '1px solid var(--paper2)' }}>
+                        {localDateFromYMD(w.date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })} — {w.name} ({w.sets} sets)
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {viewedProfile.rankedExercises?.length > 0 && (
+                  <div style={{ marginTop: 16 }}>
+                    <div className="settings-sh">Ranked Favorite Exercises</div>
+                    <ol style={{ listStyle: 'none', padding: 0, margin: 0 }}>
+                      {viewedProfile.rankedExercises.slice(0, 10).map((r, i) => (
+                        <li key={r.name} style={{ display: 'flex', gap: 8, fontSize: 12, padding: '6px 0', borderBottom: '1px solid var(--paper2)' }}>
+                          <span style={{ color: 'var(--dim)', width: 16, textAlign: 'right', flexShrink: 0 }}>{i + 1}.</span>
+                          <span>{r.name}</span>
+                        </li>
+                      ))}
+                    </ol>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        </div>
+      )}
+      {comparingUsername && (
+        <ComparisonScreen username={comparingUsername} otherDisplayNameFirstHint={viewedProfile?.displayNameFirst}
+          onClose={() => setComparingUsername(null)} />
+      )}
+    </section>
+  );
+}
+
 function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenWiki, setBriefing, onRestartSetup, followBadge, reloadFollowBadge, onOpenGridEdit }) {
   const [nameVal, setNameVal] = useState(s?.profile?.name || '');
   const [nameSaving, setNameSaving] = useState(false);
@@ -7326,7 +7559,7 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
   const [sensValue, setSensValue] = useState('1.0');
   const [savingSens, setSavingSens] = useState(false);
   const [newMemoryEntry, setNewMemoryEntry] = useState('');
-  const [panelOrder, setPanelOrder] = useState(s?.profile?.panelOrder?.length ? s.profile.panelOrder : DEFAULT_PANEL_ORDER);
+  const [panelOrder, setPanelOrder] = useState(withNewDefaultsAppended(s?.profile?.panelOrder?.length ? s.profile.panelOrder : DEFAULT_PANEL_ORDER));
   const [hiddenPanels, setHiddenPanels] = useState(s?.profile?.hiddenPanels || []);
   const [microWidgetOrder, setMicroWidgetOrder] = useState(s?.profile?.microWidgetOrder?.length ? s.profile.microWidgetOrder : MICRO_WIDGET_IDS);
   const [hiddenMicroWidgets, setHiddenMicroWidgets] = useState(s?.profile?.hiddenMicroWidgets || []);
@@ -7600,6 +7833,11 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
   const visibility = s?.profile?.visibility || {};
   const workoutSessionsVisible = visibility.workoutSessions !== false;
   const comparisonVisible = visibility.comparison === true;
+  // Separate opt-in from workoutSessions above, off by default even when
+  // that one is already on — a persistent feed of everything you log is a
+  // bigger exposure step than a single session someone has to visit your
+  // profile to see (FEATURES.md #144).
+  const feedVisible = visibility.feed === true;
 
   const runSearch = (q) => {
     setSearchQuery(q);
@@ -7641,7 +7879,7 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
   };
 
   const saveVisibility = async (patch) => {
-    const profile = await api('profile', { method: 'POST', body: JSON.stringify({ visibility: { workoutSessions: workoutSessionsVisible, comparison: comparisonVisible, ...patch } }) });
+    const profile = await api('profile', { method: 'POST', body: JSON.stringify({ visibility: { workoutSessions: workoutSessionsVisible, comparison: comparisonVisible, feed: feedVisible, ...patch } }) });
     refresh({ ...s, profile });
   };
 
@@ -8051,6 +8289,12 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
             <span className="prof-lbl">Strength/stimulus comparison <span style={{ fontWeight: 400, textTransform: 'none', fontSize: 9, color: 'var(--dim)' }}>(requires mutual follow + both people opted in)</span></span>
             <button className={`prof-btn${comparisonVisible ? ' solid' : ''}`} onClick={() => saveVisibility({ comparison: !comparisonVisible })}>
               {comparisonVisible ? 'On' : 'Off'}
+            </button>
+          </div>
+          <div className="prof-field">
+            <span className="prof-lbl">Activity feed <span style={{ fontWeight: 400, textTransform: 'none', fontSize: 9, color: 'var(--dim)' }}>(includes your sessions in followers' feeds — off by default even if sessions above are visible)</span></span>
+            <button className={`prof-btn${feedVisible ? ' solid' : ''}`} onClick={() => saveVisibility({ feed: !feedVisible })}>
+              {feedVisible ? 'On' : 'Off'}
             </button>
           </div>
         </div>
@@ -9858,7 +10102,7 @@ function App() {
   const trackingLevel = s?.profile?.trackingLevel || 'full';
   const showSleep = trackingLevel !== 'workout';
   const showFuel = trackingLevel === 'full';
-  const panelOrder = s?.profile?.panelOrder?.length ? s.profile.panelOrder : DEFAULT_PANEL_ORDER;
+  const panelOrder = withNewDefaultsAppended(s?.profile?.panelOrder?.length ? s.profile.panelOrder : DEFAULT_PANEL_ORDER);
   const hiddenPanelSet = new Set(s?.profile?.hiddenPanels || []);
   // trackingLevel's own s2/s4 gating still applies on top of the user's own
   // order/hide preference — a "workout" tracking level shouldn't show Sleep
@@ -9887,6 +10131,7 @@ function App() {
     s6: <S6 key="s6" s={s} refresh={refresh} />,
     s7: <S7 key="s7" s={s} />,
     s8: <S8 key="s8" s={s} />,
+    s9: <S9 key="s9" s={s} followBadge={followBadge} reloadFollowBadge={loadFollowRequests} />,
   };
   // Default grid size for an item that has no saved x/y/w/h yet — mirrors the
   // old CSS span logic (PANEL_WIDE + expanded state) so a fresh account's

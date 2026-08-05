@@ -32,6 +32,7 @@ const { findNearbyGyms, normalizeExerciseKey, GYM_NEARBY_RADIUS_M } = require('.
 const { buildUnifiedTimeline } = require('./analyticsEngine');
 const { computePatternFatigue } = require('./movementPatterns');
 const { detectComparisonCandidates, resolveImplicitWinner, applyComparison, seedRatingsFromImport, rankExercises } = require('./exercisePreferenceRanking');
+const { buildFeedEntries } = require('./feed');
 
 admin.initializeApp();
 const firestore = admin.firestore();
@@ -1224,17 +1225,22 @@ app.post("/profile", async (req, res) => {
   // supplied value — same protection as username/visibility above.
   delete body.exerciseRatings;
   // Per-category visibility toggles, gating what a follower can see (see
-  // USERNAME_AND_COMPARISON.md §4/§6). Only the two known keys are ever
-  // merged in, whitelisted rather than trusting an arbitrary client object,
-  // since this becomes a real access-control input once follow/comparison
-  // read it. workoutSessions defaults true (visible), comparison defaults
-  // false (opt-in) — both applied at read time in the endpoints that check
-  // them, not stamped into the stored object here, so an account that's
-  // never touched this at all still gets the right defaults.
+  // USERNAME_AND_COMPARISON.md §4/§6). Only the known keys are ever merged
+  // in, whitelisted rather than trusting an arbitrary client object, since
+  // this becomes a real access-control input once follow/comparison/feed
+  // read it. workoutSessions defaults true (visible), comparison and feed
+  // both default false (opt-in) — applied at read time in the endpoints
+  // that check them, not stamped into the stored object here, so an
+  // account that's never touched this at all still gets the right
+  // defaults. feed is deliberately its own toggle, separate from and off
+  // even when workoutSessions is already on — a persistent feed of every
+  // session is a bigger exposure step than a profile someone has to visit
+  // (see /feed below).
   if (body.visibility && typeof body.visibility === 'object') {
     const v = {};
     if (typeof body.visibility.workoutSessions === 'boolean') v.workoutSessions = body.visibility.workoutSessions;
     if (typeof body.visibility.comparison === 'boolean') v.comparison = body.visibility.comparison;
+    if (typeof body.visibility.feed === 'boolean') v.feed = body.visibility.feed;
     body.visibility = { ...(db.profile?.visibility || {}), ...v };
   } else {
     delete body.visibility;
@@ -1315,6 +1321,13 @@ app.post("/profile", async (req, res) => {
 // merge above for why the default lives here rather than in stored data.
 const isWorkoutSessionsVisible = profile => profile?.visibility?.workoutSessions !== false;
 const isComparisonVisible = profile => profile?.visibility?.comparison === true;
+// Off by default even when workoutSessions is already on (FEATURES.md
+// #144) — a single session someone has to visit a profile to see is a
+// smaller disclosure than a persistent, always-current feed of everything
+// they log, same reasoning USERNAME_AND_COMPARISON.md §6 already applied to
+// the comparison toggle. /feed below requires both this AND
+// isWorkoutSessionsVisible.
+const isFeedVisible = profile => profile?.visibility?.feed === true;
 
 // ---------- Username / display name ----------
 // See .design/feature-brainstorm/USERNAME_AND_COMPARISON.md for the design.
@@ -1583,6 +1596,38 @@ app.get('/compare/:username', async (req, res) => {
     self: strengthLevelsFor(db.lifts, db.weight, db.profile?.sex),
     other: strengthLevelsFor(targetLifts, targetData.weight, targetData.profile?.sex),
   });
+});
+
+// ---------- Activity feed ----------
+// FEATURES.md #144. An aggregated feed of recent workout sessions from
+// people the requester follows — one-directional (following, not mutual,
+// same as the profile view's isFollowing check), but only ever includes a
+// followed account's sessions when THAT account has both
+// isWorkoutSessionsVisible AND the separate isFeedVisible opt-in on. Both
+// gates are re-checked here per account, server-side, from each account's
+// own freshly-read doc — never trusting a client-supplied list or a stale
+// cached flag. The cross-account reads are read-only and go straight at
+// userDocRef(uid), same as /account/:username and /compare — never through
+// the request-scoped db/save globals for anyone but the requester
+// themselves (ARCHITECTURE.md's "Request-scoped state").
+app.get('/feed', async (req, res) => {
+  const followingSnap = await firestore.collection('followRequests')
+    .where('fromUid', '==', req.uid).where('status', '==', 'accepted').get();
+  const followedUids = followingSnap.docs.map(d => d.data().toUid);
+  if (!followedUids.length) return res.json({ entries: [] });
+
+  const followedSnaps = await Promise.all(followedUids.map(uid => userDocRef(uid).get()));
+  const sources = followedSnaps
+    .map((snap, i) => ({ uid: followedUids[i], data: snap.exists ? snap.data() : {} }))
+    .filter(({ data }) => isWorkoutSessionsVisible(data.profile) && isFeedVisible(data.profile))
+    .map(({ uid, data }) => ({
+      uid,
+      username: data.profile?.username || null,
+      displayNameFirst: deriveDisplayNameFirst(data.profile?.displayName),
+      workouts: data.workouts || [],
+    }));
+
+  res.json({ entries: buildFeedEntries(sources) });
 });
 
 // Per-user token for open webhook routes (/shortcut, /health) — lets each
