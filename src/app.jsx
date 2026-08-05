@@ -1008,6 +1008,7 @@ const CHANGELOG = [
       'Fixed the dashboard and Settings scrolling sideways on narrow phone screens — several grids (stat readouts, soreness picker, onboarding goal cards, the weekly calendar strip, briefing stats) could get pushed wider than the screen by a single long number, muscle name, or split label instead of wrapping.',
       'Added Social, a new front-page section: follow requests and username search — previously only in Settings → Social, which still works too — plus muscle comparison, now reachable directly from the front page instead of only after opening a profile via Settings.',
       'New activity feed on that section shows recent sessions from people you follow, one line each (who, what, when — no likes or streaks). It\'s a separate opt-in from "workout sessions visible to followers" and stays off by default even if that one is already on — turn it on in Settings → Social → Visibility to include your own sessions in it.',
+      'Mobile section navigation is now swipeable: drag left or right to move to the next or previous section (Dispatch, Sleep, Training, Nutrition, Recovery, Body, Records, Goals), with a smooth slide between them. The dock still jumps straight to any section by tapping — both stay in sync, and the slide becomes an instant jump if you have reduced motion turned on.',
     ],
   },
   {
@@ -9763,13 +9764,22 @@ function App() {
     if (bubbleDrag.current.moved) { bubbleDrag.current.moved = false; return; }
     setChatOpen(true);
   };
-  // Below 480px .scroll drops out of the masonry grid entirely and falls back
-  // to block flow (see PRESS_CSS's .scroll block), which reads as one long
-  // vertical scroll through every section back to back. The dock replaces
-  // that with tap-to-switch, one section on screen at a time; above 480px
-  // the multi-column scroll layout stays as-is.
+  // Below 480px .scroll drops out of the masonry grid entirely and becomes a
+  // horizontal one-section-at-a-time track (see PRESS_CSS's .mobile-track
+  // block): every section sits side by side, and only the active one is on
+  // screen. The dock jumps straight to any section; a left/right swipe on
+  // the track (onSwipeStart/Move/End/Cancel below) moves to the neighbouring
+  // one. Both write the same activeSection state, so whichever one you used
+  // to get there, the other stays in sync. Above 480px the multi-column
+  // scroll layout stays as-is.
   const [isMobile, setIsMobile] = useState(() => window.matchMedia('(max-width:480px)').matches);
   const [activeSection, setActiveSection] = useState(null);
+  // Plain mutable drag state, not React state — mutated straight from touch
+  // handlers so a swipe can move the track every frame without going through
+  // a re-render (matches bubbleDrag's pattern above). axis stays null until
+  // the gesture has moved enough to tell a horizontal swipe from a vertical
+  // scroll apart; only 'x' ever drives the track.
+  const swipeDrag = useRef({ tracking: false, axis: null, startX: 0, startY: 0, dx: 0, base: 0 });
   // Separate from `onboarded` (which gates first-run access and is never
   // reset once true) -- this only forces the Onboarding overlay open again
   // for someone who already finished setup and explicitly asked to redo it
@@ -10077,6 +10087,32 @@ function App() {
     // which is declared below the early returns and would be in its TDZ here.
   }, [user, !!s, isMobile, s?.profile?.panelOrder?.join(','), s?.profile?.hiddenPanels?.join(','), s?.profile?.trackingLevel]);
 
+  // Mobile swipe carousel: #press-scroll's own height is pinned to the
+  // active panel's height, not the tallest of every section, since all
+  // sections now sit side by side in a flex row (.mobile-track) instead of
+  // the old one-at-a-time display:none. Without this, switching to a short
+  // section (Sleep) would leave whichever section is tallest (Records, once
+  // PR history grows) as blank space below it. Box-sizing is border-box
+  // (global reset), so the panel's own offsetHeight has to be padded back
+  // out by #press-scroll's own top/bottom padding (the fixed-header offset)
+  // to land on the right box height rather than squeezing the content into
+  // too little room.
+  useLayoutEffect(() => {
+    if (!isMobile) return;
+    const viewport = document.getElementById('press-scroll');
+    const active = viewport?.querySelector('.mobile-track > .panel-active');
+    if (!viewport || !active) return;
+    const sync = () => {
+      const cs = getComputedStyle(viewport);
+      const vPad = parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom);
+      viewport.style.height = `${active.offsetHeight + vPad}px`;
+    };
+    sync();
+    const obs = new ResizeObserver(sync);
+    obs.observe(active);
+    return () => obs.disconnect();
+  }, [isMobile, activeSection, s?.profile?.panelOrder?.join(','), s?.profile?.hiddenPanels?.join(','), s?.profile?.trackingLevel]);
+
   if (user === undefined) return <LoadingScreen />;
 
   if (!user) return <LoginScreen />;
@@ -10110,6 +10146,65 @@ function App() {
   const sectionIds = panelOrder.filter(id =>
     !hiddenPanelSet.has(id) && (id !== 's2' || showSleep) && (id !== 's4' || showFuel)
   );
+  // Same "fall back to the first section" rule the dock buttons already used
+  // (activeSection can be null on first render, or point at a section that
+  // was since hidden/reordered out) — shared by the dock's active state and
+  // the swipe track's resting position so the two can never disagree about
+  // which section is current.
+  const effectiveActiveId = sectionIds.includes(activeSection) ? activeSection : sectionIds[0];
+  const activeIdx = sectionIds.indexOf(effectiveActiveId);
+  // Swipe handlers for .mobile-track. Direction is undecided until the
+  // gesture clears an 8px slop (onSwipeMove's axis===null branch): once it
+  // resolves to 'y' the rest of the gesture is left alone so the page's
+  // normal vertical scroll (or a nested horizontal scroller like
+  // .week-strip, exempted below) still works untouched. Only a resolved 'x'
+  // gesture calls preventDefault and drives the track — never before the
+  // axis is known, so a vertical scroll never stutters waiting on this.
+  const onSwipeStart = e => {
+    const t = e.touches[0];
+    const ignore = e.touches.length !== 1 || e.target.closest('.week-strip');
+    swipeDrag.current = { tracking: !ignore, axis: null, startX: t?.clientX || 0, startY: t?.clientY || 0, dx: 0, base: activeIdx };
+  };
+  const onSwipeMove = e => {
+    const drag = swipeDrag.current;
+    if (!drag.tracking) return;
+    const t = e.touches[0];
+    const dx = t.clientX - drag.startX;
+    const dy = t.clientY - drag.startY;
+    if (drag.axis === null) {
+      if (Math.abs(dx) < 8 && Math.abs(dy) < 8) return;
+      drag.axis = Math.abs(dx) > Math.abs(dy) ? 'x' : 'y';
+      if (drag.axis === 'x') e.currentTarget.style.transition = 'none';
+    }
+    if (drag.axis !== 'x') return;
+    e.preventDefault();
+    drag.dx = dx;
+    const width = e.currentTarget.parentElement.getBoundingClientRect().width || 1;
+    let pct = (dx / width) * 100;
+    if (drag.base === 0) pct = Math.min(pct, 0);
+    if (drag.base === sectionIds.length - 1) pct = Math.max(pct, 0);
+    e.currentTarget.style.transform = `translateX(${-drag.base * 100 + pct}%)`;
+  };
+  const onSwipeEnd = e => {
+    const drag = swipeDrag.current;
+    drag.tracking = false;
+    if (drag.axis !== 'x') return;
+    e.currentTarget.style.transition = '';
+    const width = e.currentTarget.parentElement.getBoundingClientRect().width || 1;
+    const threshold = width * 0.18;
+    let nextIdx = drag.base;
+    if (drag.dx <= -threshold && drag.base < sectionIds.length - 1) nextIdx = drag.base + 1;
+    else if (drag.dx >= threshold && drag.base > 0) nextIdx = drag.base - 1;
+    if (nextIdx === drag.base) e.currentTarget.style.transform = `translateX(${-drag.base * 100}%)`;
+    else setActiveSection(sectionIds[nextIdx]);
+  };
+  const onSwipeCancel = e => {
+    const drag = swipeDrag.current;
+    drag.tracking = false;
+    if (drag.axis !== 'x') return;
+    e.currentTarget.style.transition = '';
+    e.currentTarget.style.transform = `translateX(${-drag.base * 100}%)`;
+  };
   // Desktop-only structural filler (FEATURES.md #125-134) — mobile has no
   // multi-column grid for these to fill gaps in, just the dock's one-section
   // stack, so they're left out entirely rather than rendered hidden.
@@ -10171,17 +10266,27 @@ function App() {
       )}
       {isMobile ? (
         <div className="scroll" id="press-scroll">
-          {sectionIds.map(id => {
-            const active = (sectionIds.includes(activeSection) ? activeSection : sectionIds[0]) === id;
-            const state = resolvePanelState(id, panelStates, expertise);
-            const wideClass = PANEL_WIDE.has(id) && state !== 'collapsed'
-              ? (state === 'expanded' ? ' panel-w2 panel-w3' : ' panel-w2') : '';
-            return (
-              <div key={id} className={`panel panel-${state}${wideClass}${!active ? ' panel-off' : ''}`}>
-                {sectionEls[id]}
-              </div>
-            );
-          })}
+          {/* .mobile-track holds every section side by side (flex row) and its
+              own transform slides between them — resting position tracks
+              activeIdx, dragging moves it 1:1 with the finger via the touch
+              handlers. Off-screen panels stay mounted (so a swipe always has
+              a real neighbour to reveal) but are aria-hidden/inert so they
+              can't be tabbed or read into while off screen. */}
+          <div className="mobile-track" style={{ transform: `translateX(${-activeIdx * 100}%)` }}
+            onTouchStart={onSwipeStart} onTouchMove={onSwipeMove} onTouchEnd={onSwipeEnd} onTouchCancel={onSwipeCancel}>
+            {sectionIds.map(id => {
+              const active = id === effectiveActiveId;
+              const state = resolvePanelState(id, panelStates, expertise);
+              const wideClass = PANEL_WIDE.has(id) && state !== 'collapsed'
+                ? (state === 'expanded' ? ' panel-w2 panel-w3' : ' panel-w2') : '';
+              return (
+                <div key={id} className={`panel panel-${state}${wideClass}${active ? ' panel-active' : ''}`}
+                  aria-hidden={active ? undefined : 'true'} inert={!active}>
+                  {sectionEls[id]}
+                </div>
+              );
+            })}
+          </div>
         </div>
       ) : (
         <>
@@ -10209,7 +10314,7 @@ function App() {
       {isMobile && (
         <nav className="dock" aria-label="Sections">
           {sectionIds.map(id => {
-            const active = (sectionIds.includes(activeSection) ? activeSection : sectionIds[0]) === id;
+            const active = id === effectiveActiveId;
             return (
               <button key={id} className={'dock-btn' + (active ? ' active' : '')}
                 onClick={() => { setActiveSection(id); window.scrollTo(0, 0); }}>
