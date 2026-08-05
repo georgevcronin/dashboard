@@ -516,3 +516,11 @@ catch.
   left alone deliberately; changing it moves every historical recovery score.
 - Phase 6.5.a item 2 (per-user webhook mechanism) — needs its own design pass
   before implementation, not assumed here.
+- **Cardio data on the public profile — confirmed future intent, not yet
+  scoped.** George confirmed 2026-08-05 that the profile-visibility model
+  (Phase 7's `workoutSessions`/`comparison` toggles) is correct, and that he
+  eventually wants cardio/running data added there too — explicitly **not**
+  sleep, nutrition, or mentor chat (a hard no, not just an unset default).
+  Blocked on Phase 9's `ingestActivity` widening actually landing first —
+  nothing structured to show yet. Needs its own `FEATURES.md` entry when
+  scoped, same "ask, don't assume" rule as everything else here.
