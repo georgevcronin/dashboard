@@ -88,28 +88,24 @@ function exerciseE1rmTrend(lifts, exerciseName) {
   return e1rmTrendSlope(entries);
 }
 
-// Decides which of two exercises implicitly "wins" when a real comparison
-// was skipped (or none has happened yet) — used both as the finish-workout
-// skip fallback and to seed ratings from a bulk history import (same
-// function either way, not two copies of "what counts as preferred").
-//
-// Two independent signals, each a simple point: higher recency-weighted
-// frequency scores a point; a real (non-null) e1RM improvement trend beats
-// a flat/negative/no-data one. Deliberately NOT a weighted sum of the two
-// raw numbers — they're on incomparable scales (a frequency score of ~3 vs
-// a trend slope of ~0.05 kg/day), so summing them would let whichever
-// factor happens to have larger magnitude silently dominate. A tie (no
-// signal either way, or one point each) returns null — "not enough
-// information to nudge," not a coin flip.
-function resolveImplicitWinner(lifts, nameA, nameB, now) {
+// The actual point-scoring comparison, taking already-computed
+// frequency/trend numbers rather than lifts — split out from
+// resolveImplicitWinner so a bulk-import seed (which compares many pairs
+// across the same handful of exercises) can compute each exercise's
+// frequency/trend once and reuse it, instead of re-scanning the full lift
+// history per pair. Two independent signals, each a simple point: higher
+// recency-weighted frequency scores a point; a real (non-null) e1RM
+// improvement trend beats a flat/negative/no-data one. Deliberately NOT a
+// weighted sum of the two raw numbers — they're on incomparable scales (a
+// frequency score of ~3 vs a trend slope of ~0.05 kg/day), so summing them
+// would let whichever factor happens to have larger magnitude silently
+// dominate. A tie (no signal either way, or one point each) returns null —
+// "not enough information to nudge," not a coin flip.
+function resolveImplicitWinnerFromScores(nameA, nameB, freqA, freqB, trendA, trendB) {
   let pointsA = 0, pointsB = 0;
 
-  const freqA = recencyWeightedFrequency(lifts, nameA, now);
-  const freqB = recencyWeightedFrequency(lifts, nameB, now);
   if (freqA > freqB) pointsA++; else if (freqB > freqA) pointsB++;
 
-  const trendA = exerciseE1rmTrend(lifts, nameA);
-  const trendB = exerciseE1rmTrend(lifts, nameB);
   if (trendA != null && trendB == null) pointsA++;
   else if (trendB != null && trendA == null) pointsB++;
   else if (trendA != null && trendB != null) {
@@ -119,6 +115,19 @@ function resolveImplicitWinner(lifts, nameA, nameB, now) {
   if (pointsA > pointsB) return nameA;
   if (pointsB > pointsA) return nameB;
   return null;
+}
+
+// Decides which of two exercises implicitly "wins" when a real comparison
+// was skipped (or none has happened yet) — the finish-workout skip
+// fallback, one pair at a time. seedRatingsFromImport below runs the same
+// resolveImplicitWinnerFromScores logic against precomputed scores instead,
+// for the many-pairs-at-once bulk-import case.
+function resolveImplicitWinner(lifts, nameA, nameB, now) {
+  return resolveImplicitWinnerFromScores(
+    nameA, nameB,
+    recencyWeightedFrequency(lifts, nameA, now), recencyWeightedFrequency(lifts, nameB, now),
+    exerciseE1rmTrend(lifts, nameA), exerciseE1rmTrend(lifts, nameB),
+  );
 }
 
 function primaryMusclesOf(exerciseName) {
@@ -163,6 +172,48 @@ function detectComparisonCandidates(newLiftEntries, priorLifts) {
   return candidates;
 }
 
+// Pre-seeds ratings from a bulk workout-history import (FEATURES.md #142:
+// "pre-seed the ranked order from import frequency before any real
+// comparisons occur"). A no-op if any rating already exists — "before any
+// real comparisons occur" means this runs at most once, the first time an
+// account gets bulk data; re-running it against a later import could
+// silently override real Elo progress an exercise has accumulated since
+// from actual votes. Groups the account's logged exercises by shared
+// primary muscle and runs resolveImplicitWinnerFromScores across every pair
+// within each group — same "what counts as preferred" rule the finish-
+// workout skip fallback uses, just applied to many pairs at once.
+// Frequency/trend are computed once per exercise up front rather than once
+// per pair (a name can appear in several muscle groups' pair lists), which
+// keeps this roughly linear in lift count rather than quadratic in it.
+function seedRatingsFromImport(existingRatings, lifts, now) {
+  if (Object.keys(existingRatings).length > 0) return existingRatings;
+
+  const names = [...new Set(lifts.map(l => l.exercise).filter(Boolean))];
+  const freq = {}, trend = {};
+  for (const name of names) {
+    freq[name] = recencyWeightedFrequency(lifts, name, now);
+    trend[name] = exerciseE1rmTrend(lifts, name);
+  }
+
+  const byMuscle = {};
+  for (const name of names) {
+    for (const muscle of primaryMusclesOf(name)) (byMuscle[muscle] = byMuscle[muscle] || []).push(name);
+  }
+
+  let ratings = {};
+  for (const group of Object.values(byMuscle)) {
+    for (let i = 0; i < group.length; i++) {
+      for (let j = i + 1; j < group.length; j++) {
+        const [a, b] = [group[i], group[j]];
+        const winner = resolveImplicitWinnerFromScores(a, b, freq[a], freq[b], trend[a], trend[b]);
+        if (!winner) continue;
+        ratings = applyComparison(ratings, winner, winner === a ? b : a, { implicit: true });
+      }
+    }
+  }
+  return ratings;
+}
+
 // Sorted highest-rated first — what the ranked Settings display and the
 // public profile list both read directly.
 function rankExercises(ratings) {
@@ -174,5 +225,6 @@ function rankExercises(ratings) {
 module.exports = {
   DEFAULT_RATING, K_EXPLICIT, K_IMPLICIT, RECENCY_HALF_LIFE_DAYS,
   eloUpdate, applyComparison, recencyWeightedFrequency, rawFrequency,
-  exerciseE1rmTrend, resolveImplicitWinner, detectComparisonCandidates, rankExercises,
+  exerciseE1rmTrend, resolveImplicitWinner, detectComparisonCandidates,
+  seedRatingsFromImport, rankExercises,
 };

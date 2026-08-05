@@ -31,7 +31,7 @@ const { validateGoals, validateActivities, applyActivityDefaults, seedReturningA
 const { findNearbyGyms, normalizeExerciseKey, GYM_NEARBY_RADIUS_M } = require('./gyms');
 const { buildUnifiedTimeline } = require('./analyticsEngine');
 const { computePatternFatigue } = require('./movementPatterns');
-const { detectComparisonCandidates, resolveImplicitWinner, applyComparison, rankExercises } = require('./exercisePreferenceRanking');
+const { detectComparisonCandidates, resolveImplicitWinner, applyComparison, seedRatingsFromImport, rankExercises } = require('./exercisePreferenceRanking');
 
 admin.initializeApp();
 const firestore = admin.firestore();
@@ -571,7 +571,12 @@ app.post("/hevy/backfill", async (req, res) => {
       if (workouts.length < PAGE_SIZE) break;
       page++;
     }
-    if (totalAdded) await save();
+    if (totalAdded) {
+      // FEATURES.md #142: see /import/hevy's identical seeding call — no-op
+      // once ratings already exist.
+      db.profile.exerciseRatings = seedRatingsFromImport(db.profile.exerciseRatings || {}, db.lifts, Date.now());
+      await save();
+    }
     res.json({ ok: true, workouts: totalWorkouts, added: totalAdded });
   } catch (e) {
     console.log("[hevy] backfill failed:", e.message);
@@ -631,6 +636,9 @@ app.post("/import", async (req, res) => {
     registerUnknownExercisesAsCustom(newLiftEntries.map(e => e.exercise));
     await appendLifts(liftsDocRef, newLiftEntries);
     db.lifts.push(...newLiftEntries);
+    // FEATURES.md #142: see /import/hevy's identical seeding call — no-op
+    // once ratings already exist.
+    db.profile.exerciseRatings = seedRatingsFromImport(db.profile.exerciseRatings || {}, db.lifts, Date.now());
   }
   if (addedLifts || addedWeights || addedWorkouts) await save();
   res.json({ ok: true, addedLifts, addedWeights, addedWorkouts });
@@ -1877,6 +1885,12 @@ app.post("/import/hevy", async (req, res) => {
       await appendLifts(liftsDocRef, newLiftEntries);
     }
     db.lifts.push(...newLiftEntries);
+    // FEATURES.md #142: pre-seed exercise preference ratings from this
+    // import's frequency, before any real comparison prompts occur. A no-op
+    // if ratings already exist (see seedRatingsFromImport's own comment).
+    if (newLiftEntries.length) {
+      db.profile.exerciseRatings = seedRatingsFromImport(db.profile.exerciseRatings || {}, db.lifts, Date.now());
+    }
     await save();
   } catch (e) {
     console.error('[import/hevy] save failed:', e.message);

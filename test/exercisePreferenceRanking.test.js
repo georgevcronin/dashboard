@@ -3,7 +3,8 @@ const assert = require('node:assert/strict');
 const {
   DEFAULT_RATING, K_EXPLICIT, K_IMPLICIT,
   eloUpdate, applyComparison, recencyWeightedFrequency, rawFrequency,
-  exerciseE1rmTrend, resolveImplicitWinner, detectComparisonCandidates, rankExercises,
+  exerciseE1rmTrend, resolveImplicitWinner, detectComparisonCandidates,
+  seedRatingsFromImport, rankExercises,
 } = require('../functions/exercisePreferenceRanking');
 
 test('eloUpdate: equal ratings split the K-factor evenly', () => {
@@ -173,6 +174,42 @@ test('detectComparisonCandidates: no candidate when a muscle is only ever traine
   const newLiftEntries = [{ exercise: 'Barbell Bench Press', date: '2026-08-05', kg: 100, reps: 5 }];
   const priorLifts = [{ exercise: 'Barbell Bench Press', date: '2026-08-01', kg: 95, reps: 5 }];
   assert.deepEqual(detectComparisonCandidates(newLiftEntries, priorLifts), []);
+});
+
+test('seedRatingsFromImport: is a no-op when ratings already exist, even non-empty imported lifts', () => {
+  const existing = { 'Leg Extension': { rating: 1550, comparisons: 3 } };
+  const lifts = [{ exercise: 'Leg Extension', date: '2026-08-01', kg: 60, reps: 12 }, { exercise: 'Front Squat', date: '2026-08-01', kg: 80, reps: 6 }];
+  const result = seedRatingsFromImport(existing, lifts, new Date('2026-08-05').getTime());
+  assert.equal(result, existing); // same reference — genuinely untouched, not just equal-by-value
+});
+
+test('seedRatingsFromImport: a fresh import seeds ratings for exercises sharing a primary muscle, more-frequent one ends up rated higher', () => {
+  const now = new Date('2026-08-05').getTime();
+  const lifts = [
+    { exercise: 'Leg Extension', date: '2026-08-04', kg: 60, reps: 12 },
+    { exercise: 'Leg Extension', date: '2026-08-01', kg: 60, reps: 12 },
+    { exercise: 'Leg Extension', date: '2026-07-25', kg: 55, reps: 12 },
+    { exercise: 'Front Squat', date: '2026-01-01', kg: 80, reps: 6 }, // one old session, far less frequent
+  ];
+  const ratings = seedRatingsFromImport({}, lifts, now);
+  assert.ok(ratings['Leg Extension'].rating > ratings['Front Squat'].rating);
+  // Seeding is implicit, never a full explicit-vote-sized jump.
+  assert.ok(ratings['Leg Extension'].rating - DEFAULT_RATING <= K_IMPLICIT / 2 + 0.01);
+});
+
+test('seedRatingsFromImport: an exercise with no muscle overlap with anything else stays unrated (never compared)', () => {
+  const now = new Date('2026-08-05').getTime();
+  // Leg Extension (quads) has no primary-muscle overlap with Cable Fly (chest) here.
+  const lifts = [
+    { exercise: 'Leg Extension', date: '2026-08-01', kg: 60, reps: 12 },
+    { exercise: 'Cable Fly', date: '2026-08-01', kg: 20, reps: 12 },
+  ];
+  const ratings = seedRatingsFromImport({}, lifts, now);
+  assert.deepEqual(ratings, {});
+});
+
+test('seedRatingsFromImport: empty import produces empty ratings', () => {
+  assert.deepEqual(seedRatingsFromImport({}, [], Date.now()), {});
 });
 
 test('rankExercises: sorts highest rating first and carries comparison counts through', () => {
