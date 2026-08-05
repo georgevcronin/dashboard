@@ -510,7 +510,7 @@ function S1({ s, recommendation, briefing, onShowBriefing, onShowAfternoon, onSh
 
   return (
     <section id="s1" style={{ padding: '18px 20px 16px', justifyContent: 'space-between' }}>
-      <div className="fade panel-head" style={{ flexShrink: 0 }}>
+      <div className="fade panel-head" style={{ flexShrink: 0 }} data-tour="s1-headline">
         <div className="kicker">Today's Edition · {fmtDate()} · Recovery &amp; Readiness</div>
         <div className="headline" style={{ fontSize: 'clamp(30px,8vw,52px)', lineHeight: '.96', marginBottom: 0 }}>{hl1}<br />{hl2}</div>
       </div>
@@ -529,7 +529,9 @@ function S1({ s, recommendation, briefing, onShowBriefing, onShowAfternoon, onSh
         </div>
       )}
 
-      <LimitingFactorPanel limitingFactor={recommendation?.limitingFactor} />
+      <div data-tour="s1-limiting-factor" style={{ flexShrink: 0 }}>
+        <LimitingFactorPanel limitingFactor={recommendation?.limitingFactor} />
+      </div>
 
       {canAfternoon && (
         <div className="briefing-preview fade" style={{ flexShrink: 0, cursor: loadingPeriod === 'afternoon' ? 'default' : 'pointer', opacity: loadingPeriod === 'afternoon' ? 0.6 : 1 }} onClick={onShowAfternoon}>
@@ -558,7 +560,7 @@ function S1({ s, recommendation, briefing, onShowBriefing, onShowAfternoon, onSh
       </div>
       )}
 
-      <div className="briefing-preview fade" style={{ flexShrink: 0, cursor: 'pointer' }} onClick={onShowTimeline}>
+      <div className="briefing-preview fade" style={{ flexShrink: 0, cursor: 'pointer' }} onClick={onShowTimeline} data-tour="s1-timeline">
         <div className="kicker" style={{ marginBottom: 3 }}>Timeline</div>
         <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 11, color: 'var(--dim)', fontStyle: 'italic' }}>
           Workouts, sleep, injuries and thoughts, newest first
@@ -571,7 +573,7 @@ function S1({ s, recommendation, briefing, onShowBriefing, onShowAfternoon, onSh
         </div>
       )}
 
-      <div className="fade" style={{ flex: 1, display: 'flex', gap: 0, alignItems: 'stretch', minHeight: 0, borderTop: '2px solid var(--ink)', borderBottom: '2px solid var(--ink)', margin: '12px 0', overflow: 'hidden' }}>
+      <div className="fade" style={{ flex: 1, display: 'flex', gap: 0, alignItems: 'stretch', minHeight: 0, borderTop: '2px solid var(--ink)', borderBottom: '2px solid var(--ink)', margin: '12px 0', overflow: 'hidden' }} data-tour="s1-vitals">
         {/* Left: recovery number + ghost chart */}
         <div style={{ width: '44%', flexShrink: 0, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', padding: '14px 16px 14px 0', borderRight: '1px solid var(--rule)', position: 'relative', overflow: 'hidden' }}>
           <div style={{ position: 'absolute', inset: 0, opacity: 0.45, pointerEvents: 'none' }}>
@@ -616,7 +618,7 @@ function S1({ s, recommendation, briefing, onShowBriefing, onShowAfternoon, onSh
       </div>
 
       {/* Progress bars */}
-      <div className="fade" style={{ flexShrink: 0 }}>
+      <div className="fade" style={{ flexShrink: 0 }} data-tour="s1-progress">
         <div className="prog-head">Daily Progress</div>
         {[
           { label: 'Sleep',    color: 'var(--plum)',   val: sleep,                       target: sleepTarget,   fmt: v => `${v.toFixed(1)}h`,                 tgt: fmtHoursMins(sleepTarget) },
@@ -640,7 +642,7 @@ function S1({ s, recommendation, briefing, onShowBriefing, onShowAfternoon, onSh
       </div>
 
       {/* Streaks row */}
-      <div className="streak-row fade" style={{ flexShrink: 0 }}>
+      <div className="streak-row fade" style={{ flexShrink: 0 }} data-tour="s1-streaks">
         {[
           { label: 'Training Streak', val: trainingStreak },
           { label: 'Water Streak', val: waterStreak },
@@ -1012,6 +1014,7 @@ const CHANGELOG = [
       'Onboarding cleanup. The Diet & Daily Targets step no longer blocks Continue until you pick a primary diet goal — it was the only onboarding step that couldn\'t be skipped, contradicting every other step\'s "leave it blank, fill it in later" behaviour. Its heading was also renamed from the generic "Your Goals" (too easily confused with the training-goals step right before it) to "Diet & Daily Targets", with copy that says outright it\'s a separate question from what you\'re training for.',
       'The Training Background step no longer asks a brand-new lifter for their "usual" split, working sets, and rep range — those presuppose a habit that doesn\'t exist yet. They\'re now behind a "set one anyway" toggle for anyone who picked "New to training", and still asked directly for everyone else.',
       'Fixed a couple of small copy bugs found in the same pass: Connect Services referred to a "Profile page" that doesn\'t exist in the app (now says Settings, matching everywhere else); the Hevy API Key button showed the same label whether it was open or closed instead of toggling to "Hide"; the completion screen\'s sleep/water/training-days summary line was tied to whether a diet goal had been picked even though those targets always save with sensible defaults regardless.',
+      'Added an interactive walkthrough: Dispatch, Training, and Recovery now spotlight their controls with a short explanation the first time you actually visit each section — never again automatically after that. Skippable at any point (an explicit Skip control, a close button, or Escape), fully keyboard-operable, and honours reduced-motion (no animated spotlight movement — it just appears). "Replay Walkthrough" in Settings → Account resets and re-triggers it if you want to see it again.',
     ],
   },
   {
@@ -5013,7 +5016,7 @@ function S3({ s, recommendation, onStartWorkout, onImport, onHistory, refresh })
           </button>
         </div>
       )}
-      <div className="fade panel-head">
+      <div className="fade panel-head" data-tour="s3-headline">
         {/* paddingRight clears the .panel-toggle, which floats over the top-right
             corner — this is the only kicker with right-aligned content of its own. */}
         <div className="kicker" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', paddingRight: 28 }}>
@@ -5063,13 +5066,13 @@ function S3({ s, recommendation, onStartWorkout, onImport, onHistory, refresh })
         </div>
       )}
       <div className="fade">
-        <div className="stat-cols stat-cols-3" style={{ borderTop: '1px solid var(--rule)', paddingTop: 10 }}>
+        <div className="stat-cols stat-cols-3" style={{ borderTop: '1px solid var(--rule)', paddingTop: 10 }} data-tour="s3-stats">
           <div className="stat-cell"><div className="sc-label">Duration</div><div className="sc-num" style={{ fontSize: 22 }}>{lastSession?.duration ?? '—'}<span style={{ fontSize: '.5em', color: 'var(--dim)' }}>min</span></div></div>
           <div className="stat-cell"><div className="sc-label">Output</div><div className="sc-num" style={{ fontSize: 22 }}>{lastSession?.kcal ?? '—'}<span style={{ fontSize: '.5em', color: 'var(--dim)' }}>kcal</span></div></div>
           <div className="stat-cell"><div className="sc-label">Month</div><div className="sc-num forest" style={{ fontSize: 22 }}>{s?.workoutsMonth ?? '—'}<span style={{ fontSize: '.5em', color: 'var(--dim)' }}>sessions</span></div></div>
         </div>
       </div>
-      <div className="fade" style={{ marginTop: 'auto' }}>
+      <div className="fade" style={{ marginTop: 'auto' }} data-tour="s3-plan-ahead">
         <div style={{ borderTop: '1px solid var(--rule)', paddingTop: 10 }}>
           <div className="kicker" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 6 }}>
             <span>Plan Ahead</span>
@@ -5285,7 +5288,7 @@ function S3({ s, recommendation, onStartWorkout, onImport, onHistory, refresh })
           const DOW = ['M','T','W','T','F','S','S'];
           const workoutDates = new Set(workouts.map(w => w.date));
           return (
-            <div className="week-strip">
+            <div className="week-strip" data-tour="s3-week">
               {DOW.map((label, i) => {
                 const d = new Date(monday); d.setDate(monday.getDate() + i);
                 const dateStr = toLocalDateStr(d);
@@ -5302,7 +5305,7 @@ function S3({ s, recommendation, onStartWorkout, onImport, onHistory, refresh })
           );
         })()}
 
-        <div style={{ borderTop: '1px solid var(--rule)', paddingTop: 8, marginTop: 4, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+        <div style={{ borderTop: '1px solid var(--rule)', paddingTop: 8, marginTop: 4, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }} data-tour="s3-tools">
           <button onClick={onImport} style={{ background: 'none', border: 'none', fontFamily: "'JetBrains Mono',monospace", fontSize: 9, letterSpacing: '.1em', textTransform: 'uppercase', color: 'var(--dim)', cursor: 'pointer', padding: 0 }}>Import Hevy</button>
           <button onClick={onHistory} style={{ background: 'none', border: 'none', fontFamily: "'JetBrains Mono',monospace", fontSize: 9, letterSpacing: '.1em', textTransform: 'uppercase', color: 'var(--dim)', cursor: 'pointer', padding: 0 }}>History</button>
           {s?.stravaConnected
@@ -5726,7 +5729,7 @@ function S5({ s, recommendation, refresh }) {
 
   return (
     <section id="s5" style={{ padding: '18px 20px 12px', display: 'flex', flexDirection: 'column' }}>
-      <div className="fade panel-head" style={{ flexShrink: 0 }}>
+      <div className="fade panel-head" style={{ flexShrink: 0 }} data-tour="s5-headline">
         <div className="kicker">Recovery · Muscle Fatigue · Post Session</div>
         <div className="headline" style={{ fontSize: 'clamp(24px,6vw,40px)', lineHeight: '.96', marginBottom: 0 }}>{hl1}<br />{hl2}</div>
         <Detail max="beginner">
@@ -5734,10 +5737,10 @@ function S5({ s, recommendation, refresh }) {
         </Detail>
       </div>
 
-      <RecoveryDriversPanel drivers={s?.recoveryFactors} />
-      <RecoveryForecastPanel forecast={recommendation?.recoveryForecast} />
+      <div data-tour="s5-drivers" style={{ flexShrink: 0 }}><RecoveryDriversPanel drivers={s?.recoveryFactors} /></div>
+      <div data-tour="s5-forecast" style={{ flexShrink: 0 }}><RecoveryForecastPanel forecast={recommendation?.recoveryForecast} /></div>
 
-      <div className="fade tab-bar" style={{ flexShrink: 0 }}>
+      <div className="fade tab-bar" style={{ flexShrink: 0 }} data-tour="s5-tabs">
         {visibleRecoveryTabs.map(id => (
           <button key={id} className={`tab-btn${activeTab === id ? ' active' : ''}`} onClick={() => setTab(id)}>
             {RECOVERY_TAB_LABELS[id]}{id === 'injuries' && s?.injuries?.length > 0 ? ` (${s.injuries.length})` : ''}
@@ -5756,7 +5759,7 @@ function S5({ s, recommendation, refresh }) {
 
       {activeTab === 'fatigue' && <>
         {/* Body triptych */}
-        <div className="fade" style={{ flexShrink: 0, display: 'flex', justifyContent: 'center', alignItems: 'flex-start', borderTop: '2px solid var(--ink)', borderBottom: '2px solid var(--ink)', margin: '6px 0' }}>
+        <div className="fade" style={{ flexShrink: 0, display: 'flex', justifyContent: 'center', alignItems: 'flex-start', borderTop: '2px solid var(--ink)', borderBottom: '2px solid var(--ink)', margin: '6px 0' }} data-tour="s5-triptych">
           {[['Anterior', antRef], ['Lateral', latRef], ['Posterior', postRef]].map(([label, ref]) => (
             <div key={label} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', flexShrink: 0 }}>
               <div style={{ fontSize: 7, letterSpacing: '.20em', textTransform: 'uppercase', color: 'var(--dim)', padding: '5px 0', whiteSpace: 'nowrap' }}>{label}</div>
@@ -5814,7 +5817,7 @@ function S5({ s, recommendation, refresh }) {
         </Detail>
 
         {/* Scrollable muscle bars */}
-        <div className="muscle-scroll fade">
+        <div className="muscle-scroll fade" data-tour="s5-muscles">
           {sortedFatigue.map(([m, v]) => (
             <div key={m} className="muscle-row">
               <div className="muscle-name">{m}</div>
@@ -7500,7 +7503,7 @@ function S9({ s, followBadge, reloadFollowBadge }) {
   );
 }
 
-function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenWiki, setBriefing, onRestartSetup, followBadge, reloadFollowBadge, onOpenGridEdit }) {
+function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenWiki, setBriefing, onRestartSetup, onReplayWalkthrough, followBadge, reloadFollowBadge, onOpenGridEdit }) {
   const [nameVal, setNameVal] = useState(s?.profile?.name || '');
   const [nameSaving, setNameSaving] = useState(false);
   const [nameSaved, setNameSaved] = useState(false);
@@ -8904,6 +8907,7 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
         <div className="settings-sec">
           <div className="settings-sh">Account</div>
           <button className="prof-btn" style={{ width: '100%', padding: '11px', textAlign: 'center', marginTop: 4 }} onClick={onRestartSetup}>Restart Setup</button>
+          <button className="prof-btn" style={{ width: '100%', padding: '11px', textAlign: 'center', marginTop: 8 }} onClick={onReplayWalkthrough}>Replay Walkthrough</button>
           <button className="prof-btn" style={{ width: '100%', padding: '11px', textAlign: 'center', marginTop: 8 }} onClick={onSignOut}>Sign Out</button>
           <div style={{ display: 'flex', gap: 14, justifyContent: 'center', marginTop: 14, fontFamily: "'JetBrains Mono',monospace", fontSize: 9, letterSpacing: '.06em' }}>
             <a href="/privacy.html" target="_blank" rel="noopener" style={{ color: 'var(--dim)' }}>Privacy Policy</a>
@@ -9666,6 +9670,189 @@ function UsernameSetup({ user, onComplete }) {
   );
 }
 
+// Interactive section walkthrough (FEATURES.md #145) — a deliberate, scoped
+// exception to PRODUCT.md Design Principle #5 ("no onboarding copy, no
+// empty-state evangelism"); see that file's note under Design Principle #5
+// for why this exists and what it does NOT change elsewhere in the app.
+//
+// Content only exists for the sections listed here — App's encounter hook
+// simply does nothing for a section with no entry, so adding real coverage
+// for another section later is just adding a key, not touching the
+// mechanism. Every target is a `data-tour="..."` attribute placed directly
+// in that section's own JSX (S1/S3/S5), scoped to that section's markup so
+// there's never a collision with another section's identically-styled
+// element (S1 and S5 both have a `.panel-head`, for instance).
+const WALKTHROUGH_CONTENT = {
+  s1: {
+    label: 'Dispatch',
+    steps: [
+      { target: '[data-tour="s1-headline"]', title: "Today's Edition",
+        body: "The masthead states today's readiness verdict — clear for heavy load, moderate, or rest — derived from last night's recovery score. It updates as new HRV, resting heart rate, and sleep data lands, so it's worth a glance before planning the day, not just after." },
+      { target: '[data-tour="s1-limiting-factor"]', title: "Today's Limiting Factor",
+        body: "When one thing is capping today's output — a fatigued muscle, accumulated CNS load, poor sleep — this names it and states the expected effect, rather than leaving you to infer it from several separate numbers." },
+      { target: '[data-tour="s1-vitals"]', title: 'Recovery & Vitals',
+        body: 'Recovery out of 100 on the left; HRV, resting heart rate, sleep, and average muscle fatigue on the right. Each is read against your own rolling baseline, not a population norm — a 2ms HRV swing means something different for you than for someone else.' },
+      { target: '[data-tour="s1-progress"]', title: 'Daily Progress',
+        body: "Five bars against today's targets. Fatigue is the only one where filling the bar isn't the goal — it's tracked against a ceiling, not a target." },
+      { target: '[data-tour="s1-streaks"]', title: 'Streaks',
+        body: 'Consecutive days of training, hydration, and sleep-target adherence. Descriptive only — nothing changes because of a streak; it exists so a lapse is visible, not to gamify consistency.' },
+      { target: '[data-tour="s1-timeline"]', title: 'Timeline',
+        body: 'Every workout, sleep night, injury, and logged thought in one chronological feed — the fastest way to see how today connects to the last few weeks.' },
+    ],
+  },
+  s3: {
+    label: 'Training',
+    steps: [
+      { target: '[data-tour="s3-headline"]', title: 'Last Session',
+        body: "The most recent workout's headline lift and volume — a record of what happened, not a plan for what's next. The plan is below, in Plan Ahead." },
+      { target: '[data-tour="s3-stats"]', title: 'Session Vitals',
+        body: "Duration, an estimated energy output, and this month's session count. Output is a rough figure from load and volume, not a wearable-measured one." },
+      { target: '[data-tour="s3-plan-ahead"]', title: 'Plan Ahead',
+        body: 'An auto-generated calendar built from your current per-muscle recovery, weekly targets, and any blackout days set in Settings. It re-solves itself session to session rather than following a fixed template.' },
+      { target: '[data-tour="s3-week"]', title: 'This Week',
+        body: 'Which days actually had a session logged, Monday to Sunday — a consistency check independent of the plan above.' },
+      { target: '[data-tour="s3-tools"]', title: 'Import & History',
+        body: 'Pull sets in from Hevy, or open the full logged history. Neither is required — the session logger works standalone.' },
+    ],
+  },
+  s5: {
+    label: 'Recovery',
+    steps: [
+      { target: '[data-tour="s5-headline"]', title: 'Recovery',
+        body: 'The state of your structural, metabolic, and CNS recovery right now, in one line — the same verdict driving the Dispatch readiness score, explained here at the level of individual factors.' },
+      { target: '[data-tour="s5-drivers"]', title: 'Recovery Drivers',
+        body: "The exact factors composing today's recovery score, ranked by how many points each is costing you against its own maximum — not by raw contribution, which would put HRV first every day purely for its weight." },
+      { target: '[data-tour="s5-forecast"]', title: 'Recovery Forecast',
+        body: "Predicted date each muscle group clears its current fatigue, inverted from the same decay model behind today's numbers — a forecast, not a new measurement." },
+      { target: '[data-tour="s5-tabs"]', title: 'Views',
+        body: "Structural fatigue by muscle, strength ranking, fatigue type, and more. Switch tabs rather than scrolling past what you don't need today." },
+      { target: '[data-tour="s5-triptych"]', title: 'Body Map',
+        body: "Colour maps every tracked muscle onto anterior, lateral, and posterior views. Colour is paired with position and a numeric readout below, so it still reads correctly if you can't distinguish red from green." },
+      { target: '[data-tour="s5-muscles"]', title: 'Per-Muscle Detail',
+        body: 'Every tracked muscle, most fatigued first, with the exact recovery percentage next to each bar from Intermediate detail level up.' },
+    ],
+  },
+};
+
+// Fires `onEncounter(sectionId)` the first time #<sectionId> actually has
+// on-screen geometry after becoming eligible. Covers both navigation styles
+// the app has: on the mobile dock, an inactive section is display:none (no
+// geometry, never intersects) until tapped active; on desktop's
+// simultaneous masonry/grid layout, every section is mounted at once, so
+// "first encountered" means "first scrolled into view" instead. Same
+// observer, same callback, no branch needed for which layout is active.
+//
+// Deliberately no local "already fired" ref here — App's own
+// walkthroughFiredRef is the one source of truth for "already auto-shown
+// this session", and it's the thing "Replay Walkthrough" clears. A local
+// ref here would never get cleared by that reset, silently disabling
+// re-encounter for the rest of the session even after a reset.
+function useWalkthroughEncounter(sectionId, disabled, onEncounter) {
+  const cbRef = useRef(onEncounter);
+  useEffect(() => { cbRef.current = onEncounter; });
+  useEffect(() => {
+    if (disabled || !WALKTHROUGH_CONTENT[sectionId]) return;
+    const el = document.getElementById(sectionId);
+    if (!el) return;
+    const io = new IntersectionObserver(entries => {
+      if (entries.some(e => e.isIntersecting)) {
+        io.disconnect();
+        cbRef.current(sectionId);
+      }
+    }, { threshold: 0.15 });
+    io.observe(el);
+    return () => io.disconnect();
+  }, [disabled, sectionId]);
+}
+
+function WalkthroughOverlay({ sectionId, stepIndex, onNext, onBack, onClose }) {
+  const content = WALKTHROUGH_CONTENT[sectionId];
+  const step = content?.steps?.[stepIndex];
+  const [rect, setRect] = useState(null);
+  const tooltipRef = useRef(null);
+  const onNextRef = useRef(onNext);
+  useEffect(() => { onNextRef.current = onNext; });
+
+  useLayoutEffect(() => {
+    if (!step) return;
+    let cancelled = false;
+    const measure = () => {
+      const el = document.querySelector(step.target);
+      const r = el?.getBoundingClientRect();
+      if (r && r.width > 0 && r.height > 0) { if (!cancelled) setRect(r); return; }
+      if (!cancelled) setRect(null);
+    };
+    measure();
+    // A step whose target never rendered (e.g. no Limiting Factor active
+    // today) skips itself forward one tick after mounting rather than
+    // showing a spotlight with nothing to point at — begin-time filtering
+    // in App already guarantees at least one step in the tour resolves.
+    const skipIfEmpty = setTimeout(() => {
+      const el = document.querySelector(step.target);
+      const r = el?.getBoundingClientRect();
+      if (!cancelled && (!r || r.width === 0 || r.height === 0)) onNextRef.current();
+    }, 60);
+    window.addEventListener('resize', measure);
+    window.addEventListener('scroll', measure, true);
+    const interval = setInterval(measure, 400);
+    return () => {
+      cancelled = true;
+      clearTimeout(skipIfEmpty);
+      window.removeEventListener('resize', measure);
+      window.removeEventListener('scroll', measure, true);
+      clearInterval(interval);
+    };
+  }, [step, sectionId, stepIndex]);
+
+  useEffect(() => { tooltipRef.current?.focus(); }, [stepIndex, sectionId]);
+
+  useEffect(() => {
+    const onKey = e => {
+      if (e.key === 'Escape') onClose();
+      else if (e.key === 'ArrowRight') onNext();
+      else if (e.key === 'ArrowLeft' && stepIndex > 0) onBack();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onNext, onBack, onClose, stepIndex]);
+
+  if (!content || !step) return null;
+
+  const PAD = 6;
+  const spotStyle = rect
+    ? { top: rect.top - PAD, left: rect.left - PAD, width: rect.width + PAD * 2, height: rect.height + PAD * 2, opacity: 1 }
+    : { top: -9999, left: -9999, width: 0, height: 0, opacity: 0 };
+
+  const TT_W = 300;
+  const spaceBelow = rect ? window.innerHeight - rect.bottom : 0;
+  const placeAbove = !!rect && spaceBelow < 200 && rect.top > 200;
+  const tooltipStyle = rect ? {
+    ...(placeAbove ? { bottom: Math.max(12, window.innerHeight - rect.top + 14) } : { top: Math.min(rect.bottom + 14, window.innerHeight - 60) }),
+    left: Math.min(Math.max(12, rect.left), Math.max(12, window.innerWidth - TT_W - 12)),
+  } : { top: '50%', left: '50%', transform: 'translate(-50%,-50%)' };
+
+  return (
+    <div className="tour-overlay">
+      <div className="tour-spotlight" style={spotStyle} />
+      <div className="tour-tooltip" style={tooltipStyle} role="dialog" aria-modal="false"
+        aria-label={`${content.label} walkthrough — step ${stepIndex + 1} of ${content.steps.length}`}
+        tabIndex={-1} ref={tooltipRef}>
+        <button className="tour-close" aria-label="Close walkthrough" onClick={onClose}>×</button>
+        <div className="tour-kicker">{content.label} · {stepIndex + 1} / {content.steps.length}</div>
+        <div className="tour-title">{step.title}</div>
+        <div className="tour-body">{step.body}</div>
+        <div className="tour-actions">
+          <button className="tour-skip" onClick={onClose}>Skip</button>
+          <div className="tour-actions-end">
+            {stepIndex > 0 && <button className="tour-btn" onClick={onBack}>Back</button>}
+            <button className="tour-btn solid" onClick={onNext}>{stepIndex === content.steps.length - 1 ? 'Done' : 'Next'}</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // Packs the desktop dashboard's panels into the grid masonry described in
 // PRESS_CSS's .scroll block: measure each panel's natural height, express it
 // as a span of 1px grid rows, then redraw the column hairlines from the grid's
@@ -9825,6 +10012,9 @@ function App() {
     return () => window.removeEventListener('resize', recompute);
   }, [isMobile, gridColumnMode]);
   const [gridEditMode, setGridEditMode] = useState(false);
+  // { sectionId, stepIndex } for the currently-showing section walkthrough,
+  // or null. See useWalkthroughEncounter/WalkthroughOverlay above.
+  const [activeWalkthrough, setActiveWalkthrough] = useState(null);
   const saveGridLayoutTimer = useRef(null);
   const saveGridLayout = layout => {
     if (saveGridLayoutTimer.current) clearTimeout(saveGridLayoutTimer.current);
@@ -10128,6 +10318,85 @@ function App() {
     return () => obs.disconnect();
   }, [isMobile, activeSection, s?.profile?.panelOrder?.join(','), s?.profile?.hiddenPanels?.join(','), s?.profile?.trackingLevel]);
 
+  // Walkthrough queue: at most one WalkthroughOverlay shows at a time. If a
+  // second section is encountered (e.g. two panels above the fold on a
+  // short desktop window) while one's already showing, it's queued rather
+  // than dropped or overlapped, and starts the moment the current one
+  // closes. walkthroughFiredRef guards against the same section queuing
+  // itself twice in one session (its own IntersectionObserver only ever
+  // fires once anyway, but a second mount — e.g. DashboardGrid remounting —
+  // would otherwise re-arm it before the seen-state POST lands).
+  const walkthroughActiveRef = useRef(null);
+  const walkthroughQueueRef = useRef([]);
+  const walkthroughFiredRef = useRef(new Set());
+  const markWalkthroughSeen = sectionId => {
+    api('profile', { method: 'POST', body: JSON.stringify({ walkthroughSeen: sectionId }) })
+      .then(profile => { if (profile && !profile.error) setS(prev => prev ? { ...prev, profile } : prev); });
+  };
+  const beginWalkthrough = sectionId => {
+    const content = WALKTHROUGH_CONTENT[sectionId];
+    if (!content) return;
+    const hasVisibleStep = content.steps.some(st => {
+      const el = document.querySelector(st.target);
+      return el && el.getBoundingClientRect().width > 0 && el.getBoundingClientRect().height > 0;
+    });
+    // Nothing to spotlight yet (e.g. data still loading) — leave it unseen
+    // so the encounter observer gets another chance once it re-mounts.
+    if (!hasVisibleStep) { walkthroughFiredRef.current.delete(sectionId); return; }
+    walkthroughActiveRef.current = sectionId;
+    setActiveWalkthrough({ sectionId, stepIndex: 0 });
+    markWalkthroughSeen(sectionId);
+  };
+  const queueOrBeginWalkthrough = sectionId => {
+    if (walkthroughFiredRef.current.has(sectionId)) return;
+    walkthroughFiredRef.current.add(sectionId);
+    if (walkthroughActiveRef.current) { walkthroughQueueRef.current.push(sectionId); return; }
+    beginWalkthrough(sectionId);
+  };
+  const advanceWalkthroughQueue = () => {
+    walkthroughActiveRef.current = null;
+    const next = walkthroughQueueRef.current.shift();
+    if (next) beginWalkthrough(next); else setActiveWalkthrough(null);
+  };
+  const nextWalkthroughStep = () => {
+    if (!activeWalkthrough) return;
+    const total = WALKTHROUGH_CONTENT[activeWalkthrough.sectionId].steps.length;
+    if (activeWalkthrough.stepIndex + 1 >= total) advanceWalkthroughQueue();
+    else setActiveWalkthrough({ ...activeWalkthrough, stepIndex: activeWalkthrough.stepIndex + 1 });
+  };
+  const backWalkthroughStep = () => {
+    if (activeWalkthrough && activeWalkthrough.stepIndex > 0) setActiveWalkthrough({ ...activeWalkthrough, stepIndex: activeWalkthrough.stepIndex - 1 });
+  };
+  const closeWalkthrough = () => advanceWalkthroughQueue();
+  // Settings → Account → "Replay Walkthrough" (mirrors "Restart Setup"
+  // directly above it). Resets every section's seen-state, not just one —
+  // simpler than a per-section replay list, and matches "Restart Setup"
+  // being one button for the whole onboarding rather than one per step.
+  const replayWalkthrough = () => {
+    api('profile', { method: 'POST', body: JSON.stringify({ resetWalkthroughs: true }) }).then(profile => {
+      if (!profile || profile.error) return;
+      // s1 is claimed here directly (not via queueOrBeginWalkthrough) so it
+      // shows immediately rather than waiting on s1's own IntersectionObserver
+      // to notice it's on-screen — marking it fired up front avoids a race
+      // where that observer's own encounter fires a second, redundant start
+      // for the same section once `disabled` flips false below.
+      walkthroughFiredRef.current = new Set(['s1']);
+      setS(prev => prev ? { ...prev, profile } : prev);
+      setShowSettings(false);
+      setTimeout(() => beginWalkthrough('s1'), 50);
+    });
+  };
+  // Auto-trigger is suppressed while anything else covers the screen — an
+  // IntersectionObserver has no concept of "occluded by a modal", only
+  // geometric overlap, so without this a walkthrough could start firing
+  // behind Settings or the onboarding wizard.
+  const walkthroughsBlocked = !s || showSettings || showWiki || showHistory || chatOpen || showBriefing
+    || showAfternoonNewscast || showNightNewscast || showWeeklyReview || showImport || showTimeline
+    || forceOnboarding || !onboarded || loggerOpen || gridEditMode;
+  useWalkthroughEncounter('s1', walkthroughsBlocked || !!s?.profile?.walkthroughsSeen?.s1, queueOrBeginWalkthrough);
+  useWalkthroughEncounter('s3', walkthroughsBlocked || !!s?.profile?.walkthroughsSeen?.s3, queueOrBeginWalkthrough);
+  useWalkthroughEncounter('s5', walkthroughsBlocked || !!s?.profile?.walkthroughsSeen?.s5, queueOrBeginWalkthrough);
+
   if (user === undefined) return <LoadingScreen />;
 
   if (!user) return <LoginScreen />;
@@ -10348,7 +10617,11 @@ function App() {
           onClick={onBubbleClick}>PJ</button>
       )}
       {chatOpen && <MentorChat onClose={() => setChatOpen(false)} />}
-      {showSettings && <SettingsOverlay s={s} onClose={() => { setShowSettings(false); loadFollowRequests(); }} refresh={refresh} onSignOut={() => signOut(auth)} onOpenImport={() => { setShowSettings(false); setShowImport(true); }} onOpenWiki={() => { setShowSettings(false); setShowWiki(true); }} setBriefing={setBriefing} onRestartSetup={() => { setForceOnboarding(true); setShowSettings(false); }} followBadge={followBadge} reloadFollowBadge={loadFollowRequests} onOpenGridEdit={() => setGridEditMode(true)} />}
+      {activeWalkthrough && (
+        <WalkthroughOverlay sectionId={activeWalkthrough.sectionId} stepIndex={activeWalkthrough.stepIndex}
+          onNext={nextWalkthroughStep} onBack={backWalkthroughStep} onClose={closeWalkthrough} />
+      )}
+      {showSettings && <SettingsOverlay s={s} onClose={() => { setShowSettings(false); loadFollowRequests(); }} refresh={refresh} onSignOut={() => signOut(auth)} onOpenImport={() => { setShowSettings(false); setShowImport(true); }} onOpenWiki={() => { setShowSettings(false); setShowWiki(true); }} setBriefing={setBriefing} onRestartSetup={() => { setForceOnboarding(true); setShowSettings(false); }} onReplayWalkthrough={replayWalkthrough} followBadge={followBadge} reloadFollowBadge={loadFollowRequests} onOpenGridEdit={() => setGridEditMode(true)} />}
       {showWiki && <WikiOverlay onClose={() => setShowWiki(false)} />}
       {showTimeline && <TimelineOverlay onClose={() => setShowTimeline(false)} />}
       {showBriefing && briefing && <BriefingOverlay briefing={briefing} onClose={() => setShowBriefing(false)} />}

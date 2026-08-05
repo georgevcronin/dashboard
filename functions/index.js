@@ -1312,6 +1312,20 @@ app.post("/profile", async (req, res) => {
     }
   }
 
+  // Interactive section walkthrough seen-state (FEATURES.md #145) — merged
+  // in one key at a time, same reasoning as `visibility` above: the client
+  // only ever reports "this section's tour just auto-showed", never the
+  // whole map, so a wholesale replace here would silently drop every
+  // earlier section's seen flag. "Replay Walkthrough" in Settings sends
+  // resetWalkthroughs instead, wiping the map so every section's tour is
+  // eligible to auto-show again.
+  if (body.walkthroughSeen) {
+    body.walkthroughsSeen = { ...(db.profile?.walkthroughsSeen || {}), [body.walkthroughSeen]: true };
+  }
+  delete body.walkthroughSeen;
+  if (body.resetWalkthroughs) body.walkthroughsSeen = {};
+  delete body.resetWalkthroughs;
+
   db.profile = { ...db.profile, ...body };
   await save();
   res.json(db.profile);
