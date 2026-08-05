@@ -76,8 +76,9 @@ const { computeHybridFatigue } = require('./hybridFatigue');
 const { buildRunningRecommendation } = require('./runningRecommendation');
 const { computeRunningACWR } = require('./runningLoad');
 const { vdotTrend, resolveVO2max, vdotTrainingPaces } = require('./vo2max');
-const { weeklyEfficiencyTrend, detectSessionDistanceSpike } = require('./runningLoad');
+const { weeklyEfficiencyTrend, detectSessionDistanceSpike, dailyLoadsFromRuns } = require('./runningLoad');
 const { parseVO2max } = require('./shortcutParsing');
+const { predict8WeekVO2Gain } = require('./runningPrediction');
 
 // ---------- Unified workout schema ----------
 // All workouts conform to this shape regardless of source. Validation happens
@@ -869,6 +870,37 @@ app.get("/summary", async (req, res) => {
   const photosMeta = await Promise.all((db.photos || []).slice(-20).map(async p => ({
     id: p.id, date: p.date, note: p.note, url: await signedPhotoUrl(p.path),
   })));
+  // Running prediction: 8-week VO₂max gain forecast (self-calibrating from actual athlete data)
+  let runningPrediction = null;
+  const currentVO2max = resolveVO2max(vo2maxSeries.length ? vo2maxSeries.at(-1)?.value : null, db.profile);
+  if (db.runs && db.runs.length && currentVO2max?.vo2max) {
+    const eightWeeksAgo = new Date();
+    eightWeeksAgo.setDate(eightWeeksAgo.getDate() - 56);
+    const recentRuns = db.runs.filter(r => new Date(r.date) >= eightWeeksAgo);
+    if (recentRuns.length > 0) {
+      // Compute weekly TRIMP buckets
+      const weeklyTrimp = {};
+      for (const run of recentRuns) {
+        const runDate = new Date(run.date);
+        const weekNum = Math.floor((Date.now() - runDate.getTime()) / (7 * 864e5));
+        const key = weekNum;
+        if (!weeklyTrimp[key]) weeklyTrimp[key] = 0;
+        if (run.durationMin && run.avgHeartRate) {
+          const resting = db.profile?.baselines?.restingHeartRate ?? 60;
+          const maxHR = db.profile?.baselines?.maxHeartRate ?? 200;
+          const hrr = (run.avgHeartRate - resting) / (maxHR - resting);
+          if (hrr > 0 && hrr < 1.2) {
+            const b = db.profile?.sex === 'F' ? 0.64 : db.profile?.sex === 'M' ? 1.92 : 1.5;
+            weeklyTrimp[key] += run.durationMin * hrr * Math.exp(b * hrr);
+          }
+        }
+      }
+      const weeks = Object.values(weeklyTrimp).slice(0, 8);
+      if (weeks.length >= 4) {
+        runningPrediction = predict8WeekVO2Gain(weeks, currentVO2max.vo2max);
+      }
+    }
+  }
   res.json({
     profile: db.profile, hydrationCurve, hydrationNow: hydrationCurve.at(-1) ?? null,
     liftVolume,
@@ -906,7 +938,7 @@ app.get("/summary", async (req, res) => {
     muscleSensitivity: db.muscleSensitivity || {}, cnsSensitivity: db.cnsSensitivity || 1.0,
     customExercises: db.customExercises || [],
     alcoholLastNight, alcoholLast7,
-    vo2maxSeries, hrrSeries,
+    vo2maxSeries, hrrSeries, runningPrediction,
     measurements: (db.measurements || []).slice(-30),
     supplements: db.supplements || [],
     supplementLogToday: (db.supplementLog || []).filter(e => e.date === day()),
