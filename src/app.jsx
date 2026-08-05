@@ -6286,6 +6286,7 @@ function Onboarding({ onComplete, onOpenImport }) {
   const TOTAL = 10;
   const [step, setStep] = useState(0);
   const [echelon, setEchelon] = useState('full');
+  const [agreedToTerms, setAgreedToTerms] = useState(false);
 
   // Step 6 (training background)
   const [split, setSplit] = useState('');
@@ -6996,7 +6997,18 @@ function Onboarding({ onComplete, onOpenImport }) {
               ))}
             </div>
 
-            <button className="ob-next" style={{ width: '100%', padding: '14px 0' }} onClick={onComplete}>Open Press</button>
+            <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, fontSize: 12, color: 'var(--dim)', marginBottom: 16, cursor: 'pointer' }}>
+              <input type="checkbox" checked={agreedToTerms} onChange={e => setAgreedToTerms(e.target.checked)}
+                style={{ marginTop: 2, width: 16, height: 16, flexShrink: 0 }} />
+              <span>
+                I agree to Press's{' '}
+                <a href="/terms.html" target="_blank" rel="noopener" style={{ color: 'var(--ink)' }}>Terms of Service</a>
+                {' '}and{' '}
+                <a href="/privacy.html" target="_blank" rel="noopener" style={{ color: 'var(--ink)' }}>Privacy Policy</a>.
+              </span>
+            </label>
+
+            <button className="ob-next" style={{ width: '100%', padding: '14px 0' }} disabled={!agreedToTerms} onClick={onComplete}>Open Press</button>
           </>
         )}
       </div>
@@ -8613,6 +8625,10 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
           <div className="settings-sh">Account</div>
           <button className="prof-btn" style={{ width: '100%', padding: '11px', textAlign: 'center', marginTop: 4 }} onClick={onRestartSetup}>Restart Setup</button>
           <button className="prof-btn" style={{ width: '100%', padding: '11px', textAlign: 'center', marginTop: 8 }} onClick={onSignOut}>Sign Out</button>
+          <div style={{ display: 'flex', gap: 14, justifyContent: 'center', marginTop: 14, fontFamily: "'JetBrains Mono',monospace", fontSize: 9, letterSpacing: '.06em' }}>
+            <a href="/privacy.html" target="_blank" rel="noopener" style={{ color: 'var(--dim)' }}>Privacy Policy</a>
+            <a href="/terms.html" target="_blank" rel="noopener" style={{ color: 'var(--dim)' }}>Terms of Service</a>
+          </div>
         </div>
         </details>
 
