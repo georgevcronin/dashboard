@@ -1009,6 +1009,9 @@ const CHANGELOG = [
       'Added Social, a new front-page section: follow requests and username search — previously only in Settings → Social, which still works too — plus muscle comparison, now reachable directly from the front page instead of only after opening a profile via Settings.',
       'New activity feed on that section shows recent sessions from people you follow, one line each (who, what, when — no likes or streaks). It\'s a separate opt-in from "workout sessions visible to followers" and stays off by default even if that one is already on — turn it on in Settings → Social → Visibility to include your own sessions in it.',
       'Mobile section navigation is now swipeable: drag left or right to move to the next or previous section (Dispatch, Sleep, Training, Nutrition, Recovery, Body, Records, Goals), with a smooth slide between them. The dock still jumps straight to any section by tapping — both stay in sync, and the slide becomes an instant jump if you have reduced motion turned on.',
+      'Onboarding cleanup. The Diet & Daily Targets step no longer blocks Continue until you pick a primary diet goal — it was the only onboarding step that couldn\'t be skipped, contradicting every other step\'s "leave it blank, fill it in later" behaviour. Its heading was also renamed from the generic "Your Goals" (too easily confused with the training-goals step right before it) to "Diet & Daily Targets", with copy that says outright it\'s a separate question from what you\'re training for.',
+      'The Training Background step no longer asks a brand-new lifter for their "usual" split, working sets, and rep range — those presuppose a habit that doesn\'t exist yet. They\'re now behind a "set one anyway" toggle for anyone who picked "New to training", and still asked directly for everyone else.',
+      'Fixed a couple of small copy bugs found in the same pass: Connect Services referred to a "Profile page" that doesn\'t exist in the app (now says Settings, matching everywhere else); the Hevy API Key button showed the same label whether it was open or closed instead of toggling to "Hide"; the completion screen\'s sleep/water/training-days summary line was tied to whether a diet goal had been picked even though those targets always save with sensible defaults regardless.',
     ],
   },
   {
@@ -6322,6 +6325,10 @@ function Onboarding({ onComplete, onOpenImport }) {
   // FEATURES.md #23 -- only asked/used when experienceLevel is "Returning
   // after a break"; a brand-new lifter never sees this question.
   const [returningBreakWeeks, setReturningBreakWeeks] = useState('');
+  // FEATURES.md #33 -- split/sets/rep-range presuppose an existing habit, so
+  // they're hidden behind a reveal for "New to training" rather than asked
+  // of someone who has no "usual" to report. Anyone else sees them directly.
+  const [showTrainingHabits, setShowTrainingHabits] = useState(false);
 
   // Step 7 (muscle focus) -- 'focus' | 'ignore', absent = normal. 'focus'
   // gives a real priority boost in session generation (FOCUS_MUSCLE_BONUS,
@@ -6501,8 +6508,8 @@ function Onboarding({ onComplete, onOpenImport }) {
       <div className="ob-progress"><div className="ob-progress-fill" style={{ width: `${progressPct}%` }} /></div>
 
       <div className="ob-wrap">
-        {step > 0 && (
-          <div className="ob-step-ind">Step {step} of {TOTAL - 1}</div>
+        {step > 0 && step < TOTAL - 1 && (
+          <div className="ob-step-ind">Step {step} of {TOTAL - 2}</div>
         )}
 
         {/* ── STEP 0: WELCOME ── */}
@@ -6510,7 +6517,7 @@ function Onboarding({ onComplete, onOpenImport }) {
           <>
             <div className="ob-logo">Press</div>
             <div className="ob-sub">Your personal health operating system.</div>
-            <div className="ob-lede">We'll get you set up in 2 minutes. Tell us about yourself and connect your services.</div>
+            <div className="ob-lede">Tell us about yourself and connect your services. Nothing here is mandatory — skip anything you'd rather set later from Settings.</div>
             <div style={{ borderTop: '1px solid var(--rule)', borderBottom: '1px solid var(--rule)', margin: '0 0 32px' }}>
               {[
                 ['Daily vitals', 'HRV, sleep, recovery, and readiness at a glance'],
@@ -6660,10 +6667,10 @@ function Onboarding({ onComplete, onOpenImport }) {
         {/* ── STEP 3: DIET GOAL & DAILY TARGETS ── */}
         {step === 3 && (
           <>
-            <div className="ob-h">Your Goals</div>
-            <div className="ob-deck">Set your primary objective and daily targets.</div>
+            <div className="ob-h">Diet & Daily Targets</div>
+            <div className="ob-deck">A separate question from the training goals you just set — this drives macro auto-calculation and sleep/water/frequency targets, not what you're training for.</div>
 
-            <label className="ob-label">Primary Goal</label>
+            <label className="ob-label">Primary Diet Goal</label>
             <div className="ob-goal-grid">
               {[
                 ['Lose Fat', 'Calorie deficit, preserve muscle'],
@@ -6708,7 +6715,7 @@ function Onboarding({ onComplete, onOpenImport }) {
             {stepError && <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--red)', marginBottom: 6 }}>{stepError}</div>}
             <div className="ob-nav">
               <button className="ob-back" onClick={() => { setStepError(''); setStep(2); }}>← Back</button>
-              <button className="ob-next" onClick={advance} disabled={saving || !goal}>{saving ? 'Saving…' : stepError ? 'Retry' : 'Continue'}</button>
+              <button className="ob-next" onClick={advance} disabled={saving}>{saving ? 'Saving…' : stepError ? 'Retry' : 'Continue'}</button>
             </div>
           </>
         )}
@@ -6796,22 +6803,30 @@ function Onboarding({ onComplete, onOpenImport }) {
               </>
             )}
 
-            <div className="ob-label">Typical split</div>
-            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 20 }}>
-              {TRAINING_SPLITS.map(sp => (
-                <button key={sp} className={`prof-btn${split === sp ? ' solid' : ''}`} onClick={() => setSplit(sp)}>{sp}</button>
-              ))}
-            </div>
+            {(experienceLevel !== 'New to training' || showTrainingHabits) ? (
+              <>
+                <div className="ob-label">Typical split</div>
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 20 }}>
+                  {TRAINING_SPLITS.map(sp => (
+                    <button key={sp} className={`prof-btn${split === sp ? ' solid' : ''}`} onClick={() => setSplit(sp)}>{sp}</button>
+                  ))}
+                </div>
 
-            <div className="ob-label">Usual working sets per exercise</div>
-            <input style={inputStyle} type="number" inputMode="numeric" placeholder="e.g. 3" value={usualSets} onChange={e => setUsualSets(e.target.value)} />
+                <div className="ob-label">Usual working sets per exercise</div>
+                <input style={inputStyle} type="number" inputMode="numeric" placeholder="e.g. 3" value={usualSets} onChange={e => setUsualSets(e.target.value)} />
 
-            <div className="ob-label" style={{ marginTop: 16 }}>Usual rep range</div>
-            <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 20 }}>
-              <input style={{ ...inputStyle, width: 'auto', flex: 1 }} type="number" inputMode="numeric" placeholder="Low, e.g. 6" value={usualRepsLow} onChange={e => setUsualRepsLow(e.target.value)} />
-              <span style={{ color: 'var(--dim)' }}>–</span>
-              <input style={{ ...inputStyle, width: 'auto', flex: 1 }} type="number" inputMode="numeric" placeholder="High, e.g. 10" value={usualRepsHigh} onChange={e => setUsualRepsHigh(e.target.value)} />
-            </div>
+                <div className="ob-label" style={{ marginTop: 16 }}>Usual rep range</div>
+                <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 20 }}>
+                  <input style={{ ...inputStyle, width: 'auto', flex: 1 }} type="number" inputMode="numeric" placeholder="Low, e.g. 6" value={usualRepsLow} onChange={e => setUsualRepsLow(e.target.value)} />
+                  <span style={{ color: 'var(--dim)' }}>–</span>
+                  <input style={{ ...inputStyle, width: 'auto', flex: 1 }} type="number" inputMode="numeric" placeholder="High, e.g. 10" value={usualRepsHigh} onChange={e => setUsualRepsHigh(e.target.value)} />
+                </div>
+              </>
+            ) : (
+              <button onClick={() => setShowTrainingHabits(true)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, marginBottom: 20, fontSize: 9, letterSpacing: '.08em', textTransform: 'uppercase', color: 'var(--dim)' }}>
+                + Set a split / sets / rep range anyway
+              </button>
+            )}
 
             <div className="ob-label">Favorite / go-to exercises</div>
             <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
@@ -6888,7 +6903,7 @@ function Onboarding({ onComplete, onOpenImport }) {
         {step === 8 && (
           <>
             <div className="ob-h">Connect Services</div>
-            <div className="ob-deck">Optional — you can always connect these later from the Profile page.</div>
+            <div className="ob-deck">Optional — you can always connect these later from Settings.</div>
 
             {/* Strava */}
             <div className="ob-service-row">
@@ -6968,7 +6983,7 @@ function Onboarding({ onComplete, onOpenImport }) {
                 </button>
                 <button className={`ob-svc-btn${hevyKeyMode === 'api' ? ' done' : ''}`}
                   onClick={() => setHevyKeyMode(m => m === 'api' ? null : 'api')}>
-                  {hevyKeyMode === 'api' ? 'API Key' : 'API Key'}
+                  {hevyKeyMode === 'api' ? 'Hide' : 'API Key'}
                 </button>
               </div>
               {hevyKeyMode === 'api' && (
@@ -7006,7 +7021,7 @@ function Onboarding({ onComplete, onOpenImport }) {
                 [!!name, name ? `${name}${goal ? ` · ${goal}` : ''}` : 'Profile skipped'],
                 [!!trainingGoals.length, trainingGoals.length ? `${trainingGoals.length} training goal${trainingGoals.length === 1 ? '' : 's'}` : 'No training goals set'],
                 [!!activities.length, activities.length ? `${activities.length} activit${activities.length === 1 ? 'y' : 'ies'}` : 'No activities set'],
-                [!!goal, `${sleepTarget}h sleep · ${waterTarget} glasses water · ${trainingDays} training days`],
+                [true, `${sleepTarget}h sleep · ${waterTarget} glasses water · ${trainingDays} training days`],
                 [true, ECHELONS.find(e => e.key === echelon)?.title || 'Full System'],
                 [!!(split || favorites.length), split ? `${split}${favorites.length ? ` · ${favorites.length} favorite${favorites.length === 1 ? '' : 's'}` : ''}` : 'Training background skipped'],
                 [stravaStarted, 'Strava'],
