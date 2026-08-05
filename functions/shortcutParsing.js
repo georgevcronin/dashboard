@@ -16,7 +16,7 @@
 // up (observed both shapes from real device testing). If the body already
 // looks like real fields, it's returned unchanged -- this only kicks in for
 // the malformed shape, so a correctly-configured Shortcut is unaffected.
-const EXPECTED_KEYS = ['hr_values', 'rhr_values', 'hrv_values', 'bloodoxygen_values', 'steps_values', 'wrist_values', 'sleep_start'];
+const EXPECTED_KEYS = ['hr_values', 'rhr_values', 'hrv_values', 'bloodoxygen_values', 'steps_values', 'wrist_values', 'vo2max_values', 'sleep_start'];
 function unwrapShortcutBody(rawBody) {
   const d = rawBody || {};
   if (EXPECTED_KEYS.some(k => k in d)) return d;
@@ -209,8 +209,25 @@ function computeSleepMetrics(startsStr, endsStr, typesStr) {
   return { asleepHours, wasoMin, sleepEff, deepMin, remMin, lightMin, wakeTimeMs };
 }
 
+// Parse latest VO₂max from Apple Health (Apple Watch Series 3+)
+// Comes as a single measurement (not daily list like HR/steps)
+// Format: { vo2max_values: "45.2", vo2max_dates: "19 Jul 2026 at 20:18" }
+function parseVO2max(vo2maxValueStr, vo2maxDateStr) {
+  const value = parseFloat((vo2maxValueStr || '').trim());
+  if (isNaN(value) || value <= 0) return null;
+
+  const dateMs = parseShortcutDate(vo2maxDateStr);
+  if (!dateMs) return null;
+
+  return {
+    value, // mL/kg/min
+    dateMs,
+    unit: 'mL/kg/min',
+  };
+}
+
 module.exports = {
   unwrapShortcutBody, parseShortcutDate, parseNumberList, average, sum, sumForDay,
   isAsleepType, isAwakeType, isInBedType, isDeepType, isRemType, isLightType,
-  unionDurationMs, computeSleepMetrics,
+  unionDurationMs, computeSleepMetrics, parseVO2max,
 };

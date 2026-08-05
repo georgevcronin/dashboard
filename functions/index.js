@@ -72,6 +72,12 @@ const {
 const { personalizedRecoveryHours, trainingMonthsIfKnown } = require('./recoveryPersonalization');
 const { alcoholStats, computeDataMaturity, compVerdict, toCsv, weekLiftSessionsCompleted } = require('./analytics');
 const { projectGoal, formatGoalLine, bucketWorkingAttention, ffm, ffmi } = require('./weeklyReview');
+const { computeHybridFatigue } = require('./hybridFatigue');
+const { buildRunningRecommendation } = require('./runningRecommendation');
+const { computeRunningACWR } = require('./runningLoad');
+const { vdotTrend, resolveVO2max, vdotTrainingPaces } = require('./vo2max');
+const { weeklyEfficiencyTrend, detectSessionDistanceSpike } = require('./runningLoad');
+const { parseVO2max } = require('./shortcutParsing');
 
 // ---------- Unified workout schema ----------
 // All workouts conform to this shape regardless of source. Validation happens
@@ -824,6 +830,15 @@ app.get("/summary", async (req, res) => {
   const sleepScoreTrend = last14.map(d => computeSleepScore(d)?.score).filter(v => v != null);
   const weights = lastN(db.weight, 30);
   const summaryMusclePeaks = musclePeaksFromLifts(db.lifts);
+  const muscleFatigue = computeHybridFatigue(
+    db.lifts || [],
+    db.runs || [],
+    summaryMusclePeaks,
+    db.soreness || [],
+    db.muscleSensitivity || {},
+    personalizedRecoveryHours(db.profile),
+    db.profile
+  );
   const monthWk = db.workouts.filter(w => w.date >= day(new Date(Date.now() - 30 * 864e5)));
   const sleepDebtH = last14.slice(-2).reduce((s, d) => s + (d.sleep_hours ? Math.max(0, sleep.target - d.sleep_hours) : 0), 0);
   const target = db.profile.waterTarget || 7;
@@ -867,6 +882,7 @@ app.get("/summary", async (req, res) => {
     composition: compVerdict(weights, db.lifts),
     waterStats: { streak, avg: waterDays.length ? Math.round(avg(waterDays) * 10) / 10 : 0, hitRate: waterDays.length ? Math.round((waterDays.filter(v => v >= target).length / waterDays.length) * 100) : 0, best: waterDays.length ? Math.max(...waterDays) : 0 },
     musclePeaks: summaryMusclePeaks,
+    muscleFatigue,
     injuries: (db.injuries || []).filter(i => !i.resolved).map(i => ({
       ...i,
       healingDays: INJURY_HEALING_DAYS[i.severity] || INJURY_HEALING_DAYS.moderate,
@@ -2043,6 +2059,53 @@ function computeRecommendation(storedPlan) {
 app.get("/plan/recommendation", async (req, res) => {
   if (!db.weeklyPlan) return res.json(null);
   res.json(computeRecommendation(db.weeklyPlan));
+});
+
+// #95: Running Recommendation Engine
+// Returns daily run prescription: session type, duration, intensity, reasoning
+app.get("/run/recommendation", async (req, res) => {
+  if (!db.runs || !db.runs.length) return res.json(null);
+
+  const recentDays = lastN(db.metrics, 30);
+  const todayMetrics = recentDays.at(-1) || {};
+  const baseRecoveryScore = computeDay(todayMetrics,
+    avg(recentDays.map(d => d.heart_rate_variability).filter(Boolean)),
+    avg(recentDays.map(d => d.resting_heart_rate).filter(Boolean)),
+    personalSleepTarget(recentDays).target,
+    avg(recentDays.map(d => d.wrist_temperature).filter(Boolean)),
+    avg(recentDays.map(d => d.heart_rate).filter(Boolean))
+  );
+
+  if (baseRecoveryScore === null || baseRecoveryScore === undefined) {
+    return res.json(null);
+  }
+
+  const runningACWR = computeRunningACWR(db.runs, new Date().toISOString().split('T')[0], db.profile);
+  const lastEfficiency = weeklyEfficiencyTrend(db.runs, new Date());
+  const lastRun = db.runs[db.runs.length - 1];
+  const lastSpikeDetection = lastRun ? detectSessionDistanceSpike(lastRun, db.runs, 1.10) : null;
+
+  const vdot = vdotTrend(db.runs, 30);
+  const appleWatchVO2max = db.metrics[new Date().toISOString().split('T')[0]]?.vo2max ? {
+    value: db.metrics[new Date().toISOString().split('T')[0]].vo2max,
+    dateMs: Date.now(),
+  } : null;
+  const vo2maxResolution = resolveVO2max(appleWatchVO2max, vdot);
+
+  const paces = vo2maxResolution?.vo2max ? vdotTrainingPaces(vo2maxResolution.vo2max) : null;
+
+  const rec = buildRunningRecommendation({
+    baseRecoveryScore,
+    runningACWR,
+    runs: db.runs,
+    profile: db.profile,
+    lastEfficiency,
+    lastSpikeDetection,
+    vo2maxResolution,
+    vdotTrainingPaces: paces,
+  });
+
+  res.json(rec);
 });
 
 app.get("/plan/week", async (req, res) => {

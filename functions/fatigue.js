@@ -366,6 +366,16 @@ function computeACWR(lifts) {
   return coupledAcwr(dailyLoadsFromLifts(lifts), new Date().toISOString().slice(0, 10));
 }
 
+// #107: Running ACWR — reuse Phase 3's coupledAcwr() with running load
+// Feeds dailyLoadsFromRuns into identical Williams et al. 2017 time constants
+// (7-day acute, 28-day chronic) — one function, two callers
+// See RUNNING_SCIENCE.md §#107 for citation and thresholds
+function computeRunningACWR(runs, targetDate, profile) {
+  const { dailyLoadsFromRuns } = require('./runningLoad');
+  const dailyLoads = dailyLoadsFromRuns(runs, profile);
+  return coupledAcwr(dailyLoads, targetDate || new Date().toISOString().slice(0, 10));
+}
+
 // Session-to-session estimated-1RM trend per exercise, most recent 2 sessions vs.
 // the 2 before that. Positive = declining performance under similar loads — a direct
 // performance-based fatigue signal, independent of volume or ACWR.
@@ -531,7 +541,7 @@ function recoveryWord(fatigue) {
 module.exports = {
   computeStructuralFatigue, computeCurrentFatigueScores, musclePeaksFromLifts, fatigueTimeline,
   INJURY_HEALING_DAYS, injuryFatiguePenalty, applyInjuryTaper,
-  computeACWR, coupledAcwr, dailyLoadsFromLifts, computePerformanceTrend, computeMetabolicFatigue, computeCNSFatigue,
+  computeACWR, computeRunningACWR, coupledAcwr, dailyLoadsFromLifts, computePerformanceTrend, computeMetabolicFatigue, computeCNSFatigue,
   cnsLoad, computeMuscleLastTrainedDays, computeCompoundIsolationSplit, computeStabilitySplit,
   recoveryWord, RECOVERY_BANDS,
   liftTime, sessionStartStamp, importedStartStamp, MAX_CREDIBLE_SESSION_SEC,
