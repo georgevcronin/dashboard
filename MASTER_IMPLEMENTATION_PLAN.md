@@ -477,12 +477,31 @@ green (5/5).
 
 ---
 
-## Phase 8 — Structured weekly brief
+## Phase 8 — Structured weekly brief — closed 2026-08-05
 
 Upgrade to the already-Built #43 (`generateWeeklyReview`). Adds sections
 (goal check, at-a-glance, what's working/needs attention, fatigue trend) on
 top of the existing Gemini narrative — reuses `/summary` data and the
 existing recovery/recommendation pipeline, no new engine.
+
+Built as `functions/weeklyReview.js` (pure, unit-tested) wired into
+`generateWeeklyReview`: **Goal Check** formats one line per `profile.goals`
+entry — vague goals show "no target set", benchmark goals show a
+label+date placeholder (nothing tracks benchmark times yet), measurable
+goals (weight/bodyFat/lift-e1RM/rhr/vo2max/ffm/ffmi — FFM/FFMI added here,
+standard formulas, nothing computed them before) get current value,
+week-over-week delta, and a rate-projected date from a 4-week trailing
+series, with distinct fallback text for insufficient-data/flat/
+wrong-direction/at-target. **What's Working/Needs Attention** buckets the
+six this-week-vs-last-week deltas `generateWeeklyReview` already computed.
+**Fatigue Trend** pairs the existing 14-day recovery trend with a
+current-moment "driven by" line (top fatigued muscles, CNS%, metabolic%)
+via the same `fatigue.js` functions the morning briefing already calls —
+muscle/CNS/metabolic fatigue stay snapshots since nothing stores them
+historically. Frontend: new `WeeklyReviewOverlay` (split from
+`NewscastOverlay`, which now only serves the two daily periods), section
+order goal-check/working-attention/fatigue-trend before the pull
+quote/narrative per George's "facts before prose" call.
 
 ---
 

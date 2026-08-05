@@ -1002,6 +1002,13 @@ const glycogenPct = (elapsedS, totalS) => {
 // app's first version — everything before this had no changelog at all.
 const CHANGELOG = [
   {
+    version: '0.75',
+    date: '2026-08-05',
+    features: [
+      'The Weekly Review is now a structured brief, not just a Gemini narrative. New fixed sections above the write-up: Goal Check (progress toward every concrete training goal you\'ve set, including a "at this rate you\'ll hit it by ___" projection from your last 4 weeks of data), What\'s Working / Needs Attention (this week vs last week across sessions, volume, recovery, sleep, nutrition logging, and PRs), and Fatigue Trend (your 14-day recovery trend plus what\'s driving it — most-fatigued muscles, CNS and metabolic load).',
+    ],
+  },
+  {
     version: '0.74',
     date: '2026-08-05',
     features: [
@@ -8958,7 +8965,7 @@ function TimelineOverlay({ onClose }) {
 // ── NEWSCAST OVERLAY ─────────────────────────────────────────────────────────
 function NewscastOverlay({ newscast, onClose }) {
   const period = newscast?.period;
-  const label = period === 'afternoon' ? 'Mid-Day Update' : period === 'week' ? 'Weekly Review' : "Tonight's Report";
+  const label = period === 'afternoon' ? 'Mid-Day Update' : "Tonight's Report";
   const dateStr = new Date().toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' }).toUpperCase();
   const numbers = newscast?.bullets?.numbers || [];
 
@@ -9014,6 +9021,115 @@ function NewscastOverlay({ newscast, onClose }) {
               <div className="briefing-byline" style={{ borderTopColor: 'var(--gold)' }}>Fuel</div>
               <div className="briefing-byline-role">Nutrition</div>
               <div className="briefing-prose" style={{ fontStyle: 'italic', color: 'var(--gold)' }}>{newscast.nutritionNote}</div>
+            </div>
+          )}
+        </div>
+        <button className="briefing-open-btn" onClick={onClose}>Back to Press</button>
+      </div>
+    </div>
+  );
+}
+
+// ── WEEKLY REVIEW OVERLAY ────────────────────────────────────────────────────
+// Phase 8: separate from NewscastOverlay (which stays generic across the
+// afternoon/night periods) since this shape carries three deterministic
+// sections — goal check, working/needs attention, fatigue trend — that only
+// ever apply to the weekly digest.
+function WeeklyReviewOverlay({ review, onClose }) {
+  const dateStr = new Date().toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' }).toUpperCase();
+  const numbers = review?.bullets?.numbers || [];
+  const goalCheck = review?.goalCheck || [];
+  const working = review?.workingAttention?.working || [];
+  const needsAttention = review?.workingAttention?.needsAttention || [];
+  const fatigue = review?.fatigueTrend;
+  const fatigueDrivers = fatigue ? [
+    ...(fatigue.topFatigued || []),
+    fatigue.cns != null ? `CNS ${fatigue.cns}%` : null,
+    fatigue.metabolic != null ? `Metabolic ${fatigue.metabolic}%` : null,
+  ].filter(Boolean) : [];
+
+  return (
+    <div className="briefing-overlay">
+      <div className="briefing-hdr">
+        <div>
+          <div className="briefing-masthead">THE PRESS</div>
+          <div className="briefing-edition">Weekly Review · {dateStr}</div>
+        </div>
+        <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--paper)', cursor: 'pointer', fontFamily: "'JetBrains Mono',monospace", fontSize: 9, letterSpacing: '.12em', textTransform: 'uppercase', opacity: .7 }}>Close ×</button>
+      </div>
+      <div className="briefing-body">
+        <div className="briefing-top">
+          <div className="briefing-headline">{review?.headline || 'WEEKLY REVIEW'}</div>
+          <div className="briefing-sub">{review?.subheading}</div>
+        </div>
+        <div className="briefing-columns">
+          {numbers.length > 0 && (
+            <div className="briefing-section">
+              <div className="briefing-kicker">At a Glance</div>
+              <div className="briefing-stat-grid">
+                {numbers.map((n, i) => (
+                  <div key={i} className="briefing-stat">
+                    <div className="briefing-stat-val">{n.value}</div>
+                    <div className="briefing-stat-lbl">{n.label}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {goalCheck.length > 0 && (
+            <div className="briefing-section">
+              <div className="briefing-kicker">Goal Check</div>
+              {goalCheck.map((line, i) => <div key={i} className="briefing-goal-line">{line}</div>)}
+            </div>
+          )}
+
+          {(working.length > 0 || needsAttention.length > 0) && (
+            <div className="briefing-section">
+              <div className="briefing-kicker">What's Working / Needs Attention</div>
+              <div className="briefing-bullets">
+                <div>{working.map((w, i) => <div key={i} className="briefing-win">+ {w}</div>)}</div>
+                <div>{needsAttention.map((m, i) => <div key={i} className="briefing-miss">- {m}</div>)}</div>
+              </div>
+            </div>
+          )}
+
+          {fatigue && (
+            <div className="briefing-section">
+              <div className="briefing-kicker">Fatigue Trend</div>
+              <div className="briefing-fatigue-headline">
+                Recovery {fatigue.recoveryThisWeek != null ? `${fatigue.recoveryThisWeek}%` : '—'}
+                {fatigue.recoveryLastWeek != null && ` (${fatigue.recoveryThisWeek >= fatigue.recoveryLastWeek ? '+' : ''}${fatigue.recoveryThisWeek - fatigue.recoveryLastWeek} vs last week)`}
+              </div>
+              {fatigueDrivers.length > 0 && (
+                <div className="briefing-fatigue-detail">Driven by: {fatigueDrivers.join(', ')}</div>
+              )}
+            </div>
+          )}
+
+          {review?.pullQuote && (
+            <div className="briefing-section"><div className="briefing-pull">{review.pullQuote}</div></div>
+          )}
+
+          <div className="briefing-section">
+            <div className="briefing-byline">V</div>
+            <div className="briefing-byline-role">Health &amp; Performance</div>
+            <div className="briefing-prose">{review?.v}</div>
+          </div>
+
+          {review?.atlas && (
+            <div className="briefing-section">
+              <div className="briefing-byline">Atlas</div>
+              <div className="briefing-byline-role">Training</div>
+              <div className="briefing-prose">{review.atlas}</div>
+            </div>
+          )}
+
+          {review?.nutritionNote && (
+            <div className="briefing-section">
+              <div className="briefing-byline" style={{ borderTopColor: 'var(--gold)' }}>Fuel</div>
+              <div className="briefing-byline-role">Nutrition</div>
+              <div className="briefing-prose" style={{ fontStyle: 'italic', color: 'var(--gold)' }}>{review.nutritionNote}</div>
             </div>
           )}
         </div>
@@ -9860,7 +9976,7 @@ function App() {
       {showBriefing && briefing && <BriefingOverlay briefing={briefing} onClose={() => setShowBriefing(false)} />}
       {showAfternoonNewscast && afternoonNewscast && <NewscastOverlay newscast={afternoonNewscast} onClose={() => setShowAfternoonNewscast(false)} />}
       {showNightNewscast && nightNewscast && <NewscastOverlay newscast={nightNewscast} onClose={() => setShowNightNewscast(false)} />}
-      {showWeeklyReview && weeklyReview && <NewscastOverlay newscast={weeklyReview} onClose={() => setShowWeeklyReview(false)} />}
+      {showWeeklyReview && weeklyReview && <WeeklyReviewOverlay review={weeklyReview} onClose={() => setShowWeeklyReview(false)} />}
       {loggerOpen && (
         <WorkoutLogger
           planDay={loggerPlanDay}

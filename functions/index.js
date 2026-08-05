@@ -71,6 +71,7 @@ const {
 } = require('./fatigue');
 const { personalizedRecoveryHours, trainingMonthsIfKnown } = require('./recoveryPersonalization');
 const { alcoholStats, computeDataMaturity, compVerdict, toCsv, weekLiftSessionsCompleted } = require('./analytics');
+const { projectGoal, formatGoalLine, bucketWorkingAttention, ffm, ffmi } = require('./weeklyReview');
 
 // ---------- Unified workout schema ----------
 // All workouts conform to this shape regardless of source. Validation happens
@@ -3083,6 +3084,74 @@ async function generateWeeklyReview(db) {
     return thisBest > priorBest && thisBest > 0;
   });
 
+  // Phase 8 — structured sections, computed deterministically (no Gemini
+  // involved) alongside the narrative below. See weeklyReview.js for the
+  // pure math/formatting; this just extracts the right series per goal
+  // metric from the raw db shapes.
+  const todayISO = day();
+  const goalCheck = (db.profile?.goals || []).map(g => {
+    if (!g.concrete || g.metric === 'benchmark') return formatGoalLine(g, null, todayISO);
+    let series = [];
+    if (g.metric === 'weight') {
+      series = Object.entries(db.weight).map(([date, value]) => ({ date, value }));
+    } else if (g.metric === 'bodyFat') {
+      series = Object.keys(db.metrics).filter(k => db.metrics[k].body_fat_percentage != null)
+        .map(k => ({ date: k, value: db.metrics[k].body_fat_percentage }));
+    } else if (g.metric === 'lift') {
+      const wanted = (g.exercise || '').toLowerCase();
+      const bestByDate = {};
+      for (const l of db.lifts) {
+        if ((l.exercise || '').toLowerCase() !== wanted) continue;
+        const est = estimate1RM(l.kg, l.reps);
+        if (est == null) continue;
+        bestByDate[l.date] = Math.max(bestByDate[l.date] || 0, est);
+      }
+      series = Object.entries(bestByDate).map(([date, value]) => ({ date, value }));
+    } else if (g.metric === 'rhr') {
+      series = Object.keys(db.metrics).filter(k => db.metrics[k].resting_heart_rate != null)
+        .map(k => ({ date: k, value: db.metrics[k].resting_heart_rate }));
+    } else if (g.metric === 'vo2max') {
+      series = Object.keys(db.metrics).filter(k => db.metrics[k].vo2max != null)
+        .map(k => ({ date: k, value: db.metrics[k].vo2max }));
+    } else if (g.metric === 'ffm' || g.metric === 'ffmi') {
+      const heightCm = db.profile?.heightCm;
+      if (heightCm) {
+        series = Object.keys(db.weight).filter(k => db.metrics[k]?.body_fat_percentage != null)
+          .map(k => ({
+            date: k,
+            value: g.metric === 'ffm'
+              ? ffm(db.weight[k], db.metrics[k].body_fat_percentage)
+              : ffmi(db.weight[k], db.metrics[k].body_fat_percentage, heightCm),
+          }));
+      }
+    }
+    const progress = projectGoal(series, g.target, todayISO);
+    return formatGoalLine(g, progress, todayISO);
+  });
+
+  const workingAttention = bucketWorkingAttention({
+    sessionsThis: thisWeekWorkouts.length, sessionsLast: lastWeekWorkouts.length,
+    volThis: thisVol, volLast: lastVol,
+    recoveryThis: avgRecoveryThis, recoveryLast: avgRecoveryLast,
+    sleepThis: avgSleepThis, sleepTarget: sleepT.target,
+    nutritionDaysLogged: nutritionKeysThis.length, prCount: prLifts.length,
+  });
+
+  // Same fatigue functions the morning briefing already calls (fatigue.js) —
+  // newly wired in here too, no new engine. Muscle/CNS/metabolic fatigue are
+  // current-moment snapshots (nothing stores them historically), so they
+  // contextualize the recovery trend rather than being a trend themselves.
+  const weeklyMusclePeaks = musclePeaksFromLifts(db.lifts || []);
+  const currentFatigue = computeCurrentFatigueScores(db.lifts || [], weeklyMusclePeaks, db.soreness || [], db.muscleSensitivity || {}, personalizedRecoveryHours(db.profile));
+  const topFatigued = Object.entries(currentFatigue).sort((a, b) => b[1] - a[1]).slice(0, 2).map(([m, v]) => `${m} ${Math.round(v)}%`);
+  const fatigueTrend = {
+    recoveryThisWeek: avgRecoveryThis != null ? Math.round(avgRecoveryThis) : null,
+    recoveryLastWeek: avgRecoveryLast != null ? Math.round(avgRecoveryLast) : null,
+    topFatigued,
+    cns: computeCNSFatigue(db.lifts || [], db.cnsSensitivity || 1.0, getRecoveryScore(db)),
+    metabolic: computeMetabolicFatigue(db.lifts || [], (db.nutrition || {})[todayISO]?.carbs || 0),
+  };
+
   const prompt = `You are generating a Weekly Review for a personal health app called Press — a week-over-week digest, not a single-day report. Same editorial voices as the daily editions — V (health editor, cool newspaper prose, no hand-holding) and Atlas (training analyst, methodical, science-grounded).
 
 This week vs. last week:
@@ -3115,6 +3184,9 @@ Return ONLY valid JSON:
   review.period = 'week';
   review.generatedAt = new Date().toISOString();
   review.weekStart = cutoffThis;
+  review.goalCheck = goalCheck;
+  review.workingAttention = workingAttention;
+  review.fatigueTrend = fatigueTrend;
   return review;
 }
 

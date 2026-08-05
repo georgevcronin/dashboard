@@ -392,6 +392,10 @@ section.visible .fade:nth-child(6){transition-delay:.56s}
 .briefing-byline-role{font-family:'JetBrains Mono',monospace;font-size:7px;color:var(--dim);margin-bottom:8px}
 .briefing-prose{font-family:'Times New Roman',serif;font-size:14px;line-height:1.85;color:var(--ink)}
 .briefing-open-btn{display:block;width:100%;background:var(--ink);color:var(--paper);border:none;padding:14px;font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.18em;text-transform:uppercase;cursor:pointer;margin-top:28px;break-inside:avoid}
+.briefing-goal-line{font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--ink);line-height:1.7}
+.briefing-goal-line+.briefing-goal-line{margin-top:4px}
+.briefing-fatigue-headline{font-family:'Syne',sans-serif;font-weight:800;font-size:20px;color:var(--ink)}
+.briefing-fatigue-detail{font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--dim);margin-top:4px;line-height:1.6}
 .briefing-preview{border-bottom:1px solid var(--rule);padding:10px 0;cursor:pointer}
 .fatigue-banner{background:var(--ember);padding:10px 12px;margin:8px 0;border-left:3px solid var(--ink)}
 .week-strip{display:flex;gap:3px;overflow-x:auto;padding:8px 0;border-top:1px solid var(--rule);margin-top:8px;scrollbar-width:none}
