@@ -2593,6 +2593,10 @@ function WorkoutLogger({ planDay, lifts, customExercises, experienceLevel, onClo
   const [rest, setRest] = useState(() => restored?.rest || null);
   const [saving, setSaving] = useState(false);
   const [summary, setSummary] = useState(null);
+  // FEATURES.md #142: candidate "X vs Y" prompts from this session's own
+  // applySessionComplete response, shown one at a time on the finish screen.
+  const [comparisonCandidates, setComparisonCandidates] = useState([]);
+  const [comparisonIndex, setComparisonIndex] = useState(0);
   const [newCustomExercises, setNewCustomExercises] = useState(() => restored?.newCustomExercises || []);
   // Guards against losing work by accident — null when no confirmation is
   // pending, 'discard' or 'finish' while one is. Discard only prompts if
@@ -3158,12 +3162,29 @@ function WorkoutLogger({ planDay, lifts, customExercises, experienceLevel, onClo
         setsLogged: allSets.filter(s => s.kg || s.reps).length,
         atlasSummary: r.atlasSummary,
       });
+      setComparisonCandidates(r.comparisonCandidates || []);
+      setComparisonIndex(0);
     } catch (e) {
       // Left persisted deliberately: session/complete failed (network etc.),
       // so the in-progress draft is still the only copy of this data.
       onClose();
     }
     setSaving(false);
+  };
+
+  // Answering sends a real vote (winner named); skipping omits it entirely
+  // — POST /preferences/compare falls back to the implicit signal
+  // server-side (resolveImplicitWinner against the account's own history)
+  // rather than the frontend guessing what "skip" should count as.
+  const answerComparison = winner => {
+    const cand = comparisonCandidates[comparisonIndex];
+    api('preferences/compare', { method: 'POST', body: JSON.stringify({ a: cand.a, b: cand.b, winner }) }).catch(() => {});
+    setComparisonIndex(i => i + 1);
+  };
+  const skipComparison = () => {
+    const cand = comparisonCandidates[comparisonIndex];
+    api('preferences/compare', { method: 'POST', body: JSON.stringify({ a: cand.a, b: cand.b }) }).catch(() => {});
+    setComparisonIndex(i => i + 1);
   };
 
   const session = planDay?.sessions?.[0];
@@ -3307,6 +3328,19 @@ function WorkoutLogger({ planDay, lifts, customExercises, experienceLevel, onClo
               : <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, color: 'var(--dim)' }}>Atlas was quiet today.</div>
             }
           </div>
+          {comparisonIndex < comparisonCandidates.length && (() => {
+            const cand = comparisonCandidates[comparisonIndex];
+            return (
+              <div style={{ borderTop: '2px solid var(--ink)', paddingTop: 14 }}>
+                <div className="kicker" style={{ marginBottom: 8 }}>Which do you prefer?</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  <button className="ol-btn ol-btn-solid" style={{ textAlign: 'left' }} onClick={() => answerComparison(cand.a)}>{cand.a}</button>
+                  <button className="ol-btn ol-btn-solid" style={{ textAlign: 'left' }} onClick={() => answerComparison(cand.b)}>{cand.b}</button>
+                  <button className="ol-btn ol-btn-ghost" style={{ fontSize: 8, alignSelf: 'flex-start' }} onClick={skipComparison}>Skip</button>
+                </div>
+              </div>
+            );
+          })()}
         </div>
       )}
 
