@@ -1002,6 +1002,13 @@ const glycogenPct = (elapsedS, totalS) => {
 // app's first version — everything before this had no changelog at all.
 const CHANGELOG = [
   {
+    version: '0.78',
+    date: '2026-08-05',
+    features: [
+      'Lose Fat now has real deficit limits. Your fat-loss calorie target is checked against an estimated maintenance calorie figure (from bodyweight, height, age, sex, and training frequency) — over a 20% deficit shows a warning, over 30% is a hard limit and gets capped there automatically, since sustained deficits past that aren\'t attainable. Shown in both Onboarding and Settings\' Diet Goal picker.',
+    ],
+  },
+  {
     version: '0.77',
     date: '2026-08-05',
     features: [
@@ -6377,6 +6384,12 @@ function Onboarding({ onComplete, onOpenImport }) {
   const [sleepTarget, setSleepTarget] = useState(8);
   const [waterTarget, setWaterTarget] = useState(7);
   const [trainingDays, setTrainingDays] = useState(4);
+  // Lose Fat's deficit-limit notice (see saveDietGoalAndTargets below) —
+  // shown once per goal pick, then Acked lets a second Continue click
+  // through without re-pausing on the same notice.
+  const [dietGoalNotice, setDietGoalNotice] = useState(null);
+  const [dietGoalNoticeAcked, setDietGoalNoticeAcked] = useState(false);
+  const chooseGoal = (g) => { setGoal(g); setDietGoalNotice(null); setDietGoalNoticeAcked(false); };
 
   // Step 4 — Activities -- each: { type, priority }. See ACTIVITY_DEFS above.
   const [activities, setActivities] = useState([]);
@@ -6468,9 +6481,15 @@ function Onboarding({ onComplete, onOpenImport }) {
     await api('profile', { method: 'POST', body: JSON.stringify({ goals: buildGoalsPayload(trainingGoals) }), throwOnError: true });
   };
 
+  // Returns the deficit notice from /macro-auto (functions/nutritionLimits.js)
+  // when Lose Fat's calculated calories aren't a mild deficit — null
+  // otherwise. advance() below shows it once per goal pick before letting
+  // the athlete move on, same as a confirmation step.
   const saveDietGoalAndTargets = async () => {
     await api('profile', { method: 'POST', body: JSON.stringify({ goal, sleepTarget, waterTarget, trainingDaysPerWeek: trainingDays }), throwOnError: true });
-    if (DIET_GOAL_MACRO_MAP[goal]) await api('macro-auto', { method: 'POST', body: JSON.stringify({ goal: DIET_GOAL_MACRO_MAP[goal] }), throwOnError: true });
+    if (!DIET_GOAL_MACRO_MAP[goal]) return null;
+    const data = await api('macro-auto', { method: 'POST', body: JSON.stringify({ goal: DIET_GOAL_MACRO_MAP[goal] }), throwOnError: true });
+    return data.deficitCheck && data.deficitCheck.status !== 'ok' ? data.deficitCheck : null;
   };
 
   const saveActivities = async () => {
@@ -6508,7 +6527,16 @@ function Onboarding({ onComplete, onOpenImport }) {
         const sug = suggestTargets(trainingGoals);
         setSleepTarget(sug.sleepTarget); setWaterTarget(sug.waterTarget); setTrainingDays(sug.trainingDays);
       }
-      if (step === 3) await saveDietGoalAndTargets();
+      if (step === 3) {
+        const notice = await saveDietGoalAndTargets();
+        if (notice && !dietGoalNoticeAcked) {
+          setDietGoalNotice(notice);
+          setDietGoalNoticeAcked(true);
+          setSaving(false);
+          return; // pause here once so the notice is actually seen before moving on
+        }
+        setDietGoalNotice(null);
+      }
       if (step === 4) await saveActivities();
       if (step === 5) await saveTrackingLevel();
       if (step === 6) await saveTrainingBackground();
@@ -6695,12 +6723,20 @@ function Onboarding({ onComplete, onOpenImport }) {
             <label className="ob-label">Primary Goal</label>
             <div className="ob-goal-grid">
               {DIET_GOAL_DEFS.map(([g, d]) => (
-                <button key={g} className={`ob-goal-card${goal === g ? ' selected' : ''}`} onClick={() => setGoal(g)}>
+                <button key={g} className={`ob-goal-card${goal === g ? ' selected' : ''}`} onClick={() => chooseGoal(g)}>
                   <div className="ob-goal-card-title">{g}</div>
                   <div className="ob-goal-card-desc">{d}</div>
                 </button>
               ))}
             </div>
+            {dietGoalNotice && (
+              <div style={{
+                fontFamily: "'JetBrains Mono',monospace", fontSize: 10, lineHeight: 1.5, marginBottom: 16,
+                color: dietGoalNotice.status === 'hard-limit' ? 'var(--red)' : 'var(--ember)',
+              }}>
+                {dietGoalNotice.status === 'hard-limit' ? 'Hard limit — ' : '⚠ '}{dietGoalNotice.message}
+              </div>
+            )}
 
             <div style={{ borderTop: '1px solid var(--rule)', paddingTop: 16 }}>
               <label className="ob-label" style={{ marginTop: 0 }}>Sleep Target</label>
@@ -6732,7 +6768,9 @@ function Onboarding({ onComplete, onOpenImport }) {
             {stepError && <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--red)', marginBottom: 6 }}>{stepError}</div>}
             <div className="ob-nav">
               <button className="ob-back" onClick={() => { setStepError(''); setStep(2); }}>← Back</button>
-              <button className="ob-next" onClick={advance} disabled={saving || !goal}>{saving ? 'Saving…' : stepError ? 'Retry' : 'Continue'}</button>
+              <button className="ob-next" onClick={advance} disabled={saving || !goal}>
+                {saving ? 'Saving…' : stepError ? 'Retry' : dietGoalNotice ? 'Continue anyway' : 'Continue'}
+              </button>
             </div>
           </>
         )}
@@ -7727,12 +7765,22 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
   // whatever Onboarding set (or its 'build muscle' fallback) no matter what
   // anyone picked here afterward.
   const dietGoalVal = s?.profile?.goal || '';
+  // Lose Fat only: /macro-auto checks the calculated deficit against a real
+  // per-person maintenance estimate (functions/nutritionLimits.js) and
+  // returns a status alongside the targets — 'hard-limit' means the raw
+  // calculation was capped, 'warning' means it went through unchanged but
+  // is aggressive. Surfaced here, immediately, same as every other
+  // Settings field's inline feedback — no confirmation gate needed since
+  // there's no multi-step flow to pause here the way Onboarding has.
+  const [dietGoalNotice, setDietGoalNotice] = useState(null);
   const saveDietGoal = async (g) => {
+    setDietGoalNotice(null);
     const profile = await api('profile', { method: 'POST', body: JSON.stringify({ goal: g }) });
     refresh({ ...s, profile });
     if (DIET_GOAL_MACRO_MAP[g]) {
       const data = await api('macro-auto', { method: 'POST', body: JSON.stringify({ goal: DIET_GOAL_MACRO_MAP[g] }) });
       refresh({ ...s, profile, macroGoal: data.goal, macroTargets: data.targets, macroMode: 'auto' });
+      if (data.deficitCheck && data.deficitCheck.status !== 'ok') setDietGoalNotice(data.deficitCheck);
     }
   };
 
@@ -8034,6 +8082,14 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
               </button>
             ))}
           </div>
+          {dietGoalNotice && (
+            <div style={{
+              fontFamily: "'JetBrains Mono',monospace", fontSize: 10, lineHeight: 1.5, marginTop: 4,
+              color: dietGoalNotice.status === 'hard-limit' ? 'var(--red)' : 'var(--ember)',
+            }}>
+              {dietGoalNotice.status === 'hard-limit' ? 'Hard limit — ' : '⚠ '}{dietGoalNotice.message}
+            </div>
+          )}
         </div>
 
         {/* ── TRACKING LEVEL ── */}

@@ -28,6 +28,7 @@ const {
 } = require('./identity');
 const { computeStimulusContributions, estimateAtrophyRate } = require('./adaptation');
 const { validateGoals, validateActivities, applyActivityDefaults, seedReturningAthleteAtrophy } = require('./goalsAndActivities');
+const { estimateMaintenanceCalories, applyDeficitLimit } = require('./nutritionLimits');
 const { findNearbyGyms, normalizeExerciseKey, GYM_NEARBY_RADIUS_M } = require('./gyms');
 const { buildUnifiedTimeline } = require('./analyticsEngine');
 const { computePatternFatigue } = require('./movementPatterns');
@@ -69,7 +70,7 @@ const {
   computeMetabolicFatigue, computeCNSFatigue, sessionStartStamp, importedStartStamp,
   computeMuscleLastTrainedDays, computeCompoundIsolationSplit, computeStabilitySplit,
 } = require('./fatigue');
-const { personalizedRecoveryHours, trainingMonthsIfKnown } = require('./recoveryPersonalization');
+const { personalizedRecoveryHours, trainingMonthsIfKnown, computeAgeYears } = require('./recoveryPersonalization');
 const { alcoholStats, computeDataMaturity, compVerdict, toCsv, weekLiftSessionsCompleted } = require('./analytics');
 const { projectGoal, formatGoalLine, bucketWorkingAttention, ffm, ffmi } = require('./weeklyReview');
 const { computeHybridFatigue } = require('./hybridFatigue');
@@ -1200,10 +1201,30 @@ app.post("/macro-auto", async (req, res) => {
   const bw = Object.values(db.weight).at(-1) || 75;
   const goal = req.body.goal || "recomp"; db.profile.macroGoal = goal;
   const mult = { cut: 22, recomp: 26, bulk: 30 }, protMult = { cut: 2.2, recomp: 2.0, bulk: 1.8 };
-  const cals = Math.round(bw * (mult[goal] || 26)), protein = Math.round(bw * (protMult[goal] || 2.0));
+  let cals = Math.round(bw * (mult[goal] || 26)), protein = Math.round(bw * (protMult[goal] || 2.0));
+  // Lose Fat only: the flat bodyweight x22 target above is always exactly a
+  // 15.4% deficit off the bodyweight x26 'recomp' proxy, for every user --
+  // checking it against that same proxy could never fire a limit. Checked
+  // against a real per-person TDEE estimate instead (functions/
+  // nutritionLimits.js), so a genuinely active person whose real
+  // maintenance sits well above bodyweight x26 gets a target that reflects
+  // that, not just the flat multiplier.
+  let deficitCheck = null;
+  if (goal === "cut") {
+    const age = db.profile.age ?? (db.profile.dob ? Math.round(computeAgeYears(db.profile.dob)) : null);
+    const maintenance = estimateMaintenanceCalories({
+      sex: db.profile.sex, weightKg: bw, heightCm: db.profile.heightCm, age,
+      trainingDaysPerWeek: db.profile.trainingDaysPerWeek,
+    });
+    if (maintenance) {
+      const limited = applyDeficitLimit(cals, maintenance);
+      cals = limited.calories;
+      deficitCheck = { maintenanceCalories: maintenance, deficitPct: limited.deficitPct, status: limited.status, message: limited.message };
+    }
+  }
   const fat = Math.round(bw * 1), carbs = Math.round(Math.max(0, (cals - fat * 9 - protein * 4) / 4));
   db.profile.macroTargets = { calories: cals, protein, carbs, fat }; db.profile.macroMode = "auto";
-  await save(); res.json({ goal, targets: db.profile.macroTargets });
+  await save(); res.json({ goal, targets: db.profile.macroTargets, ...(deficitCheck ? { deficitCheck } : {}) });
 });
 app.post("/thought", async (req, res) => { db.thoughts.push({ date: day(), text: req.body.text }); await save(); res.json({ ok: true }); });
 
