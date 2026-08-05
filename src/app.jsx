@@ -1002,6 +1002,13 @@ const glycogenPct = (elapsedS, totalS) => {
 // app's first version — everything before this had no changelog at all.
 const CHANGELOG = [
   {
+    version: '0.79',
+    date: '2026-08-05',
+    features: [
+      '"Restart Setup" (Settings → Account) now prefills every step from your existing data — name, body stats, training goals, activities, diet goal, targets, training background, muscle focus, even whether Strava\'s already connected — instead of handing you a blank form to redo from scratch. A genuinely new account still starts blank; this only changes what a repeat run of setup looks like.',
+    ],
+  },
+  {
     version: '0.78',
     date: '2026-08-05',
     features: [
@@ -6346,7 +6353,14 @@ function suggestTargets(goals) {
   };
 }
 
-function Onboarding({ onComplete, onOpenImport }) {
+// Onboarding is reopened, not just opened once — "Restart Setup" in
+// Settings (SettingsOverlay's onRestartSetup) mounts this same component
+// again on an account that already has real data. Every field below reads
+// its starting value from `s` (the /summary payload) when one exists,
+// falling back to the original blank/default otherwise, so a genuine
+// brand-new account (s.profile is empty) sees exactly the same blank form
+// as before — this only changes behaviour when there's something to prefill.
+function Onboarding({ s, onComplete, onOpenImport }) {
   const TOTAL = 10;
   const [step, setStep] = useState(0);
   const [saving, setSaving] = useState(false);
@@ -6360,18 +6374,21 @@ function Onboarding({ onComplete, onOpenImport }) {
   const [stepError, setStepError] = useState('');
 
   // Step 1 — About You
-  const [name, setName] = useState('');
-  const [dob, setDob] = useState('');
-  const [heightUnit, setHeightUnit] = useState('cm');
-  const [heightVal, setHeightVal] = useState('');
-  const [weightUnit, setWeightUnit] = useState('kg');
-  const [weightVal, setWeightVal] = useState('');
-  const [bodyFat, setBodyFat] = useState('');
-  const [sex, setSex] = useState('');
+  const [name, setName] = useState(() => s?.profile?.name || '');
+  const [dob, setDob] = useState(() => s?.profile?.dob || '');
+  const [heightUnit, setHeightUnit] = useState('cm'); // heightCm is always stored in cm; display starts there too
+  const [heightVal, setHeightVal] = useState(() => s?.profile?.heightCm ? String(Math.round(s.profile.heightCm)) : '');
+  const [weightUnit, setWeightUnit] = useState('kg'); // db.weight is always stored in kg
+  const [weightVal, setWeightVal] = useState(() => s?.weights?.length ? String(s.weights.at(-1).value) : '');
+  const [bodyFat, setBodyFat] = useState(() => {
+    const pct = s?.bodyFatToday ?? s?.bodyFat30?.at(-1)?.pct;
+    return pct != null ? String(pct) : '';
+  });
+  const [sex, setSex] = useState(() => s?.profile?.sex || '');
 
   // Step 2 — Training Goals -- each: { type, priority, concrete, metric?,
   // target?, targetDate?, exercise?, benchmarkLabel? }. See GOAL_DEFS above.
-  const [trainingGoals, setTrainingGoals] = useState([]);
+  const [trainingGoals, setTrainingGoals] = useState(() => (s?.profile?.goals || []).map(g => ({ ...g })));
   const goalFor = key => trainingGoals.find(g => g.type === key);
   const toggleGoal = key => setTrainingGoals(gs => gs.some(g => g.type === key)
     ? gs.filter(g => g.type !== key) : [...gs, { type: key, priority: 'secondary', concrete: false }]);
@@ -6380,10 +6397,10 @@ function Onboarding({ onComplete, onOpenImport }) {
   // Step 3 — Diet Goal & Daily Targets -- unchanged single-select diet goal
   // driving macro-auto; deliberately kept separate from trainingGoals above
   // (different question: what you eat, not what you train for).
-  const [goal, setGoal] = useState('');
-  const [sleepTarget, setSleepTarget] = useState(8);
-  const [waterTarget, setWaterTarget] = useState(7);
-  const [trainingDays, setTrainingDays] = useState(4);
+  const [goal, setGoal] = useState(() => s?.profile?.goal || '');
+  const [sleepTarget, setSleepTarget] = useState(() => s?.profile?.sleepTarget || 8);
+  const [waterTarget, setWaterTarget] = useState(() => s?.profile?.waterTarget || 7);
+  const [trainingDays, setTrainingDays] = useState(() => s?.profile?.trainingDaysPerWeek || 4);
   // Lose Fat's deficit-limit notice (see saveDietGoalAndTargets below) —
   // shown once per goal pick, then Acked lets a second Continue click
   // through without re-pausing on the same notice.
@@ -6392,26 +6409,27 @@ function Onboarding({ onComplete, onOpenImport }) {
   const chooseGoal = (g) => { setGoal(g); setDietGoalNotice(null); setDietGoalNoticeAcked(false); };
 
   // Step 4 — Activities -- each: { type, priority }. See ACTIVITY_DEFS above.
-  const [activities, setActivities] = useState([]);
+  const [activities, setActivities] = useState(() => (s?.profile?.activities || []).map(a => ({ ...a })));
   const activityFor = key => activities.find(a => a.type === key);
   const toggleActivity = key => setActivities(as => as.some(a => a.type === key)
     ? as.filter(a => a.type !== key) : [...as, { type: key, priority: 'secondary' }]);
   const updateActivity = (key, patch) => setActivities(as => as.map(a => a.type === key ? { ...a, ...patch } : a));
 
   // Step 5 — Tracking Level
-  const [echelon, setEchelon] = useState('full');
+  const [echelon, setEchelon] = useState(() => s?.profile?.trackingLevel || 'full');
 
   // Step 6 — Training Background
-  const [split, setSplit] = useState('');
-  const [usualSets, setUsualSets] = useState('');
-  const [usualRepsLow, setUsualRepsLow] = useState('');
-  const [usualRepsHigh, setUsualRepsHigh] = useState('');
+  const bg = s?.profile?.trainingBackground;
+  const [split, setSplit] = useState(() => bg?.split || '');
+  const [usualSets, setUsualSets] = useState(() => bg?.usualSets != null ? String(bg.usualSets) : '');
+  const [usualRepsLow, setUsualRepsLow] = useState(() => bg?.usualRepsLow != null ? String(bg.usualRepsLow) : '');
+  const [usualRepsHigh, setUsualRepsHigh] = useState(() => bg?.usualRepsHigh != null ? String(bg.usualRepsHigh) : '');
   const [favoriteInput, setFavoriteInput] = useState('');
-  const [favorites, setFavorites] = useState([]);
-  const [experienceLevel, setExperienceLevel] = useState('');
+  const [favorites, setFavorites] = useState(() => bg?.favoriteExercises ? [...bg.favoriteExercises] : []);
+  const [experienceLevel, setExperienceLevel] = useState(() => s?.profile?.experienceLevel || '');
   // FEATURES.md #23 -- only asked/used when experienceLevel is "Returning
   // after a break"; a brand-new lifter never sees this question.
-  const [returningBreakWeeks, setReturningBreakWeeks] = useState('');
+  const [returningBreakWeeks, setReturningBreakWeeks] = useState(() => s?.profile?.returningBreakWeeks != null ? String(s.profile.returningBreakWeeks) : '');
 
   // Step 7 — Muscle Focus -- 'focus' | 'ignore', absent = normal. 'focus'
   // gives a real priority boost in session generation (FOCUS_MUSCLE_BONUS,
@@ -6419,7 +6437,7 @@ function Onboarding({ onComplete, onOpenImport }) {
   // both fatigue/freshness scales and being a primary target in any
   // generated session (folded into offlineMuscles server-side, same
   // mechanism as an injury).
-  const [muscleFocus, setMuscleFocus] = useState({});
+  const [muscleFocus, setMuscleFocus] = useState(() => ({ ...(s?.profile?.muscleFocus || {}) }));
 
   // Step 8 — Connect Services
   const [stravaStarted, setStravaStarted] = useState(false);
@@ -6455,8 +6473,9 @@ function Onboarding({ onComplete, onOpenImport }) {
     });
   };
 
-  // Step 9 — All Set
-  const [agreedToTerms, setAgreedToTerms] = useState(false);
+  // Step 9 — All Set -- already agreed once for a repeat setup (see the
+  // file-level comment above); a genuinely new account still starts unchecked.
+  const [agreedToTerms, setAgreedToTerms] = useState(() => !!s?.profile?.onboardingComplete);
 
   // throwOnError on every save below — api() otherwise only rejects on a
   // network-level failure, not an HTTP error response, so a genuine save
@@ -6959,9 +6978,10 @@ function Onboarding({ onComplete, onOpenImport }) {
                   <div className="ob-svc-title">Strava</div>
                   <div className="ob-svc-desc">Import your runs, rides, and activities automatically</div>
                 </div>
-                <button className={`ob-svc-btn${stravaStarted ? ' done' : ''}`}
+                <button className={`ob-svc-btn${(stravaStarted || s?.stravaConnected) ? ' done' : ''}`}
+                  disabled={s?.stravaConnected}
                   onClick={() => { setStravaStarted(true); window.open(`${API_BASE}/strava/auth`, '_blank'); }}>
-                  {stravaStarted ? 'Connecting…' : 'Connect'}
+                  {s?.stravaConnected ? 'Connected' : stravaStarted ? 'Connecting…' : 'Connect'}
                 </button>
               </div>
             </div>
@@ -10297,6 +10317,7 @@ function App() {
     <ExpertiseContext.Provider value={expertise}>
       {(!onboarded || forceOnboarding) && (
         <Onboarding
+          s={s}
           onComplete={() => { handleOnboardDone(); setForceOnboarding(false); }}
           onOpenImport={() => { handleOnboardDone(); setForceOnboarding(false); setShowImport(true); }}
         />
