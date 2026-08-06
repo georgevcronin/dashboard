@@ -1024,6 +1024,13 @@ const glycogenPct = (elapsedS, totalS) => {
 // app's first version — everything before this had no changelog at all.
 const CHANGELOG = [
   {
+    version: '0.86',
+    date: '2026-08-06',
+    features: [
+      'Fixed the right-hand section-nav dots on desktop: the freeform drag/resize grid can put several sections on screen at once in different columns, and the dots were toggling every one of them active independently instead of tracking a single "you are here" — only the most-visible section\'s dot lights up now.',
+    ],
+  },
+  {
     version: '0.85',
     date: '2026-08-06',
     features: [
@@ -10602,13 +10609,25 @@ function App() {
     sections[0]?.classList.add('visible');
     dots[0]?.classList.add('active');
 
+    // Desktop lays sections into a multi-column GridStack grid (not the
+    // single-column stack these dots were originally written for), so at
+    // any scroll position several non-adjacent sections can be intersecting
+    // at once. Toggling each dot independently on isIntersecting lit up
+    // several scattered dots instead of tracking "where you are" — only the
+    // single most-visible section's dot lights up now. A wider threshold
+    // list gives intersectionRatio enough resolution to compare sections by;
+    // .visible still fires off the first (near-zero) crossing, same as before.
+    const ratios = new Map();
     const obs = new IntersectionObserver(entries => {
       entries.forEach(e => {
         const idx = sections.indexOf(e.target);
         if (e.isIntersecting) e.target.classList.add('visible');
-        if (dots[idx]) dots[idx].classList.toggle('active', e.isIntersecting);
+        ratios.set(idx, e.isIntersecting ? e.intersectionRatio : 0);
       });
-    }, { threshold: 0.01 });
+      let bestIdx = -1, bestRatio = 0;
+      ratios.forEach((ratio, idx) => { if (ratio > bestRatio) { bestRatio = ratio; bestIdx = idx; } });
+      if (bestIdx >= 0) dots.forEach((dot, idx) => dot.classList.toggle('active', idx === bestIdx));
+    }, { threshold: [0, .1, .2, .3, .4, .5, .6, .7, .8, .9, 1] });
     sections.forEach(sec => obs.observe(sec));
 
     return () => obs.disconnect();
