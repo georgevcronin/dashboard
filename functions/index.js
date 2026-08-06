@@ -29,6 +29,7 @@ const {
 const { computeStimulusContributions, estimateAtrophyRate } = require('./adaptation');
 const { sessionLoadScore, sessionLoadDelta } = require('./sessionLoad');
 const { computeTrend, deloadSuggestion } = require('./performanceTrend');
+const { extractMicronutrients } = require('./micronutrients');
 const { validateGoals, validateActivities, applyActivityDefaults, seedReturningAthleteAtrophy } = require('./goalsAndActivities');
 const { findNearbyGyms, normalizeExerciseKey, GYM_NEARBY_RADIUS_M } = require('./gyms');
 const { buildUnifiedTimeline } = require('./analyticsEngine');
@@ -1105,6 +1106,22 @@ app.post("/nutrition", async (req, res) => {
   const k = day(); db.nutrition = db.nutrition || {};
   db.nutrition[k] = db.nutrition[k] || { protein: 0, carbs: 0, fat: 0, calories: 0 };
   for (const m of ["protein", "carbs", "fat", "calories"]) db.nutrition[k][m] = (db.nutrition[k][m] || 0) + (req.body[m] || 0);
+  // #7: additive running total, same pattern as the macro fields above —
+  // only ever sums fields the client actually sent (a barcode-scanned or
+  // AI-estimated entry), so a day with no micronutrient-bearing entries just
+  // has no key for it rather than a fabricated 0. Once any contributing
+  // entry that day was AI-estimated rather than a real barcode scan, the
+  // whole day's total stays flagged estimated — a mix of real + guessed
+  // numbers is still not something to present at full confidence.
+  if (req.body.micronutrients && typeof req.body.micronutrients === 'object') {
+    db.nutrition[k].micronutrients = db.nutrition[k].micronutrients || {};
+    for (const [key, val] of Object.entries(req.body.micronutrients)) {
+      if (typeof val === 'number' && Number.isFinite(val)) {
+        db.nutrition[k].micronutrients[key] = Math.round(((db.nutrition[k].micronutrients[key] || 0) + val) * 100) / 100;
+      }
+    }
+    if (req.body.micronutrientsEstimated) db.nutrition[k].micronutrientsEstimated = true;
+  }
   db.nutritionLog = db.nutritionLog || [];
   let entry = null;
   if (req.body.label) {
@@ -1112,6 +1129,9 @@ app.post("/nutrition", async (req, res) => {
       id: crypto.randomUUID(), date: k, time: resolveEntryTime(req.body.time),
       label: req.body.label, protein: req.body.protein || 0, carbs: req.body.carbs || 0, fat: req.body.fat || 0, calories: req.body.calories || 0,
       ...(req.body.description?.trim() ? { description: req.body.description.trim() } : {}),
+      ...(req.body.micronutrients && typeof req.body.micronutrients === 'object' && Object.keys(req.body.micronutrients).length
+        ? { micronutrients: req.body.micronutrients, micronutrientsEstimated: !!req.body.micronutrientsEstimated }
+        : {}),
     };
     db.nutritionLog.push(entry);
   }
@@ -1177,15 +1197,23 @@ app.post("/nutrition/analyze", async (req, res) => {
   // each other (the name was literally just the description's first 40
   // characters). name is a short label; description is real content
   // (ingredients/prep/notable detail), not a restatement of the name.
-  const portionsSchema = '{"name":"short meal name (2-5 words), e.g. \'Fried Egg on Toast\'","description":"one factual sentence on what it actually is -- ingredients, cooking method, anything notable -- not a restatement of the name","portions":[{"label":"Small","calories":0,"protein":0,"carbs":0,"fat":0},{"label":"Medium","calories":0,"protein":0,"carbs":0,"fat":0},{"label":"Large","calories":0,"protein":0,"carbs":0,"fat":0}]}';
+  const portionsSchema = '{"name":"short meal name (2-5 words), e.g. \'Fried Egg on Toast\'","description":"one factual sentence on what it actually is -- ingredients, cooking method, anything notable -- not a restatement of the name","portions":[{"label":"Small","calories":0,"protein":0,"carbs":0,"fat":0,"micronutrients":{}},{"label":"Medium","calories":0,"protein":0,"carbs":0,"fat":0,"micronutrients":{}},{"label":"Large","calories":0,"protein":0,"carbs":0,"fat":0,"micronutrients":{}}]}';
+  // Per user request: micronutrients on every logging path, not just the
+  // real OpenFoodFacts barcode data — but this is a model estimate, not a
+  // measurement, so the frontend marks it "estimated" wherever it's shown
+  // (fillForm's micronutrientsEstimated flag) rather than presenting it with
+  // the same confidence as a barcode scan. Keys match functions/
+  // micronutrients.js's MICRONUTRIENT_FIELDS so both sources render through
+  // the same display code.
+  const micronutrientInstruction = 'micronutrients: only include ones you can reasonably estimate — omit anything you\'re not reasonably confident about rather than guessing a number. Possible keys: fiber (g), sugar (g), sodium (mg), potassium (mg), calcium (mg), iron (mg), magnesium (mg), zinc (mg), vitaminC (mg), vitaminA (µg), vitaminD (µg), cholesterol (mg).';
 
   let promptText, image;
   if (imageBase64) {
     const mimeMatch = imageBase64.match(/^data:(image\/\w+);base64,/);
     const mimeType = mimeMatch ? mimeMatch[1] : 'image/jpeg';
     const rawBase64 = imageBase64.replace(/^data:image\/\w+;base64,/, '');
-    const labelPrompt = 'Read this nutrition label precisely. Return ONLY valid JSON: {"name":"product name","description":"brief note on flavor/variant/serving size if legible, else an empty string","calories":0,"protein":0,"carbs":0,"fat":0}. Use per-serving values. All numbers as integers.';
-    const mealPrompt = `Analyse this meal photo. Estimate nutritional content for three portion sizes: a smaller portion, what's actually shown in the photo, and a larger portion. Return ONLY valid JSON: ${portionsSchema}. "Medium" is your best estimate of the actual portion shown. All numbers as integers.`;
+    const labelPrompt = `Read this nutrition label precisely. Return ONLY valid JSON: {"name":"product name","description":"brief note on flavor/variant/serving size if legible, else an empty string","calories":0,"protein":0,"carbs":0,"fat":0,"micronutrients":{}}. Use per-serving values. All numbers as integers. For micronutrients: if the label prints any of them, read those values directly off the label rather than estimating — omit anything not printed. ${micronutrientInstruction}`;
+    const mealPrompt = `Analyse this meal photo. Estimate nutritional content for three portion sizes: a smaller portion, what's actually shown in the photo, and a larger portion. Return ONLY valid JSON: ${portionsSchema}. "Medium" is your best estimate of the actual portion shown. All numbers as integers. ${micronutrientInstruction}`;
     promptText = mode === 'label' ? labelPrompt : mealPrompt;
     image = { mimeType, data: rawBase64 };
   } else {
@@ -1193,17 +1221,35 @@ app.post("/nutrition/analyze", async (req, res) => {
     // eggs and a slice of wholemeal toast with butter"). Same response
     // shape as the meal-photo path, so the frontend doesn't need a separate
     // code path past this endpoint.
-    promptText = `Estimate the nutritional content of this food/meal from the description alone: "${description.trim()}", for three portion sizes: a smaller portion, a typical portion, and a larger portion. Return ONLY valid JSON: ${portionsSchema}. "Medium" is your best estimate of what was actually described. All numbers as integers.`;
+    promptText = `Estimate the nutritional content of this food/meal from the description alone: "${description.trim()}", for three portion sizes: a smaller portion, a typical portion, and a larger portion. Return ONLY valid JSON: ${portionsSchema}. "Medium" is your best estimate of what was actually described. All numbers as integers. ${micronutrientInstruction}`;
   }
 
   const result = await callGeminiResilient({
     messages: [{ role: 'user', content: promptText }],
     ...(image ? { image } : {}),
-    maxTokens: 450,
+    maxTokens: 650, // was 450 — micronutrients adds up to 3 portions x 12 possible fields
     jsonMode: true,
   });
   if (!result.ok) return res.status(500).json({ error: result.error?.message || `Gemini returned ${result.status}` });
-  try { res.json(parseGeminiJSON(result.content)); } catch { res.status(500).json({ error: 'Gemini returned invalid JSON' }); }
+  try {
+    const parsed = parseGeminiJSON(result.content);
+    // Gemini's JSON is well-formed but not guaranteed sane — coerce
+    // micronutrients to real finite numbers and drop anything else it
+    // hallucinated a non-numeric value for, same discipline extractMicronutrients
+    // applies to real OpenFoodFacts data.
+    const sanitizeMicros = m => {
+      if (!m || typeof m !== 'object') return undefined;
+      const clean = {};
+      for (const [k, v] of Object.entries(m)) if (typeof v === 'number' && Number.isFinite(v)) clean[k] = Math.round(v * 100) / 100;
+      return Object.keys(clean).length ? clean : undefined;
+    };
+    if (Array.isArray(parsed.portions)) {
+      parsed.portions = parsed.portions.map(p => ({ ...p, micronutrients: sanitizeMicros(p.micronutrients) }));
+    } else if (parsed.micronutrients) {
+      parsed.micronutrients = sanitizeMicros(parsed.micronutrients);
+    }
+    res.json(parsed);
+  } catch { res.status(500).json({ error: 'Gemini returned invalid JSON' }); }
 });
 
 app.post("/macro-targets", async (req, res) => {
@@ -3102,6 +3148,12 @@ app.post('/food/barcode', async (req, res) => {
     if (d.status !== 1 || !d.product) return res.status(404).json({ error: 'product not found' });
     const p = d.product;
     const n = p.nutriments || {};
+    // #7: whatever micronutrient fields this product actually reports —
+    // real OpenFoodFacts data, not an estimate, unlike the photo/description
+    // path (functions/index.js's /nutrition/analyze), which stays macro-only
+    // since a vision-model guess at vitamin/mineral content isn't grounded
+    // in anything real enough to present as a number.
+    const micronutrients = extractMicronutrients(n);
     res.json({
       product: {
         name: p.product_name || p.product_name_en || 'Unknown product',
@@ -3111,6 +3163,7 @@ app.post('/food/barcode', async (req, res) => {
         carbs: Math.round((n.carbohydrates_100g || 0) * 10) / 10,
         fat: Math.round((n.fat_100g || 0) * 10) / 10,
         servingSize: p.serving_size || '100g',
+        ...(Object.keys(micronutrients).length ? { micronutrients } : {}),
       },
     });
   } catch (e) { res.status(500).json({ error: e.message }); }

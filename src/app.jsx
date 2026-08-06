@@ -1004,6 +1004,14 @@ const glycogenPct = (elapsedS, totalS) => {
 // app's first version — everything before this had no changelog at all.
 const CHANGELOG = [
   {
+    version: '0.80',
+    date: '2026-08-06',
+    features: [
+      'Nutrition now tracks micronutrients (fiber, sodium, potassium, calcium, iron, vitamins, and more) alongside calories/protein/carbs/fat — from a barcode scan (real data), and now also from meal photos, label photos, and text descriptions (an AI estimate, clearly marked "may not be accurate" wherever it shows, never presented with the same confidence as a scan).',
+      'Shown as raw values plus a percent-of-daily-reference figure, both on the entry you\'re about to log and as a running total for the day — no score, no badge, matching how everything else here avoids gamifying your data.',
+    ],
+  },
+  {
     version: '0.79',
     date: '2026-08-06',
     features: [
