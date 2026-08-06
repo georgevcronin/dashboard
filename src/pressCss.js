@@ -14,6 +14,7 @@ export const PRESS_CSS = `
 html,body{height:100%;background:var(--paper)}
 body{font-family:'Times New Roman',Times,Georgia,serif;color:var(--ink)}
 .hdr{position:fixed;top:0;left:0;right:0;z-index:100;background:var(--paper);border-bottom:3px solid var(--ink)}
+.mobile-sync-btn{display:none}
 .masthead{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;padding:8px 20px 6px;border-bottom:1px solid var(--rule)}
 .mast-left{font-size:8px;letter-spacing:.16em;text-transform:uppercase;color:var(--dim)}
 .mast-title{font-family:'Playfair Display',Georgia,serif;font-weight:900;font-size:clamp(22px,5vw,30px);letter-spacing:-.01em;text-align:center;color:var(--ink)}
@@ -550,6 +551,7 @@ section.visible .fade:nth-child(6){transition-delay:.56s}
 .settings-toc-group{margin-bottom:0;flex-shrink:0}
 .settings-toc-group-h{width:auto;padding:4px 10px}
 .settings-toc-sub{display:none}
+.mobile-sync-btn{display:block;position:fixed;top:10px;right:14px;z-index:101}
 .masthead{grid-template-columns:1fr;row-gap:6px;text-align:center;padding:10px 14px 8px}
 .mast-left{order:2}
 .mast-title{order:1}

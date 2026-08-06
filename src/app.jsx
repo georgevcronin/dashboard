@@ -215,7 +215,7 @@ function Detail({ min, max, children }) {
   return <>{children}</>;
 }
 
-function Header({ s, onSignOut, onOpenSettings, socialBadgeCount }) {
+function Header({ s, onSignOut, onOpenSettings, socialBadgeCount, onSyncShortcut, syncingShortcut }) {
   const today = s?.today || {};
   const n = s?.nutritionToday || {};
   const mt = s?.macroTargets || {};
@@ -235,6 +235,12 @@ function Header({ s, onSignOut, onOpenSettings, socialBadgeCount }) {
 
   return (
     <div className="hdr">
+      {onSyncShortcut && (
+        <button onClick={onSyncShortcut} disabled={syncingShortcut} className="mobile-sync-btn"
+          style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 7, letterSpacing: '.14em', textTransform: 'uppercase', background: 'none', border: '1px solid var(--rule)', color: 'var(--dim)', padding: '2px 6px', cursor: 'pointer', lineHeight: 1.4 }}>
+          {syncingShortcut ? 'Syncing…' : 'Sync'}
+        </button>
+      )}
       <div className="masthead">
         <div className="mast-left" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           {onOpenSettings && (
@@ -1009,6 +1015,13 @@ const glycogenPct = (elapsedS, totalS) => {
 // instead of the list. v0.1 is the first tracked release, not literally the
 // app's first version — everything before this had no changelog at all.
 const CHANGELOG = [
+  {
+    version: '0.84',
+    date: '2026-08-07',
+    features: [
+      'Added a Sync button, top-right corner on mobile only, next to Settings: launches your Apple Health Shortcut directly from the app and refreshes the dashboard a few seconds later so new data shows up without switching apps yourself.',
+    ],
+  },
   {
     version: '0.83',
     date: '2026-08-06',
@@ -10683,6 +10696,13 @@ function App() {
     }, 300);
   };
 
+  const [syncingShortcut, setSyncingShortcut] = useState(false);
+  const syncShortcut = () => {
+    window.location.href = `shortcuts://run-shortcut?name=${encodeURIComponent('pressnewsletter')}`;
+    setSyncingShortcut(true);
+    setTimeout(() => { loadSummary(); setSyncingShortcut(false); }, 5000);
+  };
+
   const loadSummary = () => api('summary', { throwOnError: true })
     .then(data => {
       setS(data);
@@ -11212,7 +11232,7 @@ function App() {
           onOpenImport={() => { handleOnboardDone(); setForceOnboarding(false); setShowImport(true); }}
         />
       )}
-      <Header s={s} onSignOut={() => signOut(auth)} onOpenSettings={() => setShowSettings(true)} socialBadgeCount={socialBadgeCount} />
+      <Header s={s} onSignOut={() => signOut(auth)} onOpenSettings={() => setShowSettings(true)} socialBadgeCount={socialBadgeCount} onSyncShortcut={syncShortcut} syncingShortcut={syncingShortcut} />
       {summaryError && !s && (
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, padding: '8px 16px', background: '#7a1414', color: '#f5f0e2', fontFamily: 'JetBrains Mono, monospace', fontSize: 10, letterSpacing: '.06em' }}>
           <span>{summaryError}</span>
