@@ -16,7 +16,7 @@ Anything that assumes single-owner behaviour (`PRESS_OWNER_UID`, the request-sco
 ## Workflow
 - `npm run build` after any `src/app.jsx` change — it's the only thing that catches syntax/import errors on the frontend (no frontend test suite).
 - `npm test` after any `functions/*.js` change — extract pure logic into its own module (pattern: `analytics.js`, `recoveryPersonalization.js`) and add a test file in `test/` rather than growing `index.js`.
-- `main` deploys on every push with no staging environment — treat it as production. Don't push to `main` without being asked.
+- `main` deploys on every push with no staging environment — treat it as production. No PRs — commit directly to `main`, but ask George before pushing each time; never push to `main` on his silence or on an old approval carried over from a different task.
 - After shipping something worth calling out (a fix or feature a user would actually notice — not internal refactors), add an entry to `CHANGELOG` in `src/app.jsx` (near the top, alongside `SET_TYPES`): bump the version, today's date, one bullet per notable change. Shown at the top of Settings, newest first.
 
 ## Code style
