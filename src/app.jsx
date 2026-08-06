@@ -2,6 +2,7 @@ import React, { useState, useEffect, useLayoutEffect, useContext, useRef, useMem
 import { auth, googleProvider, API_BASE, getToken, api, authFetch,
   toLocalDateStr, todayLocalStr, fmtDate, fmtDateShort, fmtHoursMins, pct, roundCal,
   computeTrainingStreak, computeSleepStreak } from './shared.js';
+import { isAccountAlreadyOnboarded } from './onboardingGate.js';
 import { S4, BODY_BASE, MUSCLES_WITHOUT_BODY_REGION, SORENESS_DIAGRAM_MUSCLES } from './sections/S4.jsx';
 import { S6, MOVEMENT_GROUPS, groupExercise } from './sections/S6.jsx';
 import { S8 } from './sections/Goals.jsx';
@@ -1003,6 +1004,37 @@ const glycogenPct = (elapsedS, totalS) => {
 // instead of the list. v0.1 is the first tracked release, not literally the
 // app's first version — everything before this had no changelog at all.
 const CHANGELOG = [
+  {
+    version: '0.81',
+    date: '2026-08-06',
+    features: [
+      '"Restart Setup" (Settings → Account) now prefills every step from your existing data — name, body stats, training goals, activities, diet goal, targets, training background, muscle focus, even whether Strava\'s already connected — instead of handing you a blank form to redo from scratch. A genuinely new account still starts blank; this only changes what a repeat run of setup looks like.',
+    ],
+  },
+  {
+    version: '0.80',
+    date: '2026-08-06',
+    features: [
+      'Lose Fat now has real deficit limits. Your fat-loss calorie target is checked against an estimated maintenance calorie figure (from bodyweight, height, age, sex, and training frequency) — over a 20% deficit shows a warning, over 30% is a hard limit and gets capped there automatically, since sustained deficits past that aren\'t attainable. Shown in both Onboarding and Settings\' Diet Goal picker.',
+    ],
+  },
+  {
+    version: '0.79',
+    date: '2026-08-06',
+    features: [
+      'Settings is now a wiki-style page instead of a stack of accordions: a left table of contents lists every group and section and jumps straight to it, while the body stays one continuous document you can still just scroll through by hand — nothing collapses or hides content anymore. The TOC tracks your position as you scroll and highlights the section you\'re currently reading. On phone, the sidebar becomes a horizontal scrollable strip of section names pinned above the content.',
+    ],
+  },
+  {
+    version: '0.78',
+    date: '2026-08-06',
+    features: [
+      'Settings → Profile & Training overhauled: the old "Profile" section — 25+ unrelated fields in one flat list — is now nine focused sub-sections (Identity, Training Goals, Activities, Diet Goal, Tracking Level, Training Preferences, Training Background, Appearance, Personal Journalist Memory) in roughly the same order as Onboarding.',
+      'Training Goals and Activities — set once during Onboarding with no way back to them — now have real editors in Settings, matching the same picker Onboarding uses. The Goals panel\'s "add some from Settings" pointer now actually leads somewhere.',
+      'Diet Goal in Settings now matches Onboarding\'s wording exactly (Lose Fat / Build Muscle / Maintain / Athletic Performance) and actually saves your goal, not just the derived macro mode — previously it showed different labels (cut/recomp/bulk) and never wrote the field the Personal Journalist reads your goal from, so that context stayed frozen at whatever Onboarding set, forever.',
+      'Settings\' Experience Level was missing the third Onboarding option, "Returning after a break," and its accompanying break-length question — both now present, so switching to it here seeds a starting atrophy estimate the same way Onboarding does.',
+    ],
+  },
   {
     version: '0.77',
     date: '2026-08-06',
@@ -6289,6 +6321,27 @@ const GOAL_METRIC_OPTIONS = {
   muscle: [{ value: 'lift', label: 'A specific lift', unit: 'kg' }, { value: 'ffm', label: 'Fat-Free Mass', unit: 'kg' }, { value: 'ffmi', label: 'FFMI', unit: '' }],
   cardio: [{ value: 'rhr', label: 'Resting Heart Rate', unit: 'bpm' }, { value: 'benchmark', label: 'Benchmark time (e.g. 5k)', unit: '' }, { value: 'vo2max', label: 'VO₂ Max', unit: '' }],
 };
+// Shapes a raw trainingGoals draft (as edited by the GOAL_DEFS card UI,
+// concrete/metric/target/etc. all still loose strings) into the payload
+// /profile's validateGoals expects. Shared by Onboarding step 2 and
+// Settings' Training Goals editor so the two can't quietly diverge —
+// this exact transform used to be copy-pasted in both places.
+function buildGoalsPayload(goals) {
+  return goals.map(g => {
+    const out = { type: g.type, priority: g.priority, concrete: !!g.concrete };
+    if (!g.concrete) return out;
+    out.targetDate = g.targetDate;
+    if (GOAL_METRIC_OPTIONS[g.type]) {
+      out.metric = g.metric;
+      out.target = parseFloat(g.target);
+      if (g.metric === 'lift') out.exercise = g.exercise;
+      if (g.metric === 'benchmark') out.benchmarkLabel = g.benchmarkLabel;
+    } else {
+      out.target = g.target;
+    }
+    return out;
+  });
+}
 // FEATURES.md #24 -- 7 broad activities, same Primary/Secondary/Minor
 // priority picker as goals (replaces the old single primaryActivity/
 // secondaryActivity pair).
@@ -6297,6 +6350,18 @@ const ACTIVITY_DEFS = [
   { key: 'team_sports', label: 'Team Sports' }, { key: 'endurance', label: 'Endurance' },
   { key: 'crossfit', label: 'CrossFit' }, { key: 'other', label: 'Other' },
 ];
+// Diet goal -- a different question from trainingGoals above (what you eat,
+// not what you train for). Shared by Onboarding step 3 and Settings so the
+// two pickers can't drift out of sync with each other the way they
+// previously did (Settings had its own, differently-labeled cut/recomp/bulk
+// picker that never wrote profile.goal at all).
+const DIET_GOAL_DEFS = [
+  ['Lose Fat', 'Calorie deficit, preserve muscle'],
+  ['Build Muscle', 'Caloric surplus, progressive overload'],
+  ['Maintain', 'Body recomposition, balanced macros'],
+  ['Athletic Performance', 'Power, endurance, sport-specific'],
+];
+const DIET_GOAL_MACRO_MAP = { 'Lose Fat': 'cut', 'Build Muscle': 'bulk', 'Maintain': 'recomp', 'Athletic Performance': 'recomp' };
 // FEATURES.md #22 -- suggests a starting point for the sleep/water/frequency
 // steppers on the Targets step from whatever training goals were just
 // picked; still fully editable there. Weighted contributions rather than
@@ -6318,76 +6383,16 @@ function suggestTargets(goals) {
   };
 }
 
-function Onboarding({ onComplete, onOpenImport }) {
+// Onboarding is reopened, not just opened once — "Restart Setup" in
+// Settings (SettingsOverlay's onRestartSetup) mounts this same component
+// again on an account that already has real data. Every field below reads
+// its starting value from `s` (the /summary payload) when one exists,
+// falling back to the original blank/default otherwise, so a genuine
+// brand-new account (s.profile is empty) sees exactly the same blank form
+// as before — this only changes behaviour when there's something to prefill.
+function Onboarding({ s, onComplete, onOpenImport }) {
   const TOTAL = 10;
   const [step, setStep] = useState(0);
-  const [echelon, setEchelon] = useState('full');
-  const [agreedToTerms, setAgreedToTerms] = useState(false);
-
-  // Step 6 (training background)
-  const [split, setSplit] = useState('');
-  const [usualSets, setUsualSets] = useState('');
-  const [usualRepsLow, setUsualRepsLow] = useState('');
-  const [usualRepsHigh, setUsualRepsHigh] = useState('');
-  const [favoriteInput, setFavoriteInput] = useState('');
-  const [favorites, setFavorites] = useState([]);
-  const [experienceLevel, setExperienceLevel] = useState('');
-  // FEATURES.md #23 -- only asked/used when experienceLevel is "Returning
-  // after a break"; a brand-new lifter never sees this question.
-  const [returningBreakWeeks, setReturningBreakWeeks] = useState('');
-  // FEATURES.md #33 -- split/sets/rep-range presuppose an existing habit, so
-  // they're hidden behind a reveal for "New to training" rather than asked
-  // of someone who has no "usual" to report. Anyone else sees them directly.
-  const [showTrainingHabits, setShowTrainingHabits] = useState(false);
-
-  // Step 7 (muscle focus) -- 'focus' | 'ignore', absent = normal. 'focus'
-  // gives a real priority boost in session generation (FOCUS_MUSCLE_BONUS,
-  // functions/weeklyPlanner.js); 'ignore' hard-excludes the muscle from
-  // both fatigue/freshness scales and being a primary target in any
-  // generated session (folded into offlineMuscles server-side, same
-  // mechanism as an injury).
-  const [muscleFocus, setMuscleFocus] = useState({});
-
-  // Step 1
-  const [name, setName] = useState('');
-  const [dob, setDob] = useState('');
-  const [heightUnit, setHeightUnit] = useState('cm');
-  const [heightVal, setHeightVal] = useState('');
-  const [weightUnit, setWeightUnit] = useState('kg');
-  const [weightVal, setWeightVal] = useState('');
-  const [bodyFat, setBodyFat] = useState('');
-  const [sex, setSex] = useState('');
-
-  // Step 2 (training goals) -- each: { type, priority, concrete, metric?,
-  // target?, targetDate?, exercise?, benchmarkLabel? }. See GOAL_DEFS above.
-  const [trainingGoals, setTrainingGoals] = useState([]);
-  const goalFor = key => trainingGoals.find(g => g.type === key);
-  const toggleGoal = key => setTrainingGoals(gs => gs.some(g => g.type === key)
-    ? gs.filter(g => g.type !== key) : [...gs, { type: key, priority: 'secondary', concrete: false }]);
-  const updateGoal = (key, patch) => setTrainingGoals(gs => gs.map(g => g.type === key ? { ...g, ...patch } : g));
-
-  // Step 4 (activities) -- each: { type, priority }. See ACTIVITY_DEFS above.
-  const [activities, setActivities] = useState([]);
-  const activityFor = key => activities.find(a => a.type === key);
-  const toggleActivity = key => setActivities(as => as.some(a => a.type === key)
-    ? as.filter(a => a.type !== key) : [...as, { type: key, priority: 'secondary' }]);
-  const updateActivity = (key, patch) => setActivities(as => as.map(a => a.type === key ? { ...a, ...patch } : a));
-
-  // Step 3 (diet goal + daily targets) -- unchanged single-select diet goal
-  // driving macro-auto; deliberately kept separate from trainingGoals above
-  // (different question: what you eat, not what you train for).
-  const [goal, setGoal] = useState('');
-  const [sleepTarget, setSleepTarget] = useState(8);
-  const [waterTarget, setWaterTarget] = useState(7);
-  const [trainingDays, setTrainingDays] = useState(4);
-
-  // Step 5 tracking
-  const [stravaStarted, setStravaStarted] = useState(false);
-  const [healthGuideOpen, setHealthGuideOpen] = useState(false);
-  const [hevyKeyVal, setHevyKeyVal] = useState('');
-  const [hevyKeyMode, setHevyKeyMode] = useState(null);
-  const [hevyKeySaved, setHevyKeySaved] = useState(false);
-  const [urlCopied, setUrlCopied] = useState(false);
   const [saving, setSaving] = useState(false);
   // Surfaced when a step's save genuinely fails — advance() previously
   // swallowed every save error and moved to the next step regardless (api()
@@ -6398,6 +6403,85 @@ function Onboarding({ onComplete, onOpenImport }) {
   // lets the athlete retry instead.
   const [stepError, setStepError] = useState('');
 
+  // Step 1 — About You
+  const [name, setName] = useState(() => s?.profile?.name || '');
+  const [dob, setDob] = useState(() => s?.profile?.dob || '');
+  const [heightUnit, setHeightUnit] = useState('cm'); // heightCm is always stored in cm; display starts there too
+  const [heightVal, setHeightVal] = useState(() => s?.profile?.heightCm ? String(Math.round(s.profile.heightCm)) : '');
+  const [weightUnit, setWeightUnit] = useState('kg'); // db.weight is always stored in kg
+  const [weightVal, setWeightVal] = useState(() => s?.weights?.length ? String(s.weights.at(-1).value) : '');
+  const [bodyFat, setBodyFat] = useState(() => {
+    const pct = s?.bodyFatToday ?? s?.bodyFat30?.at(-1)?.pct;
+    return pct != null ? String(pct) : '';
+  });
+  const [sex, setSex] = useState(() => s?.profile?.sex || '');
+
+  // Step 2 — Training Goals -- each: { type, priority, concrete, metric?,
+  // target?, targetDate?, exercise?, benchmarkLabel? }. See GOAL_DEFS above.
+  const [trainingGoals, setTrainingGoals] = useState(() => (s?.profile?.goals || []).map(g => ({ ...g })));
+  const goalFor = key => trainingGoals.find(g => g.type === key);
+  const toggleGoal = key => setTrainingGoals(gs => gs.some(g => g.type === key)
+    ? gs.filter(g => g.type !== key) : [...gs, { type: key, priority: 'secondary', concrete: false }]);
+  const updateGoal = (key, patch) => setTrainingGoals(gs => gs.map(g => g.type === key ? { ...g, ...patch } : g));
+
+  // Step 3 — Diet Goal & Daily Targets -- unchanged single-select diet goal
+  // driving macro-auto; deliberately kept separate from trainingGoals above
+  // (different question: what you eat, not what you train for).
+  const [goal, setGoal] = useState(() => s?.profile?.goal || '');
+  const [sleepTarget, setSleepTarget] = useState(() => s?.profile?.sleepTarget || 8);
+  const [waterTarget, setWaterTarget] = useState(() => s?.profile?.waterTarget || 7);
+  const [trainingDays, setTrainingDays] = useState(() => s?.profile?.trainingDaysPerWeek || 4);
+  // Lose Fat's deficit-limit notice (see saveDietGoalAndTargets below) —
+  // shown once per goal pick, then Acked lets a second Continue click
+  // through without re-pausing on the same notice.
+  const [dietGoalNotice, setDietGoalNotice] = useState(null);
+  const [dietGoalNoticeAcked, setDietGoalNoticeAcked] = useState(false);
+  const chooseGoal = (g) => { setGoal(g); setDietGoalNotice(null); setDietGoalNoticeAcked(false); };
+
+  // Step 4 — Activities -- each: { type, priority }. See ACTIVITY_DEFS above.
+  const [activities, setActivities] = useState(() => (s?.profile?.activities || []).map(a => ({ ...a })));
+  const activityFor = key => activities.find(a => a.type === key);
+  const toggleActivity = key => setActivities(as => as.some(a => a.type === key)
+    ? as.filter(a => a.type !== key) : [...as, { type: key, priority: 'secondary' }]);
+  const updateActivity = (key, patch) => setActivities(as => as.map(a => a.type === key ? { ...a, ...patch } : a));
+
+  // Step 5 — Tracking Level
+  const [echelon, setEchelon] = useState(() => s?.profile?.trackingLevel || 'full');
+
+  // Step 6 — Training Background
+  const bg = s?.profile?.trainingBackground;
+  const [split, setSplit] = useState(() => bg?.split || '');
+  const [usualSets, setUsualSets] = useState(() => bg?.usualSets != null ? String(bg.usualSets) : '');
+  const [usualRepsLow, setUsualRepsLow] = useState(() => bg?.usualRepsLow != null ? String(bg.usualRepsLow) : '');
+  const [usualRepsHigh, setUsualRepsHigh] = useState(() => bg?.usualRepsHigh != null ? String(bg.usualRepsHigh) : '');
+  const [favoriteInput, setFavoriteInput] = useState('');
+  const [favorites, setFavorites] = useState(() => bg?.favoriteExercises ? [...bg.favoriteExercises] : []);
+  const [experienceLevel, setExperienceLevel] = useState(() => s?.profile?.experienceLevel || '');
+  // FEATURES.md #23 -- only asked/used when experienceLevel is "Returning
+  // after a break"; a brand-new lifter never sees this question.
+  const [returningBreakWeeks, setReturningBreakWeeks] = useState(() => s?.profile?.returningBreakWeeks != null ? String(s.profile.returningBreakWeeks) : '');
+  // FEATURES.md #33 -- split/sets/rep-range presuppose an existing habit, so
+  // they're hidden behind a reveal for "New to training" rather than asked
+  // of someone who has no "usual" to report. Starts open on a repeat setup
+  // that already has one of these answered, rather than hiding real data
+  // behind a click.
+  const [showTrainingHabits, setShowTrainingHabits] = useState(() => !!(bg?.split || bg?.usualSets != null || bg?.usualRepsLow != null || bg?.usualRepsHigh != null));
+
+  // Step 7 — Muscle Focus -- 'focus' | 'ignore', absent = normal. 'focus'
+  // gives a real priority boost in session generation (FOCUS_MUSCLE_BONUS,
+  // functions/weeklyPlanner.js); 'ignore' hard-excludes the muscle from
+  // both fatigue/freshness scales and being a primary target in any
+  // generated session (folded into offlineMuscles server-side, same
+  // mechanism as an injury).
+  const [muscleFocus, setMuscleFocus] = useState(() => ({ ...(s?.profile?.muscleFocus || {}) }));
+
+  // Step 8 — Connect Services
+  const [stravaStarted, setStravaStarted] = useState(false);
+  const [healthGuideOpen, setHealthGuideOpen] = useState(false);
+  const [hevyKeyVal, setHevyKeyVal] = useState('');
+  const [hevyKeyMode, setHevyKeyMode] = useState(null);
+  const [hevyKeySaved, setHevyKeySaved] = useState(false);
+  const [urlCopied, setUrlCopied] = useState(false);
   const SHORTCUT_URL = `${API_BASE}/shortcut`;
   // Personal sync URL — each account gets its own token so its data lands
   // in its own account rather than everyone sharing the owner's URL (which
@@ -6419,19 +6503,26 @@ function Onboarding({ onComplete, onOpenImport }) {
       return next;
     });
   };
-
   const copyUrl = () => {
     navigator.clipboard?.writeText(syncUrl).then(() => {
       setUrlCopied(true); setTimeout(() => setUrlCopied(false), 2000);
     });
   };
 
-  // throwOnError on every call below — api() otherwise only rejects on a
+  // Step 9 — All Set -- already agreed once for a repeat setup (see the
+  // file-level comment above); a genuinely new account still starts unchecked.
+  const [agreedToTerms, setAgreedToTerms] = useState(() => !!s?.profile?.onboardingComplete);
+
+  // throwOnError on every save below — api() otherwise only rejects on a
   // network-level failure, not an HTTP error response, so a genuine save
   // failure (auth hiccup, timeout, 500, whatever) would resolve normally
   // and look identical to success. advance()'s try/catch is the single
-  // place that reacts to a real failure now.
-  const saveStep1 = async () => {
+  // place that reacts to a real failure now. Named for what each one saves,
+  // not its step number — steps have already been inserted/reordered once
+  // (Training Goals/Activities split out of an older single primary/
+  // secondary pair per FEATURES.md #21/#24) and a number in the name just
+  // goes stale again the next time that happens.
+  const saveAboutYou = async () => {
     const kg = weightUnit === 'kg' ? parseFloat(weightVal) : parseFloat(weightVal) * 0.453592;
     const cm = heightUnit === 'cm' ? parseFloat(heightVal) : parseFloat(heightVal) * 30.48;
     const age = dob ? Math.floor((Date.now() - new Date(dob)) / (365.25 * 24 * 3600 * 1000)) : null;
@@ -6441,35 +6532,30 @@ function Onboarding({ onComplete, onOpenImport }) {
     if (bodyFat) await api('bodyfat', { method: 'POST', body: JSON.stringify({ pct: parseFloat(bodyFat) }), throwOnError: true });
   };
 
-  const saveGoals = async () => {
-    const payload = trainingGoals.map(g => {
-      const out = { type: g.type, priority: g.priority, concrete: !!g.concrete };
-      if (!g.concrete) return out;
-      out.targetDate = g.targetDate;
-      if (GOAL_METRIC_OPTIONS[g.type]) {
-        out.metric = g.metric;
-        out.target = parseFloat(g.target);
-        if (g.metric === 'lift') out.exercise = g.exercise;
-        if (g.metric === 'benchmark') out.benchmarkLabel = g.benchmarkLabel;
-      } else {
-        out.target = g.target;
-      }
-      return out;
-    });
-    await api('profile', { method: 'POST', body: JSON.stringify({ goals: payload }), throwOnError: true });
+  const saveTrainingGoals = async () => {
+    await api('profile', { method: 'POST', body: JSON.stringify({ goals: buildGoalsPayload(trainingGoals) }), throwOnError: true });
   };
 
-  const saveStep2 = async () => {
-    const macroGoalMap = { 'Lose Fat': 'cut', 'Build Muscle': 'bulk', 'Maintain': 'recomp', 'Athletic Performance': 'recomp' };
+  // Returns the deficit notice from /macro-auto (functions/nutritionLimits.js)
+  // when Lose Fat's calculated calories aren't a mild deficit — null
+  // otherwise. advance() below shows it once per goal pick before letting
+  // the athlete move on, same as a confirmation step.
+  const saveDietGoalAndTargets = async () => {
     await api('profile', { method: 'POST', body: JSON.stringify({ goal, sleepTarget, waterTarget, trainingDaysPerWeek: trainingDays }), throwOnError: true });
-    if (macroGoalMap[goal]) await api('macro-auto', { method: 'POST', body: JSON.stringify({ goal: macroGoalMap[goal] }), throwOnError: true });
+    if (!DIET_GOAL_MACRO_MAP[goal]) return null;
+    const data = await api('macro-auto', { method: 'POST', body: JSON.stringify({ goal: DIET_GOAL_MACRO_MAP[goal] }), throwOnError: true });
+    return data.deficitCheck && data.deficitCheck.status !== 'ok' ? data.deficitCheck : null;
   };
 
   const saveActivities = async () => {
     await api('profile', { method: 'POST', body: JSON.stringify({ activities: activities.map(({ type, priority }) => ({ type, priority })) }), throwOnError: true });
   };
 
-  const saveStep4 = async () => {
+  const saveTrackingLevel = async () => {
+    await api('profile', { method: 'POST', body: JSON.stringify({ trackingLevel: echelon }), throwOnError: true });
+  };
+
+  const saveTrainingBackground = async () => {
     const trainingBackground = {
       split: split || undefined,
       usualSets: usualSets ? parseInt(usualSets) : undefined,
@@ -6482,7 +6568,7 @@ function Onboarding({ onComplete, onOpenImport }) {
     await api('profile', { method: 'POST', body: JSON.stringify(body), throwOnError: true });
   };
 
-  const saveStep5 = async () => {
+  const saveMuscleFocus = async () => {
     await api('profile', { method: 'POST', body: JSON.stringify({ muscleFocus }), throwOnError: true });
   };
 
@@ -6490,17 +6576,26 @@ function Onboarding({ onComplete, onOpenImport }) {
     setSaving(true);
     setStepError('');
     try {
-      if (step === 1) await saveStep1();
+      if (step === 1) await saveAboutYou();
       if (step === 2) {
-        await saveGoals();
+        await saveTrainingGoals();
         const sug = suggestTargets(trainingGoals);
         setSleepTarget(sug.sleepTarget); setWaterTarget(sug.waterTarget); setTrainingDays(sug.trainingDays);
       }
-      if (step === 3) await saveStep2();
+      if (step === 3) {
+        const notice = await saveDietGoalAndTargets();
+        if (notice && !dietGoalNoticeAcked) {
+          setDietGoalNotice(notice);
+          setDietGoalNoticeAcked(true);
+          setSaving(false);
+          return; // pause here once so the notice is actually seen before moving on
+        }
+        setDietGoalNotice(null);
+      }
       if (step === 4) await saveActivities();
-      if (step === 5) await api('profile', { method: 'POST', body: JSON.stringify({ trackingLevel: echelon }), throwOnError: true });
-      if (step === 6) await saveStep4();
-      if (step === 7) await saveStep5();
+      if (step === 5) await saveTrackingLevel();
+      if (step === 6) await saveTrainingBackground();
+      if (step === 7) await saveMuscleFocus();
       setStep(s => s + 1);
     } catch {
       setStepError('Something didn’t save — check your connection and try again.');
@@ -6682,18 +6777,21 @@ function Onboarding({ onComplete, onOpenImport }) {
 
             <label className="ob-label">Primary Diet Goal</label>
             <div className="ob-goal-grid">
-              {[
-                ['Lose Fat', 'Calorie deficit, preserve muscle'],
-                ['Build Muscle', 'Caloric surplus, progressive overload'],
-                ['Maintain', 'Body recomposition, balanced macros'],
-                ['Athletic Performance', 'Power, endurance, sport-specific'],
-              ].map(([g, d]) => (
-                <button key={g} className={`ob-goal-card${goal === g ? ' selected' : ''}`} onClick={() => setGoal(g)}>
+              {DIET_GOAL_DEFS.map(([g, d]) => (
+                <button key={g} className={`ob-goal-card${goal === g ? ' selected' : ''}`} onClick={() => chooseGoal(g)}>
                   <div className="ob-goal-card-title">{g}</div>
                   <div className="ob-goal-card-desc">{d}</div>
                 </button>
               ))}
             </div>
+            {dietGoalNotice && (
+              <div style={{
+                fontFamily: "'JetBrains Mono',monospace", fontSize: 10, lineHeight: 1.5, marginBottom: 16,
+                color: dietGoalNotice.status === 'hard-limit' ? 'var(--red)' : 'var(--ember)',
+              }}>
+                {dietGoalNotice.status === 'hard-limit' ? 'Hard limit — ' : '⚠ '}{dietGoalNotice.message}
+              </div>
+            )}
 
             <div style={{ borderTop: '1px solid var(--rule)', paddingTop: 16 }}>
               <label className="ob-label" style={{ marginTop: 0 }}>Sleep Target</label>
@@ -6725,7 +6823,9 @@ function Onboarding({ onComplete, onOpenImport }) {
             {stepError && <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--red)', marginBottom: 6 }}>{stepError}</div>}
             <div className="ob-nav">
               <button className="ob-back" onClick={() => { setStepError(''); setStep(2); }}>← Back</button>
-              <button className="ob-next" onClick={advance} disabled={saving}>{saving ? 'Saving…' : stepError ? 'Retry' : 'Continue'}</button>
+              <button className="ob-next" onClick={advance} disabled={saving}>
+                {saving ? 'Saving…' : stepError ? 'Retry' : dietGoalNotice ? 'Continue anyway' : 'Continue'}
+              </button>
             </div>
           </>
         )}
@@ -6922,9 +7022,10 @@ function Onboarding({ onComplete, onOpenImport }) {
                   <div className="ob-svc-title">Strava</div>
                   <div className="ob-svc-desc">Import your runs, rides, and activities automatically</div>
                 </div>
-                <button className={`ob-svc-btn${stravaStarted ? ' done' : ''}`}
+                <button className={`ob-svc-btn${(stravaStarted || s?.stravaConnected) ? ' done' : ''}`}
+                  disabled={s?.stravaConnected}
                   onClick={() => { setStravaStarted(true); window.open(`${API_BASE}/strava/auth`, '_blank'); }}>
-                  {stravaStarted ? 'Connecting…' : 'Connect'}
+                  {s?.stravaConnected ? 'Connected' : stravaStarted ? 'Connecting…' : 'Connect'}
                 </button>
               </div>
             </div>
@@ -7854,9 +7955,15 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
     if (!cm || cm === s?.profile?.heightCm) return;
     api('profile', { method: 'POST', body: JSON.stringify({ heightCm: cm }) }).then(profile => refresh({ ...s, profile }));
   };
+  // Sends returningBreakWeeks alongside experienceLevel in the same request
+  // when switching to "Returning after a break" — the backend only
+  // seeds/reseeds the atrophy estimate (functions/goalsAndActivities.js's
+  // seedReturningAthleteAtrophy) when both arrive together.
   const saveExperienceLevel = (lvl) => {
     setExperienceLevel(lvl);
-    api('profile', { method: 'POST', body: JSON.stringify({ experienceLevel: lvl }) }).then(profile => refresh({ ...s, profile }));
+    const body = { experienceLevel: lvl };
+    if (lvl === 'Returning after a break' && returningBreakWeeksVal) body.returningBreakWeeks = parseFloat(returningBreakWeeksVal);
+    api('profile', { method: 'POST', body: JSON.stringify(body) }).then(profile => refresh({ ...s, profile }));
   };
   const saveTrainingBackground = (patch) => {
     const trainingBackground = { split: splitVal || undefined, usualSets: usualSetsVal ? parseInt(usualSetsVal) : undefined, usualRepsLow: usualRepsLowVal ? parseInt(usualRepsLowVal) : undefined, usualRepsHigh: usualRepsHighVal ? parseInt(usualRepsHighVal) : undefined, favoriteExercises: favoritesVal, ...patch };
@@ -7976,19 +8083,200 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
     refresh({ ...s, profile });
   };
 
+  // ── Training Goals editor (GOAL_DEFS, FEATURES.md #21) — previously only
+  // ever set once, during Onboarding step 2, with no way to revisit it
+  // afterward (S8's Goals panel has pointed at "Settings → Profile &
+  // Training" for this the whole time, with nothing there to find). Local
+  // draft + explicit save rather than autosaving every click, same as Plan
+  // Ahead Constraints above — a concrete goal mid-edit (target typed,
+  // targetDate not yet) would otherwise round-trip straight into
+  // validateGoals' rejection.
+  const [goalsDraft, setGoalsDraft] = useState(s?.profile?.goals || []);
+  const [savingGoals, setSavingGoals] = useState(false);
+  const [goalsError, setGoalsError] = useState('');
+  const goalDraftFor = key => goalsDraft.find(g => g.type === key);
+  const toggleGoalDraft = key => setGoalsDraft(gs => gs.some(g => g.type === key)
+    ? gs.filter(g => g.type !== key) : [...gs, { type: key, priority: 'secondary', concrete: false }]);
+  const updateGoalDraft = (key, patch) => setGoalsDraft(gs => gs.map(g => g.type === key ? { ...g, ...patch } : g));
+  const saveGoalsDraft = async () => {
+    setSavingGoals(true);
+    setGoalsError('');
+    try {
+      const profile = await api('profile', { method: 'POST', body: JSON.stringify({ goals: buildGoalsPayload(goalsDraft) }), throwOnError: true });
+      refresh({ ...s, profile });
+    } catch {
+      setGoalsError('Save failed — check every concrete goal has a target and date, then try again.');
+    }
+    setSavingGoals(false);
+  };
+
+  // ── Activities editor (ACTIVITY_DEFS, FEATURES.md #24) — same gap as
+  // Training Goals above, same local-draft-plus-save pattern.
+  const [activitiesDraft, setActivitiesDraft] = useState(s?.profile?.activities || []);
+  const [savingActivities, setSavingActivities] = useState(false);
+  const activityDraftFor = key => activitiesDraft.find(a => a.type === key);
+  const toggleActivityDraft = key => setActivitiesDraft(as => as.some(a => a.type === key)
+    ? as.filter(a => a.type !== key) : [...as, { type: key, priority: 'secondary' }]);
+  const updateActivityDraft = (key, patch) => setActivitiesDraft(as => as.map(a => a.type === key ? { ...a, ...patch } : a));
+  const saveActivitiesDraft = async () => {
+    setSavingActivities(true);
+    const profile = await api('profile', { method: 'POST', body: JSON.stringify({ activities: activitiesDraft.map(({ type, priority }) => ({ type, priority })) }) });
+    refresh({ ...s, profile });
+    setSavingActivities(false);
+  };
+
+  // ── Diet Goal — mirrors Onboarding step 3's picker exactly (DIET_GOAL_DEFS
+  // above), replacing a Settings-only cut/recomp/bulk picker that used
+  // different labels and, more importantly, never wrote profile.goal at
+  // all — so the Personal Journalist's "Goal: …" context stayed frozen at
+  // whatever Onboarding set (or its 'build muscle' fallback) no matter what
+  // anyone picked here afterward.
+  const dietGoalVal = s?.profile?.goal || '';
+  // Lose Fat only: /macro-auto checks the calculated deficit against a real
+  // per-person maintenance estimate (functions/nutritionLimits.js) and
+  // returns a status alongside the targets — 'hard-limit' means the raw
+  // calculation was capped, 'warning' means it went through unchanged but
+  // is aggressive. Surfaced here, immediately, same as every other
+  // Settings field's inline feedback — no confirmation gate needed since
+  // there's no multi-step flow to pause here the way Onboarding has.
+  const [dietGoalNotice, setDietGoalNotice] = useState(null);
+  const saveDietGoal = async (g) => {
+    setDietGoalNotice(null);
+    const profile = await api('profile', { method: 'POST', body: JSON.stringify({ goal: g }) });
+    refresh({ ...s, profile });
+    if (DIET_GOAL_MACRO_MAP[g]) {
+      const data = await api('macro-auto', { method: 'POST', body: JSON.stringify({ goal: DIET_GOAL_MACRO_MAP[g] }) });
+      refresh({ ...s, profile, macroGoal: data.goal, macroTargets: data.targets, macroMode: 'auto' });
+      if (data.deficitCheck && data.deficitCheck.status !== 'ok') setDietGoalNotice(data.deficitCheck);
+    }
+  };
+
+  // returningBreakWeeks: only meaningful alongside experienceLevel
+  // "Returning after a break" (see functions/goalsAndActivities.js's
+  // seedReturningAthleteAtrophy) — Settings previously didn't offer that
+  // experience option at all, so there was no way to reach this after
+  // Onboarding. Sent together with experienceLevel in one request, same as
+  // Onboarding's saveTrainingBackground, since the backend only seeds/reseeds the
+  // atrophy estimate when both arrive together.
+  const [returningBreakWeeksVal, setReturningBreakWeeksVal] = useState(s?.profile?.returningBreakWeeks ?? '');
+  const saveReturningBreakWeeks = () => {
+    if (!returningBreakWeeksVal) return;
+    api('profile', { method: 'POST', body: JSON.stringify({ experienceLevel: 'Returning after a break', returningBreakWeeks: parseFloat(returningBreakWeeksVal) }) })
+      .then(profile => refresh({ ...s, profile }));
+  };
+
+  // ── Wiki-style left TOC — every group stays permanently expanded (no more
+  // <details> accordion swallowing content), so the body is one continuous
+  // document you can still just scroll top to bottom by hand; the TOC is a
+  // shortcut on top of that, not a replacement for it. Accepted/Follow
+  // Requests only appear here when their section will actually render
+  // (below, in Social), so a link never points at nothing.
+  const tocGroups = [
+    { id: 'sec-grp-profile', label: 'Profile & Training', subs: [
+      { id: 'sec-identity', label: 'Identity' },
+      { id: 'sec-training-goals', label: 'Training Goals' },
+      { id: 'sec-activities', label: 'Activities' },
+      { id: 'sec-diet-goal', label: 'Diet Goal' },
+      { id: 'sec-tracking-level', label: 'Tracking Level' },
+      { id: 'sec-training-preferences', label: 'Training Preferences' },
+      { id: 'sec-training-background', label: 'Training Background' },
+      { id: 'sec-appearance', label: 'Appearance' },
+      { id: 'sec-mentor-memory', label: 'Personal Journalist' },
+    ] },
+    { id: 'sec-grp-social', label: 'Social', subs: [
+      ...(followBadge?.recentlyAccepted?.length > 0 ? [{ id: 'sec-accepted', label: 'Accepted' }] : []),
+      ...(followBadge?.incoming?.length > 0 ? [{ id: 'sec-follow-requests', label: 'Follow Requests' }] : []),
+      { id: 'sec-find-people', label: 'Find People' },
+      { id: 'sec-visibility', label: 'Visibility' },
+    ] },
+    { id: 'sec-grp-layout', label: 'Dashboard Layout', subs: [
+      { id: 'sec-presets', label: 'Presets' },
+      { id: 'sec-panel-grid', label: 'Panel Grid' },
+      { id: 'sec-home-order', label: 'Home Screen Order' },
+      { id: 'sec-micro-widgets', label: 'Micro-Widgets' },
+      { id: 'sec-recovery-tab-order', label: 'Recovery Tab Order' },
+    ] },
+    { id: 'sec-grp-targets', label: 'Targets & Nutrition', subs: [
+      { id: 'sec-targets', label: 'Targets' },
+      { id: 'sec-warmup-ramp', label: 'Warmup Ramp' },
+      { id: 'sec-equipment', label: 'Equipment' },
+      { id: 'sec-plan-constraints', label: 'Plan Ahead — Constraints' },
+      { id: 'sec-plan-holidays', label: 'Plan Ahead — Holidays' },
+      { id: 'sec-nutrition', label: 'Nutrition' },
+    ] },
+    { id: 'sec-grp-connected', label: 'Connected Data', subs: [
+      { id: 'sec-connected-services', label: 'Connected Services' },
+      { id: 'sec-supplement-stack', label: 'Supplement Stack' },
+      { id: 'sec-muscle-sensitivity', label: 'Muscle Sensitivity' },
+    ] },
+    { id: 'sec-grp-tools', label: 'Tools', subs: [
+      { id: 'sec-app', label: 'App' },
+      { id: 'sec-data-export', label: 'Data Export' },
+      { id: 'sec-merge-exercises', label: 'Merge Exercises' },
+      { id: 'sec-learn', label: 'Learn' },
+    ] },
+    { id: 'sec-grp-account', label: 'Account', subs: [] },
+    { id: 'sec-grp-whatsnew', label: "What's New", subs: [] },
+  ];
+
+  const settingsBodyRef = useRef(null);
+  const [activeSecId, setActiveSecId] = useState(tocGroups[0].subs[0]?.id || tocGroups[0].id);
+  const jumpToSection = (id) => {
+    const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    document.getElementById(id)?.scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth', block: 'start' });
+  };
+  // Scrollspy: highlights whichever section is currently nearest the top of
+  // the body as you scroll by hand — cosmetic only, jumpToSection above
+  // never depends on this having run. Only observes the ids the TOC
+  // actually links to (a group's subs, or the group itself when it has
+  // none) — mixing those in with the tall group-wrapper elements too would
+  // make a wrapper whose top scrolled off-screen ages ago outrank the sub
+  // section genuinely at the top edge, since "intersecting" only means any
+  // overlap with the top-30% band, not being closest to it.
+  useEffect(() => {
+    const root = settingsBodyRef.current;
+    if (!root) return;
+    const ids = tocGroups.flatMap(g => g.subs.length ? g.subs.map(sub => sub.id) : [g.id]);
+    const targets = ids.map(id => document.getElementById(id)).filter(Boolean);
+    const observer = new IntersectionObserver(entries => {
+      const visible = entries.filter(e => e.isIntersecting).sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top);
+      if (visible[0]) setActiveSecId(visible[0].target.id);
+    }, { root, rootMargin: '0px 0px -70% 0px', threshold: 0 });
+    targets.forEach(t => observer.observe(t));
+    return () => observer.disconnect();
+  }, []);
+
   return (
     <div className="settings-overlay">
       <div className="settings-hdr">
         <div className="settings-hdr-title">Settings</div>
         <button className="settings-close" onClick={onClose}>Close ×</button>
       </div>
-      <div className="settings-body">
+      <div className="settings-layout">
+        <nav className="settings-toc" aria-label="Settings sections">
+          {tocGroups.map(grp => (
+            <div key={grp.id} className="settings-toc-group">
+              <button type="button"
+                className={`settings-toc-group-h${grp.id === activeSecId || grp.subs.some(sub => sub.id === activeSecId) ? ' active' : ''}`}
+                onClick={() => jumpToSection(grp.id)}>
+                {grp.label}
+              </button>
+              {grp.subs.map(sub => (
+                <button key={sub.id} type="button" className={`settings-toc-sub${sub.id === activeSecId ? ' active' : ''}`}
+                  onClick={() => jumpToSection(sub.id)}>
+                  {sub.label}
+                </button>
+              ))}
+            </div>
+          ))}
+        </nav>
+        <div className="settings-body" ref={settingsBodyRef}>
 
-        <details className="settings-group" open>
-        <summary className="settings-group-h">Profile &amp; Training</summary>
-        {/* ── PROFILE ── */}
-        <div className="settings-sec">
-          <div className="settings-sh">Profile</div>
+        <div className="settings-group" id="sec-grp-profile">
+        <button type="button" className="settings-group-h" onClick={() => jumpToSection('sec-grp-profile')}>Profile &amp; Training</button>
+        {/* ── IDENTITY ── */}
+        <div className="settings-sec" id="sec-identity">
+          <div className="settings-sh">Identity</div>
           <div className="prof-field">
             <span className="prof-lbl">Name</span>
             <div style={{ display: 'flex', gap: 6, flex: 1, minWidth: 0 }}>
@@ -8028,21 +8316,6 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
           )}
           {usernameError && <div style={{ fontSize: 9, fontFamily: "'JetBrains Mono',monospace", color: 'var(--red)', marginTop: -8, marginBottom: 8 }}>{usernameError}</div>}
           <div className="prof-field">
-            <span className="prof-lbl">Goal</span>
-            <div style={{ display: 'flex', gap: 6 }}>
-              {['cut','recomp','bulk'].map(g => (
-                <button key={g} className="prof-btn"
-                  onClick={() => {
-                    refresh({ ...s, macroGoal: g });
-                    api('macro-auto', { method: 'POST', body: JSON.stringify({ goal: g }) }).then(data => refresh({ ...s, macroGoal: data.goal, macroTargets: data.targets, macroMode: 'auto' }));
-                  }}
-                  style={{ textTransform: 'capitalize', ...(s?.macroGoal === g ? { background: 'var(--ink)', color: 'var(--paper)', borderColor: 'var(--ink)' } : {}) }}>
-                  {g}
-                </button>
-              ))}
-            </div>
-          </div>
-          <div className="prof-field">
             <span className="prof-lbl">Sex <span style={{ fontSize: 8, color: 'var(--dim)', textTransform: 'none' }}>(for strength standards)</span></span>
             <div style={{ display: 'flex', gap: 6 }}>
               {['male','female'].map(sx => (
@@ -8066,6 +8339,144 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
             <input className="prof-input" type="number" inputMode="decimal" value={heightVal} onChange={e => setHeightVal(e.target.value)} onBlur={saveHeight}
               placeholder="e.g. 180" style={{ flex: 1, minWidth: 0, maxWidth: 80 }} />
           </div>
+        </div>
+
+        {/* ── TRAINING GOALS ── */}
+        <div className="settings-sec" id="sec-training-goals">
+          <div className="settings-sh">Training Goals <span style={{ fontWeight: 400, textTransform: 'none', fontSize: 9, color: 'var(--dim)' }}>(shown on the Goals panel, tracked against real data where Press has it)</span></div>
+          {GOAL_DEFS.map(gd => {
+            const g = goalDraftFor(gd.key);
+            const metrics = GOAL_METRIC_OPTIONS[gd.key];
+            const metricDef = metrics?.find(m => m.value === g?.metric);
+            return (
+              <div key={gd.key} style={{ marginBottom: 10 }}>
+                <button className={`ob-goal-card${g ? ' selected' : ''}`} style={{ width: '100%' }} onClick={() => toggleGoalDraft(gd.key)}>
+                  <div className="ob-goal-card-title">{gd.label}</div>
+                  <div className="ob-goal-card-desc">{gd.desc}</div>
+                </button>
+                {g && (
+                  <div style={{ padding: '10px 12px', border: '1px solid var(--rule)', borderTop: 'none' }}>
+                    <div className="ob-label" style={{ marginTop: 0 }}>Priority</div>
+                    <div style={{ display: 'flex', gap: 4, marginBottom: 12 }}>
+                      {GOAL_PRIORITIES.map(p => (
+                        <button key={p.value} className={`prof-btn${g.priority === p.value ? ' solid' : ''}`} onClick={() => updateGoalDraft(gd.key, { priority: p.value })}>{p.label}</button>
+                      ))}
+                    </div>
+
+                    <div className="ob-label">Target</div>
+                    <div style={{ display: 'flex', gap: 4, marginBottom: 12 }}>
+                      <button className={`prof-btn${!g.concrete ? ' solid' : ''}`} onClick={() => updateGoalDraft(gd.key, { concrete: false })}>No specific target</button>
+                      <button className={`prof-btn${g.concrete ? ' solid' : ''}`} onClick={() => updateGoalDraft(gd.key, { concrete: true })}>Set a target</button>
+                    </div>
+
+                    {g.concrete && (
+                      <>
+                        {metrics && (
+                          <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginBottom: 10 }}>
+                            {metrics.map(m => (
+                              <button key={m.value} className={`prof-btn${g.metric === m.value ? ' solid' : ''}`} onClick={() => updateGoalDraft(gd.key, { metric: m.value })}>{m.label}</button>
+                            ))}
+                          </div>
+                        )}
+                        {g.metric === 'lift' && (
+                          <input style={{ ...inputStyle, marginBottom: 10 }} placeholder="Exercise, e.g. Barbell Bench Press"
+                            value={g.exercise || ''} onChange={e => updateGoalDraft(gd.key, { exercise: e.target.value })} />
+                        )}
+                        {g.metric === 'benchmark' && (
+                          <input style={{ ...inputStyle, marginBottom: 10 }} placeholder="What, e.g. 5k"
+                            value={g.benchmarkLabel || ''} onChange={e => updateGoalDraft(gd.key, { benchmarkLabel: e.target.value })} />
+                        )}
+                        <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 4 }}>
+                          {metrics ? (
+                            <input style={{ ...inputStyle, flex: 1, width: 'auto' }} type="number" inputMode="decimal"
+                              placeholder={`Target${metricDef?.unit ? ` (${metricDef.unit})` : ''}`} value={g.target || ''} onChange={e => updateGoalDraft(gd.key, { target: e.target.value })} />
+                          ) : (
+                            <input style={{ ...inputStyle, flex: 1, width: 'auto' }} placeholder="Target, e.g. sub-25min 5k"
+                              value={g.target || ''} onChange={e => updateGoalDraft(gd.key, { target: e.target.value })} />
+                          )}
+                          <input style={{ ...inputStyle, flex: 1, width: 'auto' }} type="date" value={g.targetDate || ''} onChange={e => updateGoalDraft(gd.key, { targetDate: e.target.value })} />
+                        </div>
+                      </>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+          {goalsError && <div style={{ fontSize: 9, fontFamily: "'JetBrains Mono',monospace", color: 'var(--red)', marginBottom: 8 }}>{goalsError}</div>}
+          <button className="prof-btn solid" style={{ fontSize: 10, padding: '6px 12px' }}
+            onClick={saveGoalsDraft} disabled={savingGoals}>
+            {savingGoals ? 'Saving…' : 'Save Training Goals'}
+          </button>
+        </div>
+
+        {/* ── ACTIVITIES ── */}
+        <div className="settings-sec" id="sec-activities">
+          <div className="settings-sh">Activities <span style={{ fontWeight: 400, textTransform: 'none', fontSize: 9, color: 'var(--dim)' }}>(sets default weekly session targets, blended across whatever's ranked Primary/Secondary/Minor)</span></div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 12 }}>
+            {ACTIVITY_DEFS.map(ad => {
+              const a = activityDraftFor(ad.key);
+              return (
+                <div key={ad.key}>
+                  <button className={`ob-goal-card${a ? ' selected' : ''}`} style={{ width: '100%' }} onClick={() => toggleActivityDraft(ad.key)}>
+                    <div className="ob-goal-card-title">{ad.label}</div>
+                  </button>
+                  {a && (
+                    <div style={{ padding: '10px 12px', border: '1px solid var(--rule)', borderTop: 'none', display: 'flex', gap: 4 }}>
+                      {GOAL_PRIORITIES.map(p => (
+                        <button key={p.value} className={`prof-btn${a.priority === p.value ? ' solid' : ''}`} onClick={() => updateActivityDraft(ad.key, { priority: p.value })}>{p.label}</button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+          <button className="prof-btn solid" style={{ fontSize: 10, padding: '6px 12px' }}
+            onClick={saveActivitiesDraft} disabled={savingActivities}>
+            {savingActivities ? 'Saving…' : 'Save Activities'}
+          </button>
+        </div>
+
+        {/* ── DIET GOAL ── */}
+        <div className="settings-sec" id="sec-diet-goal">
+          <div className="settings-sh">Diet Goal <span style={{ fontWeight: 400, textTransform: 'none', fontSize: 9, color: 'var(--dim)' }}>(drives auto-calculated macro targets)</span></div>
+          <div className="ob-goal-grid">
+            {DIET_GOAL_DEFS.map(([g, d]) => (
+              <button key={g} className={`ob-goal-card${dietGoalVal === g ? ' selected' : ''}`} onClick={() => saveDietGoal(g)}>
+                <div className="ob-goal-card-title">{g}</div>
+                <div className="ob-goal-card-desc">{d}</div>
+              </button>
+            ))}
+          </div>
+          {dietGoalNotice && (
+            <div style={{
+              fontFamily: "'JetBrains Mono',monospace", fontSize: 10, lineHeight: 1.5, marginTop: 4,
+              color: dietGoalNotice.status === 'hard-limit' ? 'var(--red)' : 'var(--ember)',
+            }}>
+              {dietGoalNotice.status === 'hard-limit' ? 'Hard limit — ' : '⚠ '}{dietGoalNotice.message}
+            </div>
+          )}
+        </div>
+
+        {/* ── TRACKING LEVEL ── */}
+        <div className="settings-sec" id="sec-tracking-level">
+          <div className="settings-sh">Tracking Level</div>
+          {ECHELONS.map(e => (
+            <button key={e.key} className={`echelon-card${trackingLevel === e.key ? ' selected' : ''}`}
+              onClick={() => saveLevel(e.key)}>
+              <div className="echelon-card-dot" />
+              <div style={{ flex: 1 }}>
+                <div className="echelon-card-title">{e.title}</div>
+                <div className="echelon-card-desc">{e.desc}</div>
+              </div>
+            </button>
+          ))}
+        </div>
+
+        {/* ── TRAINING PREFERENCES ── */}
+        <div className="settings-sec" id="sec-training-preferences">
+          <div className="settings-sh">Training Preferences <span style={{ fontWeight: 400, textTransform: 'none', fontSize: 9, color: 'var(--dim)' }}>(shape auto-generated sessions)</span></div>
           <div className="prof-field">
             <span className="prof-lbl">Training Priority <span style={{ fontSize: 8, color: 'var(--dim)', textTransform: 'none' }}>(shapes weekly guidance)</span></span>
             <div style={{ display: 'flex', gap: 6 }}>
@@ -8135,6 +8546,33 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
               {stabilityPref ? `Locked to ${stabilityPref === 'stable' ? 'machine/cable/Smith' : 'free-weight'}-leaning picks.` : 'Auto — follows whichever you\'ve actually leaned toward over your last 90 days.'} A soft preference, not a hard filter — a free-weight (or machine) exercise can still get picked when it's clearly the best option.
             </div>
           </div>
+        </div>
+
+        {/* ── TRAINING BACKGROUND ── */}
+        <div className="settings-sec" id="sec-training-background">
+          <div className="settings-sh">Training Background <span style={{ fontWeight: 400, textTransform: 'none', fontSize: 9, color: 'var(--dim)' }}>(a starting anchor before Press has your real logged history)</span></div>
+          <div className="prof-field">
+            <span className="prof-lbl">Experience Level <span style={{ fontSize: 8, color: 'var(--dim)', textTransform: 'none' }}>(new-lifter fatigue budget — unrelated to Detail Level below)</span></span>
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+              {['New to training', 'Experienced', 'Returning after a break'].map(lvl => (
+                <button key={lvl} className="prof-btn" onClick={() => saveExperienceLevel(lvl)}
+                  style={experienceLevel === lvl ? { background: 'var(--ink)', color: 'var(--paper)', borderColor: 'var(--ink)' } : {}}>
+                  {lvl}
+                </button>
+              ))}
+            </div>
+          </div>
+          {experienceLevel === 'Returning after a break' && (
+            <div className="prof-field">
+              <span className="prof-lbl">Break Length</span>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <input className="prof-input" type="number" inputMode="decimal" value={returningBreakWeeksVal}
+                  onChange={e => setReturningBreakWeeksVal(e.target.value)} onBlur={saveReturningBreakWeeks}
+                  placeholder="e.g. 8" style={{ maxWidth: 80 }} />
+                <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)' }}>weeks</span>
+              </div>
+            </div>
+          )}
           <div className="prof-field">
             <span className="prof-lbl">Training Experience <span style={{ fontSize: 8, color: 'var(--dim)', textTransform: 'none' }}>(years — used for recovery pacing)</span></span>
             <input className="prof-input" type="number" min="0" step="0.5" inputMode="decimal"
@@ -8146,30 +8584,6 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
                 }
               }}
               placeholder="e.g. 2" style={{ flex: 1, minWidth: 0, maxWidth: 80 }} />
-          </div>
-          <div className="prof-field" style={{ display: 'block' }}>
-            <span className="prof-lbl" style={{ display: 'block', marginBottom: 8 }}>Detail Level <span style={{ fontSize: 8, color: 'var(--dim)', textTransform: 'none' }}>(how much of the model is shown — never changes what's recommended)</span></span>
-            {EXPERTISE_LEVELS.map(lvl => (
-              <button key={lvl} className={`echelon-card${expertiseLevel === lvl ? ' selected' : ''}`}
-                onClick={() => saveExpertiseLevel(lvl)}>
-                <div className="echelon-card-dot" />
-                <div style={{ flex: 1 }}>
-                  <div className="echelon-card-title">{EXPERTISE_LABELS[lvl]}</div>
-                  <div className="echelon-card-desc">{EXPERTISE_BLURBS[lvl]}</div>
-                </div>
-              </button>
-            ))}
-          </div>
-          <div className="prof-field">
-            <span className="prof-lbl">Experience Level <span style={{ fontSize: 8, color: 'var(--dim)', textTransform: 'none' }}>(new-lifter fatigue budget — unrelated to Detail Level above)</span></span>
-            <div style={{ display: 'flex', gap: 6 }}>
-              {['New to training', 'Experienced'].map(lvl => (
-                <button key={lvl} className="prof-btn" onClick={() => saveExperienceLevel(lvl)}
-                  style={experienceLevel === lvl ? { background: 'var(--ink)', color: 'var(--paper)', borderColor: 'var(--ink)' } : {}}>
-                  {lvl}
-                </button>
-              ))}
-            </div>
           </div>
           <div className="prof-field">
             <span className="prof-lbl">Typical Split <span style={{ fontSize: 8, color: 'var(--dim)', textTransform: 'none' }}>(a starting anchor, not the auto-generator's Preferred Split above)</span></span>
@@ -8273,6 +8687,11 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
               </div>
             )}
           </div>
+        </div>
+
+        {/* ── APPEARANCE ── */}
+        <div className="settings-sec" id="sec-appearance">
+          <div className="settings-sh">Appearance</div>
           <div className="prof-field">
             <span className="prof-lbl">Dark Mode</span>
             <div style={{ display: 'flex', gap: 6 }}>
@@ -8288,48 +8707,48 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
               ))}
             </div>
           </div>
-          <div className="prof-field">
-            <span className="prof-lbl">Personal Journalist Memory <span style={{ fontSize: 8, color: 'var(--dim)', textTransform: 'none' }}>(facts it remembers across chats)</span></span>
-            {mentorMemory.length === 0 && (
-              <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)', fontStyle: 'italic' }}>Nothing saved yet — it fills in as you chat.</div>
-            )}
-            {mentorMemory.map((m, i) => (
-              <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 6, marginBottom: 4 }}>
-                <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, flex: 1 }}>{m}</span>
-                <button className="prof-btn" onClick={() => removeMemoryEntry(i)} style={{ fontSize: 8, padding: '2px 8px', flexShrink: 0 }}>✕</button>
-              </div>
+          <div className="prof-field" style={{ display: 'block' }}>
+            <span className="prof-lbl" style={{ display: 'block', marginBottom: 8 }}>Detail Level <span style={{ fontSize: 8, color: 'var(--dim)', textTransform: 'none' }}>(how much of the model is shown — never changes what's recommended)</span></span>
+            {EXPERTISE_LEVELS.map(lvl => (
+              <button key={lvl} className={`echelon-card${expertiseLevel === lvl ? ' selected' : ''}`}
+                onClick={() => saveExpertiseLevel(lvl)}>
+                <div className="echelon-card-dot" />
+                <div style={{ flex: 1 }}>
+                  <div className="echelon-card-title">{EXPERTISE_LABELS[lvl]}</div>
+                  <div className="echelon-card-desc">{EXPERTISE_BLURBS[lvl]}</div>
+                </div>
+              </button>
             ))}
-            <div style={{ display: 'flex', gap: 6, marginTop: 4 }}>
-              <input className="prof-input" placeholder="Add a fact manually…" value={newMemoryEntry}
-                onChange={e => setNewMemoryEntry(e.target.value)}
-                onKeyDown={e => { if (e.key === 'Enter') addMemoryEntry(); }}
-                style={{ flex: 1 }} />
-              <button className="prof-btn" onClick={addMemoryEntry} disabled={!newMemoryEntry.trim()} style={{ fontSize: 8, padding: '5px 14px', flexShrink: 0 }}>Add</button>
-            </div>
           </div>
         </div>
 
-        {/* ── TRACKING LEVEL ── */}
-        <div className="settings-sec">
-          <div className="settings-sh">Tracking Level</div>
-          {ECHELONS.map(e => (
-            <button key={e.key} className={`echelon-card${trackingLevel === e.key ? ' selected' : ''}`}
-              onClick={() => saveLevel(e.key)}>
-              <div className="echelon-card-dot" />
-              <div style={{ flex: 1 }}>
-                <div className="echelon-card-title">{e.title}</div>
-                <div className="echelon-card-desc">{e.desc}</div>
-              </div>
-            </button>
+        {/* ── PERSONAL JOURNALIST MEMORY ── */}
+        <div className="settings-sec" id="sec-mentor-memory">
+          <div className="settings-sh">Personal Journalist Memory <span style={{ fontWeight: 400, textTransform: 'none', fontSize: 9, color: 'var(--dim)' }}>(facts it remembers across chats)</span></div>
+          {mentorMemory.length === 0 && (
+            <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)', fontStyle: 'italic' }}>Nothing saved yet — it fills in as you chat.</div>
+          )}
+          {mentorMemory.map((m, i) => (
+            <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 6, marginBottom: 4 }}>
+              <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, flex: 1 }}>{m}</span>
+              <button className="prof-btn" onClick={() => removeMemoryEntry(i)} style={{ fontSize: 8, padding: '2px 8px', flexShrink: 0 }}>✕</button>
+            </div>
           ))}
+          <div style={{ display: 'flex', gap: 6, marginTop: 4 }}>
+            <input className="prof-input" placeholder="Add a fact manually…" value={newMemoryEntry}
+              onChange={e => setNewMemoryEntry(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') addMemoryEntry(); }}
+              style={{ flex: 1 }} />
+            <button className="prof-btn" onClick={addMemoryEntry} disabled={!newMemoryEntry.trim()} style={{ fontSize: 8, padding: '5px 14px', flexShrink: 0 }}>Add</button>
+          </div>
         </div>
-        </details>
+        </div>
 
-        <details className="settings-group">
-        <summary className="settings-group-h">Social{followBadge && (followBadge.incoming.length + followBadge.recentlyAccepted.length) > 0 ? ` (${followBadge.incoming.length + followBadge.recentlyAccepted.length})` : ''}</summary>
+        <div className="settings-group" id="sec-grp-social">
+        <button type="button" className="settings-group-h" onClick={() => jumpToSection('sec-grp-social')}>Social{followBadge && (followBadge.incoming.length + followBadge.recentlyAccepted.length) > 0 ? ` (${followBadge.incoming.length + followBadge.recentlyAccepted.length})` : ''}</button>
 
         {followBadge?.recentlyAccepted?.length > 0 && (
-          <div className="settings-sec">
+          <div className="settings-sec" id="sec-accepted">
             <div className="settings-sh">Accepted</div>
             {followBadge.recentlyAccepted.map(r => (
               <div key={r.toUid} style={{ fontSize: 11, color: 'var(--dim)', marginBottom: 4 }}>
@@ -8341,7 +8760,7 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
         )}
 
         {followBadge?.incoming?.length > 0 && (
-          <div className="settings-sec">
+          <div className="settings-sec" id="sec-follow-requests">
             <div className="settings-sh">Follow Requests</div>
             {followBadge.incoming.map(r => (
               <div key={r.fromUid} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
@@ -8352,7 +8771,7 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
           </div>
         )}
 
-        <div className="settings-sec">
+        <div className="settings-sec" id="sec-find-people">
           <div className="settings-sh">Find People</div>
           <input className="prof-input" style={{ width: '100%', boxSizing: 'border-box' }} value={searchQuery}
             onChange={e => runSearch(e.target.value)} placeholder="Search by username" autoCapitalize="none" autoCorrect="off" />
@@ -8370,7 +8789,7 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
           ))}
         </div>
 
-        <div className="settings-sec">
+        <div className="settings-sec" id="sec-visibility">
           <div className="settings-sh">Visibility</div>
           <div className="prof-field">
             <span className="prof-lbl">Workout sessions visible to followers</span>
@@ -8391,12 +8810,12 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
             </button>
           </div>
         </div>
-        </details>
+        </div>
 
-        <details className="settings-group">
-        <summary className="settings-group-h">Dashboard Layout</summary>
+        <div className="settings-group" id="sec-grp-layout">
+        <button type="button" className="settings-group-h" onClick={() => jumpToSection('sec-grp-layout')}>Dashboard Layout</button>
         {/* ── LAYOUT ── */}
-        <div className="settings-sec">
+        <div className="settings-sec" id="sec-presets">
           <div className="settings-sh">Presets <span style={{ fontWeight: 400, textTransform: 'none', fontSize: 9, color: 'var(--dim)' }}>(desktop only — resets the panel grid below to one of these starting layouts)</span></div>
           {LAYOUT_PRESETS.map(preset => (
             <button key={preset.id} className="echelon-card" onClick={() => applyLayoutPreset(preset)}>
@@ -8409,7 +8828,7 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
           ))}
         </div>
 
-        <div className="settings-sec">
+        <div className="settings-sec" id="sec-panel-grid">
           <div className="settings-sh">Panel Grid <span style={{ fontWeight: 400, textTransform: 'none', fontSize: 9, color: 'var(--dim)' }}>(desktop only)</span></div>
           <div style={{ fontSize: 11, color: 'var(--dim)', lineHeight: 1.5, marginBottom: 10 }}>
             Drag panels to reposition, drag a corner to resize — the grid auto-packs so there's no empty space. Columns can track your window width, or stay a fixed count (panels resize in pixels instead).
@@ -8432,27 +8851,27 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
           </div>
         </div>
 
-        <div className="settings-sec">
+        <div className="settings-sec" id="sec-home-order">
           <div className="settings-sh">Home Screen Order <span style={{ fontWeight: 400, textTransform: 'none', fontSize: 9, color: 'var(--dim)' }}>(mobile order; also seeds a freshly-added desktop panel's starting spot)</span></div>
           <PanelOrderEditor order={panelOrder} hidden={hiddenPanels} labels={PANEL_LABELS}
             states={s?.profile?.panelStates} expertise={expertiseLevel} onChange={savePanels} onStateChange={savePanelState} />
         </div>
 
-        <div className="settings-sec">
+        <div className="settings-sec" id="sec-micro-widgets">
           <div className="settings-sh">Micro-Widgets <span style={{ fontWeight: 400, textTransform: 'none', fontSize: 9, color: 'var(--dim)' }}>(fill gaps left by the panels above, desktop only)</span></div>
           <PanelOrderEditor order={microWidgetOrder} hidden={hiddenMicroWidgets} labels={MICRO_WIDGET_LABELS} onChange={saveMicroWidgets} />
         </div>
 
-        <div className="settings-sec">
+        <div className="settings-sec" id="sec-recovery-tab-order">
           <div className="settings-sh">Recovery Tab Order</div>
           <PanelOrderEditor order={recoveryTabOrder} hidden={hiddenRecoveryTabs} labels={RECOVERY_TAB_LABELS} onChange={saveRecoveryTabs} />
         </div>
-        </details>
+        </div>
 
-        <details className="settings-group">
-        <summary className="settings-group-h">Targets &amp; Nutrition</summary>
+        <div className="settings-group" id="sec-grp-targets">
+        <button type="button" className="settings-group-h" onClick={() => jumpToSection('sec-grp-targets')}>Targets &amp; Nutrition</button>
         {/* ── TARGETS ── */}
-        <div className="settings-sec">
+        <div className="settings-sec" id="sec-targets">
           <div className="settings-sh">Targets</div>
           {[
             ['Sleep Target', sleepTarget, v => setSleepTarget(v), .5, 5, 12, v => `${v}h`],
@@ -8475,7 +8894,7 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
         </div>
 
         {/* ── WARMUP RAMP ── */}
-        <div className="settings-sec">
+        <div className="settings-sec" id="sec-warmup-ramp">
           <div className="settings-sh">Warmup Ramp</div>
           <div style={{ fontSize: 11, color: 'var(--dim)', marginBottom: 10, lineHeight: 1.5 }}>
             Applied to every auto-generated session's warmup sets, as a percentage of that session's suggested working weight.
@@ -8507,7 +8926,7 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
         </div>
 
         {/* ── EQUIPMENT ── */}
-        <div className="settings-sec">
+        <div className="settings-sec" id="sec-equipment">
           <div className="settings-sh">Equipment Availability</div>
           <div style={{ fontSize: 11, color: 'var(--dim)', marginBottom: 10, lineHeight: 1.5 }}>
             Select which equipment you have access to. Used to filter session recommendations.
@@ -8537,7 +8956,7 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
         </div>
 
         {/* ── PLAN AHEAD CONSTRAINTS ── */}
-        <div className="settings-sec">
+        <div className="settings-sec" id="sec-plan-constraints">
           <div className="settings-sh">Plan Ahead — Constraints</div>
           <div style={{ fontSize: 11, color: 'var(--dim)', marginBottom: 10, lineHeight: 1.5 }}>
             The forward calendar (Home → Plan Ahead) solves fully optimal to your goal by default. These layer in constraints it has to work around — none of them force a fatigued muscle through; the calendar falls back and shows the conflict instead.
@@ -8612,7 +9031,7 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
         </div>
 
         {/* ── PLAN AHEAD HOLIDAYS/TRAVEL ── */}
-        <div className="settings-sec">
+        <div className="settings-sec" id="sec-plan-holidays">
           <div className="settings-sh">Plan Ahead — Holidays &amp; Travel</div>
           <div style={{ fontSize: 11, color: 'var(--dim)', marginBottom: 10, lineHeight: 1.5 }}>
             One-off date ranges the calendar should treat differently — a holiday, a trip with only a hotel gym, a week off entirely.
@@ -8702,7 +9121,7 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
         </div>
 
         {/* ── NUTRITION ── */}
-        <div className="settings-sec">
+        <div className="settings-sec" id="sec-nutrition">
           <div className="settings-sh">Nutrition</div>
           <div className="prof-field">
             <span className="prof-lbl">Exact Calories <span style={{ fontSize: 8, color: 'var(--dim)', textTransform: 'none' }}>(default: nearest 300)</span></span>
@@ -8716,12 +9135,12 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
             </button>
           </div>
         </div>
-        </details>
+        </div>
 
-        <details className="settings-group">
-        <summary className="settings-group-h">Connected Data</summary>
+        <div className="settings-group" id="sec-grp-connected">
+        <button type="button" className="settings-group-h" onClick={() => jumpToSection('sec-grp-connected')}>Connected Data</button>
         {/* ── CONNECTED SERVICES ── */}
-        <div className="settings-sec">
+        <div className="settings-sec" id="sec-connected-services">
           <div className="settings-sh">Connected Services</div>
 
           <div className="ob-service-row">
@@ -8814,7 +9233,7 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
         </div>
 
         {/* ── SUPPLEMENT STACK ── */}
-        <div className="settings-sec">
+        <div className="settings-sec" id="sec-supplement-stack">
           <div className="settings-sh">Supplement Stack</div>
           {supplements.length > 0 && (
             <div style={{ marginBottom: 14 }}>
@@ -8848,7 +9267,7 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
         </div>
 
         {/* ── MUSCLE SENSITIVITY ── */}
-        <div className="settings-sec">
+        <div className="settings-sec" id="sec-muscle-sensitivity">
           <div className="settings-sh">Muscle Sensitivity</div>
           <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)', lineHeight: 1.6, marginBottom: 12 }}>
             Fatigue tracking auto-tunes per muscle from soreness logs. Override a muscle directly here if it's drifted wrong — 1.0 is neutral, higher means it fatigues faster than average.
@@ -8876,12 +9295,12 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
             </button>
           </div>
         </div>
-        </details>
+        </div>
 
-        <details className="settings-group">
-        <summary className="settings-group-h">Tools</summary>
+        <div className="settings-group" id="sec-grp-tools">
+        <button type="button" className="settings-group-h" onClick={() => jumpToSection('sec-grp-tools')}>Tools</button>
         {/* ── APP ── */}
-        <div className="settings-sec">
+        <div className="settings-sec" id="sec-app">
           <div className="settings-sh">App</div>
           <div className="prof-field" style={{ marginBottom: 14 }}>
             <span className="prof-lbl">Morning Briefing</span>
@@ -8916,7 +9335,7 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
         </div>
 
         {/* ── DATA EXPORT ── */}
-        <div className="settings-sec">
+        <div className="settings-sec" id="sec-data-export">
           <div className="settings-sh">Data Export</div>
           <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)', lineHeight: 1.6, marginBottom: 12 }}>
             Download your data as CSV, readable in Excel, Numbers, Sheets, or any spreadsheet tool.
@@ -8939,7 +9358,7 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
         </div>
 
         {/* ── MERGE EXERCISES ── */}
-        <div className="settings-sec">
+        <div className="settings-sec" id="sec-merge-exercises">
           <div className="settings-sh">Merge Exercises</div>
           <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)', lineHeight: 1.6, marginBottom: 12 }}>
             For two entries that are really the same exercise but got logged under different names (a typo, or an import source that didn't match) — folds all history from the first into the second.
@@ -8971,19 +9390,19 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
         </div>
 
         {/* ── WIKI ── */}
-        <div className="settings-sec">
+        <div className="settings-sec" id="sec-learn">
           <div className="settings-sh">Learn</div>
           <button className="settings-open-btn" onClick={onOpenWiki}>
             <span>Exercise & Training Wiki</span><span>→</span>
           </button>
         </div>
 
-        </details>
+        </div>
 
-        <details className="settings-group">
-        <summary className="settings-group-h">Account</summary>
+        <div className="settings-group" id="sec-grp-account">
+        <button type="button" className="settings-group-h" onClick={() => jumpToSection('sec-grp-account')}>Account</button>
         {/* ── ACCOUNT ── */}
-        <div className="settings-sec">
+        <div className="settings-sec" id="sec-account-fields">
           <div className="settings-sh">Account</div>
           <button className="prof-btn" style={{ width: '100%', padding: '11px', textAlign: 'center', marginTop: 4 }} onClick={onRestartSetup}>Restart Setup</button>
           <button className="prof-btn" style={{ width: '100%', padding: '11px', textAlign: 'center', marginTop: 8 }} onClick={onReplayWalkthrough}>Replay Walkthrough</button>
@@ -8993,10 +9412,10 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
             <a href="/terms.html" target="_blank" rel="noopener" style={{ color: 'var(--dim)' }}>Terms of Service</a>
           </div>
         </div>
-        </details>
+        </div>
 
-        <details className="settings-group">
-        <summary className="settings-group-h">v{CHANGELOG[0].version} · What's New</summary>
+        <div className="settings-group" id="sec-grp-whatsnew">
+        <button type="button" className="settings-group-h" onClick={() => jumpToSection('sec-grp-whatsnew')}>v{CHANGELOG[0].version} · What's New</button>
         {/* ── WHAT'S NEW ── */}
         <div className="settings-sec">
           {CHANGELOG.map(entry => (
@@ -9010,8 +9429,9 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
             </div>
           ))}
         </div>
-        </details>
+        </div>
 
+        </div>
       </div>
       {viewingUsername && (
         <div className="onboard-overlay" style={{ zIndex: 10000 }} onClick={() => setViewingUsername(null)}>
@@ -10112,11 +10532,9 @@ function App() {
       // relied entirely on press_onboarded in this browser's localStorage,
       // so a real, fully-set-up account showed Onboarding again from
       // scratch on any new browser/device or cleared storage, with no way
-      // to tell "genuinely new" from "just a new browser" apart. A real
-      // account is anything with an explicit completion flag, a saved
-      // name, or any real lift history — never re-onboard those, no matter
-      // what this specific browser remembers.
-      if (!onboarded && (data?.profile?.onboardingComplete || data?.profile?.name || data?.lifts?.length > 0)) {
+      // to tell "genuinely new" from "just a new browser" apart. See
+      // onboardingGate.js's isAccountAlreadyOnboarded for the actual check.
+      if (!onboarded && isAccountAlreadyOnboarded(data?.profile, data?.lifts?.length)) {
         localStorage.setItem('press_onboarded', '1');
         setOnboarded(true);
       }
@@ -10616,6 +11034,7 @@ function App() {
     <ExpertiseContext.Provider value={expertise}>
       {(!onboarded || forceOnboarding) && (
         <Onboarding
+          s={s}
           onComplete={() => { handleOnboardDone(); setForceOnboarding(false); }}
           onOpenImport={() => { handleOnboardDone(); setForceOnboarding(false); setShowImport(true); }}
         />

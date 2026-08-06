@@ -502,17 +502,26 @@ section.visible .fade:nth-child(6){transition-delay:.56s}
 .settings-hdr{background:var(--ink);color:var(--paper);padding:14px 20px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0;position:sticky;top:0;z-index:1}
 .settings-hdr-title{font-family:'Playfair Display',serif;font-size:18px;font-weight:900;letter-spacing:-.01em}
 .settings-close{background:none;border:none;color:var(--paper);opacity:.7;cursor:pointer;font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.12em;text-transform:uppercase;padding:0}
-.settings-body{flex:1;overflow-y:auto;padding:0 20px 80px;-webkit-overflow-scrolling:touch}
-.settings-sec{padding:20px 0 4px;border-top:2px solid var(--ink);margin-top:8px}
+/* Wiki-style layout: a sticky, independently-scrolling left TOC (jump
+   links) beside the body, which stays one continuous scrollable document —
+   the TOC is a shortcut on top of manual scrolling, never a replacement
+   for it (nothing here hides/collapses body content). */
+.settings-layout{flex:1;display:flex;overflow:hidden;min-height:0}
+.settings-toc{width:210px;flex-shrink:0;overflow-y:auto;padding:14px;border-right:2px solid var(--ink);box-sizing:border-box;-webkit-overflow-scrolling:touch}
+.settings-toc-group{margin-bottom:10px}
+.settings-toc-group-h{display:flex;align-items:center;width:100%;min-height:44px;box-sizing:border-box;background:none;border:none;cursor:pointer;text-align:left;padding:4px 4px;font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink);font-weight:600}
+.settings-toc-group-h.active{color:var(--gold)}
+.settings-toc-sub{display:flex;align-items:center;width:100%;min-height:44px;box-sizing:border-box;background:none;border:none;border-left:2px solid transparent;cursor:pointer;text-align:left;padding:4px 4px 4px 12px;font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--dim)}
+.settings-toc-sub:hover{color:var(--ink)}
+.settings-toc-sub.active{color:var(--ink);border-left-color:var(--ink);font-weight:600}
+.settings-body{flex:1;overflow-y:auto;padding:0 20px 80px;-webkit-overflow-scrolling:touch;scroll-behavior:auto}
+.settings-sec{padding:20px 0 4px;border-top:2px solid var(--ink);margin-top:8px;scroll-margin-top:12px}
 .settings-sec:first-child{border-top:none;margin-top:0;padding-top:20px}
-.settings-group{border-top:3px solid var(--ink);margin-top:14px}
+.settings-group{border-top:3px solid var(--ink);margin-top:14px;scroll-margin-top:12px}
 .settings-group:first-of-type{border-top:none;margin-top:0}
 .settings-group .settings-sec:first-child{border-top:none;margin-top:0;padding-top:8px}
-.settings-group-h{cursor:pointer;min-height:44px;padding:16px 0 6px;font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.22em;text-transform:uppercase;color:var(--ink);font-weight:600;list-style:none;display:flex;justify-content:space-between;align-items:center;box-sizing:border-box}
+.settings-group-h{display:flex;width:100%;min-height:44px;box-sizing:border-box;background:none;border:none;cursor:pointer;text-align:left;padding:16px 0 6px;font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.22em;text-transform:uppercase;color:var(--ink);font-weight:600;justify-content:space-between;align-items:center}
 .settings-group:first-of-type .settings-group-h{padding-top:0}
-.settings-group-h::-webkit-details-marker{display:none}
-.settings-group-h::after{content:'+';font-size:14px;color:var(--dim)}
-.settings-group[open] .settings-group-h::after{content:'−'}
 .settings-sh{font-family:'JetBrains Mono',monospace;font-size:8px;letter-spacing:.22em;text-transform:uppercase;color:var(--dim);margin-bottom:14px}
 .settings-open-btn{width:100%;background:none;border:1px solid var(--ink);color:var(--ink);font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.14em;text-transform:uppercase;padding:11px 14px;cursor:pointer;display:flex;align-items:center;justify-content:space-between;margin-top:12px;box-sizing:border-box}
 .echelon-card{width:100%;padding:12px 14px;border:1px solid var(--rule);cursor:pointer;text-align:left;background:none;margin-bottom:8px;display:flex;align-items:flex-start;gap:12px;box-sizing:border-box}
@@ -524,6 +533,11 @@ section.visible .fade:nth-child(6){transition-delay:.56s}
 .dock{display:none}
 @media(max-width:480px){
 :root{--hdr:138px}
+.settings-layout{flex-direction:column}
+.settings-toc{width:100%;flex-shrink:0;display:flex;flex-direction:row;overflow-x:auto;overflow-y:hidden;border-right:none;border-bottom:2px solid var(--ink);white-space:nowrap;padding:0 8px}
+.settings-toc-group{margin-bottom:0;flex-shrink:0}
+.settings-toc-group-h{width:auto;padding:4px 10px}
+.settings-toc-sub{display:none}
 .masthead{grid-template-columns:1fr;row-gap:6px;text-align:center;padding:10px 14px 8px}
 .mast-left{order:2}
 .mast-title{order:1}
