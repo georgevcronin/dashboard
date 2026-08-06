@@ -73,6 +73,14 @@ const DEFAULTS = () => ({
     // an irregular one.
     cycleTrackingEnabled: false,
     cycleIrregular: false,
+    // The learned running estimate of training-impact severity (see
+    // "Learning the heaviness rating" in cycleTracking.js) — starts null
+    // (falls back to the plain self-report average), seeded by the first
+    // manual pick, then gently nudged toward each closed period's
+    // objectively observed training-volume drop. Distinct from any single
+    // cycle's own `heaviness` field on a db.cycle entry, which stays the
+    // raw, unmodified self-report.
+    cycleHeavinessLearned: null,
   },
 });
 

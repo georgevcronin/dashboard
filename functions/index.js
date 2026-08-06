@@ -72,13 +72,13 @@ const {
   computeMuscleLastTrainedDays, computeCompoundIsolationSplit, computeStabilitySplit,
 } = require('./fatigue');
 const { personalizedRecoveryHours, trainingMonthsIfKnown, computeAgeYears } = require('./recoveryPersonalization');
-const { cyclePhaseFactor } = require('./cycleTracking');
+const { cyclePhaseFactor, observedHeaviness, nudgeLearnedHeaviness } = require('./cycleTracking');
 // Only computed when tracking is on and there's at least one logged entry
 // — otherwise cycleFactor stays exactly 1 (a no-op), same "opt-in changes
 // nothing until there's real data" posture as musclePriorities/goals.
 function activeCycleFactor(db) {
   if (!db.profile?.cycleTrackingEnabled || !(db.cycle || []).length) return 1;
-  return cyclePhaseFactor(db.cycle, Date.now(), db.profile?.cycleIrregular).factor;
+  return cyclePhaseFactor(db.cycle, Date.now(), db.profile?.cycleIrregular, db.profile?.cycleHeavinessLearned).factor;
 }
 const { alcoholStats, computeDataMaturity, compVerdict, toCsv, weekLiftSessionsCompleted } = require('./analytics');
 const { projectGoal, formatGoalLine, bucketWorkingAttention, ffm, ffmi } = require('./weeklyReview');
@@ -932,7 +932,7 @@ app.get("/summary", async (req, res) => {
       clearance: Math.round(100 - injuryFatiguePenalty(i)),
     })),
     cycle: db.cycle || [],
-    cycleStats: db.profile?.cycleTrackingEnabled ? cyclePhaseFactor(db.cycle || [], Date.now(), db.profile?.cycleIrregular) : null,
+    cycleStats: db.profile?.cycleTrackingEnabled ? cyclePhaseFactor(db.cycle || [], Date.now(), db.profile?.cycleIrregular, db.profile?.cycleHeavinessLearned) : null,
     weights, workouts: [...db.workouts].sort((a,b)=>(b.date||'').localeCompare(a.date||'')).slice(0,20), workoutsMonth: monthWk.length,
     water: lastN(db.water, 14), waterToday: db.water[day()] || 0,
     weeklyPlan: db.weeklyPlan ? { ...db.weeklyPlan, sessionsCompletedThisWeek: weekLiftSessionsCompleted(db.lifts) } : null,
@@ -2346,7 +2346,7 @@ app.post('/injuries/:id/resolve', async (req, res) => {
 // ---------- Menstrual cycle tracking (lightweight, manual — see cycleTracking.js) ----------
 app.get('/cycle', async (req, res) => {
   const log = db.cycle || [];
-  res.json({ cycle: log, stats: cyclePhaseFactor(log, Date.now(), db.profile?.cycleIrregular) });
+  res.json({ cycle: log, stats: cyclePhaseFactor(log, Date.now(), db.profile?.cycleIrregular, db.profile?.cycleHeavinessLearned) });
 });
 
 app.post('/cycle/start', async (req, res) => {
@@ -2373,6 +2373,15 @@ app.post('/cycle/:id/end', async (req, res) => {
   entry.endTs = Date.now();
   if (heaviness != null) entry.heaviness = heaviness;
   if (note != null) entry.note = String(note).slice(0, 500);
+  // The pick above is only this cycle's starting estimate — nudge the
+  // persistent learned value toward what actually happened, same gentle
+  // shape as muscleSensitivity's soreness calibration. Seeded from the
+  // fresh pick (or the neutral midpoint) the first time there's nothing
+  // learned yet; a no-op if there isn't enough logged training in either
+  // window to judge.
+  const observed = observedHeaviness(db.lifts, entry, db.cycle);
+  const seed = db.profile.cycleHeavinessLearned ?? entry.heaviness ?? 3;
+  db.profile.cycleHeavinessLearned = nudgeLearnedHeaviness(seed, observed);
   await save();
   res.json({ ok: true });
 });
@@ -3191,7 +3200,7 @@ async function generateMorningBriefing(db) {
   const briefingCNS = computeCNSFatigue(db.lifts || [], db.cnsSensitivity || 1.0, getRecoveryScore(db));
   const macroTargets = db.profile?.macroTargets || { protein: 160, calories: 2400 };
   const nutritionNotLogged = !totalCalories && !totalProtein;
-  const cycleInfo = db.profile?.cycleTrackingEnabled && (db.cycle || []).length ? cyclePhaseFactor(db.cycle, Date.now(), db.profile?.cycleIrregular) : null;
+  const cycleInfo = db.profile?.cycleTrackingEnabled && (db.cycle || []).length ? cyclePhaseFactor(db.cycle, Date.now(), db.profile?.cycleIrregular, db.profile?.cycleHeavinessLearned) : null;
 
   const prompt = `You are generating a morning health briefing for a personal health app called Press. The briefing has three voices:
 
@@ -3255,7 +3264,7 @@ async function generateNewscast(db, period) {
   const fatigue = computeCurrentFatigueScores(db.lifts || [], musclePeaksFromLifts(db.lifts || []), db.soreness || [], db.muscleSensitivity || {}, personalizedRecoveryHours(db.profile, activeCycleFactor(db)));
   const topFatigued = Object.entries(fatigue).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([m, v]) => `${m} ${Math.round(v)}%`).join(', ') || 'none';
   const cns = computeCNSFatigue(db.lifts || [], db.cnsSensitivity || 1.0, getRecoveryScore(db));
-  const cycleInfo = db.profile?.cycleTrackingEnabled && (db.cycle || []).length ? cyclePhaseFactor(db.cycle, Date.now(), db.profile?.cycleIrregular) : null;
+  const cycleInfo = db.profile?.cycleTrackingEnabled && (db.cycle || []).length ? cyclePhaseFactor(db.cycle, Date.now(), db.profile?.cycleIrregular, db.profile?.cycleHeavinessLearned) : null;
 
   const prompt = `You are generating a ${timeLabel} for a personal health app called Press. Same editorial voices as the morning edition — V (health editor, cool newspaper prose, no hand-holding) and Atlas (training analyst, methodical, science-grounded).
 
@@ -3405,7 +3414,7 @@ async function generateWeeklyReview(db) {
   // Not woven into the LLM prompt below — this generator's prompt doesn't
   // narrate fatigue numbers as text at all (unlike the morning briefing/
   // newscast), it's display-only data for the frontend, same as fatigueTrend.
-  const cycleInfo = db.profile?.cycleTrackingEnabled && (db.cycle || []).length ? cyclePhaseFactor(db.cycle, Date.now(), db.profile?.cycleIrregular) : null;
+  const cycleInfo = db.profile?.cycleTrackingEnabled && (db.cycle || []).length ? cyclePhaseFactor(db.cycle, Date.now(), db.profile?.cycleIrregular, db.profile?.cycleHeavinessLearned) : null;
 
   const prompt = `You are generating a Weekly Review for a personal health app called Press — a week-over-week digest, not a single-day report. Same editorial voices as the daily editions — V (health editor, cool newspaper prose, no hand-holding) and Atlas (training analyst, methodical, science-grounded).
 

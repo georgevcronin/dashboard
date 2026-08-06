@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const {
   averageCycleLengthDays, averagePeriodLengthDays, currentCycleDay,
   heavinessStats, confidence, cyclePhaseFactor,
+  avgVolumePerDay, observedHeaviness, nudgeLearnedHeaviness,
 } = require('../functions/cycleTracking');
 
 const DAY_MS = 86_400_000;
@@ -147,4 +148,101 @@ test('cyclePhaseFactor stays within [0.7, 1.3] for factor and [-1, 1] for rirOff
     assert.ok(out.factor >= 0.7 && out.factor <= 1.3, `factor out of range at day ${d}: ${out.factor}`);
     assert.ok(out.rirOffset >= -1 && out.rirOffset <= 1, `rirOffset out of range at day ${d}: ${out.rirOffset}`);
   }
+});
+
+test('cyclePhaseFactor uses learnedHeaviness over the plain self-report average when provided', () => {
+  // Weak self-report (heaviness 1 everywhere) would normally produce a
+  // no-op factor — a learned value overriding it should still swing.
+  const log = [
+    { startTs: daysAgo(58), endTs: daysAgo(55), heaviness: 1 },
+    { startTs: daysAgo(30), endTs: daysAgo(27), heaviness: 1 },
+    { startTs: daysAgo(2), endTs: null, heaviness: null },
+  ];
+  const withoutLearned = cyclePhaseFactor(log, Date.now());
+  assert.equal(withoutLearned.factor, 1);
+  const withLearned = cyclePhaseFactor(log, Date.now(), false, 5);
+  assert.equal(withLearned.avgHeaviness, 5);
+  assert.ok(withLearned.factor > 1, `expected the learned value to drive a real swing, got ${withLearned.factor}`);
+});
+
+// Fixed UTC-midnight anchor (not tied to Date.now()) so every offset below
+// is an exact multiple of DAY_MS and every `.date` string round-trips back
+// to the identical timestamp through avgVolumePerDay's `new Date(l.date)`
+// parse — daysAgo()-relative timestamps carry today's arbitrary time-of-day
+// and would drift by up to a day through that same round-trip.
+const T0 = Date.UTC(2026, 0, 15);
+const dateStr = ts => new Date(ts).toISOString().slice(0, 10);
+
+test('avgVolumePerDay averages kg*reps per distinct training day within a window, null with none', () => {
+  const lifts = [
+    { date: dateStr(T0), kg: 100, reps: 10 },
+    { date: dateStr(T0), kg: 50, reps: 10 },
+    { date: dateStr(T0 + 2 * DAY_MS), kg: 200, reps: 5 },
+  ];
+  const avg = avgVolumePerDay(lifts, T0 - DAY_MS, T0 + 3 * DAY_MS);
+  assert.equal(avg, 1250); // (1000+500 + 1000) / 2 days
+
+  assert.equal(avgVolumePerDay([], T0, T0 + DAY_MS), null);
+  assert.equal(avgVolumePerDay(lifts, T0 + 100 * DAY_MS, T0 + 101 * DAY_MS), null, 'no lifts in the window at all');
+});
+
+test('avgVolumePerDay excludes days that fall inside excludeWindows', () => {
+  const dayA = dateStr(T0), dayB = dateStr(T0 + 2 * DAY_MS);
+  const lifts = [{ date: dayA, kg: 100, reps: 10 }, { date: dayB, kg: 10, reps: 1 }];
+  const withoutExclusion = avgVolumePerDay(lifts, T0 - DAY_MS, T0 + 3 * DAY_MS);
+  assert.equal(withoutExclusion, 505); // (1000 + 10) / 2
+
+  const withExclusion = avgVolumePerDay(lifts, T0 - DAY_MS, T0 + 3 * DAY_MS, [[T0 + 1.5 * DAY_MS, T0 + 2.5 * DAY_MS]]);
+  assert.equal(withExclusion, 1000, 'the excluded day should be dropped entirely, not averaged in');
+});
+
+test('observedHeaviness returns null without an entry, without a closed window, or without enough logged training to compare', () => {
+  assert.equal(observedHeaviness([], null, []), null);
+  assert.equal(observedHeaviness([], { startTs: T0, endTs: null }, []), null, 'still-open entry');
+  assert.equal(observedHeaviness([], { startTs: T0, endTs: T0 + 3 * DAY_MS }, []), null, 'no training logged anywhere');
+});
+
+test('observedHeaviness reads a real volume drop as high severity, matched to VOLUME_DROP_FOR_MAX_SEVERITY', () => {
+  const periodStart = T0, periodEnd = T0 + 3 * DAY_MS;
+  const entry = { id: 99, startTs: periodStart, endTs: periodEnd };
+  const lifts = [];
+  // Baseline: 1000 volume/day on 3 days well before the period.
+  for (let i = 20; i <= 22; i++) lifts.push({ date: dateStr(periodStart - i * DAY_MS), kg: 100, reps: 10 });
+  // Period: 500 volume/day (a 50% drop) on 2 days inside the window.
+  for (let i = 1; i <= 2; i++) lifts.push({ date: dateStr(periodStart + i * DAY_MS), kg: 100, reps: 5 });
+  const out = observedHeaviness(lifts, entry, [entry]);
+  assert.equal(out, 5, 'a 50% volume drop should read as maximum severity');
+});
+
+test('observedHeaviness excludes another logged period\'s own days from the baseline', () => {
+  const periodStart = T0, periodEnd = T0 + 3 * DAY_MS;
+  const entry = { id: 2, startTs: periodStart, endTs: periodEnd };
+  const priorPeriod = { id: 1, startTs: periodStart - 20 * DAY_MS, endTs: periodStart - 18 * DAY_MS };
+  const lifts = [
+    // A low-volume day inside the prior period — should NOT drag the baseline down.
+    { date: dateStr(priorPeriod.startTs + DAY_MS), kg: 10, reps: 1 },
+    // Real (unaffected) baseline days at full volume.
+    { date: dateStr(periodStart - 5 * DAY_MS), kg: 100, reps: 10 },
+    { date: dateStr(periodStart - 4 * DAY_MS), kg: 100, reps: 10 },
+    // Period days, same full volume — no real drop.
+    { date: dateStr(periodStart + DAY_MS), kg: 100, reps: 10 },
+  ];
+  const out = observedHeaviness(lifts, entry, [entry, priorPeriod]);
+  assert.equal(out, 1, 'no actual drop vs. the correctly-excluded baseline should read as minimal severity');
+});
+
+test('nudgeLearnedHeaviness is a no-op with no observation or no current seed', () => {
+  assert.equal(nudgeLearnedHeaviness(3, null), 3);
+  assert.equal(nudgeLearnedHeaviness(null, 5), null);
+});
+
+test('nudgeLearnedHeaviness moves gently (25%-in-ratio-terms) toward the observed value, not straight to it', () => {
+  const updated = nudgeLearnedHeaviness(3, 5);
+  assert.ok(updated > 3 && updated < 5, `expected a partial move, got ${updated}`);
+  assert.equal(updated, 3.41);
+});
+
+test('nudgeLearnedHeaviness stays within [1, 5]', () => {
+  assert.ok(nudgeLearnedHeaviness(1, 5) <= 5);
+  assert.ok(nudgeLearnedHeaviness(5, 1) >= 1);
 });

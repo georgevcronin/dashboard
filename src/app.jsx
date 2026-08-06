@@ -1013,7 +1013,7 @@ const CHANGELOG = [
     version: '0.83',
     date: '2026-08-06',
     features: [
-      'Cycle-Aware Recovery (opt-in, Settings → Profile & Training): manually log when a period starts and ends, rate how much it affects training capacity, and Press quietly extends recovery time during menstruation and shortens it again around the midpoint — plus a small RIR nudge on freestyle-logged sets. A new Cycle panel holds the log and history; nothing changes until you turn it on and log at least one period.',
+      'Cycle-Aware Recovery (opt-in, Settings → Profile & Training): manually log when a period starts and ends, pick a starting estimate for how much it affects training capacity, and Press quietly extends recovery time during menstruation and shortens it again around the midpoint — plus a small RIR nudge on freestyle-logged sets. That estimate isn\'t static: it refines itself over time from how training actually went during each logged period, gently, one cycle at a time. A new Cycle panel holds the log and history; nothing changes until you turn it on and log at least one period.',
     ],
   },
   {
@@ -7728,6 +7728,9 @@ function S10({ s, refresh }) {
               <div className="kicker" style={{ margin: 0 }}>End Period</div>
               <div>
                 <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, letterSpacing: '.14em', textTransform: 'uppercase', color: 'var(--dim)', marginBottom: 6 }}>Training impact this cycle</div>
+                <div style={{ fontFamily: 'Times New Roman,serif', fontSize: 11, fontStyle: 'italic', color: 'var(--dim)', marginBottom: 8 }}>
+                  A starting estimate — refined automatically afterward from how training actually went.
+                </div>
                 <div className="cycle-heaviness">
                   {HEAVINESS_LABELS.map((label, i) => (
                     <button key={label} className={`cycle-heaviness-btn${heaviness === i + 1 ? ' active' : ''}`} onClick={() => setHeaviness(i + 1)}>

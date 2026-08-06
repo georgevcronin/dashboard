@@ -130,10 +130,17 @@ function confidence(cycleLog) {
 // longer; <1 = clears fatigue faster = more training headroom). rirOffset
 // translates the same signal into a rep-in-reserve nudge (see header
 // comment for the +-1 bound's grounding).
-function cyclePhaseFactor(cycleLog, now = Date.now(), irregular = false) {
+//
+// learnedHeaviness (see the learning section below), when present,
+// overrides the plain average-of-self-reports as the amplitude driver —
+// `variation`/`confidence` still describe self-report consistency either
+// way, since that's a distinct question ("how much does this affect you"
+// vs "how consistently do you report the same answer").
+function cyclePhaseFactor(cycleLog, now = Date.now(), irregular = false, learnedHeaviness = null) {
   const log = cycleLog || [];
   const { cycleDay, avgLen, onPeriod } = currentCycleDay(log, now, irregular);
-  const { avgHeaviness, variation } = heavinessStats(log);
+  const { avgHeaviness: selfReportedAvg, variation } = heavinessStats(log);
+  const avgHeaviness = learnedHeaviness != null ? learnedHeaviness : selfReportedAvg;
   const conf = confidence(log);
 
   if (cycleDay == null) {
@@ -152,8 +159,83 @@ function cyclePhaseFactor(cycleLog, now = Date.now(), irregular = false) {
   return { factor, rirOffset, cycleDay, onPeriod, confidence: conf, avgHeaviness, variation };
 }
 
+// --- Learning the heaviness rating from actual training performance ---
+//
+// The picker (1-5) is only ever a starting point, per cycle — a self-
+// report of expected impact. What actually drives the calibration over
+// time is `profile.cycleHeavinessLearned`, a single persistent value
+// nudged a little closer to objectively observed performance each time a
+// period ends, the same shape as muscleSensitivity's soreness-based
+// auto-calibration (functions/index.js POST /soreness): a "felt" self-
+// report anchors a fresh estimate, then real outcomes gently correct it,
+// never fully overwrite it, one observation at a time.
+
+const HEAVINESS_MIN = 1, HEAVINESS_MAX = 5;
+// A 50% volume-load drop during the period vs. this athlete's own
+// baseline reads as maximum severity (5); no drop at all reads as no
+// effect (1) — a defensible, round anchor rather than a fitted constant,
+// consistent with this module's stated preference for simple arithmetic
+// over anything resembling a trained model.
+const VOLUME_DROP_FOR_MAX_SEVERITY = 0.5;
+const BASELINE_WINDOW_DAYS = 60;
+
+// Average total volume-load (kg*reps, the same unit computeMetabolicFatigue/
+// computeStructuralFatigue use) per distinct training day inside
+// [fromTs, toTs) — null when there were no training days in the window at
+// all, so callers can tell "no effect observed" apart from "nothing to
+// compare against." excludeWindows lets other periods' own days be kept
+// out of what's supposed to be an *unaffected* baseline. liftTime mirrors
+// fatigue.js's own `l.start || l.date` convention rather than importing
+// that whole module for one line.
+function avgVolumePerDay(lifts, fromTs, toTs, excludeWindows = []) {
+  const byDay = {};
+  for (const l of (lifts || [])) {
+    const ts = new Date(l.start || l.date).getTime();
+    if (!ts || ts < fromTs || ts >= toTs) continue;
+    if (excludeWindows.some(([s, e]) => ts >= s && ts < e)) continue;
+    const day = l.date || new Date(ts).toISOString().slice(0, 10);
+    byDay[day] = (byDay[day] || 0) + (+l.kg || 0) * (+l.reps || 0);
+  }
+  const days = Object.values(byDay);
+  return days.length ? days.reduce((s, v) => s + v, 0) / days.length : null;
+}
+
+// Objective, 1-5-scaled "how much did training actually drop" for one
+// closed cycle entry — average volume-load per training day during the
+// period vs. the BASELINE_WINDOW_DAYS immediately before it started
+// (excluding any other logged period's own days, so the baseline reflects
+// unaffected training). Returns null when there isn't enough logged
+// training in either window to compare, rather than guessing from silence.
+function observedHeaviness(lifts, entry, cycleLog, baselineWindowDays = BASELINE_WINDOW_DAYS) {
+  if (entry?.startTs == null || entry?.endTs == null) return null;
+  const periodVol = avgVolumePerDay(lifts, entry.startTs, entry.endTs);
+  if (periodVol == null) return null;
+  const priorWindows = (cycleLog || [])
+    .filter(c => c.id !== entry.id && c.endTs != null)
+    .map(c => [c.startTs, c.endTs]);
+  const baselineVol = avgVolumePerDay(lifts, entry.startTs - baselineWindowDays * DAY_MS, entry.startTs, priorWindows);
+  if (!baselineVol) return null;
+  const drop = Math.max(0, 1 - periodVol / baselineVol);
+  return Math.max(HEAVINESS_MIN, Math.min(HEAVINESS_MAX, 1 + (drop / VOLUME_DROP_FOR_MAX_SEVERITY) * 4));
+}
+
+// Same gentle-nudge shape as muscleSensitivity: move 1/4 of the way (in
+// ratio terms) toward what was actually observed, never jump straight to
+// it — one closed period is one data point, not proof the prior estimate
+// was wrong. `current` is the running learned value (or, on the very
+// first cycle, the fresh self-reported pick, since there's nothing else
+// to anchor to yet); `observed` is this cycle's observedHeaviness. A null
+// observation (not enough training data to compare) is a no-op.
+function nudgeLearnedHeaviness(current, observed) {
+  if (observed == null || !current) return current;
+  const ratio = observed / current;
+  const updated = current * Math.pow(ratio, 0.25);
+  return Math.round(Math.max(HEAVINESS_MIN, Math.min(HEAVINESS_MAX, updated)) * 100) / 100;
+}
+
 module.exports = {
   DEFAULT_CYCLE_LEN_DAYS, DEFAULT_PERIOD_LEN_DAYS,
   averageCycleLengthDays, averagePeriodLengthDays, currentCycleDay,
   heavinessStats, confidence, cyclePhaseFactor,
+  avgVolumePerDay, observedHeaviness, nudgeLearnedHeaviness,
 };
