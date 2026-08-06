@@ -519,6 +519,8 @@ section.visible .fade:nth-child(6){transition-delay:.56s}
 .echelon-card.selected{border-color:var(--ink);background:rgba(0,0,0,.04)}
 .echelon-card-dot{width:8px;height:8px;border-radius:50%;border:2px solid var(--rule);flex-shrink:0;margin-top:5px;transition:all .15s}
 .echelon-card.selected .echelon-card-dot{border-color:var(--ink);background:var(--ink)}
+.echelon-card-dot.checkbox{border-radius:3px}
+.echelon-card-dot.checkbox.checked{border-color:var(--ink);background:var(--ink)}
 .echelon-card-title{font-family:'Playfair Display',serif;font-size:14px;font-weight:700;color:var(--ink);margin-bottom:3px}
 .echelon-card-desc{font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--dim);line-height:1.6}
 .dock{display:none}

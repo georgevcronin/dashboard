@@ -161,11 +161,36 @@ const { buildObservations, solveMuscleCapacities, predictExerciseE1RM, suggested
 
 
 
+// #15: superseded as the editable selection by TRACKING_CATEGORIES below —
+// kept only for LEGACY_TRACKING_LEVEL_MAP's migration and reading an old
+// profile.trackingLevel string's title where one's still needed (e.g. a
+// stored value from before the checkbox UI existed).
 const ECHELONS = [
   { key: 'workout', title: 'Training', desc: 'Workout logging, fatigue model, personal records, and AI-planned sessions.' },
   { key: 'workout_sleep', title: 'Training + Recovery', desc: 'Adds sleep tracking, HRV analysis, and recovery-aware planning via Apple Health.' },
   { key: 'full', title: 'Full System', desc: 'Everything — nutrition logging, macro tracking, meal photo scanning, and daily fuel briefings.' },
 ];
+// #14/#15: replaces ECHELONS' 3-preset radio with independent checkboxes —
+// Training itself is always on (there's no scenario with literally nothing
+// tracked), Sleep and Nutrition are each their own toggle, any combination
+// including ones the old 3 presets couldn't express (e.g. Training +
+// Nutrition, no Sleep).
+const TRACKING_CATEGORIES = [
+  { key: 'sleep', title: 'Recovery', desc: 'Sleep tracking, HRV analysis, and recovery-aware planning via Apple Health.' },
+  { key: 'nutrition', title: 'Nutrition', desc: 'Nutrition logging, macro tracking, meal photo scanning, and daily fuel briefings.' },
+];
+// Migrates an old profile.trackingLevel string to the new independent-
+// category shape at read time only — never touches stored data directly,
+// same pattern as withNewDefaultsAppended for panelOrder. A profile that's
+// already saved through the new checkbox UI (profile.trackingCategories
+// present) always wins; this only runs for an account that hasn't.
+const LEGACY_TRACKING_LEVEL_MAP = {
+  workout: { sleep: false, nutrition: false },
+  workout_sleep: { sleep: true, nutrition: false },
+  full: { sleep: true, nutrition: true },
+};
+const trackingCategoriesFor = profile =>
+  profile?.trackingCategories || LEGACY_TRACKING_LEVEL_MAP[profile?.trackingLevel] || LEGACY_TRACKING_LEVEL_MAP.full;
 
 // ── HELPERS ─────────────────────────────────────────────────────────────────
 // Dates are stored as "YYYY-MM-DD" strings. `new Date("YYYY-MM-DD")` parses
@@ -1003,6 +1028,13 @@ const glycogenPct = (elapsedS, totalS) => {
 // instead of the list. v0.1 is the first tracked release, not literally the
 // app's first version — everything before this had no changelog at all.
 const CHANGELOG = [
+  {
+    version: '0.81',
+    date: '2026-08-06',
+    features: [
+      'Tracking Level (onboarding step 5 and Settings) is now two independent checkboxes — Recovery and Nutrition — instead of a fixed three-preset choice. Training is always on. You can now pick combinations the old presets couldn\'t express, like Training + Nutrition without Recovery.',
+    ],
+  },
   {
     version: '0.80',
     date: '2026-08-06',
@@ -6400,7 +6432,7 @@ function suggestTargets(goals) {
 function Onboarding({ onComplete, onOpenImport }) {
   const TOTAL = 10;
   const [step, setStep] = useState(0);
-  const [echelon, setEchelon] = useState('full');
+  const [trackingCategories, setTrackingCategories] = useState({ sleep: true, nutrition: true });
   const [agreedToTerms, setAgreedToTerms] = useState(false);
 
   // Step 6 (training background)
@@ -6577,7 +6609,7 @@ function Onboarding({ onComplete, onOpenImport }) {
       }
       if (step === 3) await saveStep2();
       if (step === 4) await saveActivities();
-      if (step === 5) await api('profile', { method: 'POST', body: JSON.stringify({ trackingLevel: echelon }), throwOnError: true });
+      if (step === 5) await api('profile', { method: 'POST', body: JSON.stringify({ trackingCategories }), throwOnError: true });
       if (step === 6) await saveStep4();
       if (step === 7) await saveStep5();
       setStep(s => s + 1);
@@ -6845,14 +6877,21 @@ function Onboarding({ onComplete, onOpenImport }) {
         {step === 5 && (
           <>
             <div className="ob-h">How deep do you want to go?</div>
-            <div className="ob-deck">Pick your tracking level. You can always change this in Settings.</div>
-            {ECHELONS.map(e => (
-              <button key={e.key} className={`echelon-card${echelon === e.key ? ' selected' : ''}`}
-                onClick={() => setEchelon(e.key)}>
-                <div className="echelon-card-dot" />
+            <div className="ob-deck">Training is always tracked. Add Recovery and Nutrition independently — any combination, and you can always change this in Settings.</div>
+            <div className="echelon-card" style={{ opacity: 0.6, cursor: 'default' }}>
+              <div className="echelon-card-dot checkbox checked" />
+              <div style={{ flex: 1 }}>
+                <div className="echelon-card-title">Training — always on</div>
+                <div className="echelon-card-desc">Workout logging, fatigue model, personal records, and AI-planned sessions.</div>
+              </div>
+            </div>
+            {TRACKING_CATEGORIES.map(c => (
+              <button key={c.key} className={`echelon-card${trackingCategories[c.key] ? ' selected' : ''}`}
+                onClick={() => setTrackingCategories(prev => ({ ...prev, [c.key]: !prev[c.key] }))}>
+                <div className={`echelon-card-dot checkbox${trackingCategories[c.key] ? ' checked' : ''}`} />
                 <div style={{ flex: 1 }}>
-                  <div className="echelon-card-title">{e.title}</div>
-                  <div className="echelon-card-desc">{e.desc}</div>
+                  <div className="echelon-card-title">{c.title}</div>
+                  <div className="echelon-card-desc">{c.desc}</div>
                 </div>
               </button>
             ))}
@@ -7111,7 +7150,7 @@ function Onboarding({ onComplete, onOpenImport }) {
                 [!!trainingGoals.length, trainingGoals.length ? `${trainingGoals.length} training goal${trainingGoals.length === 1 ? '' : 's'}` : 'No training goals set'],
                 [!!activities.length, activities.length ? `${activities.length} activit${activities.length === 1 ? 'y' : 'ies'}` : 'No activities set'],
                 [true, `${sleepTarget}h sleep · ${waterTarget} glasses water · ${trainingDays} training days`],
-                [true, ECHELONS.find(e => e.key === echelon)?.title || 'Full System'],
+                [true, `Training${trackingCategories.sleep ? ' + Recovery' : ''}${trackingCategories.nutrition ? ' + Nutrition' : ''}`],
                 [!!(split || favorites.length), split ? `${split}${favorites.length ? ` · ${favorites.length} favorite${favorites.length === 1 ? '' : 's'}` : ''}` : 'Training background skipped'],
                 [stravaStarted, 'Strava'],
                 [healthGuideOpen, 'Apple Health setup viewed'],
@@ -7603,7 +7642,7 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
   const [sleepTarget, setSleepTarget] = useState(s?.profile?.sleepTarget || 8);
   const [waterTarget, setWaterTarget] = useState(s?.profile?.waterTarget || 7);
   const [trainingDays, setTrainingDays] = useState(s?.profile?.trainingDaysPerWeek || 4);
-  const [trackingLevel, setTrackingLevel] = useState(s?.profile?.trackingLevel || 'full');
+  const [trackingCategories, setTrackingCategories] = useState(trackingCategoriesFor(s?.profile));
   const [warmupScheme, setWarmupScheme] = useState(s?.profile?.warmupScheme?.length ? s.profile.warmupScheme : DEFAULT_WARMUP_SCHEME);
   const [warmupSaving, setWarmupSaving] = useState(false);
   // Everything below mirrors a field originally only ever set once at
@@ -7744,9 +7783,10 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
   const supplements = s?.supplements || [];
   const inputStyle = { width: '100%', border: 'none', borderBottom: '2px solid var(--ink)', padding: '8px 0', background: 'transparent', fontFamily: 'Times New Roman,serif', fontSize: 16, outline: 'none', color: 'var(--ink)', boxSizing: 'border-box' };
 
-  const saveLevel = async (level) => {
-    setTrackingLevel(level);
-    const profile = await api('profile', { method: 'POST', body: JSON.stringify({ trackingLevel: level }) });
+  const toggleTrackingCategory = async (key) => {
+    const next = { ...trackingCategories, [key]: !trackingCategories[key] };
+    setTrackingCategories(next);
+    const profile = await api('profile', { method: 'POST', body: JSON.stringify({ trackingCategories: next }) });
     refresh({ ...s, profile });
   };
 
@@ -8324,13 +8364,20 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
         {/* ── TRACKING LEVEL ── */}
         <div className="settings-sec">
           <div className="settings-sh">Tracking Level</div>
-          {ECHELONS.map(e => (
-            <button key={e.key} className={`echelon-card${trackingLevel === e.key ? ' selected' : ''}`}
-              onClick={() => saveLevel(e.key)}>
-              <div className="echelon-card-dot" />
+          <div className="echelon-card" style={{ opacity: 0.6, cursor: 'default' }}>
+            <div className="echelon-card-dot checkbox checked" />
+            <div style={{ flex: 1 }}>
+              <div className="echelon-card-title">Training — always on</div>
+              <div className="echelon-card-desc">Workout logging, fatigue model, personal records, and AI-planned sessions.</div>
+            </div>
+          </div>
+          {TRACKING_CATEGORIES.map(c => (
+            <button key={c.key} className={`echelon-card${trackingCategories[c.key] ? ' selected' : ''}`}
+              onClick={() => toggleTrackingCategory(c.key)}>
+              <div className={`echelon-card-dot checkbox${trackingCategories[c.key] ? ' checked' : ''}`} />
               <div style={{ flex: 1 }}>
-                <div className="echelon-card-title">{e.title}</div>
-                <div className="echelon-card-desc">{e.desc}</div>
+                <div className="echelon-card-title">{c.title}</div>
+                <div className="echelon-card-desc">{c.desc}</div>
               </div>
             </button>
           ))}
@@ -10407,7 +10454,7 @@ function App() {
     // Keyed off what the rendered section list is derived from further down
     // (panelOrder/hiddenPanels/trackingLevel) rather than sectionIds itself,
     // which is declared below the early returns and would be in its TDZ here.
-  }, [user, !!s, isMobile, s?.profile?.panelOrder?.join(','), s?.profile?.hiddenPanels?.join(','), s?.profile?.trackingLevel]);
+  }, [user, !!s, isMobile, s?.profile?.panelOrder?.join(','), s?.profile?.hiddenPanels?.join(','), s?.profile?.trackingLevel, JSON.stringify(s?.profile?.trackingCategories)]);
 
   // Mobile swipe carousel: #press-scroll's own height is pinned to the
   // active panel's height, not the tallest of every section, since all
@@ -10433,7 +10480,7 @@ function App() {
     const obs = new ResizeObserver(sync);
     obs.observe(active);
     return () => obs.disconnect();
-  }, [isMobile, activeSection, s?.profile?.panelOrder?.join(','), s?.profile?.hiddenPanels?.join(','), s?.profile?.trackingLevel]);
+  }, [isMobile, activeSection, s?.profile?.panelOrder?.join(','), s?.profile?.hiddenPanels?.join(','), s?.profile?.trackingLevel, JSON.stringify(s?.profile?.trackingCategories)]);
 
   // Walkthrough queue: at most one WalkthroughOverlay shows at a time. If a
   // second section is encountered (e.g. two panels above the fold on a
@@ -10536,9 +10583,7 @@ function App() {
     return <UsernameSetup user={user} onComplete={refresh} />;
   }
 
-  const trackingLevel = s?.profile?.trackingLevel || 'full';
-  const showSleep = trackingLevel !== 'workout';
-  const showFuel = trackingLevel === 'full';
+  const { sleep: showSleep, nutrition: showFuel } = trackingCategoriesFor(s?.profile);
   const panelOrder = withNewDefaultsAppended(s?.profile?.panelOrder?.length ? s.profile.panelOrder : DEFAULT_PANEL_ORDER);
   const hiddenPanelSet = new Set(s?.profile?.hiddenPanels || []);
   // trackingLevel's own s2/s4 gating still applies on top of the user's own
