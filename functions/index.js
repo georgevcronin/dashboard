@@ -31,6 +31,8 @@ const { sessionLoadScore, sessionLoadDelta } = require('./sessionLoad');
 const { computeTrend, deloadSuggestion } = require('./performanceTrend');
 const { extractMicronutrients } = require('./micronutrients');
 const { validateTrackingCategories } = require('./trackingCategories');
+const { filterCardio, computeCardioACWR } = require('./cardio');
+const { buildCardioRecommendation } = require('./cardioRecommendation');
 const { validateGoals, validateActivities, applyActivityDefaults, seedReturningAthleteAtrophy } = require('./goalsAndActivities');
 const { findNearbyGyms, normalizeExerciseKey, GYM_NEARBY_RADIUS_M } = require('./gyms');
 const { buildUnifiedTimeline } = require('./analyticsEngine');
@@ -79,7 +81,13 @@ const { alcoholStats, computeDataMaturity, compVerdict, toCsv, weekLiftSessionsC
 const { projectGoal, formatGoalLine, bucketWorkingAttention, ffm, ffmi } = require('./weeklyReview');
 const { computeHybridFatigue } = require('./hybridFatigue');
 const { buildRunningRecommendation } = require('./runningRecommendation');
-const { computeRunningACWR } = require('./runningLoad');
+// Pre-existing bug fixed 2026-08-06: computeRunningACWR is defined and
+// exported by fatigue.js, not runningLoad.js — importing it from the wrong
+// module left it undefined, so GET /run/recommendation threw (uncaught,
+// Express 4 doesn't auto-catch async route errors) for any account with
+// real run data, meaning it always returned null/never responded except
+// for the trivial no-runs-logged case. Found while researching #17.
+const { computeRunningACWR } = require('./fatigue');
 const { vdotTrend, resolveVO2max, vdotTrainingPaces } = require('./vo2max');
 const { weeklyEfficiencyTrend, detectSessionDistanceSpike, dailyLoadsFromRuns } = require('./runningLoad');
 const { parseVO2max } = require('./shortcutParsing');
@@ -843,7 +851,8 @@ app.get("/summary", async (req, res) => {
     db.soreness || [],
     db.muscleSensitivity || {},
     personalizedRecoveryHours(db.profile),
-    db.profile
+    db.profile,
+    db.sports || []
   );
   const monthWk = db.workouts.filter(w => w.date >= day(new Date(Date.now() - 30 * 864e5)));
   const sleepDebtH = last14.slice(-2).reduce((s, d) => s + (d.sleep_hours ? Math.max(0, sleep.target - d.sleep_hours) : 0), 0);
@@ -2283,6 +2292,49 @@ app.get("/run/recommendation", async (req, res) => {
   });
 
   res.json(rec);
+});
+
+// #17: swim/bike recommendation, parity with /run/recommendation above.
+// ?type=bike|swim required — the two modalities have genuinely different
+// muscle-fatigue profiles (cardio.js's CARDIO_MUSCLE_SPLIT), so this never
+// silently blends them into one generic "cardio" answer. Wrapped in
+// try/catch unlike /run/recommendation's prior state — that endpoint threw
+// uncaught for any account with real run data until fixed today (see the
+// computeRunningACWR import comment above); same risk class, not repeating it.
+app.get("/cardio/recommendation", async (req, res) => {
+  try {
+    const cardioType = req.query.type;
+    if (cardioType !== 'bike' && cardioType !== 'swim') {
+      return res.status(400).json({ error: 'type must be "bike" or "swim"' });
+    }
+    const sessions = filterCardio(db.sports || []).filter(s => s.cardioType === cardioType);
+    if (!sessions.length) return res.json(null);
+
+    const recentDays = lastN(db.metrics, 30);
+    const todayMetrics = recentDays.at(-1) || {};
+    const baseRecoveryScore = computeDay(todayMetrics,
+      avg(recentDays.map(d => d.heart_rate_variability).filter(Boolean)),
+      avg(recentDays.map(d => d.resting_heart_rate).filter(Boolean)),
+      personalSleepTarget(recentDays).target,
+      avg(recentDays.map(d => d.wrist_temperature).filter(Boolean)),
+      avg(recentDays.map(d => d.heart_rate).filter(Boolean))
+    );
+    if (baseRecoveryScore == null) return res.json(null);
+
+    const cardioACWR = computeCardioACWR(db.sports || [], new Date().toISOString().slice(0, 10), db.profile, cardioType);
+
+    const rec = buildCardioRecommendation({
+      baseRecoveryScore,
+      cardioACWR,
+      sessions,
+      profile: db.profile,
+      age: db.profile?.age,
+      maxHeartRate: db.profile?.baselines?.maxHeartRate,
+      restingHeartRate: db.profile?.baselines?.restingHeartRate,
+      cardioType,
+    });
+    res.json(rec);
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 app.get("/plan/week", async (req, res) => {

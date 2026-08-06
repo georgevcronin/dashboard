@@ -1029,6 +1029,14 @@ const glycogenPct = (elapsedS, totalS) => {
 // app's first version — everything before this had no changelog at all.
 const CHANGELOG = [
   {
+    version: '0.83',
+    date: '2026-08-06',
+    features: [
+      'Swimming and biking now get the same depth of treatment running already had: training load, ACWR, HR zones, and a daily "Today\'s Ride" / "Today\'s Swim" recommendation card in Training, plus their own fatigue contribution feeding into the same unified ceiling lifting and running already share. No re-syncing needed — this reads from data Strava activities were already sending, just never used until now.',
+      'Fixed a bug where the running recommendation card (added earlier today) never actually loaded for an account with real logged runs, due to an incorrect import discovered while building the cardio work above.',
+    ],
+  },
+  {
     version: '0.82',
     date: '2026-08-06',
     features: [
@@ -4915,7 +4923,7 @@ function CalendarGrid({ days, expandedDate, onSelect }) {
   );
 }
 
-function S3({ s, recommendation, runRecommendation, performanceTrend, onStartWorkout, onImport, onHistory, refresh }) {
+function S3({ s, recommendation, runRecommendation, bikeRecommendation, swimRecommendation, performanceTrend, onStartWorkout, onImport, onHistory, refresh }) {
   const workouts = s?.workouts || [];
   const lifts = s?.lifts || [];
   const liftVol = s?.liftVolume || [];
@@ -5197,6 +5205,24 @@ function S3({ s, recommendation, runRecommendation, performanceTrend, onStartWor
           </div>
         </div>
       )}
+      {/* #17: swim/bike prescription, same shape and absence rule as
+          Today's Run above — one card per type since a bike and swim
+          recommendation are never the same session type by construction. */}
+      {[['bike', 'Today\'s Ride', bikeRecommendation], ['swim', 'Today\'s Swim', swimRecommendation]].map(([type, title, rec]) => (
+        rec && rec.sessionType !== 'rest' && (
+          <div key={type} className="fade" style={{ borderTop: '1px solid var(--rule)', paddingTop: 10 }}>
+            <div className="kicker" style={{ marginBottom: 5, display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+              <span>{title}</span>
+              {rec.duration?.target != null && (
+                <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)' }}>{rec.duration.target} min target</span>
+              )}
+            </div>
+            <div style={{ fontSize: 12, fontStyle: 'italic', color: 'var(--dim)', lineHeight: 1.5 }}>
+              {rec.sessionType[0].toUpperCase() + rec.sessionType.slice(1)}{'. '}{rec.reasoning}
+            </div>
+          </div>
+        )
+      ))}
       <div className="fade" style={{ marginTop: 'auto' }} data-tour="s3-plan-ahead">
         <div style={{ borderTop: '1px solid var(--rule)', paddingTop: 10 }}>
           <div className="kicker" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 6 }}>
@@ -10199,6 +10225,8 @@ function App() {
   const [briefing, setBriefing] = useState(null);
   const [recommendation, setRecommendation] = useState(null);
   const [runRecommendation, setRunRecommendation] = useState(null);
+  const [bikeRecommendation, setBikeRecommendation] = useState(null);
+  const [swimRecommendation, setSwimRecommendation] = useState(null);
   const [performanceTrend, setPerformanceTrend] = useState(null);
   const [showBriefing, setShowBriefing] = useState(false);
   const [afternoonNewscast, setAfternoonNewscast] = useState(null);
@@ -10429,6 +10457,21 @@ function App() {
     api('run/recommendation')
       .then(data => { if (!cancelled) setRunRecommendation(data); })
       .catch(() => { if (!cancelled) setRunRecommendation(null); });
+    return () => { cancelled = true; };
+  }, [!!s]);
+
+  // #17: swim/bike prescription, same pattern as #95's run prescription
+  // above — the endpoint returns null for an account with no sessions of
+  // that type, so no separate existence check needed here either.
+  useEffect(() => {
+    if (!s) { setBikeRecommendation(null); setSwimRecommendation(null); return; }
+    let cancelled = false;
+    api('cardio/recommendation?type=bike')
+      .then(data => { if (!cancelled) setBikeRecommendation(data); })
+      .catch(() => { if (!cancelled) setBikeRecommendation(null); });
+    api('cardio/recommendation?type=swim')
+      .then(data => { if (!cancelled) setSwimRecommendation(data); })
+      .catch(() => { if (!cancelled) setSwimRecommendation(null); });
     return () => { cancelled = true; };
   }, [!!s]);
 
@@ -10822,7 +10865,7 @@ function App() {
             afternoonLoaded={!!afternoonNewscast} nightLoaded={!!nightNewscast} weeklyLoaded={!!weeklyReview}
             loadingPeriod={loadingPeriod} newscastError={newscastError} onShowTimeline={() => setShowTimeline(true)} />,
     s2: <S2 key="s2" s={s} refresh={refresh} />,
-    s3: <S3 key="s3" s={s} recommendation={recommendation} runRecommendation={runRecommendation} performanceTrend={performanceTrend} onStartWorkout={planDay => setLoggerPlanDay(planDay ?? null)} onImport={() => setShowImport(true)} onHistory={() => setShowHistory(true)} refresh={refresh} />,
+    s3: <S3 key="s3" s={s} recommendation={recommendation} runRecommendation={runRecommendation} bikeRecommendation={bikeRecommendation} swimRecommendation={swimRecommendation} performanceTrend={performanceTrend} onStartWorkout={planDay => setLoggerPlanDay(planDay ?? null)} onImport={() => setShowImport(true)} onHistory={() => setShowHistory(true)} refresh={refresh} />,
     s4: <S4 key="s4" s={s} refresh={refresh} />,
     s5: <S5 key="s5" s={s} recommendation={recommendation} refresh={refresh} />,
     s6: <S6 key="s6" s={s} refresh={refresh} />,
