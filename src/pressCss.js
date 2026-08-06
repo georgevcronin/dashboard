@@ -80,7 +80,6 @@ body{font-family:'Times New Roman',Times,Georgia,serif;color:var(--ink)}
    equal-specificity tie, not stacking. */
 @media(min-width:1380px){.panel-w2{grid-column:span 2;background:var(--paper)}}
 @media(min-width:1800px){.panel-w3{grid-column:span 3;background:var(--paper)}}
-.panel-off{display:none}
 /* Everything except the section's own header block hides, which is why each
    section tags its header .panel-head — "the first .fade child" isn't
    expressible as a selector, and S3 puts a travel banner ahead of its.
@@ -119,8 +118,36 @@ section.visible .fade:nth-child(6){transition-delay:.56s}
 /* .muscle-bar-fill animates its width, which is the parameter sliders' live
    muscle-credit readout — the one place motion carries meaning here. It still
    has to stop under reduced-motion: the bars land on the same values either
-   way, they just arrive instantly. */
-@media(prefers-reduced-motion:reduce){.fade,.ticker-track,.muscle-bar-fill{animation:none;transition:none}.fade{opacity:1;transform:none}}
+   way, they just arrive instantly. .mobile-track is the swipe carousel's
+   slide transition (below, mobile-only) — same rule, a swipe or dock tap
+   still switches section instantly, just without the animated slide.
+   .tour-spotlight/.tour-tooltip are the interactive walkthrough's (below) —
+   same rule, Skip/Back/Next still work, just without the animated glide
+   between targets. */
+@media(prefers-reduced-motion:reduce){.fade,.ticker-track,.muscle-bar-fill,.mobile-track,.tour-spotlight,.tour-tooltip{animation:none;transition:none}.fade{opacity:1;transform:none}}
+/* Interactive section walkthrough (FEATURES.md #145) — a spotlight box drawn
+   exactly over the live target element with a huge box-shadow standing in
+   for a dimmed backdrop-with-a-hole, so the real control shows through
+   rather than a screenshot of it. Deliberately pointer-events:none on both
+   the overlay and the spotlight: the point is to explain the live UI, not
+   to block interaction with it, so nothing here can trap a user. Only the
+   tooltip itself (and its Skip/Back/Next controls) accepts clicks. */
+.tour-overlay{position:fixed;inset:0;z-index:10500;pointer-events:none}
+.tour-spotlight{position:fixed;border-radius:8px;border:2px solid var(--gold);box-shadow:0 0 0 9999px rgba(13,11,8,.6);transition:top .3s ease,left .3s ease,width .3s ease,height .3s ease,opacity .25s ease}
+.tour-tooltip{position:fixed;pointer-events:auto;width:min(300px,calc(100vw - 24px));background:var(--paper);color:var(--ink);border:2px solid var(--ink);padding:16px;box-shadow:0 6px 24px rgba(13,11,8,.3);transition:top .3s ease,bottom .3s ease,left .3s ease,opacity .25s ease}
+.tour-close{position:absolute;top:0;right:0;width:44px;height:44px;background:none;border:none;cursor:pointer;font-size:20px;line-height:1;color:var(--dim);display:flex;align-items:center;justify-content:center}
+.tour-close:hover{color:var(--ink)}
+.tour-close:focus-visible{color:var(--ink);outline:2px solid var(--ink);outline-offset:-2px}
+.tour-kicker{font-family:'JetBrains Mono',monospace;font-size:8px;letter-spacing:.18em;text-transform:uppercase;color:var(--dim);margin-bottom:6px;padding-right:36px}
+.tour-title{font-family:'Playfair Display',serif;font-weight:700;font-size:16px;color:var(--ink);line-height:1.2;margin-bottom:6px;padding-right:20px}
+.tour-body{font-family:'Times New Roman',serif;font-size:13px;line-height:1.55;color:var(--ink)}
+.tour-actions{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:14px}
+.tour-actions-end{display:flex;gap:6px}
+.tour-skip,.tour-btn{display:inline-flex;align-items:center;justify-content:center;font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.1em;text-transform:uppercase;cursor:pointer;min-height:44px;padding:0 12px;border:1px solid var(--rule);background:none;color:var(--dim)}
+.tour-skip{border-color:transparent;padding:0}
+.tour-skip:hover,.tour-btn:hover{color:var(--ink)}
+.tour-btn.solid{background:var(--ink);color:var(--paper);border-color:var(--ink)}
+.tour-skip:focus-visible,.tour-btn:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
 .hide-scrollbar{-ms-overflow-style:none;scrollbar-width:none}
 .hide-scrollbar::-webkit-scrollbar{display:none}
 .kicker{font-size:8px;letter-spacing:.22em;text-transform:uppercase;color:var(--dim);border-bottom:1px solid var(--ink);display:inline-block;padding-bottom:2px;margin-bottom:8px}
@@ -129,10 +156,24 @@ section.visible .fade:nth-child(6){transition-delay:.56s}
 .pull{font-family:'Playfair Display',serif;font-style:italic;font-size:clamp(14px,3.5vw,18px);line-height:1.4;color:var(--dim);border-top:1px solid var(--rule);border-bottom:1px solid var(--rule);padding:10px 0;margin:12px 0}
 .pull strong{font-style:normal;color:var(--gold)}
 .stat-cols{display:grid;gap:0}
-.stat-cols-2{grid-template-columns:1fr 1fr}
-.stat-cols-3{grid-template-columns:1fr 1fr 1fr}
-.stat-cols-4{grid-template-columns:repeat(4,1fr)}
-.stat-cell{padding:10px 0;border-right:1px solid var(--rule);padding-right:14px;padding-left:2px}
+/* minmax(0,1fr), not bare 1fr: a bare 1fr track's implicit min-width is
+   auto (its content's min-content size), not 0, so a .sc-num figure wider
+   than an equal share refuses to shrink and forces the whole grid — and
+   .scroll has no overflow-x:hidden, so everything up to <body> — wider than
+   the viewport. minmax(0,1fr) gives tracks an explicit 0 floor so they
+   actually shrink to the available space; content wraps instead of forcing
+   overflow. Same fix applied to every other bare-1fr grid below. */
+.stat-cols-2{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}
+.stat-cols-3{grid-template-columns:minmax(0,1fr) minmax(0,1fr) minmax(0,1fr)}
+.stat-cols-4{grid-template-columns:repeat(4,minmax(0,1fr))}
+/* min-width:0 + overflow-wrap:anywhere: minmax(0,1fr) on the track alone
+   isn't enough — a grid item has its own separate "automatic minimum size"
+   (its min-content, independent of the track's floor) that still blocks
+   shrinking below an unbroken string's width. overflow-wrap:anywhere both
+   gives the browser somewhere to break an unbroken run of characters *and*
+   is what min-content itself is measured against, so the item's automatic
+   minimum shrinks along with the track instead of overriding it. */
+.stat-cell{padding:10px 0;border-right:1px solid var(--rule);padding-right:14px;padding-left:2px;min-width:0;overflow-wrap:anywhere}
 .stat-cell:last-child{border-right:none;padding-right:0}
 .stat-cell+.stat-cell{padding-left:14px}
 .sc-label{font-size:8px;letter-spacing:.16em;text-transform:uppercase;color:var(--dim);margin-bottom:3px}
@@ -256,8 +297,11 @@ section.visible .fade:nth-child(6){transition-delay:.56s}
 .target-config{border:1px solid var(--rule);padding:8px 10px;margin-bottom:6px}
 .target-config.top{border-color:var(--ink)}
 .muscle-pct{font-family:'JetBrains Mono',monospace;font-size:9px;width:30px;text-align:right;color:var(--dim);flex-shrink:0}
-.soreness-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;padding:4px 0}
-.soreness-btn{font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.08em;text-transform:capitalize;padding:7px 4px;cursor:pointer;border:1px solid var(--rule);background:none;color:var(--dim);position:relative;text-align:center}
+.soreness-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;padding:4px 0}
+/* min-width:0 + overflow-wrap:anywhere — see .stat-cell above; muscle names
+   like 'sternocleidomastoid' are exactly the unbroken-string case that
+   forces a 3-across grid wider than a narrow phone without this. */
+.soreness-btn{font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.08em;text-transform:capitalize;padding:7px 4px;cursor:pointer;border:1px solid var(--rule);background:none;color:var(--dim);position:relative;text-align:center;min-width:0;overflow-wrap:anywhere}
 .soreness-btn.has-log{border-color:var(--navy);color:var(--navy)}
 .soreness-dot{position:absolute;top:4px;right:4px;width:5px;height:5px;border-radius:50%;background:var(--navy)}
 .soreness-slider-wrap{background:var(--paper2);border:1px solid var(--rule);padding:10px 12px;margin-top:8px}
@@ -285,8 +329,8 @@ section.visible .fade:nth-child(6){transition-delay:.56s}
 .ob-unit-toggle{display:flex;border:1px solid var(--rule);overflow:hidden;flex-shrink:0;height:36px}
 .ob-unit-btn{font-family:'JetBrains Mono',monospace;font-size:8px;letter-spacing:.1em;text-transform:uppercase;padding:0 10px;border:none;background:none;cursor:pointer;color:var(--dim)}
 .ob-unit-btn.active{background:var(--ink);color:var(--paper)}
-.ob-goal-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:20px}
-.ob-goal-card{padding:14px 12px;border:1px solid var(--rule);cursor:pointer;text-align:left;background:none;transition:all .15s}
+.ob-goal-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:10px;margin-bottom:20px}
+.ob-goal-card{padding:14px 12px;border:1px solid var(--rule);cursor:pointer;text-align:left;background:none;transition:all .15s;min-width:0;overflow-wrap:anywhere}
 .ob-goal-card.selected{background:var(--ink);border-color:var(--ink)}
 .ob-goal-card-title{font-family:'Playfair Display',serif;font-size:15px;font-weight:700;color:var(--ink);margin-bottom:4px}
 .ob-goal-card.selected .ob-goal-card-title{color:var(--paper)}
@@ -377,11 +421,14 @@ section.visible .fade:nth-child(6){transition-delay:.56s}
 .briefing-columns{column-width:420px;column-gap:36px;column-rule:1px solid var(--rule)}
 .briefing-section{break-inside:avoid;-webkit-column-break-inside:avoid;margin-bottom:20px}
 .briefing-kicker{font-family:'JetBrains Mono',monospace;font-size:8px;letter-spacing:.18em;text-transform:uppercase;color:var(--dim);margin-bottom:8px}
-.briefing-bullets{display:grid;grid-template-columns:1fr 1fr;gap:4px 16px;margin-bottom:8px}
-.briefing-win{font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--forest);line-height:1.6}
-.briefing-miss{font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--ember);line-height:1.6}
-.briefing-stat-grid{display:grid;grid-auto-flow:column;grid-auto-columns:1fr;gap:0;margin-top:10px}
-.briefing-stat{border-right:1px solid var(--rule);padding:0 12px 0 0}
+.briefing-bullets{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:4px 16px;margin-bottom:8px}
+.briefing-win{font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--forest);line-height:1.6;min-width:0;overflow-wrap:anywhere}
+.briefing-miss{font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--ember);line-height:1.6;min-width:0;overflow-wrap:anywhere}
+/* grid-auto-columns has the same implicit-auto-minimum problem as a bare
+   1fr track — confirmed overflowing at narrow widths with real briefing
+   values (e.g. 5 stats' worth of "3,450"/"Calories" pairs). */
+.briefing-stat-grid{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(0,1fr);gap:0;margin-top:10px}
+.briefing-stat{border-right:1px solid var(--rule);padding:0 12px 0 0;min-width:0;overflow-wrap:anywhere}
 .briefing-stat:first-child{padding-left:0}
 .briefing-stat+.briefing-stat{padding-left:12px}
 .briefing-stat:last-child{border-right:none}
@@ -398,7 +445,12 @@ section.visible .fade:nth-child(6){transition-delay:.56s}
 .briefing-fatigue-detail{font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--dim);margin-top:4px;line-height:1.6}
 .briefing-preview{border-bottom:1px solid var(--rule);padding:10px 0;cursor:pointer}
 .fatigue-banner{background:var(--ember);padding:10px 12px;margin:8px 0;border-left:3px solid var(--ink)}
-.week-strip{display:flex;gap:3px;overflow-x:auto;padding:8px 0;border-top:1px solid var(--rule);margin-top:8px;scrollbar-width:none}
+/* touch-action:pan-x restores this strip's own horizontal scroll on narrow
+   phones where it can overflow (7 44px-min day cells) — .scroll's pan-y
+   below claims horizontal drags for the section swipe carousel, and without
+   this a drag started on the strip would be read as a section swipe instead
+   of scrolling the strip. */
+.week-strip{display:flex;gap:3px;overflow-x:auto;padding:8px 0;border-top:1px solid var(--rule);margin-top:8px;scrollbar-width:none;touch-action:pan-x}
 .week-strip::-webkit-scrollbar{display:none}
 .week-day{flex:1 0 0;min-width:34px;min-height:44px;padding:6px 3px 5px;border:1px solid var(--rule);text-align:center;cursor:default;position:relative;display:flex;flex-direction:column;justify-content:center;align-items:center}
 .week-day.today{border:2px solid var(--ink)}
@@ -431,7 +483,13 @@ section.visible .fade:nth-child(6){transition-delay:.56s}
 .supp-item{display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--rule)}
 .supp-check{width:18px;height:18px;border:2px solid var(--ink);background:none;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:10px}
 .supp-check.done{background:var(--ink);color:var(--paper)}
-.supp-name{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--ink);flex:1;margin:0 10px}
+/* min-width:0 because it's a flex:1 item: a flex item's default min-width
+   is auto (its content's min-content size), so an unbroken long supplement
+   name would otherwise refuse to shrink and force the row wider than the
+   viewport, the same mechanism as the bare-1fr grid tracks above. Truncated
+   with an ellipsis rather than silently clipped, per PRODUCT.md's no-
+   silent-data-loss stance. */
+.supp-name{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--ink);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin:0 10px}
 .supp-meta{font-family:'JetBrains Mono',monospace;font-size:8px;color:var(--dim)}
 .measure-row{display:flex;align-items:baseline;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--rule)}
 .measure-lbl{font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--dim);letter-spacing:.06em;text-transform:uppercase;width:80px;flex-shrink:0}
@@ -474,7 +532,20 @@ section.visible .fade:nth-child(6){transition-delay:.56s}
 .mast-right-row{justify-content:center}
 .week-day{min-width:44px}
 .sec-nav{display:none}
-.scroll{padding-bottom:60px}
+/* The section swipe carousel. #press-scroll is the fixed viewport — its own
+   height is pinned in JS (App()'s height-sync effect) to the active panel's
+   height, so overflow:hidden here only ever clips the other panels sitting
+   beside it, never the active one's own content. touch-action:pan-y hands
+   vertical scrolling to the browser untouched and leaves horizontal drags to
+   the touch handlers below (see .week-strip above for the one nested
+   exception). .mobile-track is the flex row every panel sits in side by
+   side; its transform (driven by App()'s activeIdx, live-updated 1:1 during
+   a drag) is the only thing that actually moves. align-items:flex-start
+   stops a flex row's default stretch from forcing every panel to the height
+   of the tallest one. */
+.scroll{padding-bottom:60px;overflow:hidden;touch-action:pan-y}
+.mobile-track{display:flex;align-items:flex-start;transition:transform .32s ease}
+.panel{display:block;flex:0 0 100%;min-width:0}
 .dock{display:flex;position:fixed;bottom:0;left:0;right:0;z-index:200;background:var(--paper);border-top:2px solid var(--ink);padding-bottom:env(safe-area-inset-bottom)}
 .dock-btn{flex:1;min-height:44px;background:none;border:none;border-top:2px solid transparent;font-family:'JetBrains Mono',monospace;font-size:8px;letter-spacing:.08em;text-transform:uppercase;color:var(--dim);cursor:pointer;padding:6px 2px}
 .chat-bubble{bottom:calc(68px + env(safe-area-inset-bottom))}
