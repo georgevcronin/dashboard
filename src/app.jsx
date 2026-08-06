@@ -1002,6 +1002,13 @@ const glycogenPct = (elapsedS, totalS) => {
 // app's first version — everything before this had no changelog at all.
 const CHANGELOG = [
   {
+    version: '0.76',
+    date: '2026-08-06',
+    features: [
+      'Fixed the dashboard headline clipping into the ticker bar on desktop — the grid was using padding to clear the fixed header, which absolutely-positioned panels ignore; switched to margin so it actually pushes them down.',
+    ],
+  },
+  {
     version: '0.75',
     date: '2026-08-05',
     features: [
