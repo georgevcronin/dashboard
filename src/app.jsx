@@ -2,6 +2,7 @@ import React, { useState, useEffect, useLayoutEffect, useContext, useRef, useMem
 import { auth, googleProvider, API_BASE, getToken, api, authFetch,
   toLocalDateStr, todayLocalStr, fmtDate, fmtDateShort, fmtHoursMins, pct, roundCal,
   computeTrainingStreak, computeSleepStreak } from './shared.js';
+import { isAccountAlreadyOnboarded } from './onboardingGate.js';
 import { S4, BODY_BASE, MUSCLES_WITHOUT_BODY_REGION, SORENESS_DIAGRAM_MUSCLES } from './sections/S4.jsx';
 import { S6, MOVEMENT_GROUPS, groupExercise } from './sections/S6.jsx';
 import { S8 } from './sections/Goals.jsx';
@@ -9978,11 +9979,9 @@ function App() {
       // relied entirely on press_onboarded in this browser's localStorage,
       // so a real, fully-set-up account showed Onboarding again from
       // scratch on any new browser/device or cleared storage, with no way
-      // to tell "genuinely new" from "just a new browser" apart. A real
-      // account is anything with an explicit completion flag, a saved
-      // name, or any real lift history — never re-onboard those, no matter
-      // what this specific browser remembers.
-      if (!onboarded && (data?.profile?.onboardingComplete || data?.profile?.name || data?.lifts?.length > 0)) {
+      // to tell "genuinely new" from "just a new browser" apart. See
+      // onboardingGate.js's isAccountAlreadyOnboarded for the actual check.
+      if (!onboarded && isAccountAlreadyOnboarded(data?.profile, data?.lifts?.length)) {
         localStorage.setItem('press_onboarded', '1');
         setOnboarded(true);
       }
