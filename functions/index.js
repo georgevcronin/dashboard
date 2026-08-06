@@ -27,6 +27,8 @@ const {
   generateUsernameSuggestion, canChangeUsername, usernameChangeAvailableAt,
 } = require('./identity');
 const { computeStimulusContributions, estimateAtrophyRate } = require('./adaptation');
+const { sessionLoadScore, sessionLoadDelta } = require('./sessionLoad');
+const { computeTrend, deloadSuggestion } = require('./performanceTrend');
 const { validateGoals, validateActivities, applyActivityDefaults, seedReturningAthleteAtrophy } = require('./goalsAndActivities');
 const { findNearbyGyms, normalizeExerciseKey, GYM_NEARBY_RADIUS_M } = require('./gyms');
 const { buildUnifiedTimeline } = require('./analyticsEngine');
@@ -902,6 +904,17 @@ app.get("/summary", async (req, res) => {
       }
     }
   }
+
+  // #11: most recent session's load score + delta vs the athlete's own
+  // trailing sessions. Cheap (groups already-loaded db.lifts, no extra
+  // Firestore reads), so it lives directly on /summary rather than its own
+  // endpoint the way /run/recommendation and the #12 trend below do.
+  const liftDates = [...new Set(db.lifts.map(l => l.date))].filter(Boolean).sort().reverse();
+  const currentSessionLoad = liftDates.length ? sessionLoadScore(db.lifts.filter(l => l.date === liftDates[0])) : null;
+  const trailingSessionLoads = liftDates.slice(1, 6).map(d => sessionLoadScore(db.lifts.filter(l => l.date === d)));
+  const sessionLoad = currentSessionLoad != null
+    ? { current: currentSessionLoad, ...sessionLoadDelta(currentSessionLoad, trailingSessionLoads) }
+    : null;
   res.json({
     profile: db.profile, hydrationCurve, hydrationNow: hydrationCurve.at(-1) ?? null,
     liftVolume,
@@ -923,6 +936,7 @@ app.get("/summary", async (req, res) => {
       clearance: Math.round(100 - injuryFatiguePenalty(i)),
     })),
     weights, workouts: [...db.workouts].sort((a,b)=>(b.date||'').localeCompare(a.date||'')).slice(0,20), workoutsMonth: monthWk.length,
+    sessionLoad,
     water: lastN(db.water, 14), waterToday: db.water[day()] || 0,
     weeklyPlan: db.weeklyPlan ? { ...db.weeklyPlan, sessionsCompletedThisWeek: weekLiftSessionsCompleted(db.lifts) } : null,
     lifts: [...db.lifts].sort((a,b)=>(b.date||'').localeCompare(a.date||'')).slice(0,200), thoughts: db.thoughts,
@@ -2150,6 +2164,18 @@ function computeRecommendation(storedPlan) {
 app.get("/plan/recommendation", async (req, res) => {
   if (!db.weeklyPlan) return res.json(null);
   res.json(computeRecommendation(db.weeklyPlan));
+});
+
+// #12: fitness/fatigue/form trend over #11's session-load numbers, plus a
+// deload suggestion (propose only, never auto-inserted — same rule as the
+// weekly planner). Own endpoint rather than a /summary field: computeTrend
+// walks one point per calendar day since the athlete's first logged lift,
+// which for a long history is real work /summary's cold-start path
+// shouldn't wait on.
+app.get("/performance/trend", async (req, res) => {
+  if (!db.lifts || !db.lifts.length) return res.json(null);
+  const trend = computeTrend(db.lifts);
+  res.json({ trend, deload: deloadSuggestion(trend) });
 });
 
 // #95: Running Recommendation Engine

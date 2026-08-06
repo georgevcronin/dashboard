@@ -1004,6 +1004,14 @@ const glycogenPct = (elapsedS, totalS) => {
 // app's first version — everything before this had no changelog at all.
 const CHANGELOG = [
   {
+    version: '0.78',
+    date: '2026-08-06',
+    features: [
+      'Training now shows a "Load" number alongside Duration/Output/Month — a single 0-100 score for how hard your last session was, framed against your own recent average rather than an absolute scale.',
+      'Added a "Form" line with a 30-day trend sparkline below that: a fitness/fatigue balance computed the way TrainingPeaks\' CTL/ATL/TSB model works, applied to the new Load number. If form stays deeply negative for 10+ straight days, it now says so and suggests a lighter week — a suggestion only, nothing gets changed in your plan automatically.',
+    ],
+  },
+  {
     version: '0.77',
     date: '2026-08-06',
     features: [
@@ -4848,7 +4856,7 @@ function CalendarGrid({ days, expandedDate, onSelect }) {
   );
 }
 
-function S3({ s, recommendation, runRecommendation, onStartWorkout, onImport, onHistory, refresh }) {
+function S3({ s, recommendation, runRecommendation, performanceTrend, onStartWorkout, onImport, onHistory, refresh }) {
   const workouts = s?.workouts || [];
   const lifts = s?.lifts || [];
   const liftVol = s?.liftVolume || [];
@@ -5074,12 +5082,43 @@ function S3({ s, recommendation, runRecommendation, onStartWorkout, onImport, on
         </div>
       )}
       <div className="fade">
-        <div className="stat-cols stat-cols-3" style={{ borderTop: '1px solid var(--rule)', paddingTop: 10 }} data-tour="s3-stats">
+        <div className={`stat-cols stat-cols-${s?.sessionLoad ? '4' : '3'}`} style={{ borderTop: '1px solid var(--rule)', paddingTop: 10 }} data-tour="s3-stats">
           <div className="stat-cell"><div className="sc-label">Duration</div><div className="sc-num" style={{ fontSize: 22 }}>{lastSession?.duration ?? '—'}<span style={{ fontSize: '.5em', color: 'var(--dim)' }}>min</span></div></div>
           <div className="stat-cell"><div className="sc-label">Output</div><div className="sc-num" style={{ fontSize: 22 }}>{lastSession?.kcal ?? '—'}<span style={{ fontSize: '.5em', color: 'var(--dim)' }}>kcal</span></div></div>
           <div className="stat-cell"><div className="sc-label">Month</div><div className="sc-num forest" style={{ fontSize: 22 }}>{s?.workoutsMonth ?? '—'}<span style={{ fontSize: '.5em', color: 'var(--dim)' }}>sessions</span></div></div>
+          {/* #11: session-load headline number — a Relative-Effort-style 0-100
+              figure for the most recent session, framed against this same
+              athlete's own trailing average rather than an absolute scale. */}
+          {s?.sessionLoad && (
+            <div className="stat-cell">
+              <div className="sc-label">Load</div>
+              <div className="sc-num" style={{ fontSize: 22 }}>
+                {s.sessionLoad.current}
+                {s.sessionLoad.delta != null && (
+                  <span style={{ fontSize: '.45em', color: s.sessionLoad.delta > 0 ? 'var(--ember)' : s.sessionLoad.delta < 0 ? 'var(--dim)' : 'var(--dim)', marginLeft: 3 }}>
+                    {s.sessionLoad.delta > 0 ? `+${s.sessionLoad.delta}` : s.sessionLoad.delta} vs avg
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
         </div>
       </div>
+      {/* #12: fitness/fatigue/form trend, same fetch-after-summary rule as
+          runRecommendation above. A deload nudge only ever appears here —
+          this proposes, it never touches weeklyPlan itself. */}
+      {performanceTrend?.trend?.length > 1 && (
+        <div className="fade" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid var(--rule)', paddingTop: 8 }}>
+          <div>
+            <div className="sc-label">Form</div>
+            <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 11, color: performanceTrend.trend.at(-1).form < 0 ? 'var(--ember)' : 'var(--forest)' }}>
+              {performanceTrend.trend.at(-1).form > 0 ? '+' : ''}{performanceTrend.trend.at(-1).form}
+              {performanceTrend.deload && <span style={{ color: 'var(--ember)', marginLeft: 6 }}>— {performanceTrend.deload.reason}</span>}
+            </div>
+          </div>
+          <Sparkline data={performanceTrend.trend.slice(-30).map(p => p.form)} color={performanceTrend.trend.at(-1).form < 0 ? 'var(--ember)' : 'var(--forest)'} width={64} height={26} />
+        </div>
+      )}
       {/* #95/#97: daily run prescription. Absent for accounts with no db.runs
           (the endpoint returns null) or the rare beat before the fetch lands —
           same "render nothing until it arrives" rule as RecommendationPanel. */}
@@ -9937,6 +9976,7 @@ function App() {
   const [briefing, setBriefing] = useState(null);
   const [recommendation, setRecommendation] = useState(null);
   const [runRecommendation, setRunRecommendation] = useState(null);
+  const [performanceTrend, setPerformanceTrend] = useState(null);
   const [showBriefing, setShowBriefing] = useState(false);
   const [afternoonNewscast, setAfternoonNewscast] = useState(null);
   const [nightNewscast, setNightNewscast] = useState(null);
@@ -10168,6 +10208,20 @@ function App() {
       .catch(() => { if (!cancelled) setRunRecommendation(null); });
     return () => { cancelled = true; };
   }, [!!s]);
+
+  // #12: fitness/fatigue/form trend. Same fetch-after-summary pattern; only
+  // re-fires on session load like the run recommendation above (db.lifts
+  // isn't in /summary's payload either, so liftCount here is /summary's own
+  // lifts field, already fetched — a reasonable enough proxy for "new lift
+  // landed" since finishing a workout always refreshes s via refresh()).
+  useEffect(() => {
+    if (!s) { setPerformanceTrend(null); return; }
+    let cancelled = false;
+    api('performance/trend')
+      .then(data => { if (!cancelled) setPerformanceTrend(data); })
+      .catch(() => { if (!cancelled) setPerformanceTrend(null); });
+    return () => { cancelled = true; };
+  }, [!!s, liftCount]);
 
   const expertise = normalizeExpertise(s?.profile?.expertiseLevel);
   const panelStates = s?.profile?.panelStates || {};
@@ -10547,7 +10601,7 @@ function App() {
             afternoonLoaded={!!afternoonNewscast} nightLoaded={!!nightNewscast} weeklyLoaded={!!weeklyReview}
             loadingPeriod={loadingPeriod} newscastError={newscastError} onShowTimeline={() => setShowTimeline(true)} />,
     s2: <S2 key="s2" s={s} refresh={refresh} />,
-    s3: <S3 key="s3" s={s} recommendation={recommendation} runRecommendation={runRecommendation} onStartWorkout={planDay => setLoggerPlanDay(planDay ?? null)} onImport={() => setShowImport(true)} onHistory={() => setShowHistory(true)} refresh={refresh} />,
+    s3: <S3 key="s3" s={s} recommendation={recommendation} runRecommendation={runRecommendation} performanceTrend={performanceTrend} onStartWorkout={planDay => setLoggerPlanDay(planDay ?? null)} onImport={() => setShowImport(true)} onHistory={() => setShowHistory(true)} refresh={refresh} />,
     s4: <S4 key="s4" s={s} refresh={refresh} />,
     s5: <S5 key="s5" s={s} recommendation={recommendation} refresh={refresh} />,
     s6: <S6 key="s6" s={s} refresh={refresh} />,

@@ -244,5 +244,5 @@ function estimateAtrophyRate(lifts) {
 module.exports = {
   rirEffectiveness, volumeResponsePct, sessionStimulusScore, adaptationCurve, ADAPTATION_PEAK_H,
   computeStimulusContributions, computeAdaptationLevel, computeAdaptationSeries,
-  estimateAtrophyRate, DEFAULT_ATROPHY_RATE, SECONDARY_MUSCLE_WEIGHT, secondaryMuscleRatio, DEFAULT_RIR,
+  estimateAtrophyRate, DEFAULT_ATROPHY_RATE, SECONDARY_MUSCLE_WEIGHT, secondaryMuscleRatio, DEFAULT_RIR, setRir,
 };
