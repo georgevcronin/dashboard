@@ -35,6 +35,23 @@ test('Session type: severe fatigue (<40) → rest', () => {
   assert.strictEqual(rec.recommended, 'rest', 'severe fatigue should recommend rest');
 });
 
+test('Session type: fatLoss goal biases high readiness toward steady over interval', () => {
+  const rec = sessionTypeByReadiness(90, 'easy', 0, true);
+  assert.notStrictEqual(rec.recommended, 'interval', 'favorZone2 should never recommend interval at high readiness');
+  assert(rec.recommended === 'steady' || rec.recommended === 'easy', 'should land on steady or easy');
+});
+
+test('Session type: fatLoss goal biases good readiness toward steady more often', () => {
+  const withGoal = sessionTypeByReadiness(75, 'easy', 0, true);
+  assert.strictEqual(withGoal.recommended, 'steady', 'even weekSessionCount with favorZone2 should pick steady');
+});
+
+test('Session type: fatLoss goal has no effect below readiness 70 (already Zone 1/2)', () => {
+  const withGoal = sessionTypeByReadiness(60, 'easy', 0, true);
+  const without = sessionTypeByReadiness(60, 'easy', 0, false);
+  assert.strictEqual(withGoal.recommended, without.recommended, 'moderate/low readiness bands are unaffected by favorZone2');
+});
+
 test('Duration: scales with readiness', () => {
   const easy85 = durationTargetMinutes(85, null, 'easy');
   const easy40 = durationTargetMinutes(40, null, 'easy');
@@ -129,6 +146,37 @@ test('Build recommendation: high readiness produces valid output', () => {
   assert(rec.duration.target > 0, 'duration should be positive');
   assert(rec.paceZones, 'should include pace zones');
   assert(rec.reasoning, 'should include reasoning');
+});
+
+test('Build recommendation: fatLoss goal in profile.goals sets favorZone2', () => {
+  const rec = buildRunningRecommendation({
+    baseRecoveryScore: 75,
+    runningACWR: 1.0,
+    runs: [],
+    profile: { goals: [{ type: 'fatLoss', priority: 'primary' }] },
+    lastEfficiency: null,
+    lastSpikeDetection: null,
+    vo2maxResolution: { vo2max: 50, source: 'daniels-vdot' },
+    vdotTrainingPaces: { ePace: 6.5, mPace: 5.3, tPace: 4.0, iPace: 3.2, rPace: 2.8 },
+  });
+
+  assert.strictEqual(rec.favorZone2, true, 'a fatLoss goal should set favorZone2');
+  assert.notStrictEqual(rec.sessionType, 'interval', 'should never land on interval with favorZone2 at this readiness');
+});
+
+test('Build recommendation: no fatLoss goal leaves favorZone2 false', () => {
+  const rec = buildRunningRecommendation({
+    baseRecoveryScore: 75,
+    runningACWR: 1.0,
+    runs: [],
+    profile: { goals: [{ type: 'muscle', priority: 'primary' }] },
+    lastEfficiency: null,
+    lastSpikeDetection: null,
+    vo2maxResolution: { vo2max: 50, source: 'daniels-vdot' },
+    vdotTrainingPaces: { ePace: 6.5, mPace: 5.3, tPace: 4.0, iPace: 3.2, rPace: 2.8 },
+  });
+
+  assert.strictEqual(rec.favorZone2, false, 'a non-fatLoss goal should leave favorZone2 false');
 });
 
 test('Build recommendation: null when invalid recovery score', () => {

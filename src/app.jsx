@@ -1004,6 +1004,14 @@ const glycogenPct = (elapsedS, totalS) => {
 // app's first version — everything before this had no changelog at all.
 const CHANGELOG = [
   {
+    version: '0.77',
+    date: '2026-08-06',
+    features: [
+      'Training now shows a "Today\'s Run" card when you have logged runs — session type, HR zone range, duration target, and the reasoning behind it. This is the running recommendation engine\'s first real front-page appearance since it shipped.',
+      'If fat loss is one of your goals, that run recommendation now weights toward steady Zone 2 aerobic work (60-70% HR reserve) rather than mixing in as much interval/tempo intensity — Zone 2 is the effort level most associated with fat oxidation as fuel, and the card says so rather than just picking it silently.',
+    ],
+  },
+  {
     version: '0.76',
     date: '2026-08-05',
     features: [
@@ -4840,7 +4848,7 @@ function CalendarGrid({ days, expandedDate, onSelect }) {
   );
 }
 
-function S3({ s, recommendation, onStartWorkout, onImport, onHistory, refresh }) {
+function S3({ s, recommendation, runRecommendation, onStartWorkout, onImport, onHistory, refresh }) {
   const workouts = s?.workouts || [];
   const lifts = s?.lifts || [];
   const liftVol = s?.liftVolume || [];
@@ -5072,6 +5080,25 @@ function S3({ s, recommendation, onStartWorkout, onImport, onHistory, refresh })
           <div className="stat-cell"><div className="sc-label">Month</div><div className="sc-num forest" style={{ fontSize: 22 }}>{s?.workoutsMonth ?? '—'}<span style={{ fontSize: '.5em', color: 'var(--dim)' }}>sessions</span></div></div>
         </div>
       </div>
+      {/* #95/#97: daily run prescription. Absent for accounts with no db.runs
+          (the endpoint returns null) or the rare beat before the fetch lands —
+          same "render nothing until it arrives" rule as RecommendationPanel. */}
+      {runRecommendation && runRecommendation.sessionType !== 'rest' && (
+        <div className="fade" style={{ borderTop: '1px solid var(--rule)', paddingTop: 10 }}>
+          <div className="kicker" style={{ marginBottom: 5, display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+            <span>Today's Run</span>
+            {runRecommendation.duration?.target != null && (
+              <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)' }}>{runRecommendation.duration.target} min target</span>
+            )}
+          </div>
+          <div style={{ fontSize: 12, fontStyle: 'italic', color: 'var(--dim)', lineHeight: 1.5, marginBottom: runRecommendation.workoutPrescription ? 6 : 0 }}>
+            {runRecommendation.sessionType[0].toUpperCase() + runRecommendation.sessionType.slice(1)}
+            {runRecommendation.workoutPrescription?.zone === 'z2' && ' — Zone 2'}
+            {runRecommendation.workoutPrescription?.hrRange && ` (${runRecommendation.workoutPrescription.hrRange})`}
+            {'. '}{runRecommendation.reasoning}
+          </div>
+        </div>
+      )}
       <div className="fade" style={{ marginTop: 'auto' }} data-tour="s3-plan-ahead">
         <div style={{ borderTop: '1px solid var(--rule)', paddingTop: 10 }}>
           <div className="kicker" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 6 }}>
@@ -9909,6 +9936,7 @@ function App() {
   const [onboarded, setOnboarded] = useState(() => !!localStorage.getItem('press_onboarded'));
   const [briefing, setBriefing] = useState(null);
   const [recommendation, setRecommendation] = useState(null);
+  const [runRecommendation, setRunRecommendation] = useState(null);
   const [showBriefing, setShowBriefing] = useState(false);
   const [afternoonNewscast, setAfternoonNewscast] = useState(null);
   const [nightNewscast, setNightNewscast] = useState(null);
@@ -10125,6 +10153,21 @@ function App() {
       .catch(() => { if (!cancelled) setRecommendation(null); });
     return () => { cancelled = true; };
   }, [planStamp, liftCount]);
+
+  // #95/#97: daily run prescription. Same "fetch after /summary, render
+  // nothing on null" pattern as /plan/recommendation above — the endpoint
+  // itself returns null for an account with no db.runs, so no separate
+  // existence check is needed here. db.runs isn't part of /summary's
+  // payload, so this only re-fires on session load, not per new run —
+  // fine for a first surface; revisit if that staleness is ever felt.
+  useEffect(() => {
+    if (!s) { setRunRecommendation(null); return; }
+    let cancelled = false;
+    api('run/recommendation')
+      .then(data => { if (!cancelled) setRunRecommendation(data); })
+      .catch(() => { if (!cancelled) setRunRecommendation(null); });
+    return () => { cancelled = true; };
+  }, [!!s]);
 
   const expertise = normalizeExpertise(s?.profile?.expertiseLevel);
   const panelStates = s?.profile?.panelStates || {};
@@ -10504,7 +10547,7 @@ function App() {
             afternoonLoaded={!!afternoonNewscast} nightLoaded={!!nightNewscast} weeklyLoaded={!!weeklyReview}
             loadingPeriod={loadingPeriod} newscastError={newscastError} onShowTimeline={() => setShowTimeline(true)} />,
     s2: <S2 key="s2" s={s} refresh={refresh} />,
-    s3: <S3 key="s3" s={s} recommendation={recommendation} onStartWorkout={planDay => setLoggerPlanDay(planDay ?? null)} onImport={() => setShowImport(true)} onHistory={() => setShowHistory(true)} refresh={refresh} />,
+    s3: <S3 key="s3" s={s} recommendation={recommendation} runRecommendation={runRecommendation} onStartWorkout={planDay => setLoggerPlanDay(planDay ?? null)} onImport={() => setShowImport(true)} onHistory={() => setShowHistory(true)} refresh={refresh} />,
     s4: <S4 key="s4" s={s} refresh={refresh} />,
     s5: <S5 key="s5" s={s} recommendation={recommendation} refresh={refresh} />,
     s6: <S6 key="s6" s={s} refresh={refresh} />,

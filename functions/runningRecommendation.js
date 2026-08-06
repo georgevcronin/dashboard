@@ -14,11 +14,29 @@ const { prescribeWorkout, karvonen5Zones, estimateMaxHeartRate } = require('./ru
 
 // Map readiness score to session type distribution (polarized 80/20)
 // Healthy athletes should do mostly easy runs with occasional hard sessions
-function sessionTypeByReadiness(readiness, lastRunType = null, weekSessionCount = 0) {
+//
+// favorZone2: set when the athlete has an active fatLoss goal. Steady-state
+// Zone 2 work (runningPrescription.js's z2 — "aerobic threshold, most long
+// runs, general base aerobic", 60-70% HR reserve) is the intensity most
+// associated with fat oxidation as a fuel source; interval/tempo work shifts
+// substrate use toward carbohydrate. This doesn't touch the 55-and-below
+// bands below — recovery/easy/rest are already Zone 1/2-equivalent, nothing
+// to bias there.
+function sessionTypeByReadiness(readiness, lastRunType = null, weekSessionCount = 0, favorZone2 = false) {
   // readiness: 0-100 score
   // Returns: { recommended: 'type', alternatives: ['type', ...], rationale }
 
   if (readiness >= 85) {
+    if (favorZone2) {
+      // Same fresh-and-recovered opportunity, but steady Zone 2 in place of
+      // the harder interval option — still varies with lastRunType/weekCount
+      // rather than picking the same type every time.
+      return {
+        recommended: weekSessionCount % 3 === 0 && lastRunType !== 'steady' ? 'steady' : 'easy',
+        alternatives: ['easy', 'tempo', 'recovery'],
+        intensity: 'Zone 2 aerobic (steady) or easy',
+      };
+    }
     // Fresh and well-recovered: opportunity for hard work
     // 70% chance easy (maintenance), 30% chance hard (build)
     return {
@@ -29,6 +47,14 @@ function sessionTypeByReadiness(readiness, lastRunType = null, weekSessionCount 
   }
 
   if (readiness >= 70) {
+    if (favorZone2) {
+      // Bias further toward steady Zone 2 than the default split.
+      return {
+        recommended: weekSessionCount % 2 === 0 ? 'steady' : 'easy',
+        alternatives: ['recovery', 'easy'],
+        intensity: 'Zone 2 aerobic (steady)',
+      };
+    }
     // Good recovery: balanced work
     // Mix of easy and moderate (threshold, steady)
     return {
@@ -141,8 +167,12 @@ function buildRunningRecommendation({
   // Efficiency trend (4-week window)
   const efficiencyTrend = lastEfficiency || null;
 
+  // #97 extension: weight-loss goal biases session-type selection toward
+  // Zone 2 steady-state work (see sessionTypeByReadiness's comment).
+  const favorZone2 = (profile?.goals || []).some(g => g.type === 'fatLoss');
+
   // Session type recommendation
-  const sessionRec = sessionTypeByReadiness(readiness, lastRunType, weekSessionCount);
+  const sessionRec = sessionTypeByReadiness(readiness, lastRunType, weekSessionCount, favorZone2);
 
   // Duration target
   const duration = durationTargetMinutes(readiness, efficiencyTrend, sessionRec.recommended);
@@ -196,18 +226,20 @@ function buildRunningRecommendation({
     acwr: Math.round(runningACWR * 100) / 100,
     weekSessionCount,
     cautions,
+    favorZone2,
     reasoning: buildReasoningString({
       readiness,
       label,
       sessionType: sessionRec.recommended,
       weekSessionCount,
       cautions,
+      favorZone2,
     }),
   };
 }
 
 // Human-readable reasoning string
-function buildReasoningString({ readiness, label, sessionType, weekSessionCount, cautions }) {
+function buildReasoningString({ readiness, label, sessionType, weekSessionCount, cautions, favorZone2 = false }) {
   const parts = [];
 
   parts.push(`You're ${label} for training today (readiness: ${Math.round(readiness)}%)`);
@@ -216,6 +248,8 @@ function buildReasoningString({ readiness, label, sessionType, weekSessionCount,
     parts.push('Your system needs a full recovery day; skip running today.');
   } else if (sessionType === 'recovery') {
     parts.push('A very easy recovery run (30 min) will help active recovery without taxing your system further.');
+  } else if (sessionType === 'steady' && favorZone2) {
+    parts.push('Zone 2 (steady, 60-70% HR reserve) — the intensity most associated with fat oxidation as fuel; harder efforts shift toward carbohydrate. Weighted toward this because fat loss is one of your goals.');
   } else if (sessionType === 'easy') {
     parts.push('An easy aerobic run builds your base without additional fatigue.');
   } else if (sessionType === 'steady') {
