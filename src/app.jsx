@@ -1029,6 +1029,13 @@ const glycogenPct = (elapsedS, totalS) => {
 // app's first version — everything before this had no changelog at all.
 const CHANGELOG = [
   {
+    version: '0.82',
+    date: '2026-08-06',
+    features: [
+      'Added an "Evidence" tab to the Wiki — real citations behind the algorithms Press actually uses (adaptation curves, running load/injury-risk models, VO₂max estimation, EMG-based exercise splits, and more), pulled from sources already in the codebase, not written up new. Where something is a named practitioner heuristic rather than a published study, it says so.',
+    ],
+  },
+  {
     version: '0.81',
     date: '2026-08-06',
     features: [
@@ -9179,6 +9186,128 @@ const WIKI_CONCEPTS = [
   },
 ];
 
+// FEATURES.md #62 ("Scientific Evidence Library"): every entry here quotes a
+// citation that already existed somewhere in the codebase — a code comment
+// or RUNNING_SCIENCE.md's References section — verbatim or near-verbatim.
+// Nothing here is invented or reconstructed from partial memory of a paper;
+// an algorithm with no real citation in its source comments simply isn't
+// listed, rather than getting a fabricated one. RIR effectiveness (below)
+// is the one deliberate exception to "always a peer-reviewed citation" —
+// it's labelled as a named practitioner heuristic because that's honestly
+// what the source comment says it is, not a study.
+const EVIDENCE_LIBRARY = [
+  {
+    topic: 'Two-Phase Stimulus/Adaptation Curve',
+    source: 'functions/adaptation.js',
+    note: 'Fast inflammatory-resolution phase (~30% of the response, peaks ~12h) plus a slower tissue-remodeling phase (~70%, peaks ~48h) — replaces an earlier single-phase model. This is what "Stimulus / Adaptation" above describes.',
+    citations: [
+      'Clarkson, P. M., & Hubal, M. J. (2002). Exercise-induced muscle damage in humans. American Journal of Physical Medicine & Rehabilitation, 81(11 Suppl), S52-69.',
+      'MacDougall, J. D., et al. (1995). Muscle damage following repeated bouts of eccentric exercise. Canadian Journal of Applied Physiology, 20(4), 480-486.',
+    ],
+  },
+  {
+    topic: 'RIR Effectiveness Curve',
+    source: 'functions/adaptation.js',
+    note: 'How much a set "counts" toward stimulus as a function of reps-in-reserve — high near failure, dipping around RIR 5-6. Named a "Niv Zinder RIR effectiveness" curve in source — a practitioner heuristic, not a peer-reviewed study, and shown as such rather than dressed up as one.',
+    citations: [],
+  },
+  {
+    topic: 'Running Load (TRIMP)',
+    source: 'functions/runningLoad.js, RUNNING_SCIENCE.md §#106',
+    note: 'Training Impulse — duration × heart-rate-response — the underlying daily running load figure feeding ACWR and the recommendation engine.',
+    citations: [
+      'Banister, E. W. (1991). Modeling elite athletic performance. Journal of Applied Physiology, 69(3), 1171-1177.',
+      'Morton, R. H., Fitz-Clarke, J. R., & Banister, E. W. (1990). Modeling human performance in running. Journal of Applied Physiology, 69(3), 1171-1177.',
+      'Validated against competitive runner cohorts in Lucia, A., Esteve-Lanao, J., et al. (2006). High-intensity physical training in the elderly. Journal of Applied Physiology, 100(1), 130-140.',
+    ],
+  },
+  {
+    topic: 'Acute:Chronic Workload Ratio (ACWR)',
+    source: 'functions/fatigue.js, RUNNING_SCIENCE.md §#107',
+    note: '7-day acute / 28-day chronic exponentially-weighted load ratio — one function shared by lifting and running load, deliberately not sport-specific constants.',
+    citations: [
+      'Williams, S., West, S., Cross, M. J., & Stokes, K. A. (2017). Better way to determine the acute:chronic workload ratio? British Journal of Sports Medicine, 51(4), 209-210.',
+    ],
+  },
+  {
+    topic: 'Single-Session Distance Spike (Running Injury Risk)',
+    source: 'functions/runningLoad.js, RUNNING_SCIENCE.md §#102',
+    note: 'This app\'s primary running-injury signal — a session more than 110% of your longest run in the past 30 days — used ahead of ACWR for running specifically, per this study\'s own finding that ACWR (validated mainly in team sports) was not significant for running injury while single-session spike was.',
+    citations: [
+      'Aarhus University / Garmin-RUNSAFE study (2024–2025), unpublished pre-print. N = 5,205 runners, 18 months, 588,071 sessions tracked.',
+    ],
+  },
+  {
+    topic: 'Long-Run Percentage Guidance',
+    source: 'RUNNING_SCIENCE.md §#102',
+    note: 'Safe range for your longest run as a share of weekly distance (25-30%, caution above 50%).',
+    citations: [
+      'Van Gent, R. N., Siem, D., et al. (2007). Incidence and determinants of lower-extremity running injuries. Journal of the American Podiatric Medical Association, 97(3), 229-237.',
+    ],
+  },
+  {
+    topic: 'Pace-to-HR Efficiency Factor',
+    source: 'functions/runningLoad.js, RUNNING_SCIENCE.md §#99/#108',
+    note: 'The trend used to detect real aerobic-fitness change from your own runs — pace per heart-rate-beat, tracked over 3-4+ runs rather than any single session.',
+    citations: [
+      'TrainingPeaks method — validated against lab-measured running economy (r = 0.7-0.85).',
+      'Aerobic decoupling concept from Friel & Palladino\'s endurance-training literature.',
+    ],
+  },
+  {
+    topic: 'VO₂max Estimation (Daniels VDOT)',
+    source: 'functions/vo2max.js, RUNNING_SCIENCE.md §#100',
+    note: 'Pace-based VO₂max proxy used whenever a direct Apple Watch reading isn\'t available, and to generate training paces per intensity zone.',
+    citations: [
+      'Daniels, J., & Gilbert, J. C. (1979). Oxygen power: Performance tables for distance runners. Physician and Sportsmedicine, 7(12), 45-62.',
+      'Daniels, J. (2014). Daniels\' Running Formula (3rd ed.). Human Kinetics.',
+    ],
+  },
+  {
+    topic: 'Karvonen Heart-Rate Zones & Max HR Estimate',
+    source: 'functions/runningPrescription.js, RUNNING_SCIENCE.md §#97',
+    note: 'Individualized HR training zones accounting for resting heart rate, rather than a flat percent-of-max. Max HR itself defaults to the Åstrand aging curve (more conservative than the commonly-cited 220-age Fox formula) when no measured max is available.',
+    citations: [
+      'Karvonen formula validated in Lucia, A., et al. (2006). High-intensity physical training in the elderly. Journal of Applied Physiology, 100(1), 130-140.',
+      'Åstrand, P.-O. (1952). Experimental studies of physical working capacity in relation to sex and age.',
+    ],
+  },
+  {
+    topic: 'Chest EMG Split by Bench Angle',
+    source: 'functions/chestHeadSplit.js',
+    note: 'Informational lower/mid/upper pec breakdown shown per exercise — directional estimates interpolated across studies, not one continuous measurement across the full angle range.',
+    citations: [
+      'Trebs, A. A., et al. (2010); Rocha Jr., E. S., et al. (2007); Barnett, C., et al. (1995); Solstad, T. E., et al. (2020) — EMG comparisons of bench-press incline angle and pec activation.',
+    ],
+  },
+  {
+    topic: 'Triceps Long-Head EMG Split by Elbow-Extension Angle',
+    source: 'functions/tricepsHeadSplit.js, functions/emgActivation.js',
+    note: 'The long head is biarticular (crosses the shoulder as well as the elbow), so it\'s genuinely more stretched, and grows more, trained overhead vs. neutral — the lateral/medial heads are monoarticular and not meaningfully affected by arm position.',
+    citations: [
+      'Maeo, S., et al. (2023). European Journal of Sport Science — overhead vs. neutral triceps extension: +28.5% vs +19.6% long-head hypertrophy, +19.9% vs +13.9% whole-triceps growth over the trial.',
+    ],
+  },
+  {
+    topic: 'Hamstring EMG Split by Leg-Curl Hip Angle',
+    source: 'functions/emgActivation.js',
+    note: 'The biarticular hamstrings (semimembranosus, semitendinosus, long head of biceps femoris) are lengthened more, and significantly outgrew, in the hip-flexed seated position vs. lying — calves showed no comparable angle-sensitivity.',
+    citations: [
+      'Maeo, S., et al. (2020) — 12-week trial comparing seated vs. lying leg-curl hamstring hypertrophy.',
+    ],
+  },
+  {
+    topic: 'Self-Calibrating Endurance Model (Dose-Response)',
+    source: 'RUNNING_SCIENCE.md §#112/#113',
+    note: 'How the 8-week VO₂max-gain forecast learns from your own actual outcomes rather than a fixed formula — predicted vs. measured gain feeds back into the model\'s own weights.',
+    citations: [
+      'Bouchard, C., Rankinen, T., et al. (2011). Genomic predictors of maximal O₂ uptake. Journal of Applied Physiology, 110(5), 1160-1170.',
+      'Banister, E. W., Calvert, T. W., Savage, M. V., & Bach, T. (1975). A systems model of training for athletic performance. Australian Journal of Sports Medicine, 7(3), 57-61.',
+      'Gabbett, T. J. (2016). The training-injury prevention paradox. British Journal of Sports Medicine, 50(5), 273-274.',
+    ],
+  },
+];
+
 function WikiOverlay({ onClose }) {
   const [tab, setTab] = useState('concepts');
   const [search, setSearch] = useState('');
@@ -9196,8 +9325,35 @@ function WikiOverlay({ onClose }) {
       <div className="settings-body">
         <div className="fade tab-bar" style={{ flexShrink: 0, marginBottom: 12 }}>
           <button className={`tab-btn${tab === 'concepts' ? ' active' : ''}`} onClick={() => setTab('concepts')}>Concepts</button>
+          <button className={`tab-btn${tab === 'evidence' ? ' active' : ''}`} onClick={() => setTab('evidence')}>Evidence</button>
           <button className={`tab-btn${tab === 'exercises' ? ' active' : ''}`} onClick={() => setTab('exercises')}>Exercises</button>
         </div>
+
+        {/* FEATURES.md #62: real citations only — see EVIDENCE_LIBRARY's own
+            header comment for what "real" means here. */}
+        {tab === 'evidence' && (
+          <>
+            <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)', marginBottom: 10, lineHeight: 1.6 }}>
+              What backs the numbers Press shows you — every entry cites a real source. Where an algorithm is a named heuristic rather than a published study, that's said plainly instead of dressed up as one.
+            </div>
+            {EVIDENCE_LIBRARY.map(e => (
+              <div key={e.topic} className="settings-sec" style={{ paddingTop: 12 }}>
+                <div style={{ fontFamily: "'Playfair Display',serif", fontWeight: 700, fontSize: 16, marginBottom: 4 }}>{e.topic}</div>
+                <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)', marginBottom: 6 }}>{e.source}</div>
+                <div style={{ fontFamily: "'Times New Roman',serif", fontSize: 14, lineHeight: 1.6, marginBottom: 6 }}>{e.note}</div>
+                {e.citations.length > 0 ? (
+                  <ul style={{ margin: '4px 0 0 18px', fontFamily: "'JetBrains Mono',monospace", fontSize: 10, color: 'var(--dim)', lineHeight: 1.7 }}>
+                    {e.citations.map((c, i) => <li key={i}>{c}</li>)}
+                  </ul>
+                ) : (
+                  <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, color: 'var(--ember)', fontStyle: 'italic' }}>
+                    Named practitioner heuristic — not a peer-reviewed citation.
+                  </div>
+                )}
+              </div>
+            ))}
+          </>
+        )}
 
         {tab === 'concepts' && WIKI_CONCEPTS.map(c => (
           <div key={c.term} className="settings-sec" style={{ paddingTop: 12 }}>
