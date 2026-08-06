@@ -1004,6 +1004,13 @@ const glycogenPct = (elapsedS, totalS) => {
 // app's first version — everything before this had no changelog at all.
 const CHANGELOG = [
   {
+    version: '0.79',
+    date: '2026-08-06',
+    features: [
+      'The finish-workout screen now shows your session\'s Load number (and how it compares to your recent average) right in the header, and Atlas\'s post-session note can now reference it and your Form trend directly instead of only reacting to the raw sets logged.',
+    ],
+  },
+  {
     version: '0.78',
     date: '2026-08-06',
     features: [
@@ -3209,6 +3216,7 @@ function WorkoutLogger({ planDay, lifts, customExercises, experienceLevel, onClo
         duration: Math.round(elapsed / 60),
         setsLogged: allSets.filter(s => s.kg || s.reps).length,
         atlasSummary: r.atlasSummary,
+        sessionLoad: r.sessionLoad,
       });
       setComparisonCandidates(r.comparisonCandidates || []);
       setComparisonIndex(0);
@@ -3367,6 +3375,10 @@ function WorkoutLogger({ planDay, lifts, customExercises, experienceLevel, onClo
             <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 28, fontWeight: 900, lineHeight: 1.1, margin: '6px 0 4px' }}>{summary.name.toUpperCase()}</div>
             <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)', letterSpacing: '.1em' }}>
               {new Date().toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })} · {summary.duration}min · {summary.setsLogged} sets
+              {/* #11 on the finish screen — data before the editorial reaction to it. */}
+              {summary.sessionLoad && (
+                <> · Load {summary.sessionLoad.current}{summary.sessionLoad.delta != null && ` (${summary.sessionLoad.delta > 0 ? '+' : ''}${summary.sessionLoad.delta} vs avg)`}</>
+              )}
             </div>
           </div>
           <div style={{ borderTop: '2px solid var(--ink)', paddingTop: 14 }}>

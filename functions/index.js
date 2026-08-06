@@ -2542,8 +2542,27 @@ app.post('/session/complete', async (req, res) => {
     if (typeof elapsed !== 'number' || elapsed < 0) return res.status(400).json({ error: 'elapsed (ms) must be non-negative number' });
 
     const sessionResult = await applySessionComplete(db, liftsDocRef, save, { workout, sets, customExercises, elapsed });
-    if (sessionResult === null) return res.json({ ok: true, setsLogged: 0, atlasSummary: null, comparisonCandidates: [] });
+    if (sessionResult === null) return res.json({ ok: true, setsLogged: 0, atlasSummary: null, comparisonCandidates: [], sessionLoad: null });
     const { setsLogged, comparisonCandidates } = sessionResult;
+
+    // #11/#18: db.lifts now includes this session's just-saved sets
+    // (applySessionComplete above already appended them), so the load score
+    // and trend below are computed against the real post-save state, not a
+    // stale snapshot from before this request.
+    const sessionDateLifts = db.lifts.filter(l => l.date === workout.date);
+    const currentLoad = sessionDateLifts.length ? sessionLoadScore(sessionDateLifts) : null;
+    let sessionLoad = null;
+    let formNote = '';
+    if (currentLoad != null) {
+      const priorDates = [...new Set(db.lifts.map(l => l.date))].filter(d => d && d !== workout.date).sort().reverse().slice(0, 5);
+      const trailing = priorDates.map(d => sessionLoadScore(db.lifts.filter(l => l.date === d)));
+      sessionLoad = { current: currentLoad, ...sessionLoadDelta(currentLoad, trailing) };
+      const trend = computeTrend(db.lifts);
+      const latestForm = trend.length ? trend.at(-1).form : null;
+      if (sessionLoad.delta != null) {
+        formNote = `\n\nSession load: ${currentLoad}/100 (${sessionLoad.delta > 0 ? '+' : ''}${sessionLoad.delta} vs your last ${trailing.length} session${trailing.length === 1 ? '' : 's'}).${latestForm != null ? ` Current form (fitness minus fatigue trend): ${latestForm > 0 ? '+' : ''}${latestForm}.` : ''} Reference these numbers directly if they're notable — don't restate the raw figure without saying what it means (e.g. "harder than usual" or "right in line with recent sessions").`;
+      }
+    }
 
     let atlasSummary = null;
     if (process.env.GEMINI_API_KEY && setsLogged > 0) {
@@ -2561,13 +2580,13 @@ ${topSets}
 Goal: ${profile.goal || 'build muscle'}
 Training age: ${profile.trainingAge || 'unknown'}
 
-Write a brief post-session note highlighting what the numbers say — mechanical fatigue accumulation, any standout load, what to prioritise next. No bullet points. No greetings.${lowRepNote}`;
+Write a brief post-session note highlighting what the numbers say — mechanical fatigue accumulation, any standout load, what to prioritise next. No bullet points. No greetings.${lowRepNote}${formNote}`;
 
       const result = await callGeminiResilient({ messages: [{ role: 'user', content: prompt }], maxTokens: 300, temperature: 0.7 });
       atlasSummary = result.ok ? result.content.trim() : null;
     }
 
-    res.json({ ok: true, setsLogged, atlasSummary, comparisonCandidates });
+    res.json({ ok: true, setsLogged, atlasSummary, comparisonCandidates, sessionLoad });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
