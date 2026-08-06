@@ -72,6 +72,14 @@ const {
   computeMuscleLastTrainedDays, computeCompoundIsolationSplit, computeStabilitySplit,
 } = require('./fatigue');
 const { personalizedRecoveryHours, trainingMonthsIfKnown, computeAgeYears } = require('./recoveryPersonalization');
+const { cyclePhaseFactor } = require('./cycleTracking');
+// Only computed when tracking is on and there's at least one logged entry
+// — otherwise cycleFactor stays exactly 1 (a no-op), same "opt-in changes
+// nothing until there's real data" posture as musclePriorities/goals.
+function activeCycleFactor(db) {
+  if (!db.profile?.cycleTrackingEnabled || !(db.cycle || []).length) return 1;
+  return cyclePhaseFactor(db.cycle, Date.now(), db.profile?.cycleIrregular).factor;
+}
 const { alcoholStats, computeDataMaturity, compVerdict, toCsv, weekLiftSessionsCompleted } = require('./analytics');
 const { projectGoal, formatGoalLine, bucketWorkingAttention, ffm, ffmi } = require('./weeklyReview');
 const { computeHybridFatigue } = require('./hybridFatigue');
@@ -839,7 +847,7 @@ app.get("/summary", async (req, res) => {
     summaryMusclePeaks,
     db.soreness || [],
     db.muscleSensitivity || {},
-    personalizedRecoveryHours(db.profile),
+    personalizedRecoveryHours(db.profile, activeCycleFactor(db)),
     db.profile
   );
   const monthWk = db.workouts.filter(w => w.date >= day(new Date(Date.now() - 30 * 864e5)));
@@ -923,6 +931,8 @@ app.get("/summary", async (req, res) => {
       elapsedDays: Math.floor((Date.now() - i.ts) / 864e5),
       clearance: Math.round(100 - injuryFatiguePenalty(i)),
     })),
+    cycle: db.cycle || [],
+    cycleStats: db.profile?.cycleTrackingEnabled ? cyclePhaseFactor(db.cycle || [], Date.now(), db.profile?.cycleIrregular) : null,
     weights, workouts: [...db.workouts].sort((a,b)=>(b.date||'').localeCompare(a.date||'')).slice(0,20), workoutsMonth: monthWk.length,
     water: lastN(db.water, 14), waterToday: db.water[day()] || 0,
     weeklyPlan: db.weeklyPlan ? { ...db.weeklyPlan, sessionsCompletedThisWeek: weekLiftSessionsCompleted(db.lifts) } : null,
@@ -968,7 +978,7 @@ app.get("/timeline", async (req, res) => {
 
 // ---------- Movement-pattern fatigue ----------
 app.get("/movement-patterns", async (req, res) => {
-  res.json({ patterns: computePatternFatigue(db.lifts, personalizedRecoveryHours(db.profile)) });
+  res.json({ patterns: computePatternFatigue(db.lifts, personalizedRecoveryHours(db.profile, activeCycleFactor(db))) });
 });
 
 // ---------- Long-arc trends ----------
@@ -1753,7 +1763,7 @@ app.post("/mentor", async (req, res) => {
 function sessionPlanContext() {
   const lifts = db.lifts || [];
   const peaks = musclePeaksFromLifts(lifts);
-  const structuralFatigue = computeStructuralFatigue(lifts, peaks, db.soreness || [], db.muscleSensitivity || {}, personalizedRecoveryHours(db.profile));
+  const structuralFatigue = computeStructuralFatigue(lifts, peaks, db.soreness || [], db.muscleSensitivity || {}, personalizedRecoveryHours(db.profile, activeCycleFactor(db)));
   const activeInjuries = (db.injuries || []).filter(i => !i.resolved);
   const currentFatigue = applyInjuryTaper(structuralFatigue, activeInjuries);
   const metabolicFatigue = computeMetabolicFatigue(lifts, (db.nutrition || {})[day()]?.carbs || 0);
@@ -2046,7 +2056,7 @@ app.post("/import/hevy", async (req, res) => {
 // only holds if it sees exactly the same fatigue map, exclusions and split.
 function weeklyGuidanceInputs() {
   const peaks = musclePeaksFromLifts(db.lifts);
-  const structuralFatigue = computeStructuralFatigue(db.lifts, peaks, db.soreness || [], db.muscleSensitivity || {}, personalizedRecoveryHours(db.profile));
+  const structuralFatigue = computeStructuralFatigue(db.lifts, peaks, db.soreness || [], db.muscleSensitivity || {}, personalizedRecoveryHours(db.profile, activeCycleFactor(db)));
   const currentFatigue = applyInjuryTaper(structuralFatigue, db.injuries || []);
   const weekMetabolic = computeMetabolicFatigue(db.lifts, (db.nutrition || {})[day()]?.carbs || 0);
   const weekCNS = computeCNSFatigue(db.lifts, db.cnsSensitivity || 1.0, getRecoveryScore(db));
@@ -2152,7 +2162,7 @@ function computeRecommendation(storedPlan) {
   const recoveryForecast = buildRecoveryForecast({
     currentFatigue: inputs.currentFatigue,
     cnsFatigue: inputs.weekCNS,
-    recoveryHours: personalizedRecoveryHours(db.profile),
+    recoveryHours: personalizedRecoveryHours(db.profile, activeCycleFactor(db)),
   });
 
   return {
@@ -2256,7 +2266,7 @@ app.get('/plan/calendar', async (req, res) => {
     lifts: ctx.lifts,
     soreness: db.soreness || [],
     sensitivity: db.muscleSensitivity || {},
-    recoveryHours: personalizedRecoveryHours(db.profile),
+    recoveryHours: personalizedRecoveryHours(db.profile, activeCycleFactor(db)),
     cnsSensitivity: db.cnsSensitivity || 1.0,
     recoveryScore: getRecoveryScore(db),
     carbsToday: (db.nutrition || {})[day()]?.carbs || 0,
@@ -2329,6 +2339,67 @@ app.post('/injuries/:id/resolve', async (req, res) => {
   if (!injury) return res.status(404).json({ error: 'not found' });
   injury.resolved = true;
   injury.resolvedAt = Date.now();
+  await save();
+  res.json({ ok: true });
+});
+
+// ---------- Menstrual cycle tracking (lightweight, manual — see cycleTracking.js) ----------
+app.get('/cycle', async (req, res) => {
+  const log = db.cycle || [];
+  res.json({ cycle: log, stats: cyclePhaseFactor(log, Date.now(), db.profile?.cycleIrregular) });
+});
+
+app.post('/cycle/start', async (req, res) => {
+  db.cycle = db.cycle || [];
+  if (db.cycle.some(c => c.endTs == null)) {
+    return res.status(400).json({ error: 'a period is already open — end it before starting a new one' });
+  }
+  const id = Date.now();
+  db.cycle.push({ id, startTs: id, endTs: null, heaviness: null, note: '' });
+  await save();
+  res.json({ ok: true, id });
+});
+
+app.post('/cycle/:id/end', async (req, res) => {
+  const id = +req.params.id;
+  db.cycle = db.cycle || [];
+  const entry = db.cycle.find(c => c.id === id);
+  if (!entry) return res.status(404).json({ error: 'not found' });
+  if (entry.endTs != null) return res.status(400).json({ error: 'already ended' });
+  const { heaviness, note } = req.body || {};
+  if (heaviness != null && (!Number.isInteger(heaviness) || heaviness < 1 || heaviness > 5)) {
+    return res.status(400).json({ error: 'heaviness must be an integer 1-5' });
+  }
+  entry.endTs = Date.now();
+  if (heaviness != null) entry.heaviness = heaviness;
+  if (note != null) entry.note = String(note).slice(0, 500);
+  await save();
+  res.json({ ok: true });
+});
+
+// Correcting the training-impact rating after the fact — heaviness is
+// often only clear a few days after a period ends, not the moment it does.
+app.patch('/cycle/:id', async (req, res) => {
+  const id = +req.params.id;
+  db.cycle = db.cycle || [];
+  const entry = db.cycle.find(c => c.id === id);
+  if (!entry) return res.status(404).json({ error: 'not found' });
+  const { heaviness, note } = req.body || {};
+  if (heaviness != null) {
+    if (!Number.isInteger(heaviness) || heaviness < 1 || heaviness > 5) {
+      return res.status(400).json({ error: 'heaviness must be an integer 1-5' });
+    }
+    entry.heaviness = heaviness;
+  }
+  if (note != null) entry.note = String(note).slice(0, 500);
+  await save();
+  res.json({ ok: true, entry });
+});
+
+// Safety-net delete for a mis-tapped start/end — same shape as
+// /calendar-windows/:id.
+app.delete('/cycle/:id', async (req, res) => {
+  db.cycle = (db.cycle || []).filter(c => c.id !== +req.params.id);
   await save();
   res.json({ ok: true });
 });
@@ -3112,7 +3183,7 @@ async function generateMorningBriefing(db) {
   const hrv = todayMetrics.heart_rate_variability || yesterdayMetrics.heart_rate_variability;
   const rhr = todayMetrics.resting_heart_rate || yesterdayMetrics.resting_heart_rate;
 
-  const fatigue = computeCurrentFatigueScores(db.lifts || [], musclePeaksFromLifts(db.lifts || []), db.soreness || [], db.muscleSensitivity || {}, personalizedRecoveryHours(db.profile));
+  const fatigue = computeCurrentFatigueScores(db.lifts || [], musclePeaksFromLifts(db.lifts || []), db.soreness || [], db.muscleSensitivity || {}, personalizedRecoveryHours(db.profile, activeCycleFactor(db)));
   const topFatigued = Object.entries(fatigue).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([m, v]) => `${m} ${Math.round(v)}%`).join(', ');
 
   const briefingFatigue = fatigue;
@@ -3120,6 +3191,7 @@ async function generateMorningBriefing(db) {
   const briefingCNS = computeCNSFatigue(db.lifts || [], db.cnsSensitivity || 1.0, getRecoveryScore(db));
   const macroTargets = db.profile?.macroTargets || { protein: 160, calories: 2400 };
   const nutritionNotLogged = !totalCalories && !totalProtein;
+  const cycleInfo = db.profile?.cycleTrackingEnabled && (db.cycle || []).length ? cyclePhaseFactor(db.cycle, Date.now(), db.profile?.cycleIrregular) : null;
 
   const prompt = `You are generating a morning health briefing for a personal health app called Press. The briefing has three voices:
 
@@ -3137,7 +3209,7 @@ The user's data:
 - Yesterday's nutrition: ${totalCalories ? totalCalories + 'kcal, ' + totalProtein + 'g protein' : 'NOT LOGGED — flag this'}
 - Structural fatigue: ${topFatigued || 'none'}
 - Metabolic fatigue: ${briefingMetabolic}%
-- CNS fatigue: ${briefingCNS}%
+- CNS fatigue: ${briefingCNS}%${cycleInfo && cycleInfo.cycleDay != null ? `\n- Cycle phase: day ${cycleInfo.cycleDay}${cycleInfo.onPeriod ? ' (on period)' : ''}, recovery calibration factor ${cycleInfo.factor.toFixed(2)}, RIR guidance: ${cycleInfo.rirOffset > 0 ? '+' + cycleInfo.rirOffset : cycleInfo.rirOffset}` : ''}
 - Goal: ${db.profile?.goal || 'build muscle'}
 - Protein target: ${macroTargets.protein}g/day, Calorie target: ${macroTargets.calories}kcal/day
 - Supplements: ${(db.supplements || []).map(s => s.name).join(', ') || 'none logged'}
@@ -3180,9 +3252,10 @@ async function generateNewscast(db, period) {
   const nutritionLogged = todayNutrition.length > 0;
   const macroTargets = db.profile?.macroTargets || { calories: 2400, protein: 160 };
   const timeLabel = period === 'afternoon' ? 'Mid-Day Update' : "Tonight's Report";
-  const fatigue = computeCurrentFatigueScores(db.lifts || [], musclePeaksFromLifts(db.lifts || []), db.soreness || [], db.muscleSensitivity || {}, personalizedRecoveryHours(db.profile));
+  const fatigue = computeCurrentFatigueScores(db.lifts || [], musclePeaksFromLifts(db.lifts || []), db.soreness || [], db.muscleSensitivity || {}, personalizedRecoveryHours(db.profile, activeCycleFactor(db)));
   const topFatigued = Object.entries(fatigue).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([m, v]) => `${m} ${Math.round(v)}%`).join(', ') || 'none';
   const cns = computeCNSFatigue(db.lifts || [], db.cnsSensitivity || 1.0, getRecoveryScore(db));
+  const cycleInfo = db.profile?.cycleTrackingEnabled && (db.cycle || []).length ? cyclePhaseFactor(db.cycle, Date.now(), db.profile?.cycleIrregular) : null;
 
   const prompt = `You are generating a ${timeLabel} for a personal health app called Press. Same editorial voices as the morning edition — V (health editor, cool newspaper prose, no hand-holding) and Atlas (training analyst, methodical, science-grounded).
 
@@ -3190,7 +3263,7 @@ Today's data so far:
 - Workout: ${todayWorkout ? todayWorkout.name + ' — completed' : 'not yet logged'}
 - Nutrition logged: ${nutritionLogged ? `${totalCals}kcal, ${totalProtein}g protein (target: ${macroTargets.calories}kcal, ${macroTargets.protein}g protein)` : 'NOTHING LOGGED'}
 - Structural fatigue: ${topFatigued}
-- CNS fatigue: ${cns}%
+- CNS fatigue: ${cns}%${cycleInfo && cycleInfo.cycleDay != null ? `\n- Cycle phase: day ${cycleInfo.cycleDay}${cycleInfo.onPeriod ? ' (on period)' : ''}, recovery calibration factor ${cycleInfo.factor.toFixed(2)}, RIR guidance: ${cycleInfo.rirOffset > 0 ? '+' + cycleInfo.rirOffset : cycleInfo.rirOffset}` : ''}
 - Time of day: ${period === 'afternoon' ? 'mid-afternoon' : 'evening'}
 
 Return ONLY valid JSON:
@@ -3320,7 +3393,7 @@ async function generateWeeklyReview(db) {
   // current-moment snapshots (nothing stores them historically), so they
   // contextualize the recovery trend rather than being a trend themselves.
   const weeklyMusclePeaks = musclePeaksFromLifts(db.lifts || []);
-  const currentFatigue = computeCurrentFatigueScores(db.lifts || [], weeklyMusclePeaks, db.soreness || [], db.muscleSensitivity || {}, personalizedRecoveryHours(db.profile));
+  const currentFatigue = computeCurrentFatigueScores(db.lifts || [], weeklyMusclePeaks, db.soreness || [], db.muscleSensitivity || {}, personalizedRecoveryHours(db.profile, activeCycleFactor(db)));
   const topFatigued = Object.entries(currentFatigue).sort((a, b) => b[1] - a[1]).slice(0, 2).map(([m, v]) => `${m} ${Math.round(v)}%`);
   const fatigueTrend = {
     recoveryThisWeek: avgRecoveryThis != null ? Math.round(avgRecoveryThis) : null,
@@ -3329,6 +3402,10 @@ async function generateWeeklyReview(db) {
     cns: computeCNSFatigue(db.lifts || [], db.cnsSensitivity || 1.0, getRecoveryScore(db)),
     metabolic: computeMetabolicFatigue(db.lifts || [], (db.nutrition || {})[todayISO]?.carbs || 0),
   };
+  // Not woven into the LLM prompt below — this generator's prompt doesn't
+  // narrate fatigue numbers as text at all (unlike the morning briefing/
+  // newscast), it's display-only data for the frontend, same as fatigueTrend.
+  const cycleInfo = db.profile?.cycleTrackingEnabled && (db.cycle || []).length ? cyclePhaseFactor(db.cycle, Date.now(), db.profile?.cycleIrregular) : null;
 
   const prompt = `You are generating a Weekly Review for a personal health app called Press — a week-over-week digest, not a single-day report. Same editorial voices as the daily editions — V (health editor, cool newspaper prose, no hand-holding) and Atlas (training analyst, methodical, science-grounded).
 
@@ -3365,6 +3442,7 @@ Return ONLY valid JSON:
   review.goalCheck = goalCheck;
   review.workingAttention = workingAttention;
   review.fatigueTrend = fatigueTrend;
+  review.cycleInfo = cycleInfo;
   return review;
 }
 

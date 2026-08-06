@@ -32,3 +32,21 @@ test('personalizedRecoveryHours clamps to the 24-120h band', () => {
     assert.ok(hl >= 24 && hl <= 120, `half-life ${hl} out of clamp range`);
   }
 });
+
+test('personalizedRecoveryHours(profile) with no second arg is unchanged (cycleFactor default is a no-op)', () => {
+  const profile = { dob: '1990-01-01', trainingExperienceYears: 2, trainingExperienceSetAt: new Date().toISOString() };
+  assert.deepEqual(personalizedRecoveryHours(profile), personalizedRecoveryHours(profile, 1));
+});
+
+test('personalizedRecoveryHours(profile, cycleFactor) scales every muscle uniformly and stays clamped', () => {
+  const profile = { dob: '1990-01-01', trainingExperienceYears: 2, trainingExperienceSetAt: new Date().toISOString() };
+  const baseline = personalizedRecoveryHours(profile, 1.0);
+  const longer = personalizedRecoveryHours(profile, 1.3);
+  const shorter = personalizedRecoveryHours(profile, 0.7);
+  for (const m of Object.keys(baseline)) {
+    assert.ok(longer[m] >= baseline[m], `${m}: expected cycleFactor 1.3 to lengthen or hold recovery hours`);
+    assert.ok(shorter[m] <= baseline[m], `${m}: expected cycleFactor 0.7 to shorten or hold recovery hours`);
+    assert.ok(longer[m] >= 24 && longer[m] <= 120, `${m} out of clamp range at cycleFactor 1.3`);
+    assert.ok(shorter[m] >= 24 && shorter[m] <= 120, `${m} out of clamp range at cycleFactor 0.7`);
+  }
+});

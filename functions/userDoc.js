@@ -16,6 +16,14 @@ const DEFAULTS = () => ({
   // 'restricted'. Recurring day-of-week blackouts and the day-of-week split
   // anchor live on `profile` instead (durable settings, not dated events).
   calendarWindows: [],
+  // Manual period start/end log for lightweight cycle-aware recovery
+  // calibration (see cycleTracking.js) — deliberately not fertility
+  // prediction and not symptom logging: the only rating captured is
+  // `heaviness`, training-impact severity, not menstrual flow volume.
+  // One entry per period: { id, startTs, endTs, heaviness, note }. endTs
+  // stays null while the period is open; id doubles as the lookup key for
+  // /cycle/:id routes, same convention as injuries above.
+  cycle: [],
   profile: { name: null, heightCm: null, sex: null, waterTarget: 7,
     macroTargets: { calories: 2400, protein: 160, carbs: 250, fat: 75 }, macroMode: "manual",
     // Each entry: { type, priority: 'primary'|'secondary'|'minor', concrete,
@@ -51,6 +59,20 @@ const DEFAULTS = () => ({
     // resetWalkthroughs ("Replay Walkthrough" in Settings) — never written
     // wholesale by the client, same pattern as `visibility` above.
     walkthroughsSeen: {},
+    // Explicit opt-in for menstrual-cycle-aware recovery calibration
+    // (cycleTracking.js). The calibration itself never infers readiness
+    // from `sex` above — that field is used inconsistently across the
+    // codebase ('F'/'M' in some places, 'male'/'female' in others) and
+    // isn't a safe gate on its own; only this explicit flag is read
+    // server-side. The Settings UI does restrict who can *see* the toggle
+    // (sex === 'female'), but that's a client-side display decision, not
+    // something this field or its consumers depend on. cycleIrregular
+    // turns off day-count estimation between logged periods (see
+    // currentCycleDay in cycleTracking.js) — a reasonable guess from the
+    // average cycle length for a regular cycle, actively misleading for
+    // an irregular one.
+    cycleTrackingEnabled: false,
+    cycleIrregular: false,
   },
 });
 

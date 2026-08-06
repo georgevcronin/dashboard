@@ -473,6 +473,18 @@ section.visible .fade:nth-child(6){transition-delay:.56s}
 .injury-sev{display:flex;gap:6px}
 .injury-sev-btn{flex:1;font-family:'JetBrains Mono',monospace;font-size:8px;letter-spacing:.1em;text-transform:uppercase;padding:5px;border:1px solid var(--rule);background:none;cursor:pointer;color:var(--dim)}
 .injury-sev-btn.active{background:var(--ink);color:var(--paper);border-color:var(--ink)}
+.cycle-status{padding:10px 12px;border-left:3px solid var(--navy);margin-bottom:10px}
+.cycle-summary{font-family:Times New Roman,serif;font-size:12px;color:var(--ink);margin-top:4px;line-height:1.5}
+.cycle-list{display:flex;flex-direction:column;gap:10px;margin-top:10px}
+.cycle-card{padding:10px 12px;border-left:3px solid var(--navy)}
+.cycle-meta{font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--dim);margin-top:2px}
+.cycle-actions{display:flex;gap:6px;margin-top:6px}
+.cycle-edit,.cycle-remove{font-family:'JetBrains Mono',monospace;font-size:8px;letter-spacing:.1em;text-transform:uppercase;background:none;border:1px solid var(--rule);color:var(--dim);padding:3px 8px;cursor:pointer}
+.cycle-form{margin-top:16px;padding-top:12px;border-top:1px solid var(--rule);display:flex;flex-direction:column;gap:8px}
+.cycle-input{width:100%;border:none;border-bottom:2px solid var(--ink);padding:6px 0;background:transparent;font-family:Times New Roman,serif;font-size:14px;color:var(--ink);outline:none}
+.cycle-heaviness{display:flex;gap:6px}
+.cycle-heaviness-btn{flex:1;font-family:'JetBrains Mono',monospace;font-size:8px;letter-spacing:.1em;text-transform:uppercase;padding:5px;border:1px solid var(--rule);background:none;cursor:pointer;color:var(--dim)}
+.cycle-heaviness-btn.active{background:var(--ink);color:var(--paper);border-color:var(--ink)}
 .travel-banner{margin:0 0 14px;padding:8px 12px;background:var(--navy);color:var(--paper);font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.12em;text-transform:uppercase;display:flex;align-items:center;justify-content:space-between}
 .experiment-card{padding:10px 12px;border-left:3px solid var(--gold);margin-bottom:10px}
 .experiment-h{font-family:'Playfair Display',serif;font-size:13px;font-weight:700;color:var(--ink);margin-bottom:3px}

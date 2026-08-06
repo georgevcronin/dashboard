@@ -60,9 +60,13 @@ function ageFactor(ageYears) {
 }
 
 // Clamped to 24-120h so the two factors can't compound into something absurd
-// for, say, a 65-year-old brand-new lifter.
-function personalizedRecoveryHours(profile) {
-  const factor = trainingExperienceFactor(trainingExperienceMonths(profile)) * ageFactor(computeAgeYears(profile?.dob));
+// for, say, a 65-year-old brand-new lifter. cycleFactor (default 1, a no-op)
+// is cyclePhaseFactor(...).factor from cycleTracking.js — folded in here
+// rather than as a separate multiply at each call site, since every call
+// site already treats this function as "the" personalized recovery-hours
+// table for that request.
+function personalizedRecoveryHours(profile, cycleFactor = 1) {
+  const factor = trainingExperienceFactor(trainingExperienceMonths(profile)) * ageFactor(computeAgeYears(profile?.dob)) * cycleFactor;
   const out = {};
   for (const [m, base] of Object.entries(RECOVERY_H)) out[m] = Math.max(24, Math.min(120, Math.round(base * factor)));
   return out;

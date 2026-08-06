@@ -346,8 +346,14 @@ function suggestedWorkingSetCount(exerciseSessionCount) {
 // (index.js) stated rule: "the first working set leaves more in reserve,
 // each subsequent set gets closer to true failure, with the last set at
 // RIR 0-1; never repeat the same RIR across sets of the same exercise."
-function suggestedRirSequence(setCount) {
-  return Array.from({ length: setCount }, (_, i) => setCount - 1 - i);
+// offset (default 0, a no-op) shifts the whole sequence — cycleTracking.js's
+// rirOffset, a small +-1 nudge for menstrual-cycle-aware calibration:
+// positive during a dip (stay further from failure), negative at a peak
+// (fine to push closer). Floored at 0 since RIR can't go negative; a large
+// positive offset can collapse the low end into repeated 0s, an accepted
+// tradeoff for a rarely-used, small-magnitude shift.
+function suggestedRirSequence(setCount, offset = 0) {
+  return Array.from({ length: setCount }, (_, i) => Math.max(0, setCount - 1 - i + offset));
 }
 
 // TRAINING_ETHOS (index.js): "Reps run 1-9, biased toward the higher end (up
