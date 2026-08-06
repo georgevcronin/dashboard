@@ -17,6 +17,7 @@ Anything that assumes single-owner behaviour (`PRESS_OWNER_UID`, the request-sco
 - `npm run build` after any `src/app.jsx` change — it's the only thing that catches syntax/import errors on the frontend (no frontend test suite).
 - `npm test` after any `functions/*.js` change — extract pure logic into its own module (pattern: `analytics.js`, `recoveryPersonalization.js`) and add a test file in `test/` rather than growing `index.js`.
 - `main` deploys on every push with no staging environment — treat it as production. Don't push to `main` without being asked.
+- No PRs — when asked to ship, commit directly to `main`. A PR sitting unmerged is why changes stop showing up in the app.
 - After shipping something worth calling out (a fix or feature a user would actually notice — not internal refactors), add an entry to `CHANGELOG` in `src/app.jsx` (near the top, alongside `SET_TYPES`): bump the version, today's date, one bullet per notable change. Shown at the top of Settings, newest first.
 
 ## Code style

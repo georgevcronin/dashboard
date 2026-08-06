@@ -5,7 +5,7 @@ import { auth, googleProvider, API_BASE, getToken, api, authFetch,
 import { isAccountAlreadyOnboarded } from './onboardingGate.js';
 import { S4, BODY_BASE, MUSCLES_WITHOUT_BODY_REGION, SORENESS_DIAGRAM_MUSCLES } from './sections/S4.jsx';
 import { S6, MOVEMENT_GROUPS, groupExercise } from './sections/S6.jsx';
-import { S8 } from './sections/Goals.jsx';
+import { S8, GOAL_DEFS, GOAL_PRIORITIES, GOAL_METRIC_OPTIONS, buildGoalsPayload } from './sections/Goals.jsx';
 import { MICRO_WIDGET_IDS, MICRO_WIDGET_LABELS, MICRO_WIDGET_UNITS, MicroWidget } from './sections/MicroWidgets.jsx';
 import { DashboardGrid, computeColumnCount } from './sections/DashboardGrid.jsx';
 import { createRoot } from "react-dom/client";
@@ -1004,6 +1004,14 @@ const glycogenPct = (elapsedS, totalS) => {
 // instead of the list. v0.1 is the first tracked release, not literally the
 // app's first version — everything before this had no changelog at all.
 const CHANGELOG = [
+  {
+    version: '0.82',
+    date: '2026-08-06',
+    features: [
+      'The Goals panel itself now has an Edit button — add, drop, re-rank, or re-target a training goal directly from the panel, the same fields as Onboarding and Settings\' Training Goals editor, no detour required.',
+      'Fixed the right-hand section-nav dots on desktop: the freeform drag/resize grid can put several sections on screen at once in different columns, and the dots were toggling every one of them active independently instead of tracking a single "you are here" — only the most-visible section\'s dot lights up now.',
+    ],
+  },
   {
     version: '0.81',
     date: '2026-08-06',
@@ -6298,50 +6306,10 @@ function S7({ s }) {
 // ── ONBOARDING ────────────────────────────────────────────────────────────────
 const TRAINING_SPLITS = ['Full Body', 'Upper / Lower', 'Push / Pull / Legs', 'Arnold Split', 'PPL Arnold', 'Other'];
 
-// FEATURES.md #21 -- five goal types. Strength and Hypertrophy stay one
-// mechanism per George's correction (same progressive-overload training,
-// different rep range) -- that's already captured by the existing usual-rep-
-// range fields in Training Background, not a second goal here.
-const GOAL_DEFS = [
-  { key: 'fatLoss', label: 'Lose Fat', desc: 'Calorie deficit, preserve muscle' },
-  { key: 'muscle', label: 'Gain Muscle / Strength', desc: 'Progressive overload — rep range below sets the emphasis' },
-  { key: 'cardio', label: 'Improve Cardiovascular Health', desc: 'Heart rate, endurance, conditioning' },
-  { key: 'flexibility', label: 'Improve Flexibility', desc: 'Mobility and range of motion' },
-  { key: 'sport', label: 'Improve in a Sport', desc: 'Sport-specific performance' },
-];
-const GOAL_PRIORITIES = [
-  { value: 'primary', label: 'Primary' },
-  { value: 'secondary', label: 'Secondary' },
-  { value: 'minor', label: 'Minor' },
-];
-// Metrics for a concrete goal's target, per type -- flexibility/sport are
-// free text (nothing in the app measures either), so they're absent here.
-const GOAL_METRIC_OPTIONS = {
-  fatLoss: [{ value: 'weight', label: 'Bodyweight', unit: 'kg' }, { value: 'bodyFat', label: 'Body Fat %', unit: '%' }],
-  muscle: [{ value: 'lift', label: 'A specific lift', unit: 'kg' }, { value: 'ffm', label: 'Fat-Free Mass', unit: 'kg' }, { value: 'ffmi', label: 'FFMI', unit: '' }],
-  cardio: [{ value: 'rhr', label: 'Resting Heart Rate', unit: 'bpm' }, { value: 'benchmark', label: 'Benchmark time (e.g. 5k)', unit: '' }, { value: 'vo2max', label: 'VO₂ Max', unit: '' }],
-};
-// Shapes a raw trainingGoals draft (as edited by the GOAL_DEFS card UI,
-// concrete/metric/target/etc. all still loose strings) into the payload
-// /profile's validateGoals expects. Shared by Onboarding step 2 and
-// Settings' Training Goals editor so the two can't quietly diverge —
-// this exact transform used to be copy-pasted in both places.
-function buildGoalsPayload(goals) {
-  return goals.map(g => {
-    const out = { type: g.type, priority: g.priority, concrete: !!g.concrete };
-    if (!g.concrete) return out;
-    out.targetDate = g.targetDate;
-    if (GOAL_METRIC_OPTIONS[g.type]) {
-      out.metric = g.metric;
-      out.target = parseFloat(g.target);
-      if (g.metric === 'lift') out.exercise = g.exercise;
-      if (g.metric === 'benchmark') out.benchmarkLabel = g.benchmarkLabel;
-    } else {
-      out.target = g.target;
-    }
-    return out;
-  });
-}
+// GOAL_DEFS/GOAL_PRIORITIES/GOAL_METRIC_OPTIONS/buildGoalsPayload now live
+// in Goals.jsx (imported above) — Onboarding, Settings' Training Goals
+// editor, and the Goals panel's own Edit button all share the same defs
+// and payload shape, no separate copies.
 // FEATURES.md #24 -- 7 broad activities, same Primary/Secondary/Minor
 // priority picker as goals (replaces the old single primaryActivity/
 // secondaryActivity pair).
@@ -10727,13 +10695,25 @@ function App() {
     sections[0]?.classList.add('visible');
     dots[0]?.classList.add('active');
 
+    // Desktop lays sections into a multi-column GridStack grid (not the
+    // single-column stack these dots were originally written for), so at
+    // any scroll position several non-adjacent sections can be intersecting
+    // at once. Toggling each dot independently on isIntersecting lit up
+    // several scattered dots instead of tracking "where you are" — only the
+    // single most-visible section's dot lights up now. A wider threshold
+    // list gives intersectionRatio enough resolution to compare sections by;
+    // .visible still fires off the first (near-zero) crossing, same as before.
+    const ratios = new Map();
     const obs = new IntersectionObserver(entries => {
       entries.forEach(e => {
         const idx = sections.indexOf(e.target);
         if (e.isIntersecting) e.target.classList.add('visible');
-        if (dots[idx]) dots[idx].classList.toggle('active', e.isIntersecting);
+        ratios.set(idx, e.isIntersecting ? e.intersectionRatio : 0);
       });
-    }, { threshold: 0.01 });
+      let bestIdx = -1, bestRatio = 0;
+      ratios.forEach((ratio, idx) => { if (ratio > bestRatio) { bestRatio = ratio; bestIdx = idx; } });
+      if (bestIdx >= 0) dots.forEach((dot, idx) => dot.classList.toggle('active', idx === bestIdx));
+    }, { threshold: [0, .1, .2, .3, .4, .5, .6, .7, .8, .9, 1] });
     sections.forEach(sec => obs.observe(sec));
 
     return () => obs.disconnect();
@@ -11006,7 +10986,7 @@ function App() {
     s5: <S5 key="s5" s={s} recommendation={recommendation} refresh={refresh} />,
     s6: <S6 key="s6" s={s} refresh={refresh} />,
     s7: <S7 key="s7" s={s} />,
-    s8: <S8 key="s8" s={s} />,
+    s8: <S8 key="s8" s={s} refresh={refresh} />,
     s9: <S9 key="s9" s={s} followBadge={followBadge} reloadFollowBadge={loadFollowRequests} />,
   };
   // Default grid size for an item that has no saved x/y/w/h yet — mirrors the
