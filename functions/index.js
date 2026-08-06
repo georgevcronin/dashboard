@@ -88,6 +88,7 @@ const { computeRunningACWR } = require('./runningLoad');
 const { vdotTrend, resolveVO2max, vdotTrainingPaces } = require('./vo2max');
 const { weeklyEfficiencyTrend, detectSessionDistanceSpike, dailyLoadsFromRuns } = require('./runningLoad');
 const { parseVO2max } = require('./shortcutParsing');
+const { parseStravaActivity } = require('./stravaParsing');
 const { predict8WeekVO2Gain } = require('./runningPrediction');
 
 // ---------- Unified workout schema ----------
@@ -691,26 +692,24 @@ async function stravaAccessToken() {
 }
 
 function ingestActivity(a) {
-  const date = (a.start_date_local || a.start_date || "").slice(0, 10);
-  if (!date) return;
-  const name = (a.sport_type || a.type || "workout").toLowerCase().replace(/_/g, " ");
-  const duration = Math.round((a.moving_time || a.elapsed_time || 0) / 60);
-  const kcal = a.kilojoules ? Math.round(a.kilojoules * 0.239) : null;
+  const parsed = parseStravaActivity(a);
+  if (!parsed) return;
+  const { date, name, sourceId, duration, kcal, isRun, structured } = parsed;
   const now = new Date().toISOString();
   const mergeIdx = findOrMergeWorkout(db.workouts, date, 'strava');
   if (mergeIdx >= 0) {
     const existing = db.workouts[mergeIdx];
     db.workouts[mergeIdx] = createWorkoutRecord({
-      date, name, source: 'strava', sourceId: String(a.id),
+      date, name, source: 'strava', sourceId,
       duration: duration || (existing?.duration || null),
       kcal: kcal || (existing?.kcal || null),
       sets: existing?.sets || 0,
       createdAt: existing?.createdAt || (a.start_date_local || a.start_date),
       updatedAt: now,
     });
-  } else if (!db.workouts.find(w => w.source === "strava" && w.sourceId === String(a.id))) {
+  } else if (!db.workouts.find(w => w.source === "strava" && w.sourceId === sourceId)) {
     db.workouts.push(createWorkoutRecord({
-      date, name, source: 'strava', sourceId: String(a.id),
+      date, name, source: 'strava', sourceId,
       duration, kcal,
       createdAt: a.start_date_local || a.start_date,
       updatedAt: now,
@@ -721,21 +720,10 @@ function ingestActivity(a) {
   // workout record above stays a generic summary; distance/pace/HR/elevation
   // only live here. Split by Strava's own sport_type against the app's
   // existing lifting/running/sports vocabulary (userDoc.js weeklyTargets).
-  if (duration > 0) {
-    const sportType = (a.sport_type || a.type || "").toLowerCase();
-    const isRun = /run/.test(sportType);
+  if (structured) {
     const target = isRun ? db.runs : db.sports;
-    if (!target.find(r => r.sourceId === String(a.id))) {
-      target.push({
-        date, source: "strava", sourceId: String(a.id),
-        sportType: a.sport_type || a.type || null,
-        durationMin: duration,
-        distanceKm: a.distance ? +(a.distance / 1000).toFixed(2) : null,
-        paceMinPerKm: a.average_speed ? +((1000 / 60) / a.average_speed).toFixed(2) : null,
-        elevationGainM: a.total_elevation_gain ?? null,
-        avgHeartRate: a.average_heartrate ?? null,
-        avgCadence: a.average_cadence ?? null,
-      });
+    if (!target.find(r => r.sourceId === sourceId)) {
+      target.push({ date, source: "strava", sourceId, ...structured });
     }
   }
 }
