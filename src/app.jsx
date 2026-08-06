@@ -7105,24 +7105,74 @@ const DOCK_LABELS = { s1: 'Dispatch', s2: 'Sleep', s3: 'Training', s4: 'Nutritio
 // Review and Retrospective are mirror images of the same lead/supporting
 // split DEFAULT_PANEL_ORDER already draws; Dense ignores that split entirely
 // in favour of fitting as many headline-only panels on screen as possible.
+//
+// grid4 is a hand-verified exact freeform-grid layout (x/y/w/h per item,
+// see DashboardGrid.jsx) for the 4-column case — every column's cells sum to
+// exactly the same total (see the arithmetic below each preset), which is
+// what actually guarantees zero dead space now that the grid itself no
+// longer auto-compacts (DashboardGrid.jsx's float:true — a real drag can
+// leave gaps, so "no gap" for these three is a property of the hand-placed
+// numbers, not of any live packing algorithm). Only 4 columns are hardcoded;
+// 1/2/3-column falls back to the normal auto-placed default like any other
+// layout, since 1-column is trivially flush (single stack, nothing to
+// balance) and 2/3 weren't the reported problem. All heights here are
+// deliberate, not measured content — two items (one 'collapsed' panel, one
+// micro-widget) are nudged 1 row off their usual default specifically to
+// make the arithmetic land exactly on a shared per-column total; that's a
+// property of these hardcoded presets only, not a general rule.
 const LAYOUT_PRESETS = [
   {
     id: 'review', label: 'Review',
     desc: 'Dispatch, Training and Recovery wide and first — today\'s decision, biggest.',
     order: ['s1', 's3', 's5', 's2', 's4', 's6', 's7', 's8', 's9'],
     states: { s1: 'expanded', s3: 'expanded', s5: 'expanded', s2: 'collapsed', s4: 'collapsed', s6: 'collapsed', s7: 'collapsed' },
+    // Every column sums to 42. s8/s9 (unset -> 'standard', h=14) don't
+    // divide evenly against everything else at their natural height, so s9
+    // is nudged to h=13 here only — a property of this hardcoded layout,
+    // not a general default. col0: s1(24)+2 nine-widgets(18)=42. col1/col2:
+    // a lead(24)+one collapsed(3)+three 5-widgets(15)=42. col3: the two
+    // remaining collapsed(3+3)+s8(14)+s9(13)+the last 9-widget=42.
+    grid4: [
+      { id: 's1', x: 0, y: 0, w: 1, h: 24 }, { id: 'mw-muscleFocus', x: 0, y: 24, w: 1, h: 9 }, { id: 'mw-weightDelta', x: 0, y: 33, w: 1, h: 9 },
+      { id: 's3', x: 1, y: 0, w: 1, h: 24 }, { id: 's2', x: 1, y: 24, w: 1, h: 3 }, { id: 'mw-hydration', x: 1, y: 27, w: 1, h: 5 }, { id: 'mw-rhr', x: 1, y: 32, w: 1, h: 5 }, { id: 'mw-streak', x: 1, y: 37, w: 1, h: 5 },
+      { id: 's5', x: 2, y: 0, w: 1, h: 24 }, { id: 's4', x: 2, y: 24, w: 1, h: 3 }, { id: 'mw-steps', x: 2, y: 27, w: 1, h: 5 }, { id: 'mw-insight', x: 2, y: 32, w: 1, h: 5 }, { id: 'mw-trainWindow', x: 2, y: 37, w: 1, h: 5 },
+      { id: 's6', x: 3, y: 0, w: 1, h: 3 }, { id: 's7', x: 3, y: 3, w: 1, h: 3 }, { id: 's8', x: 3, y: 6, w: 1, h: 14 }, { id: 's9', x: 3, y: 20, w: 1, h: 13 }, { id: 'mw-volumePace', x: 3, y: 33, w: 1, h: 9 },
+    ],
   },
   {
     id: 'dense', label: 'Dense',
     desc: 'Every panel collapsed to its headline — the most panels visible without scrolling.',
     order: DEFAULT_PANEL_ORDER,
-    states: { s1: 'collapsed', s2: 'collapsed', s3: 'collapsed', s4: 'collapsed', s5: 'collapsed', s6: 'collapsed', s7: 'collapsed' },
+    states: { s1: 'collapsed', s2: 'collapsed', s3: 'collapsed', s4: 'collapsed', s5: 'collapsed', s6: 'collapsed', s7: 'collapsed', s8: 'collapsed', s9: 'collapsed' },
+    // Every column sums to 21, no nudging needed — 9 panels(h3 each) + 9
+    // micro-widgets divides cleanly at this target. col0/col1: 2 panels(6)
+    // + three 5-widgets(15)=21. col2: 1 panel(3) + two 9-widgets(18)=21.
+    // col3: the remaining 4 panels(12) + the last 9-widget=21.
+    grid4: [
+      { id: 's1', x: 0, y: 0, w: 1, h: 3 }, { id: 's2', x: 0, y: 3, w: 1, h: 3 }, { id: 'mw-hydration', x: 0, y: 6, w: 1, h: 5 }, { id: 'mw-rhr', x: 0, y: 11, w: 1, h: 5 }, { id: 'mw-streak', x: 0, y: 16, w: 1, h: 5 },
+      { id: 's3', x: 1, y: 0, w: 1, h: 3 }, { id: 's4', x: 1, y: 3, w: 1, h: 3 }, { id: 'mw-steps', x: 1, y: 6, w: 1, h: 5 }, { id: 'mw-insight', x: 1, y: 11, w: 1, h: 5 }, { id: 'mw-trainWindow', x: 1, y: 16, w: 1, h: 5 },
+      { id: 's5', x: 2, y: 0, w: 1, h: 3 }, { id: 'mw-muscleFocus', x: 2, y: 3, w: 1, h: 9 }, { id: 'mw-weightDelta', x: 2, y: 12, w: 1, h: 9 },
+      { id: 's6', x: 3, y: 0, w: 1, h: 3 }, { id: 's7', x: 3, y: 3, w: 1, h: 3 }, { id: 's8', x: 3, y: 6, w: 1, h: 3 }, { id: 's9', x: 3, y: 9, w: 1, h: 3 }, { id: 'mw-volumePace', x: 3, y: 12, w: 1, h: 9 },
+    ],
   },
   {
     id: 'retrospective', label: 'Retrospective',
     desc: 'Sleep, Nutrition, Body and Records wide and first — the review, not the decision.',
     order: ['s2', 's4', 's6', 's7', 's1', 's3', 's5', 's8', 's9'],
     states: { s2: 'expanded', s4: 'expanded', s6: 'expanded', s7: 'expanded', s1: 'collapsed', s3: 'collapsed', s5: 'collapsed' },
+    // Every column sums to 47. s9 is nudged to h=12 (unset -> 'standard'
+    // h=14 otherwise) purely so the totals divide evenly here, same as
+    // s9's nudge in Review — specific to this hardcoded layout. col0: an
+    // expanded lead(24)+s8(14)+a 9-widget=47. col1: a lead(24)+one
+    // collapsed(3)+four 5-widgets(20)=47. col2: a lead(24)+s9(12)+two
+    // collapsed(6)+one 5-widget=47. col3: a lead(24)+two 9-widgets(18)+one
+    // 5-widget=47.
+    grid4: [
+      { id: 's2', x: 0, y: 0, w: 1, h: 24 }, { id: 's8', x: 0, y: 24, w: 1, h: 14 }, { id: 'mw-muscleFocus', x: 0, y: 38, w: 1, h: 9 },
+      { id: 's4', x: 1, y: 0, w: 1, h: 24 }, { id: 's1', x: 1, y: 24, w: 1, h: 3 }, { id: 'mw-hydration', x: 1, y: 27, w: 1, h: 5 }, { id: 'mw-rhr', x: 1, y: 32, w: 1, h: 5 }, { id: 'mw-streak', x: 1, y: 37, w: 1, h: 5 }, { id: 'mw-steps', x: 1, y: 42, w: 1, h: 5 },
+      { id: 's6', x: 2, y: 0, w: 1, h: 24 }, { id: 's9', x: 2, y: 24, w: 1, h: 12 }, { id: 's3', x: 2, y: 36, w: 1, h: 3 }, { id: 's5', x: 2, y: 39, w: 1, h: 3 }, { id: 'mw-insight', x: 2, y: 42, w: 1, h: 5 },
+      { id: 's7', x: 3, y: 0, w: 1, h: 24 }, { id: 'mw-weightDelta', x: 3, y: 24, w: 1, h: 9 }, { id: 'mw-volumePace', x: 3, y: 33, w: 1, h: 9 }, { id: 'mw-trainWindow', x: 3, y: 42, w: 1, h: 5 },
+    ],
   },
 ];
 const DEFAULT_RECOVERY_TAB_ORDER = ['fatigue', 'ranking', 'types', 'adaptation', 'patterns', 'soreness', 'injuries'];
@@ -7614,12 +7664,29 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
   };
   const applyLayoutPreset = async (preset) => {
     setPanelOrder(preset.order);
-    // Clearing gridLayouts (rather than writing literal x/y for every column
-    // count) makes the freeform grid regenerate itself from the new order +
-    // states next render, the same auto-place-and-compact pass a brand-new
-    // account's first load already goes through — one regeneration path, not
-    // a second one just for presets.
-    const profile = await api('profile', { method: 'POST', body: JSON.stringify({ panelOrder: preset.order, panelStates: preset.states, gridLayouts: {} }) });
+    // grid4 is the hand-verified exact layout for 4 columns (see
+    // LAYOUT_PRESETS); other column counts have no hardcoded layout for
+    // these presets, so clearing them lets the normal auto-placed default
+    // fill in there instead — not a gap guarantee, just the same fallback
+    // any other layout gets. gridLayoutVersion is what actually makes this
+    // visible without a page reload — GridStack only reads positions once,
+    // at mount, so DashboardGrid needs this in its key (see app render) to
+    // know to remount rather than sit on whatever it already had live.
+    const profile = await api('profile', {
+      method: 'POST',
+      body: JSON.stringify({
+        panelOrder: preset.order, panelStates: preset.states,
+        gridLayouts: { 4: preset.grid4 },
+        gridLayoutVersion: (s?.profile?.gridLayoutVersion || 0) + 1,
+      }),
+    });
+    refresh({ ...s, profile });
+  };
+  // Same regeneration path applyLayoutPreset uses (clear gridLayouts, let it
+  // auto-place fresh) but keeping the current order/states — for re-packing
+  // after a manual edit, not switching to a named preset.
+  const resetGridLayout = async () => {
+    const profile = await api('profile', { method: 'POST', body: JSON.stringify({ gridLayouts: {}, gridLayoutVersion: (s?.profile?.gridLayoutVersion || 0) + 1 }) });
     refresh({ ...s, profile });
   };
   const gridColumnModeVal = s?.profile?.gridColumnMode || 'auto';
@@ -8355,9 +8422,14 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
               </button>
             ))}
           </div>
-          <button className="prof-btn solid" onClick={() => { onClose(); onOpenGridEdit(); }}>
-            Rearrange Panels
-          </button>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <button className="prof-btn solid" onClick={() => { onClose(); onOpenGridEdit(); }}>
+              Rearrange Panels
+            </button>
+            <button className="prof-btn" onClick={resetGridLayout}>
+              Reset Layout
+            </button>
+          </div>
         </div>
 
         <div className="settings-sec">
@@ -10593,12 +10665,16 @@ function App() {
               <button onClick={() => setGridEditMode(false)}>Done</button>
             </div>
           )}
-          {/* Remounted (not just re-rendered) whenever the column count OR the
-              set of visible items changes — GridStack owns live position/size
-              imperatively once mounted and has no way to learn about a panel
-              React added/removed from the DOM underneath it, so a hide/unhide
-              in Settings needs a fresh GridStack instance, not a prop update. */}
-          <DashboardGrid key={`${columnCount}-${gridItems.map(i => i.id).join(',')}`} items={gridItems} columnCount={columnCount}
+          {/* Remounted (not just re-rendered) whenever the column count, the
+              set of visible items, or gridLayoutVersion changes — GridStack
+              owns live position/size imperatively once mounted and has no
+              way to learn about a panel React added/removed underneath it,
+              or that Settings just reset/replaced the saved layout entirely,
+              so those need a fresh GridStack instance, not a prop update.
+              Ordinary drag/resize saves don't bump gridLayoutVersion (only
+              applyLayoutPreset/resetGridLayout do), so a normal interaction
+              doesn't remount out from under itself mid-drag. */}
+          <DashboardGrid key={`${columnCount}-${gridItems.map(i => i.id).join(',')}-${s?.profile?.gridLayoutVersion || 0}`} items={gridItems} columnCount={columnCount}
             savedLayout={savedGridLayout} editMode={gridEditMode} onLayoutChange={saveGridLayout} />
         </>
       )}

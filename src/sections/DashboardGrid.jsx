@@ -39,7 +39,13 @@ export function DashboardGrid({ items, columnCount, savedLayout, editMode, onLay
       column: columnCount,
       cellHeight: GRID_ROW_PX,
       margin: GRID_MARGIN,
-      float: false,
+      // Freeform means freeform: a drop stays exactly where you put it, gaps
+      // allowed, rather than the engine auto-pulling neighbours up to close
+      // them. Auto-compacting on every drag was also the source of a
+      // chaotic, self-fighting layout in practice (see settle() history
+      // below) — the presets guarantee zero gaps by being hand-verified
+      // exact layouts, not by an algorithm re-packing on the fly.
+      float: true,
       staticGrid: !editMode,
       animate: false,
       alwaysShowResizeHandle: false,
@@ -91,42 +97,19 @@ export function DashboardGrid({ items, columnCount, savedLayout, editMode, onLay
     grid.on('dragstart resizestart', () => { interacting = true; });
     grid.on('dragstop resizestop', () => { interacting = false; schedule(); });
 
-    // Even a perfectly packed grid can end up with one column shorter than
-    // the tallest one — a handful of items of fixed sizes just don't always
-    // tile a rectangle with nothing left over, no packing order fixes that.
-    // Whatever sits at the bottom of a shorter column, with nothing else
-    // below it in any column it spans, gets stretched down to match the
-    // tallest column's bottom edge instead of leaving that space blank.
-    // NOTE: this is a single pass, not a loop — an earlier attempt to
-    // "undo and re-settle" equalized stretches every tick fought compact()'s
-    // own reordering and produced a diverging, chaotic layout (items
-    // shrinking to h=1, jumping columns between passes). A single pass per
-    // real content change is stable; it just means a stretch here is sticky
-    // like a manual resize would be, not something later passes revisit.
-    const equalizeBottom = () => {
-      const nodes = grid.engine.nodes;
-      if (!nodes.length) return;
-      const maxBottom = Math.max(...nodes.map(n => n.y + n.h));
-      nodes.forEach(n => {
-        const bottom = n.y + n.h;
-        if (bottom >= maxBottom || n.locked) return;
-        const blockedBy = nodes.find(o => o !== n && o.x < n.x + n.w && o.x + o.w > n.x && o.y + o.h > bottom);
-        if (!blockedBy) grid.update(n.el, { h: maxBottom - n.y });
-      });
-    };
-
+    // No auto-compact, no equalize-the-bottom pass — both were tried and
+    // both caused real problems (a live drag fighting a mid-drag re-pack;
+    // a settle loop that diverged into a chaotic layout across repeated
+    // passes). Zero dead space now comes from the presets being hand-
+    // verified exact layouts (see LAYOUT_PRESETS in app.jsx), not from an
+    // algorithm re-packing on the fly — freeform dragging can leave gaps,
+    // and that's the accepted tradeoff for it being genuinely freeform.
     let frame = 0;
     const schedule = () => {
       if (interacting || frame) return;
       frame = requestAnimationFrame(() => {
         frame = 0;
         root.querySelectorAll(':scope > .grid-stack-item').forEach(enforceFloor);
-        // Bumping a node's h to its floor can open a gap below whatever used
-        // to sit there (float:false keeps items from floating on their OWN
-        // move, but doesn't retroactively re-pack everyone once several
-        // heights change in one batch) -- compact is what actually closes it.
-        grid.compact();
-        equalizeBottom();
       });
     };
     const contentObserver = new ResizeObserver(schedule);
