@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert');
 
-const { TRACKING_CATEGORY_KEYS, validateTrackingCategories } = require('../functions/trackingCategories');
+const { TRACKING_CATEGORY_KEYS, validateTrackingCategories, resolveTrackingCategories: trackingCategoriesFor } = require('../functions/trackingCategories');
 
 test('validateTrackingCategories: valid object with both keys passes', () => {
   assert.strictEqual(validateTrackingCategories({ sleep: true, nutrition: false }), null);
@@ -34,18 +34,10 @@ test('TRACKING_CATEGORY_KEYS: exactly sleep and nutrition', () => {
   assert.deepStrictEqual([...TRACKING_CATEGORY_KEYS].sort(), ['nutrition', 'sleep']);
 });
 
-// Mirrors src/app.jsx's LEGACY_TRACKING_LEVEL_MAP + trackingCategoriesFor —
-// that logic is frontend-only (no test runner reaches src/app.jsx), so this
-// locks the migration's expected behavior in one place a backend test can
-// actually run, to catch a drift between the two if either ever changes.
-const LEGACY_TRACKING_LEVEL_MAP = {
-  workout: { sleep: false, nutrition: false },
-  workout_sleep: { sleep: true, nutrition: false },
-  full: { sleep: true, nutrition: true },
-};
-const trackingCategoriesFor = profile =>
-  profile?.trackingCategories || LEGACY_TRACKING_LEVEL_MAP[profile?.trackingLevel] || LEGACY_TRACKING_LEVEL_MAP.full;
-
+// #14: src/app.jsx imports this exact function (esbuild bundles functions/*
+// into the frontend build) rather than keeping its own copy, so testing it
+// here covers both the backend briefing/newscast generators and the
+// dashboard's own render gate with one implementation, not two to drift.
 test('trackingCategoriesFor: a saved trackingCategories object always wins over a legacy trackingLevel string', () => {
   const profile = { trackingLevel: 'workout', trackingCategories: { sleep: true, nutrition: true } };
   assert.deepStrictEqual(trackingCategoriesFor(profile), { sleep: true, nutrition: true });

@@ -27,6 +27,8 @@ import emgActivationPkg from '../functions/emgActivation.js';
 import muscleCapacityPkg from '../functions/muscleCapacity.js';
 import { chestSplitForExercise, flyHeadSplitForAngle } from '../functions/chestHeadSplit.js';
 import { extensionHeadSplitForAngle } from '../functions/tricepsHeadSplit.js';
+import trackingCategoriesPkg from '../functions/trackingCategories.js';
+const { resolveTrackingCategories: trackingCategoriesFor } = trackingCategoriesPkg;
 import { EXERCISE_ANGLES } from '../functions/exerciseAngles.js';
 import { EXERCISE_DB, EXERCISE_MUSCLE_GROUPS, EXERCISE_PATTERNS } from '../functions/exerciseDb.js';
 import expertisePkg from '../functions/expertise.js';
@@ -179,18 +181,11 @@ const TRACKING_CATEGORIES = [
   { key: 'sleep', title: 'Recovery', desc: 'Sleep tracking, HRV analysis, and recovery-aware planning via Apple Health.' },
   { key: 'nutrition', title: 'Nutrition', desc: 'Nutrition logging, macro tracking, meal photo scanning, and daily fuel briefings.' },
 ];
-// Migrates an old profile.trackingLevel string to the new independent-
-// category shape at read time only — never touches stored data directly,
-// same pattern as withNewDefaultsAppended for panelOrder. A profile that's
-// already saved through the new checkbox UI (profile.trackingCategories
-// present) always wins; this only runs for an account that hasn't.
-const LEGACY_TRACKING_LEVEL_MAP = {
-  workout: { sleep: false, nutrition: false },
-  workout_sleep: { sleep: true, nutrition: false },
-  full: { sleep: true, nutrition: true },
-};
-const trackingCategoriesFor = profile =>
-  profile?.trackingCategories || LEGACY_TRACKING_LEVEL_MAP[profile?.trackingLevel] || LEGACY_TRACKING_LEVEL_MAP.full;
+// #14: resolveTrackingCategories (imported below as trackingCategoriesFor)
+// used to be duplicated here — a second copy of the exact same migration
+// logic the backend briefing/newscast generators need too, which is exactly
+// the kind of drift #14's audit exists to catch. Now the one shared
+// implementation, in functions/trackingCategories.js.
 
 // ── HELPERS ─────────────────────────────────────────────────────────────────
 // Dates are stored as "YYYY-MM-DD" strings. `new Date("YYYY-MM-DD")` parses
@@ -1028,6 +1023,20 @@ const glycogenPct = (elapsedS, totalS) => {
 // instead of the list. v0.1 is the first tracked release, not literally the
 // app's first version — everything before this had no changelog at all.
 const CHANGELOG = [
+  {
+    version: '0.85',
+    date: '2026-08-06',
+    features: [
+      'Morning briefings, the mid-day/evening updates, and the weekly review no longer mention or nag about sleep or nutrition data if you\'ve turned those categories off in Settings — previously they\'d flag "not logged" and prompt you to log food or sleep you never asked to track, every day.',
+    ],
+  },
+  {
+    version: '0.84',
+    date: '2026-08-06',
+    features: [
+      'The Goals panel now lets you edit an existing goal directly — priority, whether it has a specific target, the target itself, target date, and (for lift/benchmark goals) the exercise or benchmark name — without deleting it and re-adding it. Tap "Edit" on any goal.',
+    ],
+  },
   {
     version: '0.83',
     date: '2026-08-06',
@@ -10870,7 +10879,7 @@ function App() {
     s5: <S5 key="s5" s={s} recommendation={recommendation} refresh={refresh} />,
     s6: <S6 key="s6" s={s} refresh={refresh} />,
     s7: <S7 key="s7" s={s} />,
-    s8: <S8 key="s8" s={s} />,
+    s8: <S8 key="s8" s={s} refresh={refresh} />,
     s9: <S9 key="s9" s={s} followBadge={followBadge} reloadFollowBadge={loadFollowRequests} />,
   };
   // Default grid size for an item that has no saved x/y/w/h yet — mirrors the
