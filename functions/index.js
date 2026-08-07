@@ -21,7 +21,7 @@ const { buildSessionVariants } = require('./sessionVariants');
 const { computeSleepScore } = require('./sleepScore');
 const { computeDay, personalSleepTarget, recoveryDrivers } = require('./recoveryScore');
 const { callGeminiResilient, parseGeminiJSON } = require('./gemini');
-const { unwrapShortcutBody, average, sumForDay, computeSleepMetrics } = require('./shortcutParsing');
+const { unwrapShortcutBody, sumForDay, averageForDay, computeSleepMetrics } = require('./shortcutParsing');
 const {
   normalizeUsername, validateUsername, validateDisplayName, deriveDisplayNameFirst,
   generateUsernameSuggestion, canChangeUsername, usernameChangeAvailableAt,
@@ -333,9 +333,11 @@ app.post("/shortcut", async (req, res) => {
   // numeric metric in this codebase is stored pre-rounded (see fatigue.js),
   // and the frontend displays these fields directly with no rounding of
   // its own.
-  const hrv = average(d.hrv_values);
+  // Filtered to samples actually dated `k` -- hrv/rhr/hr_values otherwise
+  // include stragglers from the previous day's sync (see averageForDay).
+  const hrv = averageForDay(d.hrv_values, d.hrv_dates, k, day);
   if (hrv != null) db.metrics[k].heart_rate_variability = Math.round(hrv);
-  const rhr = average(d.rhr_values);
+  const rhr = averageForDay(d.rhr_values, d.rhr_dates, k, day);
   if (rhr != null) db.metrics[k].resting_heart_rate = Math.round(rhr);
   // step_count is stored in thousands (the frontend does `steps * 1000` to
   // display the real count — matches the existing /health Health Auto
@@ -344,15 +346,20 @@ app.post("/shortcut", async (req, res) => {
   // includes stragglers from the previous day (see sumForDay).
   const stepCount = sumForDay(d.steps_values, d.steps_dates, k, day);
   if (stepCount != null) db.metrics[k].step_count = stepCount / 1000;
-  const wrist = average(d.wrist_values);
+  // Same straggler filtering as hrv/rhr above.
+  const wrist = averageForDay(d.wrist_values, d.wrist_dates, k, day);
   if (wrist != null) db.metrics[k].wrist_temperature = Math.round(wrist * 10) / 10;
-  const hr = average(d.hr_values);
+  const hr = averageForDay(d.hr_values, d.hr_dates, k, day);
   if (hr != null) db.metrics[k].heart_rate = Math.round(hr);
-  const bloodOxygen = average(d.bloodoxygen_values);
+  const bloodOxygen = averageForDay(d.bloodoxygen_values, d.bloodoxygen_dates, k, day);
   if (bloodOxygen != null) db.metrics[k].blood_oxygen = Math.round(bloodOxygen);
-  if (d.weight) { db.metrics[k].body_mass = d.weight; db.weight[k] = d.weight; }
-  if (d.vo2max) db.metrics[k].vo2max = d.vo2max;
-  if (d.hrr_bpm) db.metrics[k].hrr_bpm = d.hrr_bpm;
+  // Same straggler filtering as hrv/rhr above.
+  const weight = averageForDay(d.weight_values, d.weight_dates, k, day);
+  if (weight != null) { db.metrics[k].body_mass = Math.round(weight * 10) / 10; db.weight[k] = db.metrics[k].body_mass; }
+  const vo2max = averageForDay(d.vo2max_values, d.vo2max_dates, k, day);
+  if (vo2max != null) db.metrics[k].vo2max = Math.round(vo2max * 10) / 10;
+  const hrr = averageForDay(d.hrr_values, d.hrr_dates, k, day);
+  if (hrr != null) db.metrics[k].hrr_bpm = Math.round(hrr);
   // Sleep: total asleep hours, WASO, efficiency, and deep/REM/light stage
   // minutes all derived from the same start/end/type triple — see
   // shortcutParsing.js's computeSleepMetrics for why (In Bed vs. Awake vs.

@@ -72,19 +72,31 @@ function sum(str) {
 // summing everything if datesStr is missing/shorter than valuesStr -- an
 // older Shortcut setup without the _dates field still gets a real total
 // rather than silently losing all its steps.
-function sumForDay(valuesStr, datesStr, targetDay, dayFn) {
+function samplesForDay(valuesStr, datesStr, targetDay, dayFn) {
   const nums = parseNumberList(valuesStr);
   if (!nums.length) return null;
   const dateLines = (datesStr || '').split('\n').map(s => s.trim()).filter(Boolean);
-  if (dateLines.length !== nums.length) return sum(valuesStr);
-  let total = 0, matched = 0;
+  if (dateLines.length !== nums.length) return nums;
+  const matched = [];
   for (let i = 0; i < nums.length; i++) {
     const ts = parseShortcutDate(dateLines[i]);
     if (ts == null || dayFn(ts) !== targetDay) continue;
-    total += nums[i];
-    matched++;
+    matched.push(nums[i]);
   }
-  return matched ? total : null;
+  return matched.length ? matched : null;
+}
+
+function sumForDay(valuesStr, datesStr, targetDay, dayFn) {
+  const nums = samplesForDay(valuesStr, datesStr, targetDay, dayFn);
+  return nums ? nums.reduce((a, b) => a + b, 0) : null;
+}
+
+// Same straggler problem sumForDay solves for steps applies to HR/RHR/HRV --
+// a sync's "Find Health Samples" query can pull in a few late-previous-day
+// heart samples and skew today's average toward yesterday's numbers.
+function averageForDay(valuesStr, datesStr, targetDay, dayFn) {
+  const nums = samplesForDay(valuesStr, datesStr, targetDay, dayFn);
+  return nums ? nums.reduce((a, b) => a + b, 0) / nums.length : null;
 }
 
 // Apple's sleep-stage naming varies (Watch vs. third-party trackers, iOS
@@ -227,7 +239,7 @@ function parseVO2max(vo2maxValueStr, vo2maxDateStr) {
 }
 
 module.exports = {
-  unwrapShortcutBody, parseShortcutDate, parseNumberList, average, sum, sumForDay,
+  unwrapShortcutBody, parseShortcutDate, parseNumberList, average, sum, sumForDay, averageForDay,
   isAsleepType, isAwakeType, isInBedType, isDeepType, isRemType, isLightType,
   unionDurationMs, computeSleepMetrics, parseVO2max,
 };
