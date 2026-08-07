@@ -90,7 +90,10 @@ function substituteForCNS(entry, avoidMuscles, avoidMusclesSecondary = []) {
       && !(e.secondary || []).some(m => avoidMusclesSecondary.includes(m)))
     .map(e => ({ e, score: stimulusSimilarity(entry, e) }))
     .filter(c => c.score > 0)
-    .sort((a, b) => b.score - a.score);
+    // Tiebreaker only: two candidates with identical stimulus similarity —
+    // never overrides the actual similarity ranking. See exerciseDb.js's
+    // `popularity` field header for the sourcing.
+    .sort((a, b) => (b.score - a.score) || ((b.e.popularity || 0) - (a.e.popularity || 0)));
   return candidates[0]?.e || entry;
 }
 
@@ -199,7 +202,8 @@ function pickAccessories(targetMuscles, alreadySelected, excludeNames, avoidMusc
         - (e.isometric ? ISOMETRIC_PENALTY : 0)
         + stabilityScore(e, preferStable),
     }))
-    .sort((a, b) => b.score - a.score);
+    // Tiebreaker only, see substituteForCNS's identical comment above.
+    .sort((a, b) => (b.score - a.score) || ((b.e.popularity || 0) - (a.e.popularity || 0)));
   // Two passes, not a static top-N slice: nothing previously stopped two
   // or three accessory picks stacking on whichever single muscle scored
   // highest overall while another target muscle got skipped entirely (a
@@ -286,7 +290,8 @@ function pickDedicatedAccessory(muscle, alreadySelected, excludeNames, avoidMusc
         - (e.primary.length - 1) * FOCUS_PENALTY
         + stabilityScore(e, preferStable),
     }))
-    .sort((a, b) => b.score - a.score);
+    // Tiebreaker only, see substituteForCNS's identical comment above.
+    .sort((a, b) => (b.score - a.score) || ((b.e.popularity || 0) - (a.e.popularity || 0)));
   const top = scored[0]?.e;
   if (!top) return null;
   // Shallow copy for an isAngleFamily pick -- see pickAccessories' identical

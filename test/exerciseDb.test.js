@@ -19,12 +19,17 @@ test('every exercise has at least one primary muscle', () => {
 });
 
 test('every exercise has required fields', () => {
-  const REQUIRED = ['id', 'name', 'category', 'equipment', 'primary', 'secondary', 'curve', 'form'];
+  const REQUIRED = ['id', 'name', 'category', 'equipment', 'primary', 'secondary', 'curve', 'form', 'popularity'];
   for (const e of EXERCISE_DB) {
     for (const field of REQUIRED) {
       assert.ok(field in e, `${e.id} is missing field "${field}"`);
     }
   }
+});
+
+test('every exercise has a popularity score between 1 and 100', () => {
+  const bad = EXERCISE_DB.filter(e => !(Number.isFinite(e.popularity) && e.popularity >= 1 && e.popularity <= 100));
+  assert.deepEqual(bad.map(e => ({ id: e.id, popularity: e.popularity })), []);
 });
 
 test('EXERCISE_MAP is keyed by id and matches EXERCISE_DB', () => {

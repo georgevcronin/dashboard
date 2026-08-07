@@ -128,7 +128,10 @@ function pickBackboneExercises(targetMuscles, { travelMode, lifts, favoriteExerc
         + (favorites.has(e.name.toLowerCase()) ? FAVORITE_EXERCISE_BONUS : 0)
         + stabilityScore(e, preferStable),
     }))
-    .sort((a, b) => b.score - a.score);
+    // Tiebreaker only — two candidates with an identical score, never
+    // overrides the actual ranking. See exerciseDb.js's `popularity` field
+    // header (StrengthLog training-set-share data) for the sourcing.
+    .sort((a, b) => (b.score - a.score) || ((b.e.popularity || 0) - (a.e.popularity || 0)));
   // Skip anything that's the same function as something already picked —
   // same pattern (press/row/curl/...) hitting an overlapping primary muscle
   // is a redundant pick (e.g. Barbell Overhead Press + Machine Shoulder

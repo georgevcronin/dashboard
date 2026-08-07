@@ -26,6 +26,21 @@
 //   for browsing without merging their logged history; each variant stays
 //   its own fully independent entry, same as before this existed.
 //
+// popularity: 1-100, one-time-researched (2026-08-07) from StrengthLog's
+// combined-users ranking (training-set share across millions of logged
+// workouts, strengthlog.com/most-popular-exercises) plus their per-
+// muscle-group bodybuilding picks for muscles that list didn't surface
+// (strengthlog.com/top-20-bodybuilding-exercises). Not a live feed — a
+// static snapshot, update by hand if it's ever worth redoing. 100/92/82/78
+// are direct matches to those two sources; 60 is a named variant sharing a
+// movementId with a scored entry (e.g. Incline Barbell Bench Press vs.
+// Bench Press); 42/22 fall back to the existing lesserKnown flag for
+// everything the research didn't cover. Deliberately a tiebreaker only
+// (sessionPlanner.js/weeklyPlanner.js's scoring sorts) — never a primary
+// ranking signal, since PRODUCT.md's "no vanity metrics, evidence-grounded"
+// stance means personalized fit (fatigue, freshness, favorites) always
+// wins; popularity only decides between two otherwise-equal picks.
+//
 // Named EXERCISE_MUSCLE_GROUPS, not MUSCLE_GROUPS -- muscleTaxonomy.js
 // already exports a MUSCLE_GROUPS (the coarser push/pull/legs/core fatigue-
 // bucket system, a different concept for a different purpose), and several
@@ -55,7 +70,7 @@ const EXERCISE_DB = [
 
   // ── CHEST ────────────────────────────────────────────────────────────────────
   {
-    id: 'barbell-bench-press',
+    id: 'barbell-bench-press', popularity: 100,
     name: 'Barbell Bench Press',
     category: 'push', equipment: 'barbell',
     primary: ['chest', 'triceps', 'front-delt'], secondary: ['serratus'],
@@ -66,7 +81,7 @@ const EXERCISE_DB = [
     muscleGroup: "chest", pattern: "press", movementId: "bench-press", movementName: "Bench Press"
   },
   {
-    id: 'incline-barbell-bench-press',
+    id: 'incline-barbell-bench-press', popularity: 60,
     name: 'Incline Barbell Bench Press',
     category: 'push', equipment: 'barbell',
     primary: ['chest', 'front-delt', 'triceps'], secondary: ['serratus'],
@@ -77,7 +92,7 @@ const EXERCISE_DB = [
     muscleGroup: "chest", pattern: "press", movementId: "bench-press", movementName: "Bench Press"
   },
   {
-    id: 'decline-barbell-bench-press',
+    id: 'decline-barbell-bench-press', popularity: 60,
     name: 'Decline Barbell Bench Press',
     category: 'push', equipment: 'barbell',
     primary: ['chest', 'triceps'], secondary: ['front-delt', 'serratus'],
@@ -88,7 +103,7 @@ const EXERCISE_DB = [
     muscleGroup: "chest", pattern: "press", movementId: "bench-press", movementName: "Bench Press"
   },
   {
-    id: 'close-grip-bench-press',
+    id: 'close-grip-bench-press', popularity: 60,
     name: 'Close-Grip Bench Press',
     category: 'push', equipment: 'barbell',
     primary: ['triceps', 'chest'], secondary: ['front-delt'],
@@ -99,7 +114,7 @@ const EXERCISE_DB = [
     muscleGroup: "triceps", pattern: "press", movementId: "bench-press", movementName: "Bench Press"
   },
   {
-    id: 'dumbbell-flat-bench-press',
+    id: 'dumbbell-flat-bench-press', popularity: 82,
     name: 'Dumbbell Bench Press (Flat)',
     category: 'push', equipment: 'dumbbell',
     primary: ['chest', 'triceps', 'front-delt'], secondary: ['serratus'],
@@ -110,7 +125,7 @@ const EXERCISE_DB = [
     muscleGroup: "chest", pattern: "press", movementId: "bench-press", movementName: "Bench Press"
   },
   {
-    id: 'dumbbell-incline-bench-press',
+    id: 'dumbbell-incline-bench-press', popularity: 82,
     name: 'Dumbbell Incline Bench Press',
     category: 'push', equipment: 'dumbbell',
     primary: ['chest', 'front-delt', 'triceps'], secondary: ['serratus'],
@@ -121,7 +136,7 @@ const EXERCISE_DB = [
     muscleGroup: "chest", pattern: "press", movementId: "bench-press", movementName: "Bench Press"
   },
   {
-    id: 'dumbbell-decline-bench-press',
+    id: 'dumbbell-decline-bench-press', popularity: 60,
     name: 'Dumbbell Decline Bench Press',
     category: 'push', equipment: 'dumbbell',
     primary: ['chest', 'triceps'], secondary: ['front-delt'],
@@ -132,7 +147,7 @@ const EXERCISE_DB = [
     muscleGroup: "chest", pattern: "press", movementId: "bench-press", movementName: "Bench Press"
   },
   {
-    id: 'cable-fly-high-to-low',
+    id: 'cable-fly-high-to-low', popularity: 42,
     name: 'Cable Fly (High to Low)',
     category: 'push', equipment: 'cable',
     primary: ['chest'], secondary: ['front-delt', 'serratus'],
@@ -143,7 +158,7 @@ const EXERCISE_DB = [
     muscleGroup: "chest", pattern: "fly", movementId: "cable-fly", movementName: "Cable Fly"
   },
   {
-    id: 'cable-fly-low-to-high',
+    id: 'cable-fly-low-to-high', popularity: 42,
     name: 'Cable Fly (Low to High)',
     category: 'push', equipment: 'cable',
     primary: ['chest'], secondary: ['front-delt', 'serratus'],
@@ -154,7 +169,7 @@ const EXERCISE_DB = [
     muscleGroup: "chest", pattern: "fly", movementId: "cable-fly", movementName: "Cable Fly"
   },
   {
-    id: 'cable-crossover',
+    id: 'cable-crossover', popularity: 42,
     name: 'Cable Crossover',
     category: 'push', equipment: 'cable',
     primary: ['chest'], secondary: ['front-delt', 'serratus'],
@@ -165,7 +180,7 @@ const EXERCISE_DB = [
     muscleGroup: "chest", pattern: "fly", movementId: "cable-crossover", movementName: "Cable Crossover"
   },
   {
-    id: 'pec-deck',
+    id: 'pec-deck', popularity: 42,
     name: 'Pec Deck / Machine Fly',
     category: 'push', equipment: 'machine',
     primary: ['chest'], secondary: ['front-delt'],
@@ -176,7 +191,7 @@ const EXERCISE_DB = [
     muscleGroup: "chest", pattern: "fly", movementId: "pec-deck-fly", movementName: "Pec Deck / Machine Fly"
   },
   {
-    id: 'chest-dips',
+    id: 'chest-dips', popularity: 42,
     name: 'Chest Dips',
     category: 'push', equipment: 'bodyweight',
     primary: ['chest', 'triceps'], secondary: ['front-delt'],
@@ -187,7 +202,7 @@ const EXERCISE_DB = [
     muscleGroup: "chest", pattern: "dip", movementId: "chest-dip", movementName: "Chest Dip"
   },
   {
-    id: 'push-up',
+    id: 'push-up', popularity: 42,
     name: 'Push-Up',
     category: 'push', equipment: 'bodyweight',
     primary: ['chest', 'triceps', 'front-delt'], secondary: ['serratus', 'core'],
@@ -198,7 +213,7 @@ const EXERCISE_DB = [
     muscleGroup: "chest", pattern: "press", movementId: "push-up", movementName: "Push-Up"
   },
   {
-    id: 'weighted-push-up',
+    id: 'weighted-push-up', popularity: 42,
     name: 'Weighted Push-Up',
     category: 'push', equipment: 'bodyweight',
     primary: ['chest', 'triceps', 'front-delt'], secondary: ['serratus', 'core'],
@@ -209,7 +224,7 @@ const EXERCISE_DB = [
     muscleGroup: "chest", pattern: "press", movementId: "push-up", movementName: "Push-Up"
   },
   {
-    id: 'machine-chest-press',
+    id: 'machine-chest-press', popularity: 42,
     name: 'Machine Chest Press',
     category: 'push', equipment: 'machine',
     primary: ['chest', 'triceps', 'front-delt'], secondary: ['serratus'],
@@ -220,7 +235,7 @@ const EXERCISE_DB = [
     muscleGroup: "chest", pattern: "press", movementId: "chest-press", movementName: "Chest Press"
   },
   {
-    id: 'svend-press',
+    id: 'svend-press', popularity: 22,
     name: 'Svend Press',
     category: 'push', equipment: 'bodyweight',
     primary: ['chest'], secondary: ['front-delt'],
@@ -233,7 +248,7 @@ const EXERCISE_DB = [
 
   // ── BACK — VERTICAL PULL ─────────────────────────────────────────────────────
   {
-    id: 'pull-up-wide',
+    id: 'pull-up-wide', popularity: 82,
     name: 'Pull-Up (Wide Grip)',
     category: 'pull', equipment: 'bodyweight',
     primary: ['lats'], secondary: ['biceps', 'rear-delt', 'rhomboids'],
@@ -244,7 +259,7 @@ const EXERCISE_DB = [
     muscleGroup: "back", pattern: "pulldown", movementId: "pull-up", movementName: "Pull-Up"
   },
   {
-    id: 'pull-up-neutral',
+    id: 'pull-up-neutral', popularity: 60,
     name: 'Pull-Up (Neutral Grip)',
     category: 'pull', equipment: 'bodyweight',
     primary: ['lats', 'biceps'], secondary: ['rear-delt', 'rhomboids', 'brachialis'],
@@ -255,7 +270,7 @@ const EXERCISE_DB = [
     muscleGroup: "back", pattern: "pulldown", movementId: "pull-up", movementName: "Pull-Up"
   },
   {
-    id: 'chin-up',
+    id: 'chin-up', popularity: 42,
     name: 'Chin-Up',
     category: 'pull', equipment: 'bodyweight',
     primary: ['lats', 'biceps'], secondary: ['rhomboids', 'rear-delt'],
@@ -266,7 +281,7 @@ const EXERCISE_DB = [
     muscleGroup: "back", pattern: "pulldown", movementId: "chin-up", movementName: "Chin-Up"
   },
   {
-    id: 'weighted-pull-up',
+    id: 'weighted-pull-up', popularity: 60,
     name: 'Weighted Pull-Up',
     category: 'pull', equipment: 'bodyweight',
     primary: ['lats', 'biceps'], secondary: ['rear-delt', 'rhomboids'],
@@ -277,7 +292,7 @@ const EXERCISE_DB = [
     muscleGroup: "back", pattern: "pulldown", movementId: "pull-up", movementName: "Pull-Up"
   },
   {
-    id: 'lat-pulldown-wide',
+    id: 'lat-pulldown-wide', popularity: 92,
     name: 'Lat Pulldown (Wide Grip)',
     category: 'pull', equipment: 'machine',
     primary: ['lats'], secondary: ['biceps', 'rear-delt', 'rhomboids'],
@@ -288,7 +303,7 @@ const EXERCISE_DB = [
     muscleGroup: "back", pattern: "pulldown", movementId: "lat-pulldown", movementName: "Lat Pulldown"
   },
   {
-    id: 'lat-pulldown-neutral',
+    id: 'lat-pulldown-neutral', popularity: 60,
     name: 'Lat Pulldown (Neutral Grip)',
     category: 'pull', equipment: 'machine',
     primary: ['lats', 'biceps'], secondary: ['rear-delt', 'rhomboids'],
@@ -299,7 +314,7 @@ const EXERCISE_DB = [
     muscleGroup: "back", pattern: "pulldown", movementId: "lat-pulldown", movementName: "Lat Pulldown"
   },
   {
-    id: 'lat-pulldown-reverse',
+    id: 'lat-pulldown-reverse', popularity: 60,
     name: 'Lat Pulldown (Reverse / Underhand)',
     category: 'pull', equipment: 'machine',
     primary: ['lats', 'biceps'], secondary: ['rhomboids'],
@@ -310,7 +325,7 @@ const EXERCISE_DB = [
     muscleGroup: "back", pattern: "pulldown", movementId: "lat-pulldown", movementName: "Lat Pulldown"
   },
   {
-    id: 'cable-straight-arm-pulldown',
+    id: 'cable-straight-arm-pulldown', popularity: 42,
     name: 'Cable Straight-Arm Pulldown',
     category: 'pull', equipment: 'cable',
     primary: ['lats'], secondary: ['teres-major', 'abs'],
@@ -321,7 +336,7 @@ const EXERCISE_DB = [
     muscleGroup: "back", pattern: "pulldown", movementId: "straight-arm-pulldown", movementName: "Straight-Arm Pulldown"
   },
   {
-    id: 'single-arm-pulldown',
+    id: 'single-arm-pulldown', popularity: 60,
     name: 'Single-Arm Lat Pulldown',
     category: 'pull', equipment: 'cable',
     primary: ['lats'], secondary: ['biceps', 'rear-delt'],
@@ -332,7 +347,7 @@ const EXERCISE_DB = [
     muscleGroup: "back", pattern: "pulldown", movementId: "lat-pulldown", movementName: "Lat Pulldown"
   },
   {
-    id: 'cable-pullover',
+    id: 'cable-pullover', popularity: 42,
     name: 'Cable Pullover',
     category: 'pull', equipment: 'cable',
     primary: ['lats', 'chest'], secondary: ['teres-major', 'abs'],
@@ -345,7 +360,7 @@ const EXERCISE_DB = [
 
   // ── BACK — HORIZONTAL PULL ───────────────────────────────────────────────────
   {
-    id: 'barbell-row-overhand',
+    id: 'barbell-row-overhand', popularity: 92,
     name: 'Barbell Row (Overhand / Pendlay)',
     category: 'pull', equipment: 'barbell',
     primary: ['lats', 'rhomboids', 'mid-traps'], secondary: ['rear-delt', 'biceps', 'erectors'],
@@ -356,7 +371,7 @@ const EXERCISE_DB = [
     muscleGroup: "back", pattern: "row", movementId: "barbell-row", movementName: "Barbell Row"
   },
   {
-    id: 'barbell-row-underhand',
+    id: 'barbell-row-underhand', popularity: 60,
     name: 'Barbell Row (Underhand / Yates)',
     category: 'pull', equipment: 'barbell',
     primary: ['lats', 'biceps'], secondary: ['rhomboids', 'rear-delt'],
@@ -367,7 +382,7 @@ const EXERCISE_DB = [
     muscleGroup: "back", pattern: "row", movementId: "barbell-row", movementName: "Barbell Row"
   },
   {
-    id: 'meadows-row',
+    id: 'meadows-row', popularity: 22,
     name: 'Meadows Row',
     category: 'pull', equipment: 'barbell',
     primary: ['lats'], secondary: ['rear-delt', 'biceps', 'rhomboids'],
@@ -378,7 +393,7 @@ const EXERCISE_DB = [
     muscleGroup: "back", pattern: "row", movementId: "meadows-row", movementName: "Meadows Row"
   },
   {
-    id: 'dumbbell-row-three-point',
+    id: 'dumbbell-row-three-point', popularity: 60,
     name: 'Dumbbell Row (Three-Point)',
     category: 'pull', equipment: 'dumbbell',
     primary: ['lats'], secondary: ['rear-delt', 'biceps', 'rhomboids'],
@@ -389,7 +404,7 @@ const EXERCISE_DB = [
     muscleGroup: "back", pattern: "row", movementId: "dumbbell-row", movementName: "Dumbbell Row"
   },
   {
-    id: 'dumbbell-row-chest-supported',
+    id: 'dumbbell-row-chest-supported', popularity: 42,
     name: 'Chest-Supported Dumbbell Row',
     category: 'pull', equipment: 'dumbbell',
     primary: ['lats', 'rhomboids', 'mid-traps', 'rear-delt'], secondary: ['biceps'],
@@ -400,7 +415,7 @@ const EXERCISE_DB = [
     muscleGroup: "back", pattern: "row", movementId: "chest-supported-row", movementName: "Chest-Supported Row"
   },
   {
-    id: 'seated-cable-row',
+    id: 'seated-cable-row', popularity: 82,
     name: 'Seated Cable Row',
     category: 'pull', equipment: 'cable',
     primary: ['lats', 'rhomboids', 'mid-traps'], secondary: ['rear-delt', 'biceps'],
@@ -411,7 +426,7 @@ const EXERCISE_DB = [
     muscleGroup: "back", pattern: "row", movementId: "seated-cable-row", movementName: "Seated Cable Row"
   },
   {
-    id: 'single-arm-cable-row',
+    id: 'single-arm-cable-row', popularity: 60,
     name: 'Single-Arm Cable Row',
     category: 'pull', equipment: 'cable',
     primary: ['lats', 'rhomboids'], secondary: ['rear-delt', 'biceps'],
@@ -422,7 +437,7 @@ const EXERCISE_DB = [
     muscleGroup: "back", pattern: "row", movementId: "seated-cable-row", movementName: "Seated Cable Row"
   },
   {
-    id: 'high-cable-row',
+    id: 'high-cable-row', popularity: 42,
     name: 'High Cable Row',
     category: 'pull', equipment: 'cable',
     primary: ['rear-delt', 'rhomboids', 'mid-traps'], secondary: ['lats', 'biceps'],
@@ -433,7 +448,7 @@ const EXERCISE_DB = [
     muscleGroup: "shoulders", pattern: "row", movementId: "high-row", movementName: "High Row"
   },
   {
-    id: 't-bar-row',
+    id: 't-bar-row', popularity: 42,
     name: 'T-Bar Row',
     category: 'pull', equipment: 'barbell',
     primary: ['lats', 'rhomboids', 'mid-traps'], secondary: ['rear-delt', 'biceps', 'erectors'],
@@ -444,7 +459,7 @@ const EXERCISE_DB = [
     muscleGroup: "back", pattern: "row", movementId: "t-bar-row", movementName: "T-Bar Row"
   },
   {
-    id: 'machine-row-seated',
+    id: 'machine-row-seated', popularity: 42,
     name: 'Machine Row (Seated)',
     category: 'pull', equipment: 'machine',
     primary: ['lats', 'rhomboids', 'mid-traps'], secondary: ['rear-delt', 'biceps'],
@@ -455,7 +470,7 @@ const EXERCISE_DB = [
     muscleGroup: "back", pattern: "row", movementId: "machine-row", movementName: "Machine Row"
   },
   {
-    id: 'face-pull',
+    id: 'face-pull', popularity: 82,
     name: 'Face Pull',
     category: 'pull', equipment: 'cable',
     primary: ['rear-delt', 'rotator-cuff'], secondary: ['rhomboids', 'mid-traps'],
@@ -466,7 +481,7 @@ const EXERCISE_DB = [
     muscleGroup: "shoulders", pattern: "row", movementId: "face-pull", movementName: "Face Pull"
   },
   {
-    id: 'rear-delt-fly-dumbbell',
+    id: 'rear-delt-fly-dumbbell', popularity: 78,
     name: 'Rear Delt Fly (Dumbbell)',
     category: 'pull', equipment: 'dumbbell',
     primary: ['rear-delt'], secondary: ['rhomboids', 'mid-traps'],
@@ -477,7 +492,7 @@ const EXERCISE_DB = [
     muscleGroup: "shoulders", pattern: "fly", movementId: "rear-delt-fly", movementName: "Rear Delt Fly"
   },
   {
-    id: 'rear-delt-fly-cable',
+    id: 'rear-delt-fly-cable', popularity: 60,
     name: 'Rear Delt Fly (Cable)',
     category: 'pull', equipment: 'cable',
     primary: ['rear-delt'], secondary: ['rhomboids', 'mid-traps'],
@@ -488,7 +503,7 @@ const EXERCISE_DB = [
     muscleGroup: "shoulders", pattern: "fly", movementId: "rear-delt-fly", movementName: "Rear Delt Fly"
   },
   {
-    id: 'reverse-pec-deck',
+    id: 'reverse-pec-deck', popularity: 60,
     name: 'Reverse Pec Deck',
     category: 'pull', equipment: 'machine',
     primary: ['rear-delt'], secondary: ['rhomboids', 'mid-traps'],
@@ -501,7 +516,7 @@ const EXERCISE_DB = [
 
   // ── HINGE / POSTERIOR CHAIN ──────────────────────────────────────────────────
   {
-    id: 'conventional-deadlift',
+    id: 'conventional-deadlift', popularity: 100,
     name: 'Conventional Deadlift',
     category: 'hinge', equipment: 'barbell',
     primary: ['hamstrings', 'glutes', 'erectors'], secondary: ['quads', 'lats', 'forearms'],
@@ -512,7 +527,7 @@ const EXERCISE_DB = [
     muscleGroup: "hamstrings", pattern: "hinge", movementId: "deadlift", movementName: "Deadlift"
   },
   {
-    id: 'sumo-deadlift',
+    id: 'sumo-deadlift', popularity: 60,
     name: 'Sumo Deadlift',
     category: 'hinge', equipment: 'barbell',
     primary: ['glutes', 'hamstrings', 'quads'], secondary: ['adductors', 'erectors', 'lats'],
@@ -523,7 +538,7 @@ const EXERCISE_DB = [
     muscleGroup: "glutes", pattern: "hinge", movementId: "deadlift", movementName: "Deadlift"
   },
   {
-    id: 'romanian-deadlift',
+    id: 'romanian-deadlift', popularity: 82,
     name: 'Romanian Deadlift',
     category: 'hinge', equipment: 'barbell',
     primary: ['hamstrings', 'glutes'], secondary: ['erectors', 'adductors'],
@@ -534,7 +549,7 @@ const EXERCISE_DB = [
     muscleGroup: "hamstrings", pattern: "hinge", movementId: "romanian-deadlift", movementName: "Romanian Deadlift"
   },
   {
-    id: 'single-leg-rdl',
+    id: 'single-leg-rdl', popularity: 60,
     name: 'Single-Leg RDL',
     category: 'hinge', equipment: 'dumbbell',
     primary: ['hamstrings', 'glutes'], secondary: ['erectors', 'calves', 'core'],
@@ -545,7 +560,7 @@ const EXERCISE_DB = [
     muscleGroup: "hamstrings", pattern: "hinge", movementId: "romanian-deadlift", movementName: "Romanian Deadlift"
   },
   {
-    id: 'stiff-leg-deadlift',
+    id: 'stiff-leg-deadlift', popularity: 60,
     name: 'Stiff-Leg Deadlift',
     category: 'hinge', equipment: 'barbell',
     primary: ['hamstrings', 'erectors'], secondary: ['glutes'],
@@ -556,7 +571,7 @@ const EXERCISE_DB = [
     muscleGroup: "hamstrings", pattern: "hinge", movementId: "deadlift", movementName: "Deadlift"
   },
   {
-    id: 'good-morning',
+    id: 'good-morning', popularity: 42,
     name: 'Good Morning',
     category: 'hinge', equipment: 'barbell',
     primary: ['hamstrings', 'erectors', 'glutes'], secondary: ['abs'],
@@ -567,7 +582,7 @@ const EXERCISE_DB = [
     muscleGroup: "hamstrings", pattern: "hinge", movementId: "good-morning", movementName: "Good Morning"
   },
   {
-    id: 'hyperextension',
+    id: 'hyperextension', popularity: 42,
     name: 'Back Extension / Hyperextension',
     category: 'hinge', equipment: 'bodyweight',
     primary: ['erectors', 'glutes'], secondary: ['hamstrings'],
@@ -578,7 +593,7 @@ const EXERCISE_DB = [
     muscleGroup: "core", pattern: "extension", movementId: "back-extension", movementName: "Back Extension"
   },
   {
-    id: 'reverse-hyperextension',
+    id: 'reverse-hyperextension', popularity: 22,
     name: 'Reverse Hyperextension',
     category: 'hinge', equipment: 'machine',
     primary: ['glutes', 'hamstrings'], secondary: ['erectors'],
@@ -589,7 +604,7 @@ const EXERCISE_DB = [
     muscleGroup: "glutes", pattern: "extension", movementId: "reverse-hyperextension", movementName: "Reverse Hyperextension"
   },
   {
-    id: 'hip-thrust-barbell',
+    id: 'hip-thrust-barbell', popularity: 42,
     name: 'Barbell Hip Thrust',
     category: 'hinge', equipment: 'barbell',
     primary: ['glutes'], secondary: ['hamstrings', 'quads'],
@@ -600,7 +615,7 @@ const EXERCISE_DB = [
     muscleGroup: "glutes", pattern: "thrust", movementId: "hip-thrust", movementName: "Hip Thrust"
   },
   {
-    id: 'hip-thrust-machine',
+    id: 'hip-thrust-machine', popularity: 42,
     name: 'Hip Thrust (Machine)',
     category: 'legs', equipment: 'machine',
     primary: ['glutes'], secondary: ['hamstrings', 'quads'],
@@ -611,7 +626,7 @@ const EXERCISE_DB = [
     muscleGroup: "glutes", pattern: "thrust", movementId: "hip-thrust", movementName: "Hip Thrust"
   },
   {
-    id: 'cable-pull-through',
+    id: 'cable-pull-through', popularity: 42,
     name: 'Cable Pull-Through',
     category: 'hinge', equipment: 'cable',
     primary: ['glutes', 'hamstrings'], secondary: ['erectors'],
@@ -624,7 +639,7 @@ const EXERCISE_DB = [
 
   // ── SHOULDERS ────────────────────────────────────────────────────────────────
   {
-    id: 'barbell-overhead-press',
+    id: 'barbell-overhead-press', popularity: 92,
     name: 'Barbell Overhead Press',
     category: 'shoulders', equipment: 'barbell',
     primary: ['front-delt', 'mid-delt'], secondary: ['triceps', 'serratus', 'rotator-cuff'],
@@ -635,7 +650,7 @@ const EXERCISE_DB = [
     muscleGroup: "shoulders", pattern: "press", movementId: "overhead-press", movementName: "Overhead Press"
   },
   {
-    id: 'dumbbell-overhead-press',
+    id: 'dumbbell-overhead-press', popularity: 82,
     name: 'Dumbbell Overhead Press',
     category: 'shoulders', equipment: 'dumbbell',
     primary: ['front-delt', 'mid-delt'], secondary: ['triceps', 'rotator-cuff'],
@@ -646,7 +661,7 @@ const EXERCISE_DB = [
     muscleGroup: "shoulders", pattern: "press", movementId: "overhead-press", movementName: "Overhead Press"
   },
   {
-    id: 'machine-shoulder-press',
+    id: 'machine-shoulder-press', popularity: 60,
     name: 'Machine Shoulder Press',
     category: 'shoulders', equipment: 'machine',
     primary: ['front-delt', 'mid-delt'], secondary: ['triceps'],
@@ -657,7 +672,7 @@ const EXERCISE_DB = [
     muscleGroup: "shoulders", pattern: "press", movementId: "overhead-press", movementName: "Overhead Press"
   },
   {
-    id: 'arnold-press',
+    id: 'arnold-press', popularity: 42,
     name: 'Arnold Press',
     category: 'shoulders', equipment: 'dumbbell',
     primary: ['front-delt', 'mid-delt'], secondary: ['triceps', 'rotator-cuff'],
@@ -668,7 +683,7 @@ const EXERCISE_DB = [
     muscleGroup: "shoulders", pattern: "press", movementId: "arnold-press", movementName: "Arnold Press"
   },
   {
-    id: 'lateral-raise-dumbbell',
+    id: 'lateral-raise-dumbbell', popularity: 92,
     name: 'Lateral Raise (Dumbbell)',
     category: 'shoulders', equipment: 'dumbbell',
     primary: ['mid-delt'], secondary: ['front-delt', 'rear-delt', 'rotator-cuff'],
@@ -679,7 +694,7 @@ const EXERCISE_DB = [
     muscleGroup: "shoulders", pattern: "raise", movementId: "lateral-raise", movementName: "Lateral Raise"
   },
   {
-    id: 'lateral-raise-cable',
+    id: 'lateral-raise-cable', popularity: 60,
     name: 'Lateral Raise (Cable)',
     category: 'shoulders', equipment: 'cable',
     primary: ['mid-delt'], secondary: ['front-delt', 'rear-delt'],
@@ -690,7 +705,7 @@ const EXERCISE_DB = [
     muscleGroup: "shoulders", pattern: "raise", movementId: "lateral-raise", movementName: "Lateral Raise"
   },
   {
-    id: 'lateral-raise-machine',
+    id: 'lateral-raise-machine', popularity: 60,
     name: 'Lateral Raise (Machine)',
     category: 'shoulders', equipment: 'machine',
     primary: ['mid-delt'], secondary: ['rear-delt'],
@@ -701,7 +716,7 @@ const EXERCISE_DB = [
     muscleGroup: "shoulders", pattern: "raise", movementId: "lateral-raise", movementName: "Lateral Raise"
   },
   {
-    id: 'upright-row',
+    id: 'upright-row', popularity: 42,
     name: 'Upright Row',
     category: 'shoulders', equipment: 'barbell',
     primary: ['mid-delt'], secondary: ['front-delt', 'biceps', 'rhomboids', 'traps'],
@@ -712,7 +727,7 @@ const EXERCISE_DB = [
     muscleGroup: "shoulders", pattern: "row", movementId: "upright-row", movementName: "Upright Row"
   },
   {
-    id: 'cuban-rotation',
+    id: 'cuban-rotation', popularity: 22,
     name: 'Cuban Rotation',
     category: 'shoulders', equipment: 'dumbbell',
     primary: ['rotator-cuff', 'rear-delt'], secondary: ['mid-delt'],
@@ -723,7 +738,7 @@ const EXERCISE_DB = [
     muscleGroup: "shoulders", pattern: "rotation", movementId: "cuban-rotation", movementName: "Cuban Rotation"
   },
   {
-    id: 'cable-y-raise',
+    id: 'cable-y-raise', popularity: 22,
     name: 'Cable Y-Raise',
     category: 'shoulders', equipment: 'cable',
     primary: ['mid-traps', 'rear-delt', 'rotator-cuff'], secondary: ['rhomboids'],
@@ -736,7 +751,7 @@ const EXERCISE_DB = [
 
   // ── BICEPS ───────────────────────────────────────────────────────────────────
   {
-    id: 'barbell-curl',
+    id: 'barbell-curl', popularity: 92,
     name: 'Barbell Curl',
     category: 'arms', equipment: 'barbell',
     primary: ['biceps'], secondary: ['brachialis', 'brachioradialis'],
@@ -747,7 +762,7 @@ const EXERCISE_DB = [
     muscleGroup: "biceps", pattern: "curl", movementId: "bicep-curl", movementName: "Bicep Curl"
   },
   {
-    id: 'ez-bar-curl',
+    id: 'ez-bar-curl', popularity: 60,
     name: 'EZ-Bar Curl',
     category: 'arms', equipment: 'barbell',
     primary: ['biceps', 'brachialis'], secondary: ['brachioradialis'],
@@ -758,7 +773,7 @@ const EXERCISE_DB = [
     muscleGroup: "biceps", pattern: "curl", movementId: "bicep-curl", movementName: "Bicep Curl"
   },
   {
-    id: 'dumbbell-curl-standing',
+    id: 'dumbbell-curl-standing', popularity: 82,
     name: 'Dumbbell Curl (Standing)',
     category: 'arms', equipment: 'dumbbell',
     primary: ['biceps'], secondary: ['brachialis', 'brachioradialis'],
@@ -769,7 +784,7 @@ const EXERCISE_DB = [
     muscleGroup: "biceps", pattern: "curl", movementId: "bicep-curl", movementName: "Bicep Curl"
   },
   {
-    id: 'incline-dumbbell-curl',
+    id: 'incline-dumbbell-curl', popularity: 60,
     name: 'Incline Dumbbell Curl',
     category: 'arms', equipment: 'dumbbell',
     primary: ['biceps'], secondary: ['brachialis'],
@@ -780,7 +795,7 @@ const EXERCISE_DB = [
     muscleGroup: "biceps", pattern: "curl", movementId: "bicep-curl", movementName: "Bicep Curl"
   },
   {
-    id: 'hammer-curl',
+    id: 'hammer-curl', popularity: 82,
     name: 'Hammer Curl',
     category: 'arms', equipment: 'dumbbell',
     primary: ['brachialis', 'brachioradialis'], secondary: ['biceps'],
@@ -791,7 +806,7 @@ const EXERCISE_DB = [
     muscleGroup: "biceps", pattern: "curl", movementId: "hammer-curl", movementName: "Hammer Curl"
   },
   {
-    id: 'preacher-curl-barbell',
+    id: 'preacher-curl-barbell', popularity: 42,
     name: 'Preacher Curl (Barbell)',
     category: 'arms', equipment: 'barbell',
     primary: ['biceps'], secondary: ['brachialis'],
@@ -802,7 +817,7 @@ const EXERCISE_DB = [
     muscleGroup: "biceps", pattern: "curl", movementId: "preacher-curl", movementName: "Preacher Curl"
   },
   {
-    id: 'spider-curl',
+    id: 'spider-curl', popularity: 22,
     name: 'Spider Curl',
     category: 'arms', equipment: 'barbell',
     primary: ['biceps'], secondary: ['brachialis'],
@@ -813,7 +828,7 @@ const EXERCISE_DB = [
     muscleGroup: "biceps", pattern: "curl", movementId: "spider-curl", movementName: "Spider Curl"
   },
   {
-    id: 'decline-curl',
+    id: 'decline-curl', popularity: 22,
     name: 'Decline Curl (Carter Curl)',
     category: 'arms', equipment: 'dumbbell',
     primary: ['biceps'], secondary: ['brachialis'],
@@ -824,7 +839,7 @@ const EXERCISE_DB = [
     muscleGroup: "biceps", pattern: "curl", movementId: "decline-curl", movementName: "Decline Curl"
   },
   {
-    id: 'low-cable-curl',
+    id: 'low-cable-curl', popularity: 60,
     name: 'Low Cable Curl',
     category: 'arms', equipment: 'cable',
     primary: ['biceps'], secondary: ['brachialis'],
@@ -835,7 +850,7 @@ const EXERCISE_DB = [
     muscleGroup: "biceps", pattern: "curl", movementId: "bicep-curl", movementName: "Bicep Curl"
   },
   {
-    id: 'drag-curl',
+    id: 'drag-curl', popularity: 22,
     name: 'Drag Curl',
     category: 'arms', equipment: 'barbell',
     primary: ['biceps'], secondary: ['brachialis'],
@@ -846,7 +861,7 @@ const EXERCISE_DB = [
     muscleGroup: "biceps", pattern: "curl", movementId: "drag-curl", movementName: "Drag Curl"
   },
   {
-    id: 'concentration-curl',
+    id: 'concentration-curl', popularity: 42,
     name: 'Concentration Curl',
     category: 'arms', equipment: 'dumbbell',
     primary: ['biceps'], secondary: [],
@@ -857,7 +872,7 @@ const EXERCISE_DB = [
     muscleGroup: "biceps", pattern: "curl", movementId: "concentration-curl", movementName: "Concentration Curl"
   },
   {
-    id: 'cross-body-hammer-curl',
+    id: 'cross-body-hammer-curl', popularity: 60,
     name: 'Cross-Body Hammer Curl',
     category: 'arms', equipment: 'dumbbell',
     primary: ['brachialis', 'brachioradialis'], secondary: ['biceps'],
@@ -868,7 +883,7 @@ const EXERCISE_DB = [
     muscleGroup: "biceps", pattern: "curl", movementId: "hammer-curl", movementName: "Hammer Curl"
   },
   {
-    id: 'zottman-curl',
+    id: 'zottman-curl', popularity: 22,
     name: 'Zottman Curl',
     category: 'arms', equipment: 'dumbbell',
     primary: ['biceps', 'brachioradialis'], secondary: ['brachialis', 'forearms'],
@@ -879,7 +894,7 @@ const EXERCISE_DB = [
     muscleGroup: "biceps", pattern: "curl", movementId: "zottman-curl", movementName: "Zottman Curl"
   },
   {
-    id: 'reverse-curl',
+    id: 'reverse-curl', popularity: 42,
     name: 'Reverse Curl',
     category: 'arms', equipment: 'barbell',
     primary: ['brachioradialis', 'forearms'], secondary: ['brachialis', 'biceps'],
@@ -892,7 +907,7 @@ const EXERCISE_DB = [
 
   // ── TRICEPS ──────────────────────────────────────────────────────────────────
   {
-    id: 'cable-pushdown-rope',
+    id: 'cable-pushdown-rope', popularity: 82,
     name: 'Cable Tricep Pushdown (Rope)',
     category: 'arms', equipment: 'cable',
     primary: ['triceps'], secondary: [],
@@ -903,7 +918,7 @@ const EXERCISE_DB = [
     muscleGroup: "triceps", pattern: "extension", movementId: "tricep-pushdown", movementName: "Tricep Pushdown"
   },
   {
-    id: 'cable-pushdown-bar',
+    id: 'cable-pushdown-bar', popularity: 82,
     name: 'Cable Tricep Pushdown (Bar)',
     category: 'arms', equipment: 'cable',
     primary: ['triceps'], secondary: [],
@@ -914,7 +929,7 @@ const EXERCISE_DB = [
     muscleGroup: "triceps", pattern: "extension", movementId: "tricep-pushdown", movementName: "Tricep Pushdown"
   },
   {
-    id: 'skullcrusher-barbell',
+    id: 'skullcrusher-barbell', popularity: 42,
     name: 'Skullcrusher (Barbell)',
     category: 'arms', equipment: 'barbell',
     primary: ['triceps'], secondary: [],
@@ -925,7 +940,7 @@ const EXERCISE_DB = [
     muscleGroup: "triceps", pattern: "extension", movementId: "skullcrusher", movementName: "Skullcrusher"
   },
   {
-    id: 'skullcrusher-ez',
+    id: 'skullcrusher-ez', popularity: 42,
     name: 'Skullcrusher (EZ-Bar)',
     category: 'arms', equipment: 'barbell',
     primary: ['triceps'], secondary: [],
@@ -936,7 +951,7 @@ const EXERCISE_DB = [
     muscleGroup: "triceps", pattern: "extension", movementId: "skullcrusher", movementName: "Skullcrusher"
   },
   {
-    id: 'jm-press',
+    id: 'jm-press', popularity: 22,
     name: 'JM Press',
     category: 'arms', equipment: 'barbell',
     primary: ['triceps'], secondary: ['chest', 'front-delt'],
@@ -947,7 +962,7 @@ const EXERCISE_DB = [
     muscleGroup: "triceps", pattern: "extension", movementId: "jm-press", movementName: "JM Press"
   },
   {
-    id: 'overhead-tricep-extension-cable',
+    id: 'overhead-tricep-extension-cable', popularity: 78,
     name: 'Overhead Tricep Extension (Cable)',
     category: 'arms', equipment: 'cable',
     primary: ['triceps'], secondary: [],
@@ -958,7 +973,7 @@ const EXERCISE_DB = [
     muscleGroup: "triceps", pattern: "extension", movementId: "overhead-tricep-extension", movementName: "Overhead Tricep Extension"
   },
   {
-    id: 'overhead-tricep-extension-dumbbell',
+    id: 'overhead-tricep-extension-dumbbell', popularity: 60,
     name: 'Overhead Tricep Extension (Dumbbell)',
     category: 'arms', equipment: 'dumbbell',
     primary: ['triceps'], secondary: [],
@@ -969,7 +984,7 @@ const EXERCISE_DB = [
     muscleGroup: "triceps", pattern: "extension", movementId: "overhead-tricep-extension", movementName: "Overhead Tricep Extension"
   },
   {
-    id: 'tricep-dips',
+    id: 'tricep-dips', popularity: 42,
     name: 'Tricep Dips (Parallel Bars)',
     category: 'arms', equipment: 'bodyweight',
     primary: ['triceps', 'chest'], secondary: ['front-delt'],
@@ -980,7 +995,7 @@ const EXERCISE_DB = [
     muscleGroup: "triceps", pattern: "dip", movementId: "tricep-dip", movementName: "Tricep Dip"
   },
   {
-    id: 'carter-extension',
+    id: 'carter-extension', popularity: 22,
     name: 'Carter Extension',
     category: 'arms', equipment: 'dumbbell',
     primary: ['triceps'], secondary: [],
@@ -991,7 +1006,7 @@ const EXERCISE_DB = [
     muscleGroup: "triceps", pattern: "extension", movementId: "carter-extension", movementName: "Carter Extension"
   },
   {
-    id: 'tate-press',
+    id: 'tate-press', popularity: 22,
     name: 'Tate Press',
     category: 'arms', equipment: 'dumbbell',
     primary: ['triceps'], secondary: [],
@@ -1002,7 +1017,7 @@ const EXERCISE_DB = [
     muscleGroup: "triceps", pattern: "extension", movementId: "tate-press", movementName: "Tate Press"
   },
   {
-    id: 'diamond-push-up',
+    id: 'diamond-push-up', popularity: 42,
     name: 'Diamond Push-Up',
     category: 'arms', equipment: 'bodyweight',
     primary: ['triceps'], secondary: ['chest', 'front-delt'],
@@ -1015,7 +1030,7 @@ const EXERCISE_DB = [
 
   // ── QUADS ────────────────────────────────────────────────────────────────────
   {
-    id: 'back-squat',
+    id: 'back-squat', popularity: 100,
     name: 'Back Squat',
     category: 'legs', equipment: 'barbell',
     primary: ['quads', 'glutes'], secondary: ['hamstrings', 'adductors', 'erectors'],
@@ -1026,7 +1041,7 @@ const EXERCISE_DB = [
     muscleGroup: "quads", pattern: "squat", movementId: "squat", movementName: "Squat"
   },
   {
-    id: 'front-squat',
+    id: 'front-squat', popularity: 60,
     name: 'Front Squat',
     category: 'legs', equipment: 'barbell',
     primary: ['quads'], secondary: ['glutes', 'erectors', 'core'],
@@ -1037,7 +1052,7 @@ const EXERCISE_DB = [
     muscleGroup: "quads", pattern: "squat", movementId: "squat", movementName: "Squat"
   },
   {
-    id: 'hack-squat-machine',
+    id: 'hack-squat-machine', popularity: 42,
     name: 'Hack Squat (Machine)',
     category: 'legs', equipment: 'machine',
     primary: ['quads', 'glutes'], secondary: ['hamstrings'],
@@ -1048,7 +1063,7 @@ const EXERCISE_DB = [
     muscleGroup: "quads", pattern: "squat", movementId: "hack-squat", movementName: "Hack Squat"
   },
   {
-    id: 'leg-press',
+    id: 'leg-press', popularity: 92,
     name: 'Leg Press',
     category: 'legs', equipment: 'machine',
     primary: ['quads', 'glutes'], secondary: ['hamstrings', 'adductors'],
@@ -1059,7 +1074,7 @@ const EXERCISE_DB = [
     muscleGroup: "quads", pattern: "squat", movementId: "leg-press", movementName: "Leg Press"
   },
   {
-    id: 'bulgarian-split-squat',
+    id: 'bulgarian-split-squat', popularity: 42,
     name: 'Bulgarian Split Squat',
     category: 'legs', equipment: 'dumbbell',
     primary: ['quads', 'glutes'], secondary: ['hamstrings', 'adductors', 'core'],
@@ -1070,7 +1085,7 @@ const EXERCISE_DB = [
     muscleGroup: "quads", pattern: "lunge", movementId: "split-squat", movementName: "Split Squat"
   },
   {
-    id: 'lunge-walking',
+    id: 'lunge-walking', popularity: 42,
     name: 'Walking Lunge',
     category: 'legs', equipment: 'dumbbell',
     primary: ['quads', 'glutes'], secondary: ['hamstrings', 'adductors', 'core'],
@@ -1081,7 +1096,7 @@ const EXERCISE_DB = [
     muscleGroup: "quads", pattern: "lunge", movementId: "lunge", movementName: "Lunge"
   },
   {
-    id: 'reverse-lunge',
+    id: 'reverse-lunge', popularity: 42,
     name: 'Reverse Lunge',
     category: 'legs', equipment: 'dumbbell',
     primary: ['quads', 'glutes'], secondary: ['hamstrings', 'adductors'],
@@ -1092,7 +1107,7 @@ const EXERCISE_DB = [
     muscleGroup: "quads", pattern: "lunge", movementId: "lunge", movementName: "Lunge"
   },
   {
-    id: 'leg-extension',
+    id: 'leg-extension', popularity: 92,
     name: 'Leg Extension',
     category: 'legs', equipment: 'machine',
     primary: ['quads'], secondary: [],
@@ -1103,7 +1118,7 @@ const EXERCISE_DB = [
     muscleGroup: "quads", pattern: "extension", movementId: "leg-extension", movementName: "Leg Extension"
   },
   {
-    id: 'sissy-squat',
+    id: 'sissy-squat', popularity: 22,
     name: 'Sissy Squat',
     category: 'legs', equipment: 'bodyweight',
     primary: ['quads'], secondary: ['hip-flexors'],
@@ -1114,7 +1129,7 @@ const EXERCISE_DB = [
     muscleGroup: "quads", pattern: "squat", movementId: "sissy-squat", movementName: "Sissy Squat"
   },
   {
-    id: 'atg-split-squat',
+    id: 'atg-split-squat', popularity: 22,
     name: 'ATG Split Squat (Knees Over Toes)',
     category: 'legs', equipment: 'bodyweight',
     primary: ['quads'], secondary: ['glutes', 'hip-flexors'],
@@ -1125,7 +1140,7 @@ const EXERCISE_DB = [
     muscleGroup: "quads", pattern: "lunge", movementId: "split-squat", movementName: "Split Squat"
   },
   {
-    id: 'step-up',
+    id: 'step-up', popularity: 42,
     name: 'Step-Up',
     category: 'legs', equipment: 'dumbbell',
     primary: ['quads', 'glutes'], secondary: ['hamstrings'],
@@ -1138,7 +1153,7 @@ const EXERCISE_DB = [
 
   // ── HAMSTRINGS ───────────────────────────────────────────────────────────────
   {
-    id: 'lying-leg-curl',
+    id: 'lying-leg-curl', popularity: 82,
     name: 'Lying Leg Curl',
     category: 'legs', equipment: 'machine',
     primary: ['hamstrings'], secondary: ['calves'],
@@ -1149,7 +1164,7 @@ const EXERCISE_DB = [
     muscleGroup: "hamstrings", pattern: "curl", movementId: "leg-curl", movementName: "Leg Curl"
   },
   {
-    id: 'seated-leg-curl',
+    id: 'seated-leg-curl', popularity: 82,
     name: 'Seated Leg Curl',
     category: 'legs', equipment: 'machine',
     primary: ['hamstrings'], secondary: [],
@@ -1160,7 +1175,7 @@ const EXERCISE_DB = [
     muscleGroup: "hamstrings", pattern: "curl", movementId: "leg-curl", movementName: "Leg Curl"
   },
   {
-    id: 'nordic-hamstring-curl',
+    id: 'nordic-hamstring-curl', popularity: 22,
     name: 'Nordic Hamstring Curl',
     category: 'legs', equipment: 'bodyweight',
     primary: ['hamstrings'], secondary: ['glutes', 'erectors'],
@@ -1171,7 +1186,7 @@ const EXERCISE_DB = [
     muscleGroup: "hamstrings", pattern: "curl", movementId: "nordic-curl", movementName: "Nordic Curl"
   },
   {
-    id: 'glute-ham-raise',
+    id: 'glute-ham-raise', popularity: 22,
     name: 'Glute-Ham Raise (GHR)',
     category: 'legs', equipment: 'machine',
     primary: ['hamstrings', 'glutes'], secondary: ['erectors', 'calves'],
@@ -1182,7 +1197,7 @@ const EXERCISE_DB = [
     muscleGroup: "hamstrings", pattern: "curl", movementId: "glute-ham-raise", movementName: "Glute-Ham Raise"
   },
   {
-    id: 'swiss-ball-leg-curl',
+    id: 'swiss-ball-leg-curl', popularity: 60,
     name: 'Swiss Ball Leg Curl',
     category: 'legs', equipment: 'bodyweight',
     primary: ['hamstrings', 'glutes'], secondary: ['calves', 'core'],
@@ -1195,7 +1210,7 @@ const EXERCISE_DB = [
 
   // ── GLUTES ───────────────────────────────────────────────────────────────────
   {
-    id: 'glute-bridge',
+    id: 'glute-bridge', popularity: 42,
     name: 'Glute Bridge',
     category: 'legs', equipment: 'bodyweight',
     primary: ['glutes'], secondary: ['hamstrings'],
@@ -1206,7 +1221,7 @@ const EXERCISE_DB = [
     muscleGroup: "glutes", pattern: "thrust", movementId: "glute-bridge", movementName: "Glute Bridge"
   },
   {
-    id: 'single-leg-hip-thrust',
+    id: 'single-leg-hip-thrust', popularity: 42,
     name: 'Single-Leg Hip Thrust',
     category: 'legs', equipment: 'bodyweight',
     primary: ['glutes'], secondary: ['hamstrings', 'core'],
@@ -1217,7 +1232,7 @@ const EXERCISE_DB = [
     muscleGroup: "glutes", pattern: "thrust", movementId: "hip-thrust", movementName: "Hip Thrust"
   },
   {
-    id: 'cable-glute-kickback',
+    id: 'cable-glute-kickback', popularity: 42,
     name: 'Cable Glute Kickback',
     category: 'legs', equipment: 'cable',
     primary: ['glutes'], secondary: ['hamstrings'],
@@ -1228,7 +1243,7 @@ const EXERCISE_DB = [
     muscleGroup: "glutes", pattern: "extension", movementId: "glute-kickback", movementName: "Glute Kickback"
   },
   {
-    id: 'frog-pump',
+    id: 'frog-pump', popularity: 22,
     name: 'Frog Pump',
     category: 'legs', equipment: 'bodyweight',
     primary: ['glutes'], secondary: [],
@@ -1239,7 +1254,7 @@ const EXERCISE_DB = [
     muscleGroup: "glutes", pattern: "thrust", movementId: "glute-bridge", movementName: "Glute Bridge"
   },
   {
-    id: 'lateral-band-walk',
+    id: 'lateral-band-walk', popularity: 42,
     name: 'Lateral Band Walk',
     category: 'legs', equipment: 'bodyweight',
     primary: ['abductors', 'glutes'], secondary: ['quads'],
@@ -1250,7 +1265,7 @@ const EXERCISE_DB = [
     muscleGroup: "hips", pattern: "abduction", movementId: "lateral-walk", movementName: "Lateral Walk"
   },
   {
-    id: 'clamshell',
+    id: 'clamshell', popularity: 42,
     name: 'Clamshell',
     category: 'legs', equipment: 'bodyweight',
     primary: ['abductors', 'glutes'], secondary: [],
@@ -1263,7 +1278,7 @@ const EXERCISE_DB = [
 
   // ── CALVES & LOWER LEG ───────────────────────────────────────────────────────
   {
-    id: 'standing-calf-raise-machine',
+    id: 'standing-calf-raise-machine', popularity: 78,
     name: 'Standing Calf Raise (Machine)',
     category: 'legs', equipment: 'machine',
     primary: ['calves'], secondary: [],
@@ -1274,7 +1289,7 @@ const EXERCISE_DB = [
     muscleGroup: "calves", pattern: "calf-raise", movementId: "calf-raise", movementName: "Calf Raise"
   },
   {
-    id: 'seated-calf-raise',
+    id: 'seated-calf-raise', popularity: 78,
     name: 'Seated Calf Raise',
     category: 'legs', equipment: 'machine',
     primary: ['calves'], secondary: [],
@@ -1285,7 +1300,7 @@ const EXERCISE_DB = [
     muscleGroup: "calves", pattern: "calf-raise", movementId: "calf-raise", movementName: "Calf Raise"
   },
   {
-    id: 'single-leg-calf-raise',
+    id: 'single-leg-calf-raise', popularity: 60,
     name: 'Single-Leg Calf Raise',
     category: 'legs', equipment: 'bodyweight',
     primary: ['calves'], secondary: [],
@@ -1296,7 +1311,7 @@ const EXERCISE_DB = [
     muscleGroup: "calves", pattern: "calf-raise", movementId: "calf-raise", movementName: "Calf Raise"
   },
   {
-    id: 'tibialis-raise',
+    id: 'tibialis-raise', popularity: 22,
     name: 'Tibialis Raise (Wall Sit)',
     category: 'legs', equipment: 'bodyweight',
     primary: ['tibialis'], secondary: [],
@@ -1307,7 +1322,7 @@ const EXERCISE_DB = [
     muscleGroup: "calves", pattern: "raise", movementId: "tibialis-raise", movementName: "Tibialis Raise"
   },
   {
-    id: 'donkey-calf-raise',
+    id: 'donkey-calf-raise', popularity: 60,
     name: 'Donkey Calf Raise',
     category: 'legs', equipment: 'bodyweight',
     primary: ['calves'], secondary: [],
@@ -1320,7 +1335,7 @@ const EXERCISE_DB = [
 
   // ── ADDUCTORS / ABDUCTORS ────────────────────────────────────────────────────
   {
-    id: 'copenhagen-adduction',
+    id: 'copenhagen-adduction', popularity: 22,
     name: 'Copenhagen Adduction',
     category: 'legs', equipment: 'bodyweight',
     primary: ['adductors'], secondary: ['core', 'glutes'],
@@ -1331,7 +1346,7 @@ const EXERCISE_DB = [
     muscleGroup: "hips", pattern: "adduction", movementId: "copenhagen-adduction", movementName: "Copenhagen Adduction"
   },
   {
-    id: 'adductor-machine',
+    id: 'adductor-machine', popularity: 42,
     name: 'Adductor Machine',
     category: 'legs', equipment: 'machine',
     primary: ['adductors'], secondary: [],
@@ -1342,7 +1357,7 @@ const EXERCISE_DB = [
     muscleGroup: "hips", pattern: "adduction", movementId: "hip-adduction", movementName: "Hip Adduction"
   },
   {
-    id: 'cable-hip-adduction',
+    id: 'cable-hip-adduction', popularity: 42,
     name: 'Cable Hip Adduction',
     category: 'legs', equipment: 'cable',
     primary: ['adductors'], secondary: [],
@@ -1353,7 +1368,7 @@ const EXERCISE_DB = [
     muscleGroup: "hips", pattern: "adduction", movementId: "hip-adduction", movementName: "Hip Adduction"
   },
   {
-    id: 'abductor-machine',
+    id: 'abductor-machine', popularity: 42,
     name: 'Abductor Machine',
     category: 'legs', equipment: 'machine',
     primary: ['abductors', 'glutes'], secondary: [],
@@ -1366,7 +1381,7 @@ const EXERCISE_DB = [
 
   // ── CORE ─────────────────────────────────────────────────────────────────────
   {
-    id: 'ab-wheel-rollout',
+    id: 'ab-wheel-rollout', popularity: 42,
     name: 'Ab Wheel Rollout',
     category: 'core', equipment: 'bodyweight',
     primary: ['abs', 'transverse-abs'], secondary: ['lats', 'erectors', 'shoulders'],
@@ -1377,7 +1392,7 @@ const EXERCISE_DB = [
     muscleGroup: "core", pattern: "rollout", movementId: "ab-rollout", movementName: "Ab Rollout"
   },
   {
-    id: 'cable-crunch',
+    id: 'cable-crunch', popularity: 78,
     name: 'Cable Crunch',
     category: 'core', equipment: 'cable',
     primary: ['abs'], secondary: ['obliques'],
@@ -1388,7 +1403,7 @@ const EXERCISE_DB = [
     muscleGroup: "core", pattern: "crunch", movementId: "cable-crunch", movementName: "Cable Crunch"
   },
   {
-    id: 'hanging-leg-raise',
+    id: 'hanging-leg-raise', popularity: 78,
     name: 'Hanging Leg Raise',
     category: 'core', equipment: 'bodyweight',
     primary: ['abs', 'hip-flexors'], secondary: ['obliques'],
@@ -1399,7 +1414,7 @@ const EXERCISE_DB = [
     muscleGroup: "core", pattern: "raise", movementId: "leg-raise", movementName: "Leg Raise"
   },
   {
-    id: 'pallof-press',
+    id: 'pallof-press', popularity: 22,
     name: 'Pallof Press',
     category: 'core', equipment: 'cable',
     primary: ['transverse-abs', 'obliques'], secondary: ['abs', 'glutes'],
@@ -1410,7 +1425,7 @@ const EXERCISE_DB = [
     muscleGroup: "core", pattern: "rotation", movementId: "pallof-press", movementName: "Pallof Press"
   },
   {
-    id: 'dead-bug',
+    id: 'dead-bug', popularity: 42,
     name: 'Dead Bug',
     category: 'core', equipment: 'bodyweight',
     primary: ['transverse-abs', 'abs'], secondary: ['hip-flexors'],
@@ -1421,7 +1436,7 @@ const EXERCISE_DB = [
     muscleGroup: "core", pattern: "hold", movementId: "dead-bug", movementName: "Dead Bug"
   },
   {
-    id: 'dragon-flag',
+    id: 'dragon-flag', popularity: 42,
     name: 'Dragon Flag',
     category: 'core', equipment: 'bodyweight',
     primary: ['abs', 'transverse-abs'], secondary: ['erectors', 'hip-flexors', 'lats'],
@@ -1432,7 +1447,7 @@ const EXERCISE_DB = [
     muscleGroup: "core", pattern: "raise", movementId: "dragon-flag", movementName: "Dragon Flag"
   },
   {
-    id: 'plank',
+    id: 'plank', popularity: 42,
     name: 'Plank (Front)',
     category: 'core', equipment: 'bodyweight',
     primary: ['transverse-abs', 'abs'], secondary: ['glutes', 'shoulders', 'erectors'],
@@ -1443,7 +1458,7 @@ const EXERCISE_DB = [
     muscleGroup: "core", pattern: "hold", movementId: "plank", movementName: "Plank"
   },
   {
-    id: 'side-plank',
+    id: 'side-plank', popularity: 42,
     name: 'Side Plank',
     category: 'core', equipment: 'bodyweight',
     primary: ['obliques', 'transverse-abs'], secondary: ['glutes', 'abductors'],
@@ -1454,7 +1469,7 @@ const EXERCISE_DB = [
     muscleGroup: "core", pattern: "hold", movementId: "side-plank", movementName: "Side Plank"
   },
   {
-    id: 'landmine-rotation',
+    id: 'landmine-rotation', popularity: 42,
     name: 'Landmine Rotation',
     category: 'core', equipment: 'barbell',
     primary: ['obliques'], secondary: ['shoulders', 'transverse-abs'],
@@ -1465,7 +1480,7 @@ const EXERCISE_DB = [
     muscleGroup: "core", pattern: "rotation", movementId: "landmine-rotation", movementName: "Landmine Rotation"
   },
   {
-    id: 'roman-chair-sit-up',
+    id: 'roman-chair-sit-up', popularity: 42,
     name: 'Roman Chair Sit-Up',
     category: 'core', equipment: 'machine',
     primary: ['abs', 'hip-flexors'], secondary: ['obliques'],
@@ -1476,7 +1491,7 @@ const EXERCISE_DB = [
     muscleGroup: "core", pattern: "crunch", movementId: "sit-up", movementName: "Sit-Up"
   },
   {
-    id: 'hollow-body-hold',
+    id: 'hollow-body-hold', popularity: 42,
     name: 'Hollow Body Hold',
     category: 'core', equipment: 'bodyweight',
     primary: ['abs', 'transverse-abs'], secondary: ['hip-flexors'],
@@ -1488,7 +1503,7 @@ const EXERCISE_DB = [
   },
   // ── ADDITIONAL CHEST ─────────────────────────────────────────────────────────
   {
-    id: 'incline-cable-fly',
+    id: 'incline-cable-fly', popularity: 42,
     name: 'Incline Cable Fly',
     category: 'push', equipment: 'cable',
     primary: ['chest'], secondary: ['front-delt'],
@@ -1499,7 +1514,7 @@ const EXERCISE_DB = [
     muscleGroup: "chest", pattern: "fly", movementId: "cable-fly", movementName: "Cable Fly"
   },
   {
-    id: 'dips-weighted',
+    id: 'dips-weighted', popularity: 42,
     name: 'Weighted Dips (Chest)',
     category: 'push', equipment: 'bodyweight',
     primary: ['chest', 'triceps'], secondary: ['front-delt'],
@@ -1510,7 +1525,7 @@ const EXERCISE_DB = [
     muscleGroup: "chest", pattern: "dip", movementId: "chest-dip", movementName: "Chest Dip"
   },
   {
-    id: 'push-up-ring',
+    id: 'push-up-ring', popularity: 42,
     name: 'Ring Push-Up',
     category: 'push', equipment: 'bodyweight',
     primary: ['chest', 'triceps'], secondary: ['serratus', 'core'],
@@ -1521,7 +1536,7 @@ const EXERCISE_DB = [
     muscleGroup: "chest", pattern: "press", movementId: "push-up", movementName: "Push-Up"
   },
   {
-    id: 'cable-single-arm-press',
+    id: 'cable-single-arm-press', popularity: 42,
     name: 'Single-Arm Cable Press',
     category: 'push', equipment: 'cable',
     primary: ['chest', 'front-delt'], secondary: ['triceps', 'core'],
@@ -1534,7 +1549,7 @@ const EXERCISE_DB = [
 
   // ── ADDITIONAL BACK ──────────────────────────────────────────────────────────
   {
-    id: 'single-arm-landmine-row',
+    id: 'single-arm-landmine-row', popularity: 42,
     name: 'Single-Arm Landmine Row',
     category: 'pull', equipment: 'barbell',
     primary: ['lats', 'rhomboids'], secondary: ['biceps', 'rear-delt'],
@@ -1545,7 +1560,7 @@ const EXERCISE_DB = [
     muscleGroup: "back", pattern: "row", movementId: "landmine-row", movementName: "Landmine Row"
   },
   {
-    id: 'cable-row-single-arm-standing',
+    id: 'cable-row-single-arm-standing', popularity: 42,
     name: 'Standing Single-Arm Cable Row',
     category: 'pull', equipment: 'cable',
     primary: ['lats', 'rhomboids'], secondary: ['biceps', 'core'],
@@ -1556,7 +1571,7 @@ const EXERCISE_DB = [
     muscleGroup: "back", pattern: "row", movementId: "standing-cable-row", movementName: "Standing Cable Row"
   },
   {
-    id: 'bent-over-dumbbell-row',
+    id: 'bent-over-dumbbell-row', popularity: 82,
     name: 'Bent-Over Dumbbell Row (Bilateral)',
     category: 'pull', equipment: 'dumbbell',
     primary: ['lats', 'rhomboids', 'mid-traps'], secondary: ['biceps', 'erectors'],
@@ -1567,7 +1582,7 @@ const EXERCISE_DB = [
     muscleGroup: "back", pattern: "row", movementId: "dumbbell-row", movementName: "Dumbbell Row"
   },
   {
-    id: 'shrug-barbell',
+    id: 'shrug-barbell', popularity: 42,
     name: 'Barbell Shrug',
     category: 'pull', equipment: 'barbell',
     primary: ['traps'], secondary: ['rhomboids', 'forearms'],
@@ -1578,7 +1593,7 @@ const EXERCISE_DB = [
     muscleGroup: "back", pattern: "shrug", movementId: "shrug", movementName: "Shrug"
   },
   {
-    id: 'shrug-dumbbell',
+    id: 'shrug-dumbbell', popularity: 42,
     name: 'Dumbbell Shrug',
     category: 'pull', equipment: 'dumbbell',
     primary: ['traps'], secondary: ['rhomboids'],
@@ -1589,7 +1604,7 @@ const EXERCISE_DB = [
     muscleGroup: "back", pattern: "shrug", movementId: "shrug", movementName: "Shrug"
   },
   {
-    id: 'cable-shrug',
+    id: 'cable-shrug', popularity: 42,
     name: 'Cable Shrug',
     category: 'pull', equipment: 'cable',
     primary: ['traps'], secondary: [],
@@ -1600,7 +1615,7 @@ const EXERCISE_DB = [
     muscleGroup: "back", pattern: "shrug", movementId: "shrug", movementName: "Shrug"
   },
   {
-    id: 'kelso-shrug-low',
+    id: 'kelso-shrug-low', popularity: 22,
     name: 'Kelso Shrug (Low Pulley)',
     category: 'pull', equipment: 'cable',
     primary: ['mid-traps', 'rhomboids'], secondary: ['lats', 'teres-major'],
@@ -1611,7 +1626,7 @@ const EXERCISE_DB = [
     muscleGroup: "back", pattern: "row", movementId: "kelso-shrug", movementName: "Kelso Shrug"
   },
   {
-    id: 'kelso-shrug-mid',
+    id: 'kelso-shrug-mid', popularity: 22,
     name: 'Kelso Shrug (Mid Pulley)',
     category: 'pull', equipment: 'cable',
     primary: ['mid-traps', 'rhomboids'], secondary: ['rear-delt', 'lats'],
@@ -1622,7 +1637,7 @@ const EXERCISE_DB = [
     muscleGroup: "back", pattern: "row", movementId: "kelso-shrug", movementName: "Kelso Shrug"
   },
   {
-    id: 'kelso-shrug-high',
+    id: 'kelso-shrug-high', popularity: 22,
     name: 'Kelso Shrug (High Pulley)',
     category: 'pull', equipment: 'cable',
     primary: ['mid-traps', 'rhomboids'], secondary: ['rear-delt', 'mid-delt'],
@@ -1635,7 +1650,7 @@ const EXERCISE_DB = [
 
   // ── ADDITIONAL SHOULDERS ─────────────────────────────────────────────────────
   {
-    id: 'seated-dumbbell-press',
+    id: 'seated-dumbbell-press', popularity: 82,
     name: 'Seated Dumbbell Overhead Press',
     category: 'shoulders', equipment: 'dumbbell',
     primary: ['front-delt', 'mid-delt'], secondary: ['triceps', 'rotator-cuff'],
@@ -1646,7 +1661,7 @@ const EXERCISE_DB = [
     muscleGroup: "shoulders", pattern: "press", movementId: "overhead-press", movementName: "Overhead Press"
   },
   {
-    id: 'pike-push-up',
+    id: 'pike-push-up', popularity: 42,
     name: 'Pike Push-Up',
     category: 'shoulders', equipment: 'bodyweight',
     primary: ['front-delt', 'mid-delt'], secondary: ['triceps'],
@@ -1657,7 +1672,7 @@ const EXERCISE_DB = [
     muscleGroup: "shoulders", pattern: "press", movementId: "pike-push-up", movementName: "Pike Push-Up"
   },
   {
-    id: 'handstand-push-up',
+    id: 'handstand-push-up', popularity: 42,
     name: 'Handstand Push-Up (Wall)',
     category: 'shoulders', equipment: 'bodyweight',
     primary: ['front-delt', 'mid-delt'], secondary: ['triceps', 'core'],
@@ -1668,7 +1683,7 @@ const EXERCISE_DB = [
     muscleGroup: "shoulders", pattern: "press", movementId: "handstand-push-up", movementName: "Handstand Push-Up"
   },
   {
-    id: 'single-arm-lateral-raise',
+    id: 'single-arm-lateral-raise', popularity: 60,
     name: 'Single-Arm Cable Lateral Raise',
     category: 'shoulders', equipment: 'cable',
     primary: ['mid-delt'], secondary: ['rotator-cuff'],
@@ -1679,7 +1694,7 @@ const EXERCISE_DB = [
     muscleGroup: "shoulders", pattern: "raise", movementId: "lateral-raise", movementName: "Lateral Raise"
   },
   {
-    id: 'incline-y-raise',
+    id: 'incline-y-raise', popularity: 22,
     name: 'Incline Y-Raise (Dumbbell)',
     category: 'shoulders', equipment: 'dumbbell',
     primary: ['lower-traps', 'rear-delt', 'mid-traps'], secondary: ['rotator-cuff'],
@@ -1690,7 +1705,7 @@ const EXERCISE_DB = [
     muscleGroup: "back", pattern: "raise", movementId: "y-raise", movementName: "Y-Raise"
   },
   {
-    id: 'external-rotation-cable',
+    id: 'external-rotation-cable', popularity: 22,
     name: 'External Rotation (Cable)',
     category: 'shoulders', equipment: 'cable',
     primary: ['rotator-cuff'], secondary: ['rear-delt'],
@@ -1701,7 +1716,7 @@ const EXERCISE_DB = [
     muscleGroup: "shoulders", pattern: "rotation", movementId: "external-rotation", movementName: "External Rotation"
   },
   {
-    id: 'internal-rotation-cable',
+    id: 'internal-rotation-cable', popularity: 22,
     name: 'Internal Rotation (Cable)',
     category: 'shoulders', equipment: 'cable',
     primary: ['rotator-cuff'], secondary: ['front-delt'],
@@ -1712,7 +1727,7 @@ const EXERCISE_DB = [
     muscleGroup: "shoulders", pattern: "rotation", movementId: "internal-rotation", movementName: "Internal Rotation"
   },
   {
-    id: 'landmine-lateral-raise',
+    id: 'landmine-lateral-raise', popularity: 60,
     name: 'Landmine Lateral Raise',
     category: 'shoulders', equipment: 'barbell',
     primary: ['mid-delt'], secondary: ['front-delt', 'rotator-cuff'],
@@ -1723,7 +1738,7 @@ const EXERCISE_DB = [
     muscleGroup: "shoulders", pattern: "raise", movementId: "lateral-raise", movementName: "Lateral Raise"
   },
   {
-    id: 'seated-behind-neck-press',
+    id: 'seated-behind-neck-press', popularity: 42,
     name: 'Behind-Neck Press (Smith Machine)',
     category: 'shoulders', equipment: 'smith',
     primary: ['mid-delt', 'front-delt'], secondary: ['triceps', 'rotator-cuff'],
@@ -1736,7 +1751,7 @@ const EXERCISE_DB = [
 
   // ── ADDITIONAL ARMS ──────────────────────────────────────────────────────────
   {
-    id: 'cable-curl-high',
+    id: 'cable-curl-high', popularity: 60,
     name: 'High Cable Curl',
     category: 'arms', equipment: 'cable',
     primary: ['biceps'], secondary: ['front-delt'],
@@ -1747,7 +1762,7 @@ const EXERCISE_DB = [
     muscleGroup: "biceps", pattern: "curl", movementId: "bicep-curl", movementName: "Bicep Curl"
   },
   {
-    id: 'machine-curl',
+    id: 'machine-curl', popularity: 60,
     name: 'Machine Curl',
     category: 'arms', equipment: 'machine',
     primary: ['biceps'], secondary: ['brachialis'],
@@ -1758,7 +1773,7 @@ const EXERCISE_DB = [
     muscleGroup: "biceps", pattern: "curl", movementId: "bicep-curl", movementName: "Bicep Curl"
   },
   {
-    id: 'tricep-pushdown-single-arm',
+    id: 'tricep-pushdown-single-arm', popularity: 60,
     name: 'Single-Arm Cable Pushdown',
     category: 'arms', equipment: 'cable',
     primary: ['triceps'], secondary: [],
@@ -1769,7 +1784,7 @@ const EXERCISE_DB = [
     muscleGroup: "triceps", pattern: "extension", movementId: "tricep-pushdown", movementName: "Tricep Pushdown"
   },
   {
-    id: 'bench-dips',
+    id: 'bench-dips', popularity: 42,
     name: 'Bench Dips',
     category: 'arms', equipment: 'bodyweight',
     primary: ['triceps'], secondary: ['front-delt'],
@@ -1780,7 +1795,7 @@ const EXERCISE_DB = [
     muscleGroup: "triceps", pattern: "dip", movementId: "tricep-dip", movementName: "Tricep Dip"
   },
   {
-    id: 'reverse-grip-pushdown',
+    id: 'reverse-grip-pushdown', popularity: 60,
     name: 'Reverse Grip Pushdown',
     category: 'arms', equipment: 'cable',
     primary: ['triceps'], secondary: ['brachioradialis'],
@@ -1791,7 +1806,7 @@ const EXERCISE_DB = [
     muscleGroup: "triceps", pattern: "extension", movementId: "tricep-pushdown", movementName: "Tricep Pushdown"
   },
   {
-    id: 'wrist-curl-barbell',
+    id: 'wrist-curl-barbell', popularity: 42,
     name: 'Wrist Curl (Barbell)',
     category: 'arms', equipment: 'barbell',
     primary: ['forearms'], secondary: [],
@@ -1802,7 +1817,7 @@ const EXERCISE_DB = [
     muscleGroup: "forearms", pattern: "curl", movementId: "wrist-curl", movementName: "Wrist Curl"
   },
   {
-    id: 'reverse-wrist-curl',
+    id: 'reverse-wrist-curl', popularity: 42,
     name: 'Reverse Wrist Curl',
     category: 'arms', equipment: 'barbell',
     primary: ['forearms'], secondary: [],
@@ -1815,7 +1830,7 @@ const EXERCISE_DB = [
 
   // ── ADDITIONAL LEGS ──────────────────────────────────────────────────────────
   {
-    id: 'goblet-squat',
+    id: 'goblet-squat', popularity: 60,
     name: 'Goblet Squat',
     category: 'legs', equipment: 'dumbbell',
     primary: ['quads', 'glutes'], secondary: ['adductors', 'core'],
@@ -1826,7 +1841,7 @@ const EXERCISE_DB = [
     muscleGroup: "quads", pattern: "squat", movementId: "squat", movementName: "Squat"
   },
   {
-    id: 'box-squat',
+    id: 'box-squat', popularity: 60,
     name: 'Box Squat',
     category: 'legs', equipment: 'barbell',
     primary: ['quads', 'glutes', 'hamstrings'], secondary: ['erectors', 'adductors'],
@@ -1837,7 +1852,7 @@ const EXERCISE_DB = [
     muscleGroup: "quads", pattern: "squat", movementId: "squat", movementName: "Squat"
   },
   {
-    id: 'pause-squat',
+    id: 'pause-squat', popularity: 60,
     name: 'Pause Squat',
     category: 'legs', equipment: 'barbell',
     primary: ['quads', 'glutes'], secondary: ['hamstrings', 'erectors'],
@@ -1848,7 +1863,7 @@ const EXERCISE_DB = [
     muscleGroup: "quads", pattern: "squat", movementId: "squat", movementName: "Squat"
   },
   {
-    id: 'safety-bar-squat',
+    id: 'safety-bar-squat', popularity: 60,
     name: 'Safety Bar Squat',
     category: 'legs', equipment: 'barbell',
     primary: ['quads', 'glutes'], secondary: ['erectors', 'hamstrings'],
@@ -1859,7 +1874,7 @@ const EXERCISE_DB = [
     muscleGroup: "quads", pattern: "squat", movementId: "squat", movementName: "Squat"
   },
   {
-    id: 'curtsy-lunge',
+    id: 'curtsy-lunge', popularity: 42,
     name: 'Curtsy Lunge',
     category: 'legs', equipment: 'dumbbell',
     primary: ['glutes', 'quads', 'adductors'], secondary: ['hamstrings'],
@@ -1870,7 +1885,7 @@ const EXERCISE_DB = [
     muscleGroup: "glutes", pattern: "lunge", movementId: "curtsy-lunge", movementName: "Curtsy Lunge"
   },
   {
-    id: 'hip-abduction-cable',
+    id: 'hip-abduction-cable', popularity: 42,
     name: 'Cable Hip Abduction',
     category: 'legs', equipment: 'cable',
     primary: ['abductors', 'glutes'], secondary: [],
@@ -1881,7 +1896,7 @@ const EXERCISE_DB = [
     muscleGroup: "hips", pattern: "abduction", movementId: "hip-abduction", movementName: "Hip Abduction"
   },
   {
-    id: 'standing-leg-curl',
+    id: 'standing-leg-curl', popularity: 60,
     name: 'Standing Leg Curl (Machine)',
     category: 'legs', equipment: 'machine',
     primary: ['hamstrings'], secondary: ['calves'],
@@ -1892,7 +1907,7 @@ const EXERCISE_DB = [
     muscleGroup: "hamstrings", pattern: "curl", movementId: "leg-curl", movementName: "Leg Curl"
   },
   {
-    id: 'sumo-squat',
+    id: 'sumo-squat', popularity: 42,
     name: 'Sumo Squat (Dumbbell)',
     category: 'legs', equipment: 'dumbbell',
     primary: ['adductors', 'glutes', 'quads'], secondary: ['hamstrings'],
@@ -1903,7 +1918,7 @@ const EXERCISE_DB = [
     muscleGroup: "quads", pattern: "squat", movementId: "sumo-squat", movementName: "Sumo Squat"
   },
   {
-    id: 'jump-squat',
+    id: 'jump-squat', popularity: 42,
     name: 'Jump Squat',
     category: 'legs', equipment: 'bodyweight',
     primary: ['quads', 'glutes'], secondary: ['calves', 'hamstrings'],
@@ -1916,7 +1931,7 @@ const EXERCISE_DB = [
 
   // ── ADDITIONAL CORE ──────────────────────────────────────────────────────────
   {
-    id: 'weighted-crunch',
+    id: 'weighted-crunch', popularity: 42,
     name: 'Weighted Crunch',
     category: 'core', equipment: 'bodyweight',
     primary: ['abs'], secondary: [],
@@ -1927,7 +1942,7 @@ const EXERCISE_DB = [
     muscleGroup: "core", pattern: "crunch", movementId: "crunch", movementName: "Crunch"
   },
   {
-    id: 'russian-twist',
+    id: 'russian-twist', popularity: 42,
     name: 'Russian Twist',
     category: 'core', equipment: 'bodyweight',
     primary: ['obliques'], secondary: ['abs', 'hip-flexors'],
@@ -1938,7 +1953,7 @@ const EXERCISE_DB = [
     muscleGroup: "core", pattern: "rotation", movementId: "russian-twist", movementName: "Russian Twist"
   },
   {
-    id: 'bicycle-crunch',
+    id: 'bicycle-crunch', popularity: 42,
     name: 'Bicycle Crunch',
     category: 'core', equipment: 'bodyweight',
     primary: ['obliques', 'abs'], secondary: ['hip-flexors'],
@@ -1949,7 +1964,7 @@ const EXERCISE_DB = [
     muscleGroup: "core", pattern: "crunch", movementId: "bicycle-crunch", movementName: "Bicycle Crunch"
   },
   {
-    id: 'plank-shoulder-tap',
+    id: 'plank-shoulder-tap', popularity: 42,
     name: 'Plank Shoulder Tap',
     category: 'core', equipment: 'bodyweight',
     primary: ['transverse-abs', 'core'], secondary: ['shoulders', 'glutes'],
@@ -1960,7 +1975,7 @@ const EXERCISE_DB = [
     muscleGroup: "core", pattern: "hold", movementId: "plank", movementName: "Plank"
   },
   {
-    id: 'leg-raise-lying',
+    id: 'leg-raise-lying', popularity: 60,
     name: 'Lying Leg Raise',
     category: 'core', equipment: 'bodyweight',
     primary: ['abs', 'hip-flexors'], secondary: ['transverse-abs'],
@@ -1971,7 +1986,7 @@ const EXERCISE_DB = [
     muscleGroup: "core", pattern: "raise", movementId: "leg-raise", movementName: "Leg Raise"
   },
   {
-    id: 'v-up',
+    id: 'v-up', popularity: 42,
     name: 'V-Up',
     category: 'core', equipment: 'bodyweight',
     primary: ['abs', 'hip-flexors'], secondary: ['obliques'],
@@ -1982,7 +1997,7 @@ const EXERCISE_DB = [
     muscleGroup: "core", pattern: "crunch", movementId: "v-up", movementName: "V-Up"
   },
   {
-    id: 'woodchop-cable',
+    id: 'woodchop-cable', popularity: 42,
     name: 'Cable Woodchop',
     category: 'core', equipment: 'cable',
     primary: ['obliques'], secondary: ['transverse-abs', 'shoulders', 'lats'],
@@ -1995,7 +2010,7 @@ const EXERCISE_DB = [
 
   // ── OLYMPIC / POWER ──────────────────────────────────────────────────────────
   {
-    id: 'power-clean',
+    id: 'power-clean', popularity: 42,
     name: 'Power Clean',
     category: 'hinge', equipment: 'barbell',
     primary: ['glutes', 'hamstrings', 'quads'], secondary: ['traps', 'erectors', 'calves'],
@@ -2006,7 +2021,7 @@ const EXERCISE_DB = [
     muscleGroup: "glutes", pattern: "clean", movementId: "power-clean", movementName: "Power Clean"
   },
   {
-    id: 'hang-clean',
+    id: 'hang-clean', popularity: 42,
     name: 'Hang Clean',
     category: 'hinge', equipment: 'barbell',
     primary: ['glutes', 'hamstrings'], secondary: ['traps', 'erectors', 'quads'],
@@ -2017,7 +2032,7 @@ const EXERCISE_DB = [
     muscleGroup: "glutes", pattern: "clean", movementId: "hang-clean", movementName: "Hang Clean"
   },
   {
-    id: 'kettlebell-swing',
+    id: 'kettlebell-swing', popularity: 42,
     name: 'Kettlebell Swing',
     category: 'hinge', equipment: 'kettlebell',
     primary: ['glutes', 'hamstrings'], secondary: ['erectors', 'core', 'shoulders'],
@@ -2028,7 +2043,7 @@ const EXERCISE_DB = [
     muscleGroup: "glutes", pattern: "hinge", movementId: "kb-swing", movementName: "Kettlebell Swing"
   },
   {
-    id: 'trap-bar-deadlift',
+    id: 'trap-bar-deadlift', popularity: 60,
     name: 'Trap Bar Deadlift',
     category: 'hinge', equipment: 'barbell',
     primary: ['quads', 'glutes', 'hamstrings'], secondary: ['erectors', 'lats', 'forearms'],
@@ -2039,41 +2054,41 @@ const EXERCISE_DB = [
     muscleGroup: "quads", pattern: "hinge", movementId: "deadlift", movementName: "Deadlift"
   },
   // ── FINAL ADDITIONS ──────────────────────────────────────────────────────────
-  { id: 'close-grip-lat-pulldown', name: 'Close-Grip Lat Pulldown', category: 'pull', equipment: 'machine', primary: ['lats', 'biceps'], secondary: ['rhomboids'], curve: 'partial', curveNote: 'Narrow supinated or neutral grip shifts emphasis to lower lats and biceps. Elbow path more vertical — good variation from wide grip.', form: ['V-bar or close attachment', 'Pull to upper chest', 'Full stretch at top', 'Elbows travel close to body'], lesserKnown: false, muscleGroup: "back", pattern: "pulldown", movementId: "lat-pulldown", movementName: "Lat Pulldown" },
-  { id: 'rack-row', name: 'Rack Row (Barbell Inverted)', category: 'pull', equipment: 'barbell', primary: ['lats', 'rhomboids', 'biceps'], secondary: ['rear-delt', 'core'], curve: 'partial', curveNote: 'Bodyweight inverted row with barbell in rack. Horizontal pulling pattern with bodyweight load — easier than pull-ups. Chest stays up throughout.', form: ['Bar at hip height in rack', 'Lie under bar, overhand grip', 'Pull chest to bar', 'Body plank-rigid throughout'], lesserKnown: false, muscleGroup: "back", pattern: "row", movementId: "rack-row", movementName: "Rack Row" },
-  { id: 'inverted-row', name: 'Inverted Row (TRX/Rings)', category: 'pull', equipment: 'bodyweight', primary: ['lats', 'rhomboids'], secondary: ['biceps', 'rear-delt'], curve: 'partial', curveNote: 'Suspension inverted row allows wrist rotation and increases instability. Greater ROM than bar-based version; adjustable difficulty via body angle.', form: ['Angle body 20–60° from floor', 'Pull chest to handles', 'Full arm extension at bottom', 'Squeeze back hard at top'], lesserKnown: false, muscleGroup: "back", pattern: "row", movementId: "inverted-row", movementName: "Inverted Row" },
-  { id: 'snatch-grip-deadlift', name: 'Snatch-Grip Deadlift', category: 'hinge', equipment: 'barbell', primary: ['hamstrings', 'glutes', 'erectors'], secondary: ['traps', 'lats'], curve: 'partial', curveNote: 'Wide grip lowers starting hip position and increases ROM — more upper back and hamstring demand than conventional. Excellent for posterior chain development.', form: ['Very wide overhand grip — snatch width', 'Lower hips than conventional deadlift', 'Bar close throughout', 'Full lockout'], lesserKnown: false, muscleGroup: "hamstrings", pattern: "hinge", movementId: "deadlift", movementName: "Deadlift" },
-  { id: 'deficit-deadlift', name: 'Deficit Deadlift', category: 'hinge', equipment: 'barbell', primary: ['hamstrings', 'glutes', 'erectors'], secondary: ['quads', 'lats'], curve: 'partial', curveNote: 'Standing on plates increases ROM at the bottom — more hip and hamstring demand off the floor. Develops strength where most people are weakest.', form: ['Stand on 2–4 inch plates', 'Same mechanics as conventional', 'Bar still over mid-foot', 'Greatest tension at very bottom — start slow'], lesserKnown: false, muscleGroup: "hamstrings", pattern: "hinge", movementId: "deadlift", movementName: "Deadlift" },
-  { id: 'pin-squat', name: 'Pin Squat', category: 'legs', equipment: 'barbell', primary: ['quads', 'glutes'], secondary: ['hamstrings', 'erectors'], curve: 'partial', curveNote: 'Bar rests on safeties at bottom position — dead stop eliminates stretch reflex. Pure starting strength from the hole. Develops weakest part of squat.', form: ['Set pins at bottom of squat', 'Sit under bar, brace, drive up from dead stop', 'No touch-and-go', 'Reset tight each rep'], lesserKnown: true, muscleGroup: "quads", pattern: "squat", movementId: "squat", movementName: "Squat" },
-  { id: 'zercher-squat', name: 'Zercher Squat', category: 'legs', equipment: 'barbell', primary: ['quads', 'glutes', 'core'], secondary: ['biceps', 'erectors'], curve: 'partial', curveNote: 'Bar held in crook of elbows — forces upright torso and full depth. Unique core and bicep loading alongside quad stimulus. Brutal but effective.', form: ['Bar in elbow crook, arms crossed or hands clasped', 'Very upright torso from bar position', 'Full depth — bar position demands it', 'Start light — arm position limits load'], lesserKnown: true, muscleGroup: "quads", pattern: "squat", movementId: "zercher-squat", movementName: "Zercher Squat" },
-  { id: 'landmine-squat', name: 'Landmine Squat', category: 'legs', equipment: 'barbell', primary: ['quads', 'glutes'], secondary: ['core'], curve: 'partial', curveNote: 'Holding end of landmine at chest — counterbalance creates front-squat-like mechanics. Shoulder-friendly alternative to front squat.', form: ['Hold bar end at chest', 'Squat deep — bar assists upright posture', 'Drive through heels', 'Good for those with shoulder issues'], lesserKnown: false, muscleGroup: "quads", pattern: "squat", movementId: "landmine-squat", movementName: "Landmine Squat" },
-  { id: 'single-leg-press', name: 'Single-Leg Press', category: 'legs', equipment: 'machine', primary: ['quads', 'glutes'], secondary: ['hamstrings'], curve: 'partial', curveNote: 'Unilateral leg press corrects strength imbalances between legs. Same machine loading as bilateral but doubles effective load on the working leg.', form: ['One foot on platform, centred', 'Full ROM — do not lock out', 'Control descent fully', 'Compare strength between legs'], lesserKnown: false, muscleGroup: "quads", pattern: "squat", movementId: "leg-press", movementName: "Leg Press" },
-  { id: 'calf-raise-leg-press', name: 'Calf Raise on Leg Press', category: 'legs', equipment: 'machine', primary: ['calves'], secondary: [], curve: 'matching', curveNote: 'Leg press allows heavy calf loading with full ROM. Similar to standing calf raise but knee angle slightly different — hits gastrocnemius with full body weight equivalent.', form: ['Feet at bottom edge of platform', 'Full plantarflexion and full dorsiflexion', 'Slow controlled tempo', 'Do not lock knees throughout'], lesserKnown: false, muscleGroup: "calves", pattern: "calf-raise", movementId: "calf-raise", movementName: "Calf Raise" },
-  { id: 'hip-thrust-smith', name: 'Hip Thrust (Smith Machine)', category: 'hinge', equipment: 'smith', primary: ['glutes'], secondary: ['hamstrings', 'quads'], curve: 'matching', curveNote: 'Smith machine allows fixed horizontal bar path — easier setup and potentially heavier loading than barbell. Same glute-alignment at peak as barbell version.', form: ['Upper back on bench, bar across hips', 'Drive hips to horizontal', 'Squeeze glutes hard at top', 'Use pad for comfort'], lesserKnown: false, muscleGroup: "glutes", pattern: "thrust", movementId: "hip-thrust", movementName: "Hip Thrust" },
-  { id: 'glute-ham-developer-curl', name: 'GHD Sit-Up', category: 'core', equipment: 'machine', primary: ['abs', 'hip-flexors'], secondary: ['glutes', 'hamstrings'], curve: 'matching', curveNote: 'GHD sit-up allows hyperextension at the bottom — full ab stretch followed by full contraction. One of the highest ab loading exercises when full ROM is used.', form: ['Feet in GHD pads', 'Lower back to horizontal or beyond', 'Rise to vertical — do not just partial rep', 'Start conservatively — DOMS is severe'], lesserKnown: true, muscleGroup: "core", pattern: "crunch", movementId: "ghd-situp", movementName: "GHD Sit-Up" },
-  { id: 'incline-bench-leg-raise', name: 'Incline Bench Leg Raise', category: 'core', equipment: 'bodyweight', primary: ['abs', 'hip-flexors'], secondary: [], curve: 'matching', curveNote: 'Decline angle from incline bench adds bodyweight resistance at the top of leg raise — increasing load where hanging leg raises decrease it. Excellent lower ab loaing.', form: ['Grip top of incline bench', 'Legs hang at bottom', 'Raise to 90° or above', 'Lower under control — key part of the exercise'], lesserKnown: false, muscleGroup: "core", pattern: "raise", movementId: "leg-raise", movementName: "Leg Raise" },
-  { id: 'stir-the-pot', name: 'Stir the Pot (Ball Plank)', category: 'core', equipment: 'bodyweight', primary: ['transverse-abs', 'obliques'], secondary: ['abs', 'shoulders'], curve: 'partial', curveNote: 'Elbows on stability ball, draw circles — anti-rotation demand extremely high throughout. Higher TVA activation than standard plank due to instability.', form: ['Elbows on ball, body plank', 'Draw small clockwise then counter-clockwise circles', 'Hips completely still — only arms move', 'Small circles first — increase size as strength improves'], lesserKnown: true, isometric: true, muscleGroup: "core", pattern: "hold", movementId: "stir-the-pot", movementName: "Stir the Pot" },
-  { id: 'press-pallof', name: 'Half-Kneeling Pallof Press', category: 'core', equipment: 'cable', primary: ['obliques', 'transverse-abs'], secondary: ['glutes', 'hip-flexors'], curve: 'matching', curveNote: 'Kneeling removes leg base of support — forces core and glute to resist rotation and lateral lean simultaneously. More demanding than standing version.', form: ['Kneel on inside knee relative to cable', 'Press handle straight out', 'Resist rotation and lateral lean', 'Keep hips square'], lesserKnown: true, isometric: true, muscleGroup: "core", pattern: "rotation", movementId: "pallof-press", movementName: "Pallof Press" },
-  { id: 'barbell-rollout-standing', name: 'Standing Ab Rollout', category: 'core', equipment: 'barbell', primary: ['abs', 'transverse-abs'], secondary: ['lats', 'erectors'], curve: 'matching', curveNote: 'Most advanced version of ab rollout — full body extension from standing. Extremely high anti-extension demand. Only appropriate for very advanced trainees.', form: ['Stand upright, bend to grip bar', 'Roll out to horizontal or below', 'Return using abs and lats combined', 'Very few people can do this correctly'], lesserKnown: true, muscleGroup: "core", pattern: "rollout", movementId: "ab-rollout", movementName: "Ab Rollout" },
-  { id: 'dumbbell-row-pronated', name: 'Dumbbell Row (Pronated)', category: 'pull', equipment: 'dumbbell', primary: ['lats', 'rhomboids'], secondary: ['rear-delt', 'brachioradialis'], curve: 'partial', curveNote: 'Pronated grip shifts emphasis from biceps to brachioradialis and increases rhomboid/mid-trap recruitment. Varied grip for complete back development.', form: ['Overhand grip on dumbbell', 'Pull to lower ribcage area', 'Elbow more flared than supinated version', 'Control the descent'], lesserKnown: false, muscleGroup: "back", pattern: "row", movementId: "dumbbell-row", movementName: "Dumbbell Row" },
-  { id: 'cable-row-wide', name: 'Wide-Grip Cable Row', category: 'pull', equipment: 'cable', primary: ['rhomboids', 'mid-traps', 'rear-delt'], secondary: ['lats', 'biceps'], curve: 'matching', curveNote: 'Wide bar attachment on seated row shifts emphasis to upper back — elbows flare and pull to upper chest. More mid-trap and rhomboid, less lat than close-grip version.', form: ['Wide pronated grip on straight bar', 'Pull to upper chest', 'Elbows flare to 90° at end', 'Squeeze upper back hard'], lesserKnown: false, muscleGroup: "back", pattern: "row", movementId: "wide-grip-row", movementName: "Wide-Grip Row" },
-  { id: 'chest-supported-row-barbell', name: 'Chest-Supported Barbell Row', category: 'pull', equipment: 'barbell', primary: ['lats', 'rhomboids', 'mid-traps'], secondary: ['biceps'], curve: 'partial', curveNote: 'Chest on incline bench completely removes lower back demand. Honest mid-back loading without erector fatigue limiting the set.', form: ['Prone on incline at 45°', 'Barbell hanging below', 'Pull to sternum level', 'Squeeze rhomboids hard at top'], lesserKnown: false, muscleGroup: "back", pattern: "row", movementId: "chest-supported-row", movementName: "Chest-Supported Row" },
-  { id: 'seated-overhead-press-smith', name: 'Smith Machine Overhead Press', category: 'shoulders', equipment: 'smith', primary: ['front-delt', 'mid-delt'], secondary: ['triceps'], curve: 'partial', curveNote: 'Fixed path removes stabiliser demand — allows focus on pure deltoid overload. Useful when shoulder injury requires guided movement.', form: ['Set up so bar is in front of face', 'Press to full extension', 'Full ROM — do not short stroke', 'Control descent'], lesserKnown: false, muscleGroup: "shoulders", pattern: "press", movementId: "overhead-press", movementName: "Overhead Press" },
-  { id: 'dumbbell-pullover', name: 'Dumbbell Pullover', category: 'pull', equipment: 'dumbbell', primary: ['lats', 'chest'], secondary: ['teres-major', 'abs'], curve: 'opposing', curveNote: 'Dumbbell overhead — maximum load where lats are lengthened (overhead), decreasing as arm returns to chest. Opposite of ideal but unique cross-body lat/chest loader.', form: ['Shoulders on bench, hips off', 'Lower dumbbell behind head', 'Keep slight bend in elbow', 'Return by driving through lats and chest'], lesserKnown: false, muscleGroup: "back", pattern: "pullover", movementId: "dumbbell-pullover", movementName: "Dumbbell Pullover" },
-  { id: 'band-pull-apart', name: 'Band Pull-Apart', category: 'pull', equipment: 'bodyweight', primary: ['rear-delt', 'rhomboids', 'mid-traps'], secondary: ['rotator-cuff'], curve: 'matching', curveNote: 'Band maintains resistance through full horizontal abduction — peak load right where rear delt is strongest. One of the best shoulder health exercises with consistent tension profile.', form: ['Hold band at shoulder height, arms straight', 'Pull apart to chest level', 'Squeeze shoulder blades', 'Control return — eccentric is where the benefit is'], lesserKnown: false, muscleGroup: "shoulders", pattern: "raise", movementId: "band-pull-apart", movementName: "Band Pull-Apart" },
-  { id: 'incline-curl', name: 'Incline Bench Curl (Scott Curl)', category: 'arms', equipment: 'dumbbell', primary: ['biceps'], secondary: ['brachialis'], curve: 'partial', curveNote: 'Arms braced on incline — similar to preacher but on incline side. Short head bicep fully loaded; cheating eliminated by bench support.', form: ['Arms over incline, elbows fixed on bench', 'Full extension at bottom', 'Curl to peak', 'Do not bounce at bottom'], lesserKnown: false, muscleGroup: "biceps", pattern: "curl", movementId: "incline-curl", movementName: "Incline Curl" },
-  { id: 'overhead-cable-curl', name: 'Overhead Cable Curl (Double Bicep)', category: 'arms', equipment: 'cable', primary: ['biceps'], secondary: ['front-delt'], curve: 'matching', curveNote: 'Arms extended at shoulder height with high cables — mimics double-bicep pose. Shoulder-flexed position places both bicep heads under tension. Loads peak contraction from an extended position.', form: ['High cables at each side', 'Curl toward temples simultaneously', 'Hold peak flex', 'Return slowly against cable resistance'], lesserKnown: true, muscleGroup: "biceps", pattern: "curl", movementId: "overhead-cable-curl", movementName: "Overhead Cable Curl" },
-  { id: 'lat-pulldown-behind-neck', name: 'Behind-Neck Lat Pulldown', category: 'pull', equipment: 'machine', primary: ['lats'], secondary: ['rhomboids', 'biceps'], curve: 'partial', curveNote: 'Bar pulled to behind neck increases mid-trap and rhomboid activation at the expense of increased cervical spine load. Only for those with good mobility and no shoulder issues.', form: ['Head forward, bar behind neck', 'Wide grip', 'Touch back of neck lightly — no force', 'Contraindicated for shoulder impingement'], lesserKnown: false, muscleGroup: "back", pattern: "pulldown", movementId: "lat-pulldown", movementName: "Lat Pulldown" },
-  { id: 'single-arm-dumbbell-press', name: 'Single-Arm Dumbbell Press', category: 'push', equipment: 'dumbbell', primary: ['chest', 'triceps'], secondary: ['front-delt', 'core', 'serratus'], curve: 'partial', curveNote: 'Unilateral press creates rotational demand on core — anti-rotation adds TVA engagement. Reveals chest imbalances. Core benefit makes this more than just a chest exercise.', form: ['Lay flat, one dumbbell', 'Other arm extended or on chest', 'Press and resist rotation', 'Full ROM as normal press'], lesserKnown: false, muscleGroup: "chest", pattern: "press", movementId: "single-arm-bench-press", movementName: "Single-Arm Bench Press" },
-  { id: 'hex-press', name: 'Hex Press (Floor)', category: 'push', equipment: 'dumbbell', primary: ['chest', 'triceps'], secondary: ['front-delt'], curve: 'partial', curveNote: 'Dumbbells pressed together throughout floor press — constant adduction tension from squeezing. Similar to Svend press but in a press pattern. Unusual inner chest loading.', form: ['Flat on floor', 'Hold hex/flat-faced dumbbells pressed together', 'Press without letting them separate', 'Full extension and squeeze at top'], lesserKnown: true, muscleGroup: "chest", pattern: "press", movementId: "hex-press", movementName: "Hex Press" },
-  { id: 'push-press', name: 'Push Press', category: 'shoulders', equipment: 'barbell', primary: ['front-delt', 'mid-delt', 'triceps'], secondary: ['quads', 'glutes', 'core'], curve: 'matching', curveNote: 'Dip and drive uses leg momentum to initiate the press — allows supramaximal load overhead. True power development in the press pattern. Loads delts through full range with more weight than strict press.', form: ['Small dip then explosive drive', 'Bar goes overhead in one movement', 'Lock out hard at top', 'Reset before each rep or continuous touch-and-go'], lesserKnown: false, muscleGroup: "shoulders", pattern: "press", movementId: "push-press", movementName: "Push Press" },
-  { id: 'z-press', name: 'Z-Press', category: 'shoulders', equipment: 'barbell', primary: ['front-delt', 'mid-delt'], secondary: ['triceps', 'core', 'hip-flexors'], curve: 'partial', curveNote: 'Seated on floor with legs extended — removes all leg base. Demands extreme core and hip flexor engagement alongside shoulder press. Any cheating is impossible.', form: ['Sit on floor, legs straight', 'Bar in front rack position', 'Press overhead — torso stays upright', 'Very humbling for the load required'], lesserKnown: true, muscleGroup: "shoulders", pattern: "press", movementId: "z-press", movementName: "Z-Press" },
-  { id: 'jefferson-curl', name: 'Jefferson Curl', category: 'hinge', equipment: 'dumbbell', primary: ['erectors', 'hamstrings'], secondary: ['glutes', 'abs'], curve: 'matching', curveNote: 'Deliberate spinal flexion under load — the opposite of most advice, but builds eccentric spinal extensor strength and hamstring flexibility systematically. Very light loads only.', form: ['Start standing tall', 'Curl spine forward one vertebra at a time', 'Hands travel down front of legs to feet', 'Reverse back up segment by segment. VERY light load only'], lesserKnown: true, muscleGroup: "hamstrings", pattern: "hinge", movementId: "jefferson-curl", movementName: "Jefferson Curl" },
-  { id: 'dumbbell-deadlift', name: 'Dumbbell Deadlift', category: 'hinge', equipment: 'dumbbell', primary: ['hamstrings', 'glutes', 'erectors'], secondary: ['quads', 'forearms'], curve: 'partial', curveNote: 'Same pattern as conventional deadlift with dumbbells outside legs. Good for learning pattern or when barbell not available. Similar loading curve to trap bar deadlift.', form: ['Dumbbells outside feet', 'Hip hinge — same mechanics as barbell', 'Full lockout at top', 'Dumbbells stay close to body throughout'], lesserKnown: false, muscleGroup: "hamstrings", pattern: "hinge", movementId: "deadlift", movementName: "Deadlift" },
-  { id: 'hip-hinge-barbell', name: 'Hip Hinge (Dowel/Barbell Drill)', category: 'hinge', equipment: 'barbell', primary: ['glutes', 'hamstrings'], secondary: ['erectors'], curve: 'partial', curveNote: 'Patterning exercise — barbell held against spine while hinging. Teaches proper neutral spine and hip hinge mechanics. Foundation for all hinge-based exercises.', form: ['Barbell along spine — head, upper back, and tailbone contact', 'Push hips back while maintaining three contact points', 'Knees soft — this is a hinge not a squat', 'Feel hamstring tension as cue for correct position'], lesserKnown: false, muscleGroup: "glutes", pattern: "hinge", movementId: "hip-hinge-drill", movementName: "Hip Hinge Drill" },
-  { id: 'half-kneeling-press', name: 'Half-Kneeling Dumbbell Press', category: 'shoulders', equipment: 'dumbbell', primary: ['front-delt', 'mid-delt'], secondary: ['triceps', 'core', 'glutes'], curve: 'partial', curveNote: 'Single-knee kneeling position adds hip flexor and glute engagement. Anti-lateral flexion demand on core alongside shoulder press. Reveals right-left asymmetries.', form: ['Kneel on one knee, press on same side', 'Opposite glute squeezed hard', 'Brace against lateral lean', 'Press from shoulder to directly overhead'], lesserKnown: false, muscleGroup: "shoulders", pattern: "press", movementId: "overhead-press", movementName: "Overhead Press" },
-  { id: 'cable-face-pull-overhead', name: 'Overhead Cable Face Pull', category: 'shoulders', equipment: 'cable', primary: ['rear-delt', 'rotator-cuff', 'mid-traps'], secondary: ['rhomboids'], curve: 'matching', curveNote: 'Face pull from above-head angle adds upward rotation of scapula to the standard face pull benefits. Serratus and lower trap involvement. Critical for long-term shoulder health under heavy pressing.', form: ['Set cable above head height', 'Pull rope toward face — elbows high', 'External rotate at end', 'Slow and controlled — shoulder health work'], lesserKnown: true, muscleGroup: "shoulders", pattern: "row", movementId: "face-pull", movementName: "Face Pull" },
-  { id: 'adductor-squat', name: 'Adductor Squeeze Squat', category: 'legs', equipment: 'bodyweight', primary: ['adductors', 'quads', 'glutes'], secondary: ['hamstrings'], curve: 'partial', curveNote: 'Squeeze a ball or plate between knees during squat — activates adductors throughout squat pattern. Adds inner thigh work to a fundamental movement.', form: ['Ball or folded mat between knees', 'Maintain squeeze through full squat', 'Knees tracked by squeeze — not flaring', 'Standard squat depth'], lesserKnown: true, muscleGroup: "quads", pattern: "squat", movementId: "adductor-squat", movementName: "Adductor Squeeze Squat" },
+  { id: 'close-grip-lat-pulldown', popularity: 60, name: 'Close-Grip Lat Pulldown', category: 'pull', equipment: 'machine', primary: ['lats', 'biceps'], secondary: ['rhomboids'], curve: 'partial', curveNote: 'Narrow supinated or neutral grip shifts emphasis to lower lats and biceps. Elbow path more vertical — good variation from wide grip.', form: ['V-bar or close attachment', 'Pull to upper chest', 'Full stretch at top', 'Elbows travel close to body'], lesserKnown: false, muscleGroup: "back", pattern: "pulldown", movementId: "lat-pulldown", movementName: "Lat Pulldown" },
+  { id: 'rack-row', popularity: 42, name: 'Rack Row (Barbell Inverted)', category: 'pull', equipment: 'barbell', primary: ['lats', 'rhomboids', 'biceps'], secondary: ['rear-delt', 'core'], curve: 'partial', curveNote: 'Bodyweight inverted row with barbell in rack. Horizontal pulling pattern with bodyweight load — easier than pull-ups. Chest stays up throughout.', form: ['Bar at hip height in rack', 'Lie under bar, overhand grip', 'Pull chest to bar', 'Body plank-rigid throughout'], lesserKnown: false, muscleGroup: "back", pattern: "row", movementId: "rack-row", movementName: "Rack Row" },
+  { id: 'inverted-row', popularity: 42, name: 'Inverted Row (TRX/Rings)', category: 'pull', equipment: 'bodyweight', primary: ['lats', 'rhomboids'], secondary: ['biceps', 'rear-delt'], curve: 'partial', curveNote: 'Suspension inverted row allows wrist rotation and increases instability. Greater ROM than bar-based version; adjustable difficulty via body angle.', form: ['Angle body 20–60° from floor', 'Pull chest to handles', 'Full arm extension at bottom', 'Squeeze back hard at top'], lesserKnown: false, muscleGroup: "back", pattern: "row", movementId: "inverted-row", movementName: "Inverted Row" },
+  { id: 'snatch-grip-deadlift', popularity: 60, name: 'Snatch-Grip Deadlift', category: 'hinge', equipment: 'barbell', primary: ['hamstrings', 'glutes', 'erectors'], secondary: ['traps', 'lats'], curve: 'partial', curveNote: 'Wide grip lowers starting hip position and increases ROM — more upper back and hamstring demand than conventional. Excellent for posterior chain development.', form: ['Very wide overhand grip — snatch width', 'Lower hips than conventional deadlift', 'Bar close throughout', 'Full lockout'], lesserKnown: false, muscleGroup: "hamstrings", pattern: "hinge", movementId: "deadlift", movementName: "Deadlift" },
+  { id: 'deficit-deadlift', popularity: 60, name: 'Deficit Deadlift', category: 'hinge', equipment: 'barbell', primary: ['hamstrings', 'glutes', 'erectors'], secondary: ['quads', 'lats'], curve: 'partial', curveNote: 'Standing on plates increases ROM at the bottom — more hip and hamstring demand off the floor. Develops strength where most people are weakest.', form: ['Stand on 2–4 inch plates', 'Same mechanics as conventional', 'Bar still over mid-foot', 'Greatest tension at very bottom — start slow'], lesserKnown: false, muscleGroup: "hamstrings", pattern: "hinge", movementId: "deadlift", movementName: "Deadlift" },
+  { id: 'pin-squat', popularity: 60, name: 'Pin Squat', category: 'legs', equipment: 'barbell', primary: ['quads', 'glutes'], secondary: ['hamstrings', 'erectors'], curve: 'partial', curveNote: 'Bar rests on safeties at bottom position — dead stop eliminates stretch reflex. Pure starting strength from the hole. Develops weakest part of squat.', form: ['Set pins at bottom of squat', 'Sit under bar, brace, drive up from dead stop', 'No touch-and-go', 'Reset tight each rep'], lesserKnown: true, muscleGroup: "quads", pattern: "squat", movementId: "squat", movementName: "Squat" },
+  { id: 'zercher-squat', popularity: 22, name: 'Zercher Squat', category: 'legs', equipment: 'barbell', primary: ['quads', 'glutes', 'core'], secondary: ['biceps', 'erectors'], curve: 'partial', curveNote: 'Bar held in crook of elbows — forces upright torso and full depth. Unique core and bicep loading alongside quad stimulus. Brutal but effective.', form: ['Bar in elbow crook, arms crossed or hands clasped', 'Very upright torso from bar position', 'Full depth — bar position demands it', 'Start light — arm position limits load'], lesserKnown: true, muscleGroup: "quads", pattern: "squat", movementId: "zercher-squat", movementName: "Zercher Squat" },
+  { id: 'landmine-squat', popularity: 42, name: 'Landmine Squat', category: 'legs', equipment: 'barbell', primary: ['quads', 'glutes'], secondary: ['core'], curve: 'partial', curveNote: 'Holding end of landmine at chest — counterbalance creates front-squat-like mechanics. Shoulder-friendly alternative to front squat.', form: ['Hold bar end at chest', 'Squat deep — bar assists upright posture', 'Drive through heels', 'Good for those with shoulder issues'], lesserKnown: false, muscleGroup: "quads", pattern: "squat", movementId: "landmine-squat", movementName: "Landmine Squat" },
+  { id: 'single-leg-press', popularity: 60, name: 'Single-Leg Press', category: 'legs', equipment: 'machine', primary: ['quads', 'glutes'], secondary: ['hamstrings'], curve: 'partial', curveNote: 'Unilateral leg press corrects strength imbalances between legs. Same machine loading as bilateral but doubles effective load on the working leg.', form: ['One foot on platform, centred', 'Full ROM — do not lock out', 'Control descent fully', 'Compare strength between legs'], lesserKnown: false, muscleGroup: "quads", pattern: "squat", movementId: "leg-press", movementName: "Leg Press" },
+  { id: 'calf-raise-leg-press', popularity: 60, name: 'Calf Raise on Leg Press', category: 'legs', equipment: 'machine', primary: ['calves'], secondary: [], curve: 'matching', curveNote: 'Leg press allows heavy calf loading with full ROM. Similar to standing calf raise but knee angle slightly different — hits gastrocnemius with full body weight equivalent.', form: ['Feet at bottom edge of platform', 'Full plantarflexion and full dorsiflexion', 'Slow controlled tempo', 'Do not lock knees throughout'], lesserKnown: false, muscleGroup: "calves", pattern: "calf-raise", movementId: "calf-raise", movementName: "Calf Raise" },
+  { id: 'hip-thrust-smith', popularity: 42, name: 'Hip Thrust (Smith Machine)', category: 'hinge', equipment: 'smith', primary: ['glutes'], secondary: ['hamstrings', 'quads'], curve: 'matching', curveNote: 'Smith machine allows fixed horizontal bar path — easier setup and potentially heavier loading than barbell. Same glute-alignment at peak as barbell version.', form: ['Upper back on bench, bar across hips', 'Drive hips to horizontal', 'Squeeze glutes hard at top', 'Use pad for comfort'], lesserKnown: false, muscleGroup: "glutes", pattern: "thrust", movementId: "hip-thrust", movementName: "Hip Thrust" },
+  { id: 'glute-ham-developer-curl', popularity: 22, name: 'GHD Sit-Up', category: 'core', equipment: 'machine', primary: ['abs', 'hip-flexors'], secondary: ['glutes', 'hamstrings'], curve: 'matching', curveNote: 'GHD sit-up allows hyperextension at the bottom — full ab stretch followed by full contraction. One of the highest ab loading exercises when full ROM is used.', form: ['Feet in GHD pads', 'Lower back to horizontal or beyond', 'Rise to vertical — do not just partial rep', 'Start conservatively — DOMS is severe'], lesserKnown: true, muscleGroup: "core", pattern: "crunch", movementId: "ghd-situp", movementName: "GHD Sit-Up" },
+  { id: 'incline-bench-leg-raise', popularity: 60, name: 'Incline Bench Leg Raise', category: 'core', equipment: 'bodyweight', primary: ['abs', 'hip-flexors'], secondary: [], curve: 'matching', curveNote: 'Decline angle from incline bench adds bodyweight resistance at the top of leg raise — increasing load where hanging leg raises decrease it. Excellent lower ab loaing.', form: ['Grip top of incline bench', 'Legs hang at bottom', 'Raise to 90° or above', 'Lower under control — key part of the exercise'], lesserKnown: false, muscleGroup: "core", pattern: "raise", movementId: "leg-raise", movementName: "Leg Raise" },
+  { id: 'stir-the-pot', popularity: 22, name: 'Stir the Pot (Ball Plank)', category: 'core', equipment: 'bodyweight', primary: ['transverse-abs', 'obliques'], secondary: ['abs', 'shoulders'], curve: 'partial', curveNote: 'Elbows on stability ball, draw circles — anti-rotation demand extremely high throughout. Higher TVA activation than standard plank due to instability.', form: ['Elbows on ball, body plank', 'Draw small clockwise then counter-clockwise circles', 'Hips completely still — only arms move', 'Small circles first — increase size as strength improves'], lesserKnown: true, isometric: true, muscleGroup: "core", pattern: "hold", movementId: "stir-the-pot", movementName: "Stir the Pot" },
+  { id: 'press-pallof', popularity: 22, name: 'Half-Kneeling Pallof Press', category: 'core', equipment: 'cable', primary: ['obliques', 'transverse-abs'], secondary: ['glutes', 'hip-flexors'], curve: 'matching', curveNote: 'Kneeling removes leg base of support — forces core and glute to resist rotation and lateral lean simultaneously. More demanding than standing version.', form: ['Kneel on inside knee relative to cable', 'Press handle straight out', 'Resist rotation and lateral lean', 'Keep hips square'], lesserKnown: true, isometric: true, muscleGroup: "core", pattern: "rotation", movementId: "pallof-press", movementName: "Pallof Press" },
+  { id: 'barbell-rollout-standing', popularity: 22, name: 'Standing Ab Rollout', category: 'core', equipment: 'barbell', primary: ['abs', 'transverse-abs'], secondary: ['lats', 'erectors'], curve: 'matching', curveNote: 'Most advanced version of ab rollout — full body extension from standing. Extremely high anti-extension demand. Only appropriate for very advanced trainees.', form: ['Stand upright, bend to grip bar', 'Roll out to horizontal or below', 'Return using abs and lats combined', 'Very few people can do this correctly'], lesserKnown: true, muscleGroup: "core", pattern: "rollout", movementId: "ab-rollout", movementName: "Ab Rollout" },
+  { id: 'dumbbell-row-pronated', popularity: 60, name: 'Dumbbell Row (Pronated)', category: 'pull', equipment: 'dumbbell', primary: ['lats', 'rhomboids'], secondary: ['rear-delt', 'brachioradialis'], curve: 'partial', curveNote: 'Pronated grip shifts emphasis from biceps to brachioradialis and increases rhomboid/mid-trap recruitment. Varied grip for complete back development.', form: ['Overhand grip on dumbbell', 'Pull to lower ribcage area', 'Elbow more flared than supinated version', 'Control the descent'], lesserKnown: false, muscleGroup: "back", pattern: "row", movementId: "dumbbell-row", movementName: "Dumbbell Row" },
+  { id: 'cable-row-wide', popularity: 42, name: 'Wide-Grip Cable Row', category: 'pull', equipment: 'cable', primary: ['rhomboids', 'mid-traps', 'rear-delt'], secondary: ['lats', 'biceps'], curve: 'matching', curveNote: 'Wide bar attachment on seated row shifts emphasis to upper back — elbows flare and pull to upper chest. More mid-trap and rhomboid, less lat than close-grip version.', form: ['Wide pronated grip on straight bar', 'Pull to upper chest', 'Elbows flare to 90° at end', 'Squeeze upper back hard'], lesserKnown: false, muscleGroup: "back", pattern: "row", movementId: "wide-grip-row", movementName: "Wide-Grip Row" },
+  { id: 'chest-supported-row-barbell', popularity: 42, name: 'Chest-Supported Barbell Row', category: 'pull', equipment: 'barbell', primary: ['lats', 'rhomboids', 'mid-traps'], secondary: ['biceps'], curve: 'partial', curveNote: 'Chest on incline bench completely removes lower back demand. Honest mid-back loading without erector fatigue limiting the set.', form: ['Prone on incline at 45°', 'Barbell hanging below', 'Pull to sternum level', 'Squeeze rhomboids hard at top'], lesserKnown: false, muscleGroup: "back", pattern: "row", movementId: "chest-supported-row", movementName: "Chest-Supported Row" },
+  { id: 'seated-overhead-press-smith', popularity: 60, name: 'Smith Machine Overhead Press', category: 'shoulders', equipment: 'smith', primary: ['front-delt', 'mid-delt'], secondary: ['triceps'], curve: 'partial', curveNote: 'Fixed path removes stabiliser demand — allows focus on pure deltoid overload. Useful when shoulder injury requires guided movement.', form: ['Set up so bar is in front of face', 'Press to full extension', 'Full ROM — do not short stroke', 'Control descent'], lesserKnown: false, muscleGroup: "shoulders", pattern: "press", movementId: "overhead-press", movementName: "Overhead Press" },
+  { id: 'dumbbell-pullover', popularity: 42, name: 'Dumbbell Pullover', category: 'pull', equipment: 'dumbbell', primary: ['lats', 'chest'], secondary: ['teres-major', 'abs'], curve: 'opposing', curveNote: 'Dumbbell overhead — maximum load where lats are lengthened (overhead), decreasing as arm returns to chest. Opposite of ideal but unique cross-body lat/chest loader.', form: ['Shoulders on bench, hips off', 'Lower dumbbell behind head', 'Keep slight bend in elbow', 'Return by driving through lats and chest'], lesserKnown: false, muscleGroup: "back", pattern: "pullover", movementId: "dumbbell-pullover", movementName: "Dumbbell Pullover" },
+  { id: 'band-pull-apart', popularity: 42, name: 'Band Pull-Apart', category: 'pull', equipment: 'bodyweight', primary: ['rear-delt', 'rhomboids', 'mid-traps'], secondary: ['rotator-cuff'], curve: 'matching', curveNote: 'Band maintains resistance through full horizontal abduction — peak load right where rear delt is strongest. One of the best shoulder health exercises with consistent tension profile.', form: ['Hold band at shoulder height, arms straight', 'Pull apart to chest level', 'Squeeze shoulder blades', 'Control return — eccentric is where the benefit is'], lesserKnown: false, muscleGroup: "shoulders", pattern: "raise", movementId: "band-pull-apart", movementName: "Band Pull-Apart" },
+  { id: 'incline-curl', popularity: 42, name: 'Incline Bench Curl (Scott Curl)', category: 'arms', equipment: 'dumbbell', primary: ['biceps'], secondary: ['brachialis'], curve: 'partial', curveNote: 'Arms braced on incline — similar to preacher but on incline side. Short head bicep fully loaded; cheating eliminated by bench support.', form: ['Arms over incline, elbows fixed on bench', 'Full extension at bottom', 'Curl to peak', 'Do not bounce at bottom'], lesserKnown: false, muscleGroup: "biceps", pattern: "curl", movementId: "incline-curl", movementName: "Incline Curl" },
+  { id: 'overhead-cable-curl', popularity: 22, name: 'Overhead Cable Curl (Double Bicep)', category: 'arms', equipment: 'cable', primary: ['biceps'], secondary: ['front-delt'], curve: 'matching', curveNote: 'Arms extended at shoulder height with high cables — mimics double-bicep pose. Shoulder-flexed position places both bicep heads under tension. Loads peak contraction from an extended position.', form: ['High cables at each side', 'Curl toward temples simultaneously', 'Hold peak flex', 'Return slowly against cable resistance'], lesserKnown: true, muscleGroup: "biceps", pattern: "curl", movementId: "overhead-cable-curl", movementName: "Overhead Cable Curl" },
+  { id: 'lat-pulldown-behind-neck', popularity: 60, name: 'Behind-Neck Lat Pulldown', category: 'pull', equipment: 'machine', primary: ['lats'], secondary: ['rhomboids', 'biceps'], curve: 'partial', curveNote: 'Bar pulled to behind neck increases mid-trap and rhomboid activation at the expense of increased cervical spine load. Only for those with good mobility and no shoulder issues.', form: ['Head forward, bar behind neck', 'Wide grip', 'Touch back of neck lightly — no force', 'Contraindicated for shoulder impingement'], lesserKnown: false, muscleGroup: "back", pattern: "pulldown", movementId: "lat-pulldown", movementName: "Lat Pulldown" },
+  { id: 'single-arm-dumbbell-press', popularity: 42, name: 'Single-Arm Dumbbell Press', category: 'push', equipment: 'dumbbell', primary: ['chest', 'triceps'], secondary: ['front-delt', 'core', 'serratus'], curve: 'partial', curveNote: 'Unilateral press creates rotational demand on core — anti-rotation adds TVA engagement. Reveals chest imbalances. Core benefit makes this more than just a chest exercise.', form: ['Lay flat, one dumbbell', 'Other arm extended or on chest', 'Press and resist rotation', 'Full ROM as normal press'], lesserKnown: false, muscleGroup: "chest", pattern: "press", movementId: "single-arm-bench-press", movementName: "Single-Arm Bench Press" },
+  { id: 'hex-press', popularity: 22, name: 'Hex Press (Floor)', category: 'push', equipment: 'dumbbell', primary: ['chest', 'triceps'], secondary: ['front-delt'], curve: 'partial', curveNote: 'Dumbbells pressed together throughout floor press — constant adduction tension from squeezing. Similar to Svend press but in a press pattern. Unusual inner chest loading.', form: ['Flat on floor', 'Hold hex/flat-faced dumbbells pressed together', 'Press without letting them separate', 'Full extension and squeeze at top'], lesserKnown: true, muscleGroup: "chest", pattern: "press", movementId: "hex-press", movementName: "Hex Press" },
+  { id: 'push-press', popularity: 42, name: 'Push Press', category: 'shoulders', equipment: 'barbell', primary: ['front-delt', 'mid-delt', 'triceps'], secondary: ['quads', 'glutes', 'core'], curve: 'matching', curveNote: 'Dip and drive uses leg momentum to initiate the press — allows supramaximal load overhead. True power development in the press pattern. Loads delts through full range with more weight than strict press.', form: ['Small dip then explosive drive', 'Bar goes overhead in one movement', 'Lock out hard at top', 'Reset before each rep or continuous touch-and-go'], lesserKnown: false, muscleGroup: "shoulders", pattern: "press", movementId: "push-press", movementName: "Push Press" },
+  { id: 'z-press', popularity: 22, name: 'Z-Press', category: 'shoulders', equipment: 'barbell', primary: ['front-delt', 'mid-delt'], secondary: ['triceps', 'core', 'hip-flexors'], curve: 'partial', curveNote: 'Seated on floor with legs extended — removes all leg base. Demands extreme core and hip flexor engagement alongside shoulder press. Any cheating is impossible.', form: ['Sit on floor, legs straight', 'Bar in front rack position', 'Press overhead — torso stays upright', 'Very humbling for the load required'], lesserKnown: true, muscleGroup: "shoulders", pattern: "press", movementId: "z-press", movementName: "Z-Press" },
+  { id: 'jefferson-curl', popularity: 22, name: 'Jefferson Curl', category: 'hinge', equipment: 'dumbbell', primary: ['erectors', 'hamstrings'], secondary: ['glutes', 'abs'], curve: 'matching', curveNote: 'Deliberate spinal flexion under load — the opposite of most advice, but builds eccentric spinal extensor strength and hamstring flexibility systematically. Very light loads only.', form: ['Start standing tall', 'Curl spine forward one vertebra at a time', 'Hands travel down front of legs to feet', 'Reverse back up segment by segment. VERY light load only'], lesserKnown: true, muscleGroup: "hamstrings", pattern: "hinge", movementId: "jefferson-curl", movementName: "Jefferson Curl" },
+  { id: 'dumbbell-deadlift', popularity: 60, name: 'Dumbbell Deadlift', category: 'hinge', equipment: 'dumbbell', primary: ['hamstrings', 'glutes', 'erectors'], secondary: ['quads', 'forearms'], curve: 'partial', curveNote: 'Same pattern as conventional deadlift with dumbbells outside legs. Good for learning pattern or when barbell not available. Similar loading curve to trap bar deadlift.', form: ['Dumbbells outside feet', 'Hip hinge — same mechanics as barbell', 'Full lockout at top', 'Dumbbells stay close to body throughout'], lesserKnown: false, muscleGroup: "hamstrings", pattern: "hinge", movementId: "deadlift", movementName: "Deadlift" },
+  { id: 'hip-hinge-barbell', popularity: 42, name: 'Hip Hinge (Dowel/Barbell Drill)', category: 'hinge', equipment: 'barbell', primary: ['glutes', 'hamstrings'], secondary: ['erectors'], curve: 'partial', curveNote: 'Patterning exercise — barbell held against spine while hinging. Teaches proper neutral spine and hip hinge mechanics. Foundation for all hinge-based exercises.', form: ['Barbell along spine — head, upper back, and tailbone contact', 'Push hips back while maintaining three contact points', 'Knees soft — this is a hinge not a squat', 'Feel hamstring tension as cue for correct position'], lesserKnown: false, muscleGroup: "glutes", pattern: "hinge", movementId: "hip-hinge-drill", movementName: "Hip Hinge Drill" },
+  { id: 'half-kneeling-press', popularity: 60, name: 'Half-Kneeling Dumbbell Press', category: 'shoulders', equipment: 'dumbbell', primary: ['front-delt', 'mid-delt'], secondary: ['triceps', 'core', 'glutes'], curve: 'partial', curveNote: 'Single-knee kneeling position adds hip flexor and glute engagement. Anti-lateral flexion demand on core alongside shoulder press. Reveals right-left asymmetries.', form: ['Kneel on one knee, press on same side', 'Opposite glute squeezed hard', 'Brace against lateral lean', 'Press from shoulder to directly overhead'], lesserKnown: false, muscleGroup: "shoulders", pattern: "press", movementId: "overhead-press", movementName: "Overhead Press" },
+  { id: 'cable-face-pull-overhead', popularity: 60, name: 'Overhead Cable Face Pull', category: 'shoulders', equipment: 'cable', primary: ['rear-delt', 'rotator-cuff', 'mid-traps'], secondary: ['rhomboids'], curve: 'matching', curveNote: 'Face pull from above-head angle adds upward rotation of scapula to the standard face pull benefits. Serratus and lower trap involvement. Critical for long-term shoulder health under heavy pressing.', form: ['Set cable above head height', 'Pull rope toward face — elbows high', 'External rotate at end', 'Slow and controlled — shoulder health work'], lesserKnown: true, muscleGroup: "shoulders", pattern: "row", movementId: "face-pull", movementName: "Face Pull" },
+  { id: 'adductor-squat', popularity: 22, name: 'Adductor Squeeze Squat', category: 'legs', equipment: 'bodyweight', primary: ['adductors', 'quads', 'glutes'], secondary: ['hamstrings'], curve: 'partial', curveNote: 'Squeeze a ball or plate between knees during squat — activates adductors throughout squat pattern. Adds inner thigh work to a fundamental movement.', form: ['Ball or folded mat between knees', 'Maintain squeeze through full squat', 'Knees tracked by squeeze — not flaring', 'Standard squat depth'], lesserKnown: true, muscleGroup: "quads", pattern: "squat", movementId: "adductor-squat", movementName: "Adductor Squeeze Squat" },
 
   // ── ANGLE-FAMILY EXERCISES (Build Press/Row/Fly) ────────────────────────────
   // One shared identity per pattern+equipment regardless of which angle you
@@ -2091,34 +2106,34 @@ const EXERCISE_DB = [
   // comes from that set's own logged emgWeights (functions/fatigue.js's
   // creditedShares prefers it over this array), so this array only matters
   // for session-generation's coarser target-muscle scoring.
-  { id: 'family-barbell-press', name: 'Barbell Press', category: 'push', equipment: 'barbell', primary: ['chest', 'front-delt', 'triceps'], secondary: ['biceps', 'mid-delt', 'serratus', 'lower-traps'], curve: 'partial', curveNote: 'Angle-variable family exercise (built via Build Press/Row/Fly) — resistance curve and muscle emphasis shift with the chosen angle, not fixed like a single named press. See the set\'s own logged emgWeights for its precise profile.', form: ['Angle picked per set via Build Press/Row/Fly, not fixed by this entry', 'Lower angle (~0-45°) emphasizes chest', 'Mid angle (~60-90°) is a balanced shoulder/chest press', 'High angle (~120-180°) shifts load toward delts, triceps, and serratus/lower-traps'], lesserKnown: false, isAngleFamily: true, muscleGroup: "chest", pattern: "press", movementId: "family-barbell-press", movementName: "Barbell Press" },
-  { id: 'family-dumbbell-press', name: 'Dumbbell Press', category: 'push', equipment: 'dumbbell', primary: ['chest', 'front-delt', 'triceps'], secondary: ['biceps', 'mid-delt', 'serratus', 'lower-traps'], curve: 'partial', curveNote: 'Angle-variable family exercise (built via Build Press/Row/Fly) — resistance curve and muscle emphasis shift with the chosen angle, not fixed like a single named press. See the set\'s own logged emgWeights for its precise profile.', form: ['Angle picked per set via Build Press/Row/Fly, not fixed by this entry', 'Lower angle (~0-45°) emphasizes chest', 'Mid angle (~60-90°) is a balanced shoulder/chest press', 'High angle (~120-180°) shifts load toward delts, triceps, and serratus/lower-traps'], lesserKnown: false, isAngleFamily: true, muscleGroup: "chest", pattern: "press", movementId: "family-dumbbell-press", movementName: "Dumbbell Press" },
-  { id: 'family-cable-press', name: 'Cable Press', category: 'push', equipment: 'cable', primary: ['chest', 'front-delt', 'triceps'], secondary: ['biceps', 'mid-delt', 'serratus', 'lower-traps'], curve: 'partial', curveNote: 'Angle-variable family exercise (built via Build Press/Row/Fly) — resistance curve and muscle emphasis shift with the chosen angle, not fixed like a single named press. See the set\'s own logged emgWeights for its precise profile.', form: ['Angle picked per set via Build Press/Row/Fly, not fixed by this entry', 'Lower angle (~0-45°) emphasizes chest', 'Mid angle (~60-90°) is a balanced shoulder/chest press', 'High angle (~120-180°) shifts load toward delts, triceps, and serratus/lower-traps'], lesserKnown: false, isAngleFamily: true, muscleGroup: "chest", pattern: "press", movementId: "family-cable-press", movementName: "Cable Press" },
-  { id: 'family-machine-press', name: 'Machine Press', category: 'push', equipment: 'machine', primary: ['chest', 'front-delt', 'triceps'], secondary: ['biceps', 'mid-delt', 'serratus', 'lower-traps'], curve: 'partial', curveNote: 'Angle-variable family exercise (built via Build Press/Row/Fly) — resistance curve and muscle emphasis shift with the chosen angle, not fixed like a single named press. See the set\'s own logged emgWeights for its precise profile.', form: ['Angle picked per set via Build Press/Row/Fly, not fixed by this entry', 'Lower angle (~0-45°) emphasizes chest', 'Mid angle (~60-90°) is a balanced shoulder/chest press', 'High angle (~120-180°) shifts load toward delts, triceps, and serratus/lower-traps'], lesserKnown: false, isAngleFamily: true, muscleGroup: "chest", pattern: "press", movementId: "family-machine-press", movementName: "Machine Press" },
+  { id: 'family-barbell-press', popularity: 42, name: 'Barbell Press', category: 'push', equipment: 'barbell', primary: ['chest', 'front-delt', 'triceps'], secondary: ['biceps', 'mid-delt', 'serratus', 'lower-traps'], curve: 'partial', curveNote: 'Angle-variable family exercise (built via Build Press/Row/Fly) — resistance curve and muscle emphasis shift with the chosen angle, not fixed like a single named press. See the set\'s own logged emgWeights for its precise profile.', form: ['Angle picked per set via Build Press/Row/Fly, not fixed by this entry', 'Lower angle (~0-45°) emphasizes chest', 'Mid angle (~60-90°) is a balanced shoulder/chest press', 'High angle (~120-180°) shifts load toward delts, triceps, and serratus/lower-traps'], lesserKnown: false, isAngleFamily: true, muscleGroup: "chest", pattern: "press", movementId: "family-barbell-press", movementName: "Barbell Press" },
+  { id: 'family-dumbbell-press', popularity: 42, name: 'Dumbbell Press', category: 'push', equipment: 'dumbbell', primary: ['chest', 'front-delt', 'triceps'], secondary: ['biceps', 'mid-delt', 'serratus', 'lower-traps'], curve: 'partial', curveNote: 'Angle-variable family exercise (built via Build Press/Row/Fly) — resistance curve and muscle emphasis shift with the chosen angle, not fixed like a single named press. See the set\'s own logged emgWeights for its precise profile.', form: ['Angle picked per set via Build Press/Row/Fly, not fixed by this entry', 'Lower angle (~0-45°) emphasizes chest', 'Mid angle (~60-90°) is a balanced shoulder/chest press', 'High angle (~120-180°) shifts load toward delts, triceps, and serratus/lower-traps'], lesserKnown: false, isAngleFamily: true, muscleGroup: "chest", pattern: "press", movementId: "family-dumbbell-press", movementName: "Dumbbell Press" },
+  { id: 'family-cable-press', popularity: 42, name: 'Cable Press', category: 'push', equipment: 'cable', primary: ['chest', 'front-delt', 'triceps'], secondary: ['biceps', 'mid-delt', 'serratus', 'lower-traps'], curve: 'partial', curveNote: 'Angle-variable family exercise (built via Build Press/Row/Fly) — resistance curve and muscle emphasis shift with the chosen angle, not fixed like a single named press. See the set\'s own logged emgWeights for its precise profile.', form: ['Angle picked per set via Build Press/Row/Fly, not fixed by this entry', 'Lower angle (~0-45°) emphasizes chest', 'Mid angle (~60-90°) is a balanced shoulder/chest press', 'High angle (~120-180°) shifts load toward delts, triceps, and serratus/lower-traps'], lesserKnown: false, isAngleFamily: true, muscleGroup: "chest", pattern: "press", movementId: "family-cable-press", movementName: "Cable Press" },
+  { id: 'family-machine-press', popularity: 42, name: 'Machine Press', category: 'push', equipment: 'machine', primary: ['chest', 'front-delt', 'triceps'], secondary: ['biceps', 'mid-delt', 'serratus', 'lower-traps'], curve: 'partial', curveNote: 'Angle-variable family exercise (built via Build Press/Row/Fly) — resistance curve and muscle emphasis shift with the chosen angle, not fixed like a single named press. See the set\'s own logged emgWeights for its precise profile.', form: ['Angle picked per set via Build Press/Row/Fly, not fixed by this entry', 'Lower angle (~0-45°) emphasizes chest', 'Mid angle (~60-90°) is a balanced shoulder/chest press', 'High angle (~120-180°) shifts load toward delts, triceps, and serratus/lower-traps'], lesserKnown: false, isAngleFamily: true, muscleGroup: "chest", pattern: "press", movementId: "family-machine-press", movementName: "Machine Press" },
 
-  { id: 'family-barbell-row', name: 'Barbell Row', category: 'pull', equipment: 'barbell', primary: ['lats', 'rhomboids', 'mid-traps'], secondary: ['rear-delt', 'biceps', 'mid-delt', 'teres-major', 'brachioradialis'], curve: 'partial', curveNote: 'Angle-variable family exercise (built via Build Press/Row/Fly) — pull direction and muscle emphasis shift with the chosen angle, not fixed like a single named row. See the set\'s own logged emgWeights for its precise profile.', form: ['Pull direction picked per set via Build Press/Row/Fly, not fixed by this entry', 'Low pull (~0-30°) emphasizes lats', 'Mid pull (~75-105°) is a balanced mid-back row', 'High/overhead pull (~135-180°) shifts load toward rear-delt and mid-traps/rhomboids'], lesserKnown: false, isAngleFamily: true, muscleGroup: "back", pattern: "row", movementId: "family-barbell-row", movementName: "Barbell Row" },
-  { id: 'family-dumbbell-row', name: 'Dumbbell Row', category: 'pull', equipment: 'dumbbell', primary: ['lats', 'rhomboids', 'mid-traps'], secondary: ['rear-delt', 'biceps', 'mid-delt', 'teres-major', 'brachioradialis'], curve: 'partial', curveNote: 'Angle-variable family exercise (built via Build Press/Row/Fly) — pull direction and muscle emphasis shift with the chosen angle, not fixed like a single named row. See the set\'s own logged emgWeights for its precise profile.', form: ['Pull direction picked per set via Build Press/Row/Fly, not fixed by this entry', 'Low pull (~0-30°) emphasizes lats', 'Mid pull (~75-105°) is a balanced mid-back row', 'High/overhead pull (~135-180°) shifts load toward rear-delt and mid-traps/rhomboids'], lesserKnown: false, isAngleFamily: true, muscleGroup: "back", pattern: "row", movementId: "family-dumbbell-row", movementName: "Dumbbell Row" },
-  { id: 'family-cable-row', name: 'Cable Row', category: 'pull', equipment: 'cable', primary: ['lats', 'rhomboids', 'mid-traps'], secondary: ['rear-delt', 'biceps', 'mid-delt', 'teres-major', 'brachioradialis'], curve: 'partial', curveNote: 'Angle-variable family exercise (built via Build Press/Row/Fly) — pull direction and muscle emphasis shift with the chosen angle, not fixed like a single named row. See the set\'s own logged emgWeights for its precise profile.', form: ['Pull direction picked per set via Build Press/Row/Fly, not fixed by this entry', 'Low pull (~0-30°) emphasizes lats', 'Mid pull (~75-105°) is a balanced mid-back row', 'High/overhead pull (~135-180°) shifts load toward rear-delt and mid-traps/rhomboids'], lesserKnown: false, isAngleFamily: true, muscleGroup: "back", pattern: "row", movementId: "family-cable-row", movementName: "Cable Row" },
-  { id: 'family-machine-row', name: 'Machine Row', category: 'pull', equipment: 'machine', primary: ['lats', 'rhomboids', 'mid-traps'], secondary: ['rear-delt', 'biceps', 'mid-delt', 'teres-major', 'brachioradialis'], curve: 'partial', curveNote: 'Angle-variable family exercise (built via Build Press/Row/Fly) — pull direction and muscle emphasis shift with the chosen angle, not fixed like a single named row. See the set\'s own logged emgWeights for its precise profile.', form: ['Pull direction picked per set via Build Press/Row/Fly, not fixed by this entry', 'Low pull (~0-30°) emphasizes lats', 'Mid pull (~75-105°) is a balanced mid-back row', 'High/overhead pull (~135-180°) shifts load toward rear-delt and mid-traps/rhomboids'], lesserKnown: false, isAngleFamily: true, muscleGroup: "back", pattern: "row", movementId: "family-machine-row", movementName: "Machine Row" },
+  { id: 'family-barbell-row', popularity: 92, name: 'Barbell Row', category: 'pull', equipment: 'barbell', primary: ['lats', 'rhomboids', 'mid-traps'], secondary: ['rear-delt', 'biceps', 'mid-delt', 'teres-major', 'brachioradialis'], curve: 'partial', curveNote: 'Angle-variable family exercise (built via Build Press/Row/Fly) — pull direction and muscle emphasis shift with the chosen angle, not fixed like a single named row. See the set\'s own logged emgWeights for its precise profile.', form: ['Pull direction picked per set via Build Press/Row/Fly, not fixed by this entry', 'Low pull (~0-30°) emphasizes lats', 'Mid pull (~75-105°) is a balanced mid-back row', 'High/overhead pull (~135-180°) shifts load toward rear-delt and mid-traps/rhomboids'], lesserKnown: false, isAngleFamily: true, muscleGroup: "back", pattern: "row", movementId: "family-barbell-row", movementName: "Barbell Row" },
+  { id: 'family-dumbbell-row', popularity: 82, name: 'Dumbbell Row', category: 'pull', equipment: 'dumbbell', primary: ['lats', 'rhomboids', 'mid-traps'], secondary: ['rear-delt', 'biceps', 'mid-delt', 'teres-major', 'brachioradialis'], curve: 'partial', curveNote: 'Angle-variable family exercise (built via Build Press/Row/Fly) — pull direction and muscle emphasis shift with the chosen angle, not fixed like a single named row. See the set\'s own logged emgWeights for its precise profile.', form: ['Pull direction picked per set via Build Press/Row/Fly, not fixed by this entry', 'Low pull (~0-30°) emphasizes lats', 'Mid pull (~75-105°) is a balanced mid-back row', 'High/overhead pull (~135-180°) shifts load toward rear-delt and mid-traps/rhomboids'], lesserKnown: false, isAngleFamily: true, muscleGroup: "back", pattern: "row", movementId: "family-dumbbell-row", movementName: "Dumbbell Row" },
+  { id: 'family-cable-row', popularity: 42, name: 'Cable Row', category: 'pull', equipment: 'cable', primary: ['lats', 'rhomboids', 'mid-traps'], secondary: ['rear-delt', 'biceps', 'mid-delt', 'teres-major', 'brachioradialis'], curve: 'partial', curveNote: 'Angle-variable family exercise (built via Build Press/Row/Fly) — pull direction and muscle emphasis shift with the chosen angle, not fixed like a single named row. See the set\'s own logged emgWeights for its precise profile.', form: ['Pull direction picked per set via Build Press/Row/Fly, not fixed by this entry', 'Low pull (~0-30°) emphasizes lats', 'Mid pull (~75-105°) is a balanced mid-back row', 'High/overhead pull (~135-180°) shifts load toward rear-delt and mid-traps/rhomboids'], lesserKnown: false, isAngleFamily: true, muscleGroup: "back", pattern: "row", movementId: "family-cable-row", movementName: "Cable Row" },
+  { id: 'family-machine-row', popularity: 42, name: 'Machine Row', category: 'pull', equipment: 'machine', primary: ['lats', 'rhomboids', 'mid-traps'], secondary: ['rear-delt', 'biceps', 'mid-delt', 'teres-major', 'brachioradialis'], curve: 'partial', curveNote: 'Angle-variable family exercise (built via Build Press/Row/Fly) — pull direction and muscle emphasis shift with the chosen angle, not fixed like a single named row. See the set\'s own logged emgWeights for its precise profile.', form: ['Pull direction picked per set via Build Press/Row/Fly, not fixed by this entry', 'Low pull (~0-30°) emphasizes lats', 'Mid pull (~75-105°) is a balanced mid-back row', 'High/overhead pull (~135-180°) shifts load toward rear-delt and mid-traps/rhomboids'], lesserKnown: false, isAngleFamily: true, muscleGroup: "back", pattern: "row", movementId: "family-machine-row", movementName: "Machine Row" },
 
-  { id: 'family-dumbbell-fly', name: 'Dumbbell Fly', category: 'push', equipment: 'dumbbell', primary: ['chest', 'serratus'], secondary: ['front-delt', 'mid-delt'], curve: 'partial', curveNote: 'Angle-variable family exercise (built via Build Press/Row/Fly) — the arm-to-torso angle at full contraction shifts pec emphasis lower-to-upper and changes serratus involvement, not fixed like a single named fly. See the set\'s own logged emgWeights for its precise profile.', form: ['Angle picked per set via Build Press/Row/Fly, not fixed by this entry', 'Low angle (~0-30°, high-to-low line of pull) biases lower chest', 'Mid angle (~75-105°, flat/mid fly) is a balanced chest fly', 'High angle (~150-180°, low-to-high line of pull) biases upper chest and serratus'], lesserKnown: false, isAngleFamily: true, muscleGroup: "chest", pattern: "fly", movementId: "family-dumbbell-fly", movementName: "Dumbbell Fly" },
-  { id: 'family-cable-fly', name: 'Cable Fly', category: 'push', equipment: 'cable', primary: ['chest', 'serratus'], secondary: ['front-delt', 'mid-delt'], curve: 'partial', curveNote: 'Angle-variable family exercise (built via Build Press/Row/Fly) — the arm-to-torso angle at full contraction shifts pec emphasis lower-to-upper and changes serratus involvement, not fixed like a single named fly. See the set\'s own logged emgWeights for its precise profile.', form: ['Angle picked per set via Build Press/Row/Fly, not fixed by this entry', 'Low angle (~0-30°, high-to-low line of pull) biases lower chest', 'Mid angle (~75-105°, flat/mid fly) is a balanced chest fly', 'High angle (~150-180°, low-to-high line of pull) biases upper chest and serratus'], lesserKnown: false, isAngleFamily: true, muscleGroup: "chest", pattern: "fly", movementId: "family-cable-fly", movementName: "Cable Fly" },
-  { id: 'family-machine-fly', name: 'Machine Fly', category: 'push', equipment: 'machine', primary: ['chest', 'serratus'], secondary: ['front-delt', 'mid-delt'], curve: 'partial', curveNote: 'Angle-variable family exercise (built via Build Press/Row/Fly) — the arm-to-torso angle at full contraction shifts pec emphasis lower-to-upper and changes serratus involvement, not fixed like a single named fly. See the set\'s own logged emgWeights for its precise profile.', form: ['Angle picked per set via Build Press/Row/Fly, not fixed by this entry', 'Low angle (~0-30°, high-to-low line of pull) biases lower chest', 'Mid angle (~75-105°, flat/mid fly) is a balanced chest fly', 'High angle (~150-180°, low-to-high line of pull) biases upper chest and serratus'], lesserKnown: false, isAngleFamily: true, muscleGroup: "chest", pattern: "fly", movementId: "family-machine-fly", movementName: "Machine Fly" },
+  { id: 'family-dumbbell-fly', popularity: 42, name: 'Dumbbell Fly', category: 'push', equipment: 'dumbbell', primary: ['chest', 'serratus'], secondary: ['front-delt', 'mid-delt'], curve: 'partial', curveNote: 'Angle-variable family exercise (built via Build Press/Row/Fly) — the arm-to-torso angle at full contraction shifts pec emphasis lower-to-upper and changes serratus involvement, not fixed like a single named fly. See the set\'s own logged emgWeights for its precise profile.', form: ['Angle picked per set via Build Press/Row/Fly, not fixed by this entry', 'Low angle (~0-30°, high-to-low line of pull) biases lower chest', 'Mid angle (~75-105°, flat/mid fly) is a balanced chest fly', 'High angle (~150-180°, low-to-high line of pull) biases upper chest and serratus'], lesserKnown: false, isAngleFamily: true, muscleGroup: "chest", pattern: "fly", movementId: "family-dumbbell-fly", movementName: "Dumbbell Fly" },
+  { id: 'family-cable-fly', popularity: 82, name: 'Cable Fly', category: 'push', equipment: 'cable', primary: ['chest', 'serratus'], secondary: ['front-delt', 'mid-delt'], curve: 'partial', curveNote: 'Angle-variable family exercise (built via Build Press/Row/Fly) — the arm-to-torso angle at full contraction shifts pec emphasis lower-to-upper and changes serratus involvement, not fixed like a single named fly. See the set\'s own logged emgWeights for its precise profile.', form: ['Angle picked per set via Build Press/Row/Fly, not fixed by this entry', 'Low angle (~0-30°, high-to-low line of pull) biases lower chest', 'Mid angle (~75-105°, flat/mid fly) is a balanced chest fly', 'High angle (~150-180°, low-to-high line of pull) biases upper chest and serratus'], lesserKnown: false, isAngleFamily: true, muscleGroup: "chest", pattern: "fly", movementId: "family-cable-fly", movementName: "Cable Fly" },
+  { id: 'family-machine-fly', popularity: 42, name: 'Machine Fly', category: 'push', equipment: 'machine', primary: ['chest', 'serratus'], secondary: ['front-delt', 'mid-delt'], curve: 'partial', curveNote: 'Angle-variable family exercise (built via Build Press/Row/Fly) — the arm-to-torso angle at full contraction shifts pec emphasis lower-to-upper and changes serratus involvement, not fixed like a single named fly. See the set\'s own logged emgWeights for its precise profile.', form: ['Angle picked per set via Build Press/Row/Fly, not fixed by this entry', 'Low angle (~0-30°, high-to-low line of pull) biases lower chest', 'Mid angle (~75-105°, flat/mid fly) is a balanced chest fly', 'High angle (~150-180°, low-to-high line of pull) biases upper chest and serratus'], lesserKnown: false, isAngleFamily: true, muscleGroup: "chest", pattern: "fly", movementId: "family-machine-fly", movementName: "Machine Fly" },
 
-  { id: 'family-barbell-curl', name: 'Barbell Curl (Angle-Built)', category: 'arms', equipment: 'barbell', primary: ['biceps', 'brachialis'], secondary: ['brachioradialis'], curve: 'partial', curveNote: 'Angle-variable family exercise (built via Build Press/Row/Fly) — shoulder position (not elbow angle, which moves the same way at every variant) shifts emphasis between biceps and brachialis, not fixed like a single named curl. See the set\'s own logged emgWeights for its precise profile.', form: ['Shoulder position picked per set via Build Press/Row/Fly, not fixed by this entry', 'Low angle (~0-30°, incline curl) stretches and biases the long head of biceps', 'Mid angle (~75-105°, standing curl) is a balanced curl', 'High angle (~150-180°, preacher curl) locks the elbow and biases brachialis'], lesserKnown: false, isAngleFamily: true, muscleGroup: "biceps", pattern: "curl", movementId: "family-barbell-curl", movementName: "Barbell Curl (Angle-Built)" },
-  { id: 'family-dumbbell-curl', name: 'Dumbbell Curl', category: 'arms', equipment: 'dumbbell', primary: ['biceps', 'brachialis'], secondary: ['brachioradialis'], curve: 'partial', curveNote: 'Angle-variable family exercise (built via Build Press/Row/Fly) — shoulder position (not elbow angle, which moves the same way at every variant) shifts emphasis between biceps and brachialis, not fixed like a single named curl. See the set\'s own logged emgWeights for its precise profile.', form: ['Shoulder position picked per set via Build Press/Row/Fly, not fixed by this entry', 'Low angle (~0-30°, incline curl) stretches and biases the long head of biceps', 'Mid angle (~75-105°, standing curl) is a balanced curl', 'High angle (~150-180°, preacher curl) locks the elbow and biases brachialis'], lesserKnown: false, isAngleFamily: true, muscleGroup: "biceps", pattern: "curl", movementId: "family-dumbbell-curl", movementName: "Dumbbell Curl" },
-  { id: 'family-cable-curl', name: 'Cable Curl', category: 'arms', equipment: 'cable', primary: ['biceps', 'brachialis'], secondary: ['brachioradialis'], curve: 'partial', curveNote: 'Angle-variable family exercise (built via Build Press/Row/Fly) — shoulder position (not elbow angle, which moves the same way at every variant) shifts emphasis between biceps and brachialis, not fixed like a single named curl. See the set\'s own logged emgWeights for its precise profile.', form: ['Shoulder position picked per set via Build Press/Row/Fly, not fixed by this entry', 'Low angle (~0-30°, incline curl) stretches and biases the long head of biceps', 'Mid angle (~75-105°, standing curl) is a balanced curl', 'High angle (~150-180°, preacher curl) locks the elbow and biases brachialis'], lesserKnown: false, isAngleFamily: true, muscleGroup: "biceps", pattern: "curl", movementId: "family-cable-curl", movementName: "Cable Curl" },
-  { id: 'family-machine-curl', name: 'Machine Curl (Angle-Built)', category: 'arms', equipment: 'machine', primary: ['biceps', 'brachialis'], secondary: ['brachioradialis'], curve: 'partial', curveNote: 'Angle-variable family exercise (built via Build Press/Row/Fly) — shoulder position (not elbow angle, which moves the same way at every variant) shifts emphasis between biceps and brachialis, not fixed like a single named curl. See the set\'s own logged emgWeights for its precise profile.', form: ['Shoulder position picked per set via Build Press/Row/Fly, not fixed by this entry', 'Low angle (~0-30°, incline curl) stretches and biases the long head of biceps', 'Mid angle (~75-105°, standing curl) is a balanced curl', 'High angle (~150-180°, preacher curl) locks the elbow and biases brachialis'], lesserKnown: false, isAngleFamily: true, muscleGroup: "biceps", pattern: "curl", movementId: "family-machine-curl", movementName: "Machine Curl (Angle-Built)" },
+  { id: 'family-barbell-curl', popularity: 42, name: 'Barbell Curl (Angle-Built)', category: 'arms', equipment: 'barbell', primary: ['biceps', 'brachialis'], secondary: ['brachioradialis'], curve: 'partial', curveNote: 'Angle-variable family exercise (built via Build Press/Row/Fly) — shoulder position (not elbow angle, which moves the same way at every variant) shifts emphasis between biceps and brachialis, not fixed like a single named curl. See the set\'s own logged emgWeights for its precise profile.', form: ['Shoulder position picked per set via Build Press/Row/Fly, not fixed by this entry', 'Low angle (~0-30°, incline curl) stretches and biases the long head of biceps', 'Mid angle (~75-105°, standing curl) is a balanced curl', 'High angle (~150-180°, preacher curl) locks the elbow and biases brachialis'], lesserKnown: false, isAngleFamily: true, muscleGroup: "biceps", pattern: "curl", movementId: "family-barbell-curl", movementName: "Barbell Curl (Angle-Built)" },
+  { id: 'family-dumbbell-curl', popularity: 82, name: 'Dumbbell Curl', category: 'arms', equipment: 'dumbbell', primary: ['biceps', 'brachialis'], secondary: ['brachioradialis'], curve: 'partial', curveNote: 'Angle-variable family exercise (built via Build Press/Row/Fly) — shoulder position (not elbow angle, which moves the same way at every variant) shifts emphasis between biceps and brachialis, not fixed like a single named curl. See the set\'s own logged emgWeights for its precise profile.', form: ['Shoulder position picked per set via Build Press/Row/Fly, not fixed by this entry', 'Low angle (~0-30°, incline curl) stretches and biases the long head of biceps', 'Mid angle (~75-105°, standing curl) is a balanced curl', 'High angle (~150-180°, preacher curl) locks the elbow and biases brachialis'], lesserKnown: false, isAngleFamily: true, muscleGroup: "biceps", pattern: "curl", movementId: "family-dumbbell-curl", movementName: "Dumbbell Curl" },
+  { id: 'family-cable-curl', popularity: 42, name: 'Cable Curl', category: 'arms', equipment: 'cable', primary: ['biceps', 'brachialis'], secondary: ['brachioradialis'], curve: 'partial', curveNote: 'Angle-variable family exercise (built via Build Press/Row/Fly) — shoulder position (not elbow angle, which moves the same way at every variant) shifts emphasis between biceps and brachialis, not fixed like a single named curl. See the set\'s own logged emgWeights for its precise profile.', form: ['Shoulder position picked per set via Build Press/Row/Fly, not fixed by this entry', 'Low angle (~0-30°, incline curl) stretches and biases the long head of biceps', 'Mid angle (~75-105°, standing curl) is a balanced curl', 'High angle (~150-180°, preacher curl) locks the elbow and biases brachialis'], lesserKnown: false, isAngleFamily: true, muscleGroup: "biceps", pattern: "curl", movementId: "family-cable-curl", movementName: "Cable Curl" },
+  { id: 'family-machine-curl', popularity: 42, name: 'Machine Curl (Angle-Built)', category: 'arms', equipment: 'machine', primary: ['biceps', 'brachialis'], secondary: ['brachioradialis'], curve: 'partial', curveNote: 'Angle-variable family exercise (built via Build Press/Row/Fly) — shoulder position (not elbow angle, which moves the same way at every variant) shifts emphasis between biceps and brachialis, not fixed like a single named curl. See the set\'s own logged emgWeights for its precise profile.', form: ['Shoulder position picked per set via Build Press/Row/Fly, not fixed by this entry', 'Low angle (~0-30°, incline curl) stretches and biases the long head of biceps', 'Mid angle (~75-105°, standing curl) is a balanced curl', 'High angle (~150-180°, preacher curl) locks the elbow and biases brachialis'], lesserKnown: false, isAngleFamily: true, muscleGroup: "biceps", pattern: "curl", movementId: "family-machine-curl", movementName: "Machine Curl (Angle-Built)" },
 
-  { id: 'family-barbell-extension', name: 'Barbell Extension', category: 'arms', equipment: 'barbell', primary: ['triceps', 'front-delt'], secondary: [], curve: 'partial', curveNote: 'Angle-variable family exercise (built via Build Press/Row/Fly) — arm position shifts emphasis toward the long head of triceps and adds real shoulder involvement as the arm approaches overhead, not fixed like a single named extension. See the set\'s own logged emgWeights for its precise profile.', form: ['Arm position picked per set via Build Press/Row/Fly, not fixed by this entry', 'Low angle (~0-30°, pushdown/lying) is a balanced triceps extension', 'High angle (~150-180°, overhead extension) stretches and biases the long head, and adds real front-delt demand holding the position'], lesserKnown: false, isAngleFamily: true, muscleGroup: "triceps", pattern: "extension", movementId: "family-barbell-extension", movementName: "Barbell Extension" },
-  { id: 'family-dumbbell-extension', name: 'Dumbbell Extension', category: 'arms', equipment: 'dumbbell', primary: ['triceps', 'front-delt'], secondary: [], curve: 'partial', curveNote: 'Angle-variable family exercise (built via Build Press/Row/Fly) — arm position shifts emphasis toward the long head of triceps and adds real shoulder involvement as the arm approaches overhead, not fixed like a single named extension. See the set\'s own logged emgWeights for its precise profile.', form: ['Arm position picked per set via Build Press/Row/Fly, not fixed by this entry', 'Low angle (~0-30°, pushdown/lying) is a balanced triceps extension', 'High angle (~150-180°, overhead extension) stretches and biases the long head, and adds real front-delt demand holding the position'], lesserKnown: false, isAngleFamily: true, muscleGroup: "triceps", pattern: "extension", movementId: "family-dumbbell-extension", movementName: "Dumbbell Extension" },
-  { id: 'family-cable-extension', name: 'Cable Extension', category: 'arms', equipment: 'cable', primary: ['triceps', 'front-delt'], secondary: [], curve: 'partial', curveNote: 'Angle-variable family exercise (built via Build Press/Row/Fly) — arm position shifts emphasis toward the long head of triceps and adds real shoulder involvement as the arm approaches overhead, not fixed like a single named extension. See the set\'s own logged emgWeights for its precise profile.', form: ['Arm position picked per set via Build Press/Row/Fly, not fixed by this entry', 'Low angle (~0-30°, pushdown/lying) is a balanced triceps extension', 'High angle (~150-180°, overhead extension) stretches and biases the long head, and adds real front-delt demand holding the position'], lesserKnown: false, isAngleFamily: true, muscleGroup: "triceps", pattern: "extension", movementId: "family-cable-extension", movementName: "Cable Extension" },
-  { id: 'family-machine-extension', name: 'Machine Extension', category: 'arms', equipment: 'machine', primary: ['triceps', 'front-delt'], secondary: [], curve: 'partial', curveNote: 'Angle-variable family exercise (built via Build Press/Row/Fly) — arm position shifts emphasis toward the long head of triceps and adds real shoulder involvement as the arm approaches overhead, not fixed like a single named extension. See the set\'s own logged emgWeights for its precise profile.', form: ['Arm position picked per set via Build Press/Row/Fly, not fixed by this entry', 'Low angle (~0-30°, pushdown/lying) is a balanced triceps extension', 'High angle (~150-180°, overhead extension) stretches and biases the long head, and adds real front-delt demand holding the position'], lesserKnown: false, isAngleFamily: true, muscleGroup: "triceps", pattern: "extension", movementId: "family-machine-extension", movementName: "Machine Extension" },
+  { id: 'family-barbell-extension', popularity: 42, name: 'Barbell Extension', category: 'arms', equipment: 'barbell', primary: ['triceps', 'front-delt'], secondary: [], curve: 'partial', curveNote: 'Angle-variable family exercise (built via Build Press/Row/Fly) — arm position shifts emphasis toward the long head of triceps and adds real shoulder involvement as the arm approaches overhead, not fixed like a single named extension. See the set\'s own logged emgWeights for its precise profile.', form: ['Arm position picked per set via Build Press/Row/Fly, not fixed by this entry', 'Low angle (~0-30°, pushdown/lying) is a balanced triceps extension', 'High angle (~150-180°, overhead extension) stretches and biases the long head, and adds real front-delt demand holding the position'], lesserKnown: false, isAngleFamily: true, muscleGroup: "triceps", pattern: "extension", movementId: "family-barbell-extension", movementName: "Barbell Extension" },
+  { id: 'family-dumbbell-extension', popularity: 42, name: 'Dumbbell Extension', category: 'arms', equipment: 'dumbbell', primary: ['triceps', 'front-delt'], secondary: [], curve: 'partial', curveNote: 'Angle-variable family exercise (built via Build Press/Row/Fly) — arm position shifts emphasis toward the long head of triceps and adds real shoulder involvement as the arm approaches overhead, not fixed like a single named extension. See the set\'s own logged emgWeights for its precise profile.', form: ['Arm position picked per set via Build Press/Row/Fly, not fixed by this entry', 'Low angle (~0-30°, pushdown/lying) is a balanced triceps extension', 'High angle (~150-180°, overhead extension) stretches and biases the long head, and adds real front-delt demand holding the position'], lesserKnown: false, isAngleFamily: true, muscleGroup: "triceps", pattern: "extension", movementId: "family-dumbbell-extension", movementName: "Dumbbell Extension" },
+  { id: 'family-cable-extension', popularity: 42, name: 'Cable Extension', category: 'arms', equipment: 'cable', primary: ['triceps', 'front-delt'], secondary: [], curve: 'partial', curveNote: 'Angle-variable family exercise (built via Build Press/Row/Fly) — arm position shifts emphasis toward the long head of triceps and adds real shoulder involvement as the arm approaches overhead, not fixed like a single named extension. See the set\'s own logged emgWeights for its precise profile.', form: ['Arm position picked per set via Build Press/Row/Fly, not fixed by this entry', 'Low angle (~0-30°, pushdown/lying) is a balanced triceps extension', 'High angle (~150-180°, overhead extension) stretches and biases the long head, and adds real front-delt demand holding the position'], lesserKnown: false, isAngleFamily: true, muscleGroup: "triceps", pattern: "extension", movementId: "family-cable-extension", movementName: "Cable Extension" },
+  { id: 'family-machine-extension', popularity: 42, name: 'Machine Extension', category: 'arms', equipment: 'machine', primary: ['triceps', 'front-delt'], secondary: [], curve: 'partial', curveNote: 'Angle-variable family exercise (built via Build Press/Row/Fly) — arm position shifts emphasis toward the long head of triceps and adds real shoulder involvement as the arm approaches overhead, not fixed like a single named extension. See the set\'s own logged emgWeights for its precise profile.', form: ['Arm position picked per set via Build Press/Row/Fly, not fixed by this entry', 'Low angle (~0-30°, pushdown/lying) is a balanced triceps extension', 'High angle (~150-180°, overhead extension) stretches and biases the long head, and adds real front-delt demand holding the position'], lesserKnown: false, isAngleFamily: true, muscleGroup: "triceps", pattern: "extension", movementId: "family-machine-extension", movementName: "Machine Extension" },
 
-  { id: 'family-machine-leg-curl', name: 'Machine Leg Curl', category: 'legs', equipment: 'machine', primary: ['hamstrings'], secondary: [], curve: 'partial', curveNote: 'Angle-variable family exercise (built via Build Press/Row/Fly) — hip position (lying/prone vs. seated) shifts stretch on the biarticular hamstrings, not fixed like a single named leg curl. See the set\'s own logged emgWeights for its precise profile.', form: ['Hip position picked per set via Build Press/Row/Fly, not fixed by this entry', 'Low angle (~0-30°, lying/prone, hip extended) is a shorter-length leg curl', 'High angle (~150-180°, seated, hip flexed) stretches the biarticular hamstrings more'], lesserKnown: false, isAngleFamily: true, muscleGroup: "hamstrings", pattern: "leg-curl", movementId: "family-machine-leg-curl", movementName: "Machine Leg Curl" },
-  { id: 'family-cable-leg-curl', name: 'Cable Leg Curl', category: 'legs', equipment: 'cable', primary: ['hamstrings'], secondary: [], curve: 'partial', curveNote: 'Angle-variable family exercise (built via Build Press/Row/Fly) — hip position (lying/prone vs. seated) shifts stretch on the biarticular hamstrings, not fixed like a single named leg curl. See the set\'s own logged emgWeights for its precise profile.', form: ['Hip position picked per set via Build Press/Row/Fly, not fixed by this entry', 'Low angle (~0-30°, lying/prone, hip extended) is a shorter-length leg curl', 'High angle (~150-180°, seated, hip flexed) stretches the biarticular hamstrings more'], lesserKnown: false, isAngleFamily: true, muscleGroup: "hamstrings", pattern: "leg-curl", movementId: "family-cable-leg-curl", movementName: "Cable Leg Curl" },
+  { id: 'family-machine-leg-curl', popularity: 42, name: 'Machine Leg Curl', category: 'legs', equipment: 'machine', primary: ['hamstrings'], secondary: [], curve: 'partial', curveNote: 'Angle-variable family exercise (built via Build Press/Row/Fly) — hip position (lying/prone vs. seated) shifts stretch on the biarticular hamstrings, not fixed like a single named leg curl. See the set\'s own logged emgWeights for its precise profile.', form: ['Hip position picked per set via Build Press/Row/Fly, not fixed by this entry', 'Low angle (~0-30°, lying/prone, hip extended) is a shorter-length leg curl', 'High angle (~150-180°, seated, hip flexed) stretches the biarticular hamstrings more'], lesserKnown: false, isAngleFamily: true, muscleGroup: "hamstrings", pattern: "leg-curl", movementId: "family-machine-leg-curl", movementName: "Machine Leg Curl" },
+  { id: 'family-cable-leg-curl', popularity: 42, name: 'Cable Leg Curl', category: 'legs', equipment: 'cable', primary: ['hamstrings'], secondary: [], curve: 'partial', curveNote: 'Angle-variable family exercise (built via Build Press/Row/Fly) — hip position (lying/prone vs. seated) shifts stretch on the biarticular hamstrings, not fixed like a single named leg curl. See the set\'s own logged emgWeights for its precise profile.', form: ['Hip position picked per set via Build Press/Row/Fly, not fixed by this entry', 'Low angle (~0-30°, lying/prone, hip extended) is a shorter-length leg curl', 'High angle (~150-180°, seated, hip flexed) stretches the biarticular hamstrings more'], lesserKnown: false, isAngleFamily: true, muscleGroup: "hamstrings", pattern: "leg-curl", movementId: "family-cable-leg-curl", movementName: "Cable Leg Curl" },
 
-  { id: 'family-hyperextension', name: 'Hyperextension', category: 'legs', equipment: 'bodyweight', primary: ['erectors', 'hamstrings'], secondary: ['glutes'], curve: 'partial', curveNote: 'Two-device family exercise (built via Build Press/Row/Fly) — only 45° and 90° are real equipment (no continuous range exists for this movement); pad angle shifts emphasis between hamstrings and glutes/erectors. See the set\'s own logged emgWeights for its precise profile.', form: ['Pad angle picked per set via Build Press/Row/Fly (45° or 90° only — the only two real device types)', '45° (standard back-extension bench) involves more hamstring', '90° (Roman chair / GHD) is steeper and more glute/erector-biased'], lesserKnown: false, isAngleFamily: true, muscleGroup: "core", pattern: "hyperextension", movementId: "family-hyperextension", movementName: "Hyperextension" },
+  { id: 'family-hyperextension', popularity: 42, name: 'Hyperextension', category: 'legs', equipment: 'bodyweight', primary: ['erectors', 'hamstrings'], secondary: ['glutes'], curve: 'partial', curveNote: 'Two-device family exercise (built via Build Press/Row/Fly) — only 45° and 90° are real equipment (no continuous range exists for this movement); pad angle shifts emphasis between hamstrings and glutes/erectors. See the set\'s own logged emgWeights for its precise profile.', form: ['Pad angle picked per set via Build Press/Row/Fly (45° or 90° only — the only two real device types)', '45° (standard back-extension bench) involves more hamstring', '90° (Roman chair / GHD) is steeper and more glute/erector-biased'], lesserKnown: false, isAngleFamily: true, muscleGroup: "core", pattern: "hyperextension", movementId: "family-hyperextension", movementName: "Hyperextension" },
 ];
 
 const EXERCISE_MAP = {};
