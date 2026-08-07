@@ -35,7 +35,7 @@ export function TrendsPanel() {
   const delta = first != null && last != null ? Math.round((last - first) * 10) / 10 : null;
 
   return (
-    <div style={{ marginBottom: 4 }}>
+    <div style={{ marginBottom: 4 }} data-tour="s6-trends">
       <div className="kicker" style={{ margin: '0 0 10px' }}>Long-Term Trends</div>
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 8 }}>
         <select value={metric} onChange={e => setMetric(e.target.value)}
@@ -142,14 +142,14 @@ export function S6({ s, refresh }) {
   };
   return (
     <section id="s6" style={{ display: 'flex', flexDirection: 'column' }}>
-      <div className="fade panel-head" style={{ flexShrink: 0 }}>
+      <div className="fade panel-head" style={{ flexShrink: 0 }} data-tour="s6-headline">
         <div className="kicker">Profile</div>
         <div className="headline" style={{ fontSize: 'clamp(24px,6vw,44px)', lineHeight: '.96' }}>{s?.profile?.name || 'Profile'}</div>
       </div>
 
       <div className="fade" style={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>
         {supplements.length > 0 && (
-          <div style={{ marginBottom: 16 }}>
+          <div style={{ marginBottom: 16 }} data-tour="s6-supplements">
             <div className="kicker" style={{ margin: '0 0 8px' }}>Today's Supplements</div>
             {supplements.map(sup => {
               const done = suppLoggedSet.has(sup.name);
@@ -208,7 +208,7 @@ export function S6({ s, refresh }) {
             <strong>{s.composition.word}</strong> — {s.composition.note}
           </div>
         )}
-        <div style={{ display: 'flex', gap: 12, marginBottom: 10 }}>
+        <div style={{ display: 'flex', gap: 12, marginBottom: 10 }} data-tour="s6-bodydata">
           <input className="prof-input" type="number" step="0.1" inputMode="decimal"
             placeholder="Weight kg" value={weightVal} onChange={e => setWeightVal(e.target.value)} style={{ flex: 1 }} />
           <input className="prof-input" type="number" step="0.1" inputMode="decimal"
@@ -240,7 +240,7 @@ export function S6({ s, refresh }) {
         <div className="rule-thin" style={{ margin: '16px 0' }} />
 
         <div className="kicker" style={{ margin: '0 0 10px' }}>Measurements</div>
-        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 10 }}>
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 10 }} data-tour="s6-measurements">
           {MEASURE_TYPES.map(t => (
             <button key={t} className={`prof-btn${measureType === t ? ' solid' : ''}`}
               onClick={() => setMeasureType(t)} style={{ fontSize: 8, padding: '4px 8px', textTransform: 'capitalize', marginBottom: 4 }}>
@@ -297,7 +297,7 @@ export function S6({ s, refresh }) {
             ))}
           </div>
         )}
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }} data-tour="s6-photos">
           <input className="prof-input" placeholder="Note (optional)" value={photoNote} onChange={e => setPhotoNote(e.target.value)} style={{ flex: 1 }} />
           <input ref={photoInputRef} type="file" accept="image/*" capture="environment" style={{ display: 'none' }} onChange={handleAddPhoto} />
           <button className="prof-btn solid" style={{ padding: '6px 14px' }}

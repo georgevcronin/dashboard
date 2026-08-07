@@ -364,7 +364,7 @@ export function S4({ s, refresh }) {
 
   return (
     <section id="s4" style={{ display: 'flex', flexDirection: 'column' }}>
-      <div className="fade panel-head" style={{ flexShrink: 0 }}>
+      <div className="fade panel-head" style={{ flexShrink: 0 }} data-tour="s4-headline">
         <div className="kicker">Nutrition · Today</div>
         <div className="headline">
           {cal > 0 ? `${roundCal(cal, exactCal).toLocaleString()} kcal —` : 'Empty Plate —'}<br />
@@ -375,7 +375,7 @@ export function S4({ s, refresh }) {
         )}
       </div>
 
-      <div className="fade" style={{ flexShrink: 0 }}>
+      <div className="fade" style={{ flexShrink: 0 }} data-tour="s4-macros">
         {[
           { label: 'Calories', val: roundCal(cal, exactCal), tgt: roundCal(calTarget, exactCal), unit: 'kcal', color: 'var(--ink)' },
           { label: 'Protein',  val: n.protein||0,  tgt: mt.protein || 160, unit: 'g',    color: 'var(--navy)'   },
@@ -416,7 +416,7 @@ export function S4({ s, refresh }) {
         <div className="rule-thin" />
 
         {/* Tabs */}
-        <div style={{ display: 'flex', borderBottom: '1px solid var(--rule)', marginBottom: 12 }}>
+        <div style={{ display: 'flex', borderBottom: '1px solid var(--rule)', marginBottom: 12 }} data-tour="s4-tabs">
           {[['log','Log'],['recent','Recent'],['templates','Templates'],['history','History']].map(([t,l]) => (
             <button key={t} style={tabStyle(t)} onClick={() => switchTab(t)}>{l}</button>
           ))}
@@ -473,7 +473,7 @@ export function S4({ s, refresh }) {
             {/* Photo analysis */}
             <input ref={photoRef} type="file" accept="image/*" capture="environment" style={{ display: 'none' }} onChange={handlePhoto} />
             <input ref={uploadRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handlePhoto} />
-            <div className="scan-mode-toggle">
+            <div className="scan-mode-toggle" data-tour="s4-scan">
               <button className={`scan-mode-btn${scanMode === 'meal' ? ' active' : ''}`} onClick={() => setScanMode('meal')}>Meal Photo</button>
               <button className={`scan-mode-btn${scanMode === 'label' ? ' active' : ''}`} onClick={() => setScanMode('label')}>Nutrition Label</button>
             </div>
@@ -553,7 +553,7 @@ export function S4({ s, refresh }) {
             )}
 
             {/* Manual log form */}
-            <div className="nutri-log-form">
+            <div className="nutri-log-form" data-tour="s4-log">
               <div className="nutri-log-row">
                 <input className="nutri-input wide" placeholder="Meal name…" value={label} onChange={e => setLabel(e.target.value)} />
               </div>

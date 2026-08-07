@@ -717,14 +717,14 @@ function sleepScoreColor(score) {
 
 function SleepScorePanel({ sleepScore, sleepScoreTrend }) {
   if (!sleepScore) return (
-    <div className="fade" style={{ borderTop: '1px solid var(--rule)', paddingTop: 10, flexShrink: 0 }}>
+    <div className="fade" style={{ borderTop: '1px solid var(--rule)', paddingTop: 10, flexShrink: 0 }} data-tour="s2-score">
       <div className="kicker" style={{ marginBottom: 4 }}>Sleep Score</div>
       <div style={{ fontSize: 11, color: 'var(--dim)', fontStyle: 'italic' }}>Sync sleep hours and efficiency to see a score — add stage/HR-dip data via the setup guide for the full clinical breakdown.</div>
     </div>
   );
   const availableComponents = Object.entries(sleepScore.components).filter(([, v]) => v != null);
   return (
-    <div className="fade" style={{ borderTop: '1px solid var(--rule)', paddingTop: 10, flexShrink: 0 }}>
+    <div className="fade" style={{ borderTop: '1px solid var(--rule)', paddingTop: 10, flexShrink: 0 }} data-tour="s2-score">
       <div className="kicker" style={{ marginBottom: 8 }}>Sleep Score</div>
       <div style={{ display: 'flex', alignItems: 'flex-end', gap: 10, marginBottom: 10 }}>
         <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 40, fontWeight: 900, lineHeight: 1, color: sleepScoreColor(sleepScore.score) }}>
@@ -780,7 +780,7 @@ function S2({ s, refresh }) {
 
   return (
     <section id="s2">
-      <div className="fade panel-head">
+      <div className="fade panel-head" data-tour="s2-headline">
         <div className="kicker">Health · Sleep Analysis · {series.length}‑Night</div>
         <div className="headline">
           {todaySleep != null ? `${todaySleep.toFixed(1)} Hours —` : 'Lights Out —'}<br />
@@ -795,7 +795,7 @@ function S2({ s, refresh }) {
           Target {fmtHoursMins(sleepTarget)} ({s?.sleepTargetLearned ? 'learned from your recent nights' : 'default — not enough data yet to personalise'})
         </div>
       </div>
-      <div className="chart-wrap fade" style={{ flex: '0 0 90px', position: 'relative' }}>
+      <div className="chart-wrap fade" style={{ flex: '0 0 90px', position: 'relative' }} data-tour="s2-chart">
         {series.length ? (
           <>
             <AreaChart data={series} color="#3d2452" id="sleep" />
@@ -818,7 +818,7 @@ function S2({ s, refresh }) {
         )}
       </div>
       <div className="fade">
-        <div className="stat-cols stat-cols-4" style={{ borderTop: '1px solid var(--rule)', paddingTop: 10 }}>
+        <div className="stat-cols stat-cols-4" style={{ borderTop: '1px solid var(--rule)', paddingTop: 10 }} data-tour="s2-stats">
           <div className="stat-cell"><div className="sc-label">{series.length}N High</div><div className="sc-num" style={{ fontSize: 22 }}>{hi}<span style={{ fontSize: '.5em', color: 'var(--dim)' }}>h</span></div></div>
           <div className="stat-cell"><div className="sc-label">{series.length}N Low</div><div className="sc-num red" style={{ fontSize: 22 }}>{lo}<span style={{ fontSize: '.5em', color: 'var(--dim)' }}>h</span></div></div>
           <div className="stat-cell"><div className="sc-label">{series.length}N Avg</div><div className="sc-num" style={{ fontSize: 22 }}>{avg}<span style={{ fontSize: '.5em', color: 'var(--dim)' }}>h</span></div></div>
@@ -901,7 +901,7 @@ function S2({ s, refresh }) {
       )}
 
       {/* Alcohol section */}
-      <div className="fade" style={{ borderTop: '1px solid var(--rule)', paddingTop: 10, flexShrink: 0 }}>
+      <div className="fade" style={{ borderTop: '1px solid var(--rule)', paddingTop: 10, flexShrink: 0 }} data-tour="s2-alcohol">
         <div className="kicker" style={{ marginBottom: 6 }}>Alcohol</div>
         {alcoholLastNight > 0 && (
           <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--ember)', marginBottom: 6, letterSpacing: '.06em' }}>
@@ -1033,9 +1033,11 @@ const glycogenPct = (elapsedS, totalS) => {
 // app's first version — everything before this had no changelog at all.
 const CHANGELOG = [
   {
-    version: '0.95',
+    version: '0.96',
     date: '2026-08-07',
     features: [
+      'The interactive walkthrough (previously Dispatch/Training/Recovery only) now covers every panel — Sleep, Nutrition, Body, Records, Goals, Social, Cycle, and Running — plus Settings itself, which spotlights its section index and Identity group the first time you open it. Same rules as before: shows once per surface, ever, skippable at any point, and "Replay Walkthrough" in Settings → Account resets and re-triggers all of them.',
+      'Fixed the walkthrough losing track of its target on mobile: a forced restart (Replay Walkthrough) now swipes the phone carousel to the right section first instead of measuring a panel that\'s scrolled off to the side, and every step now scrolls itself into view on both mobile and desktop if a tall panel had put it below the fold.',
       'Cycle panel can now log a past period (pick a start and end date directly, instead of only "starting now") — same heaviness pick and calibration step as ending a period live, so history from before you started tracking can feed the recovery calibration too.',
       '"Log Period Start"/"End Period" replaced with Set Period Start Date/Set Period End Date — pick the actual day instead of only "right now", so a late log doesn\'t skew the calibration.',
       'New bubble tracker shows the current day of an open period at a glance, extended out to your own average logged period length.',
@@ -4557,7 +4559,7 @@ function StrengthLevelPanel({ muscleLevels, hasSex }) {
   const cutoff14 = toLocalDateStr(new Date(Date.now() - 14 * 864e5));
 
   if (!hasSex) return (
-    <div className="fade" style={{ borderTop: '1px solid var(--rule)', paddingTop: 10 }}>
+    <div className="fade" style={{ borderTop: '1px solid var(--rule)', paddingTop: 10 }} data-tour="s7-strength">
       <div className="kicker" style={{ marginBottom: 4 }}>Strength Level</div>
       <div style={{ fontSize: 11, color: 'var(--dim)', fontStyle: 'italic' }}>Set your sex in Settings → Profile to unlock strength-level rankings.</div>
     </div>
@@ -4567,14 +4569,14 @@ function StrengthLevelPanel({ muscleLevels, hasSex }) {
     .sort(([, a], [, b]) => b.score - a.score);
 
   if (!rankedMuscles.length) return (
-    <div className="fade" style={{ borderTop: '1px solid var(--rule)', paddingTop: 10 }}>
+    <div className="fade" style={{ borderTop: '1px solid var(--rule)', paddingTop: 10 }} data-tour="s7-strength">
       <div className="kicker" style={{ marginBottom: 4 }}>Strength Level</div>
       <div style={{ fontSize: 11, color: 'var(--dim)', fontStyle: 'italic' }}>Log some lifts to see per-muscle strength levels — ranked against published bodyweight standards where one exists, Beginner→Elite.</div>
     </div>
   );
 
   return (
-    <div className="fade" style={{ borderTop: '1px solid var(--rule)', paddingTop: 10 }}>
+    <div className="fade" style={{ borderTop: '1px solid var(--rule)', paddingTop: 10 }} data-tour="s7-strength">
       <div className="kicker" style={{ marginBottom: 8 }}>Strength Level · By Muscle</div>
       {rankedMuscles.map(([muscle, v]) => {
         const isNew = v.date >= cutoff14;
@@ -6378,7 +6380,7 @@ function S7({ s }) {
 
   return (
     <section id="s7" style={{ display: 'flex', flexDirection: 'column' }}>
-      <div className="fade panel-head" style={{ flexShrink: 0 }}>
+      <div className="fade panel-head" style={{ flexShrink: 0 }} data-tour="s7-headline">
         <div className="kicker">Personal Records · All Time</div>
         <div className="headline" style={{ fontSize: 'clamp(24px,6vw,44px)', lineHeight: '.96' }}>All-Time<br />Bests</div>
         <div className="deck">{prs.length} exercise{prs.length !== 1 ? 's' : ''} tracked</div>
@@ -6394,36 +6396,38 @@ function S7({ s }) {
         {prs.length > 0 && filtered.length === 0 && (
           <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 11, color: 'var(--dim)', fontStyle: 'italic', padding: '12px 0' }}>No matches.</div>
         )}
-        {groupOrder.map(group => (
-          <div key={group}>
-            <div className="pr-group-hdr">{group}</div>
-            {grouped[group].map((pr, i) => {
-              const hist = e1rmHistory[pr.exercise] || [];
-              const sparkData = hist.slice(-10);
-              const isNew = pr.date >= cutoff14;
-              return (
-                <div key={i} style={{ display: 'flex', alignItems: 'center', padding: '9px 0', borderBottom: '1px solid var(--rule)', gap: 8 }}>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
-                      <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, textTransform: 'capitalize', color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{pr.exercise}</span>
-                      {isNew && <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 7, letterSpacing: '.1em', background: 'var(--gold)', color: 'var(--paper)', padding: '1px 4px', flexShrink: 0 }}>NEW</span>}
+        <div data-tour="s7-list">
+          {groupOrder.map(group => (
+            <div key={group}>
+              <div className="pr-group-hdr">{group}</div>
+              {grouped[group].map((pr, i) => {
+                const hist = e1rmHistory[pr.exercise] || [];
+                const sparkData = hist.slice(-10);
+                const isNew = pr.date >= cutoff14;
+                return (
+                  <div key={i} style={{ display: 'flex', alignItems: 'center', padding: '9px 0', borderBottom: '1px solid var(--rule)', gap: 8 }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
+                        <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, textTransform: 'capitalize', color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{pr.exercise}</span>
+                        {isNew && <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 7, letterSpacing: '.1em', background: 'var(--gold)', color: 'var(--paper)', padding: '1px 4px', flexShrink: 0 }}>NEW</span>}
+                      </div>
+                      <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)' }}>
+                        {pr.kg}kg × {pr.reps} · {pr.date}
+                      </div>
                     </div>
-                    <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)' }}>
-                      {pr.kg}kg × {pr.reps} · {pr.date}
+                    <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                      <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 16, fontWeight: 700, color: 'var(--gold)', lineHeight: 1 }}>{pr.e1rm}<span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, color: 'var(--dim)', marginLeft: 2 }}>kg</span></div>
+                      <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 7, color: 'var(--dim)', marginTop: 1 }}>e1RM</div>
                     </div>
+                    {sparkData.length >= 2 && (
+                      <Sparkline data={sparkData} color={isNew ? 'var(--gold)' : 'var(--dim)'} width={48} height={20} />
+                    )}
                   </div>
-                  <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                    <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 16, fontWeight: 700, color: 'var(--gold)', lineHeight: 1 }}>{pr.e1rm}<span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, color: 'var(--dim)', marginLeft: 2 }}>kg</span></div>
-                    <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 7, color: 'var(--dim)', marginTop: 1 }}>e1RM</div>
-                  </div>
-                  {sparkData.length >= 2 && (
-                    <Sparkline data={sparkData} color={isNew ? 'var(--gold)' : 'var(--dim)'} width={48} height={20} />
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        ))}
+                );
+              })}
+            </div>
+          ))}
+        </div>
       </div>
     </section>
   );
@@ -7681,7 +7685,7 @@ function S9({ s, followBadge, reloadFollowBadge }) {
 
   return (
     <section id="s9" style={{ display: 'flex', flexDirection: 'column' }}>
-      <div className="fade panel-head" style={{ flexShrink: 0 }}>
+      <div className="fade panel-head" style={{ flexShrink: 0 }} data-tour="s9-headline">
         <div className="kicker">Social</div>
         <div className="headline" style={{ fontSize: 'clamp(24px,6vw,44px)', lineHeight: '.96' }}>Follow &amp;<br />Compare</div>
         <div className="deck">
@@ -7715,7 +7719,7 @@ function S9({ s, followBadge, reloadFollowBadge }) {
           </div>
         )}
 
-        <div style={{ marginBottom: 16 }}>
+        <div style={{ marginBottom: 16 }} data-tour="s9-search">
           <div className="pr-group-hdr">Find People</div>
           <input className="pr-search" value={searchQuery} onChange={e => runSearch(e.target.value)}
             placeholder="Search by username" autoCapitalize="none" autoCorrect="off" />
@@ -7733,7 +7737,7 @@ function S9({ s, followBadge, reloadFollowBadge }) {
           ))}
         </div>
 
-        <div>
+        <div data-tour="s9-feed">
           <div className="pr-group-hdr">Activity</div>
           {!feedVisible && (
             <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, color: 'var(--dim)', lineHeight: 1.5, padding: '6px 0 12px' }}>
@@ -7972,7 +7976,7 @@ function S10({ s, refresh }) {
 
   return (
     <section id="s10" style={{ display: 'flex', flexDirection: 'column' }}>
-      <div className="fade panel-head" style={{ flexShrink: 0 }}>
+      <div className="fade panel-head" style={{ flexShrink: 0 }} data-tour="s10-headline">
         <div className="kicker">Cycle</div>
         <div className="headline" style={{ fontSize: 'clamp(24px,6vw,44px)', lineHeight: '.96' }}>Cycle-Aware<br />Recovery</div>
         <div className="deck">{open ? `Day ${stats?.cycleDay ?? '—'} of cycle` : 'No period currently logged'}</div>
@@ -7987,13 +7991,13 @@ function S10({ s, refresh }) {
             ))}
           </div>
         )}
-        <div className="cycle-status">
+        <div className="cycle-status" data-tour="s10-status">
           <div className="cycle-summary">{summaryLine}</div>
           {rirLine && <div className="cycle-summary">{rirLine}</div>}
         </div>
 
         {open ? (
-          <div className="cycle-form">
+          <div className="cycle-form" data-tour="s10-form">
             <div className="kicker" style={{ margin: 0 }}>Set Period End Date</div>
             <input className="cycle-input" type="date" value={endDate} min={cycleDayKey(open.startTs)} max={todayStr} onChange={e => setEndDate(e.target.value)} />
             <div>
@@ -8016,7 +8020,7 @@ function S10({ s, refresh }) {
             </button>
           </div>
         ) : (
-          <div className="cycle-form">
+          <div className="cycle-form" data-tour="s10-form">
             <div className="kicker" style={{ margin: 0 }}>Set Period Start Date</div>
             <input className="cycle-input" type="date" value={startDate} max={todayStr} onChange={e => setStartDate(e.target.value)} />
             {startError && <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, color: 'var(--red)' }}>{startError}</div>}
@@ -8066,7 +8070,7 @@ function S10({ s, refresh }) {
         )}
 
         {log.length > 0 && (
-          <div className="cycle-cal">
+          <div className="cycle-cal" data-tour="s10-calendar">
             <div className="cycle-cal-head">
               <button className="cycle-cal-nav" onClick={() => setCalMonth(({ y, m }) => m === 0 ? { y: y - 1, m: 11 } : { y, m: m - 1 })} aria-label="Previous month">‹</button>
               <div className="cycle-cal-label">{calLabel}</div>
@@ -8150,7 +8154,7 @@ function S11({ s, runRecommendation }) {
 
   return (
     <section id="s11" style={{ display: 'flex', flexDirection: 'column' }}>
-      <div className="fade panel-head" style={{ flexShrink: 0 }}>
+      <div className="fade panel-head" style={{ flexShrink: 0 }} data-tour="s11-headline">
         <div className="kicker">Running</div>
         <div className="headline" style={{ fontSize: 'clamp(24px,6vw,44px)', lineHeight: '.96' }}>
           {rec ? (RUN_SESSION_LABELS[rec.sessionType] || 'Today’s Run') : 'Running'}
@@ -8164,7 +8168,7 @@ function S11({ s, runRecommendation }) {
           </div>
         ) : (
           <>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 10 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 10 }} data-tour="s11-readiness">
               <span style={{ ...mono, fontSize: 10, color: 'var(--dim)' }}>Readiness</span>
               <span style={{ ...mono, fontSize: 16, fontWeight: 700, color: readinessColor }}>{Math.round(rec.readiness)}%</span>
             </div>
@@ -8207,7 +8211,7 @@ function S11({ s, runRecommendation }) {
               <div key={i} style={{ ...mono, fontSize: 10, color: 'var(--ember)', lineHeight: 1.6, marginBottom: 4 }}>⚠ {c}</div>
             ))}
 
-            <div style={{ borderTop: '1px solid var(--rule)', paddingTop: 8, marginTop: 4 }}>
+            <div style={{ borderTop: '1px solid var(--rule)', paddingTop: 8, marginTop: 4 }} data-tour="s11-week">
               <div className="kicker" style={{ marginBottom: 6 }}>This Week</div>
               <div style={{ ...mono, fontSize: 10, color: 'var(--dim)', display: 'flex', justifyContent: 'space-between', lineHeight: 1.8 }}>
                 <span>Runs logged</span><span style={{ color: 'var(--ink)' }}>{rec.weekSessionCount}</span>
@@ -8252,7 +8256,7 @@ function S11({ s, runRecommendation }) {
             </Detail>
 
             {(rec.vo2maxValue || prediction) && (
-              <div style={{ borderTop: '1px solid var(--rule)', paddingTop: 8, marginTop: 10 }}>
+              <div style={{ borderTop: '1px solid var(--rule)', paddingTop: 8, marginTop: 10 }} data-tour="s11-vo2max">
                 <div className="kicker" style={{ marginBottom: 6 }}>VO₂max</div>
                 {rec.vo2maxValue && (
                   <div style={{ ...mono, fontSize: 10, display: 'flex', justifyContent: 'space-between', lineHeight: 1.8 }}>
@@ -8887,13 +8891,13 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
   }, []);
 
   return (
-    <div className="settings-overlay">
-      <div className="settings-hdr">
+    <div className="settings-overlay" id="settings">
+      <div className="settings-hdr" data-tour="settings-header">
         <div className="settings-hdr-title">Settings</div>
         <button className="settings-close" onClick={onClose}>Close ×</button>
       </div>
       <div className="settings-layout">
-        <nav className="settings-toc" aria-label="Settings sections">
+        <nav className="settings-toc" aria-label="Settings sections" data-tour="settings-toc">
           {tocGroups.map(grp => (
             <div key={grp.id} className="settings-toc-group">
               <button type="button"
@@ -8915,7 +8919,7 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
         <div className="settings-group" id="sec-grp-profile">
         <button type="button" className="settings-group-h" onClick={() => jumpToSection('sec-grp-profile')}>Profile &amp; Training</button>
         {/* ── IDENTITY ── */}
-        <div className="settings-sec" id="sec-identity">
+        <div className="settings-sec" id="sec-identity" data-tour="settings-identity">
           <div className="settings-sh">Identity</div>
           <div className="prof-field">
             <span className="prof-lbl">Name</span>
@@ -10948,13 +10952,15 @@ function UsernameSetup({ user, onComplete }) {
 // empty-state evangelism"); see that file's note under Design Principle #5
 // for why this exists and what it does NOT change elsewhere in the app.
 //
-// Content only exists for the sections listed here — App's encounter hook
-// simply does nothing for a section with no entry, so adding real coverage
-// for another section later is just adding a key, not touching the
-// mechanism. Every target is a `data-tour="..."` attribute placed directly
-// in that section's own JSX (S1/S3/S5), scoped to that section's markup so
-// there's never a collision with another section's identically-styled
-// element (S1 and S5 both have a `.panel-head`, for instance).
+// Covers every dock section (s1-s11) plus Settings itself — the 'settings'
+// key auto-fires the same first-encounter way the sections do (see
+// useWalkthroughEncounter('settings', ...) in App), which is a further,
+// explicit extension of the Design Principle #5 exception beyond what
+// PRODUCT.md originally scoped it to; that doc's note has been updated to
+// match. Every target is a `data-tour="..."` attribute placed directly in
+// that section's own JSX, scoped to that section's markup so there's never a
+// collision with another section's identically-styled element (several
+// sections share a `.panel-head`, for instance).
 const WALKTHROUGH_CONTENT = {
   s1: {
     label: 'Dispatch',
@@ -11005,15 +11011,136 @@ const WALKTHROUGH_CONTENT = {
         body: 'Every tracked muscle, most fatigued first, with the exact recovery percentage next to each bar from Intermediate detail level up.' },
     ],
   },
+  s2: {
+    label: 'Sleep',
+    steps: [
+      { target: '[data-tour="s2-headline"]', title: 'Sleep',
+        body: "Last night's hours and efficiency, plus running sleep debt. The target underneath is learned from your recent nights once there's enough history — a plain default until then." },
+      { target: '[data-tour="s2-chart"]', title: 'Nightly Trend',
+        body: 'Hours per night over the tracked window, with the target drawn in as a dashed line.' },
+      { target: '[data-tour="s2-stats"]', title: 'Night Stats',
+        body: 'High, low, and average across the same window, plus sleep debt — hours short of target that still need clearing.' },
+      { target: '[data-tour="s2-score"]', title: 'Sleep Score',
+        body: 'A composite out of 100 from whichever components you have data for — efficiency and duration always, deep/REM/light split and overnight HR dip once your device reports them.' },
+      { target: '[data-tour="s2-alcohol"]', title: 'Alcohol',
+        body: "Log last night's units here — it factors into how HRV and sleep readings are read against your baseline, not just a separate note." },
+    ],
+  },
+  s4: {
+    label: 'Nutrition',
+    steps: [
+      { target: '[data-tour="s4-headline"]', title: 'Nutrition',
+        body: "Today's calories against target, and how far short (or on target) you are." },
+      { target: '[data-tour="s4-macros"]', title: 'Macros & Water',
+        body: 'Protein, carbs, and fat against their own targets, plus water — logged separately with the +/− buttons.' },
+      { target: '[data-tour="s4-scan"]', title: 'Photo & Barcode Scan',
+        body: 'Photograph a meal or a nutrition label, scan a barcode, or just describe what you ate in a sentence — any of the three gets an estimate you can still edit before logging.' },
+      { target: '[data-tour="s4-log"]', title: 'Manual Entry',
+        body: 'Type in a meal directly, or fill it from a scan above — either way it lands in the same form, editable before you log it.' },
+      { target: '[data-tour="s4-tabs"]', title: 'Recent, Templates & History',
+        body: 'Re-log something you\'ve eaten before, save a combination as a reusable template, or look back over the last 7 days.' },
+    ],
+  },
+  s6: {
+    label: 'Body',
+    steps: [
+      { target: '[data-tour="s6-headline"]', title: 'Profile',
+        body: "Your profile name, and everything below tracks the body itself — supplements, weight, measurements, and progress photos." },
+      { target: '[data-tour="s6-supplements"]', title: "Today's Supplements",
+        body: 'Whatever you\'ve added to your stack in Settings, with a check-off for whether it\'s been taken today.' },
+      { target: '[data-tour="s6-bodydata"]', title: 'Weight & Body Fat',
+        body: 'Log either or both — the delta against your last entry shows once there\'s a previous one to compare against.' },
+      { target: '[data-tour="s6-trends"]', title: 'Long-Term Trends',
+        body: 'Any tracked metric — weight, HRV, e1RM on a given lift, and more — charted over 14 days to a year.' },
+      { target: '[data-tour="s6-measurements"]', title: 'Measurements',
+        body: 'Tape-measure tracking by body part, in cm or inches, with the delta against your last logged reading for that part.' },
+      { target: '[data-tour="s6-photos"]', title: 'Progress Photos',
+        body: 'A dated photo strip with an optional note — visual record alongside the numbers above.' },
+    ],
+  },
+  s7: {
+    label: 'Records',
+    steps: [
+      { target: '[data-tour="s7-headline"]', title: 'All-Time Bests',
+        body: "Every exercise you've logged a lift for, tracked by estimated one-rep max (e1RM), not just the heaviest single set." },
+      { target: '[data-tour="s7-strength"]', title: 'Strength Level',
+        body: 'Per-muscle strength ranked against published bodyweight standards (Beginner through Elite) — needs sex set in Settings to calibrate, and enough logged lifts to rank a given muscle at all.' },
+      { target: '[data-tour="s7-list"]', title: 'Records by Movement',
+        body: 'Every PR grouped by movement pattern, most recent first within each — NEW marks anything set in the last 14 days.' },
+    ],
+  },
+  s8: {
+    label: 'Goals',
+    steps: [
+      { target: '[data-tour="s8-headline"]', title: 'Your Goals',
+        body: 'Whatever training goals you set — in Onboarding or here — with Edit to add, change, or remove one.' },
+      { target: '[data-tour="s8-list"]', title: 'Progress Against Target',
+        body: 'A concrete goal (a target weight, a specific lift, a target date) tracks your current value against it wherever Press already has the data — no target just tracks the trend, no fabricated numbers either way.' },
+    ],
+  },
+  s9: {
+    label: 'Social',
+    steps: [
+      { target: '[data-tour="s9-headline"]', title: 'Follow & Compare',
+        body: 'Follow requests, search, and the activity feed from people you follow — the same social tools also reachable from Settings → Social.' },
+      { target: '[data-tour="s9-search"]', title: 'Find People',
+        body: 'Search by username and send a follow request — profiles stay private until accepted.' },
+      { target: '[data-tour="s9-feed"]', title: 'Activity',
+        body: "Recent sessions from people you follow who've also opted their own activity feed on — it's a separate opt-in from workout visibility, off by default even if that one is on." },
+    ],
+  },
+  s10: {
+    label: 'Cycle',
+    steps: [
+      { target: '[data-tour="s10-headline"]', title: 'Cycle-Aware Recovery',
+        body: 'Current cycle day if a period is open, otherwise a prompt to log one starting — this feeds a training-impact adjustment, not just a log.' },
+      { target: '[data-tour="s10-status"]', title: 'Training Impact',
+        body: "A plain-language read of how much this cycle is affecting training, refined automatically from how sessions actually go rather than staying a fixed guess." },
+      { target: '[data-tour="s10-form"]', title: 'Log a Period',
+        body: 'Set a start or end date directly — including a past period entirely, to backfill history the calibration can learn from.' },
+      { target: '[data-tour="s10-calendar"]', title: 'History',
+        body: 'Logged periods marked solid, one predicted next-period window as an outline — tap a logged day to see, edit, or remove it.' },
+    ],
+  },
+  s11: {
+    label: 'Running',
+    steps: [
+      { target: '[data-tour="s11-headline"]', title: 'Running',
+        body: "Today's prescribed session type, from a readiness score built the same way as Dispatch's — only shown once you've synced a run." },
+      { target: '[data-tour="s11-readiness"]', title: "Today's Prescription",
+        body: 'Readiness percentage, duration range, and — for a workout day — the specific pace or heart-rate zone and why, all in one read.' },
+      { target: '[data-tour="s11-week"]', title: 'This Week',
+        body: "Runs logged, acute:chronic training load (a standard injury-risk ratio), and 4-week efficiency trend." },
+      { target: '[data-tour="s11-vo2max"]', title: 'VO₂max',
+        body: 'Current estimate and, where there\'s enough training load to project from, a forecast 8 weeks out.' },
+    ],
+  },
+  settings: {
+    label: 'Settings',
+    steps: [
+      { target: '[data-tour="settings-header"]', title: 'Settings',
+        body: 'Every account, training, and app preference lives here in one continuous page rather than behind separate screens — Close returns you to the dashboard.' },
+      { target: '[data-tour="settings-toc"]', title: 'Section Index',
+        body: "Jumps straight to any section, and highlights whichever one you're currently scrolled to — but everything is also just a normal page you can scroll by hand." },
+      { target: '[data-tour="settings-identity"]', title: 'Identity',
+        body: 'Name, username, and the basics that calibrate the rest of the app — the first of several groups laid out below, in the same order as the index.' },
+    ],
+  },
 };
 
 // Fires `onEncounter(sectionId)` the first time #<sectionId> actually has
 // on-screen geometry after becoming eligible. Covers both navigation styles
-// the app has: on the mobile dock, an inactive section is display:none (no
-// geometry, never intersects) until tapped active; on desktop's
-// simultaneous masonry/grid layout, every section is mounted at once, so
-// "first encountered" means "first scrolled into view" instead. Same
-// observer, same callback, no branch needed for which layout is active.
+// the app has: on mobile, every dock section sits in one .mobile-track
+// carousel and is always mounted, just shifted off-screen by a transform
+// when it isn't the active one — a plain viewport IntersectionObserver still
+// only reports it intersecting once it's actually scrolled into place, same
+// as a tap or swipe would produce; on desktop's simultaneous masonry/grid
+// layout, every section is mounted at once, so "first encountered" means
+// "first scrolled into view" instead. Same observer, same callback, no
+// branch needed for which layout is active. (beginWalkthrough in App has
+// its own mobile-only fix for the inverse case — a *forced* start, e.g.
+// Replay Walkthrough, that isn't gated by this observer at all and so needs
+// to swipe the carousel itself before it can trust any geometry it reads.)
 //
 // Deliberately no local "already fired" ref here — App's own
 // walkthroughFiredRef is the one source of truth for "already auto-shown
@@ -11055,6 +11182,22 @@ function WalkthroughOverlay({ sectionId, stepIndex, onNext, onBack, onClose }) {
       if (r && r.width > 0 && r.height > 0) { if (!cancelled) setRect(r); return; }
       if (!cancelled) setRect(null);
     };
+    // Bring the target into view before measuring it — a tall panel (S7's PR
+    // list, Settings' scrollable body) can easily put the next step below
+    // the fold, where the spotlight would otherwise land on real-but-
+    // off-screen coordinates. scrollIntoView walks up through any nested
+    // scroll container on its own, so this covers a plain page scroll and a
+    // scrollable overlay body the same way. The resize/scroll listeners and
+    // interval below already re-measure continuously, so a smooth scroll's
+    // async settle just gets picked up on its own, no extra sequencing.
+    const initialEl = document.querySelector(step.target);
+    if (initialEl) {
+      const r = initialEl.getBoundingClientRect();
+      const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+      if (r.top < 0 || r.bottom > window.innerHeight) {
+        initialEl.scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth', block: 'center', inline: 'nearest' });
+      }
+    }
     measure();
     // A step whose target never rendered (e.g. no Limiting Factor active
     // today) skips itself forward one tick after mounting rather than
@@ -11643,16 +11786,42 @@ function App() {
   const beginWalkthrough = sectionId => {
     const content = WALKTHROUGH_CONTENT[sectionId];
     if (!content) return;
-    const hasVisibleStep = content.steps.some(st => {
-      const el = document.querySelector(st.target);
-      return el && el.getBoundingClientRect().width > 0 && el.getBoundingClientRect().height > 0;
-    });
-    // Nothing to spotlight yet (e.g. data still loading) — leave it unseen
-    // so the encounter observer gets another chance once it re-mounts.
-    if (!hasVisibleStep) { walkthroughFiredRef.current.delete(sectionId); return; }
-    walkthroughActiveRef.current = sectionId;
-    setActiveWalkthrough({ sectionId, stepIndex: 0 });
-    markWalkthroughSeen(sectionId);
+    const startTour = () => {
+      const hasVisibleStep = content.steps.some(st => {
+        const el = document.querySelector(st.target);
+        return el && el.getBoundingClientRect().width > 0 && el.getBoundingClientRect().height > 0;
+      });
+      // Nothing to spotlight yet (e.g. data still loading) — leave it unseen
+      // so the encounter observer gets another chance once it re-mounts.
+      if (!hasVisibleStep) { walkthroughFiredRef.current.delete(sectionId); return; }
+      walkthroughActiveRef.current = sectionId;
+      setActiveWalkthrough({ sectionId, stepIndex: 0 });
+      markWalkthroughSeen(sectionId);
+    };
+    // Mobile lays every dock section into one .mobile-track carousel, shifted
+    // sideways with a transform rather than unmounted — an inactive section
+    // still has real (just off-screen) geometry, so hasVisibleStep's own
+    // width/height check can't tell "not the active panel" from "genuinely
+    // visible." A natural encounter can only ever fire for the panel actually
+    // on screen (an off-track panel never intersects the viewport), so this
+    // only matters for a forced start — Replay Walkthrough re-arming s1
+    // while you're on a different section — which needs the same swipe a
+    // real visit would have made, before measuring anything. `activeSection`
+    // starts null until the first manual tap/swipe (the dock's own fallback
+    // for that is effectiveActiveId, not this), so `!= null` here is what
+    // stops that ordinary first-ever encounter from swiping to itself and
+    // eating a needless 360ms. DOCK_LABELS[sectionId] excludes 'settings',
+    // which isn't part of the mobile-track carousel at all.
+    if (isMobile && DOCK_LABELS[sectionId] && activeSection != null && activeSection !== sectionId) {
+      const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+      setActiveSection(sectionId);
+      // .mobile-track's own slide transition is 320ms (skipped entirely
+      // under reduced motion, see PRESS_CSS) — wait it out so the tour's
+      // first measurement lands on the settled position, not mid-slide.
+      setTimeout(startTour, reduceMotion ? 30 : 360);
+    } else {
+      startTour();
+    }
   };
   const queueOrBeginWalkthrough = sectionId => {
     if (walkthroughFiredRef.current.has(sectionId)) return;
@@ -11701,8 +11870,26 @@ function App() {
     || showAfternoonNewscast || showNightNewscast || showWeeklyReview || showImport || showTimeline
     || forceOnboarding || !onboarded || loggerOpen || gridEditMode;
   useWalkthroughEncounter('s1', walkthroughsBlocked || !!s?.profile?.walkthroughsSeen?.s1, queueOrBeginWalkthrough);
+  useWalkthroughEncounter('s2', walkthroughsBlocked || !!s?.profile?.walkthroughsSeen?.s2, queueOrBeginWalkthrough);
   useWalkthroughEncounter('s3', walkthroughsBlocked || !!s?.profile?.walkthroughsSeen?.s3, queueOrBeginWalkthrough);
+  useWalkthroughEncounter('s4', walkthroughsBlocked || !!s?.profile?.walkthroughsSeen?.s4, queueOrBeginWalkthrough);
   useWalkthroughEncounter('s5', walkthroughsBlocked || !!s?.profile?.walkthroughsSeen?.s5, queueOrBeginWalkthrough);
+  useWalkthroughEncounter('s6', walkthroughsBlocked || !!s?.profile?.walkthroughsSeen?.s6, queueOrBeginWalkthrough);
+  useWalkthroughEncounter('s7', walkthroughsBlocked || !!s?.profile?.walkthroughsSeen?.s7, queueOrBeginWalkthrough);
+  useWalkthroughEncounter('s8', walkthroughsBlocked || !!s?.profile?.walkthroughsSeen?.s8, queueOrBeginWalkthrough);
+  useWalkthroughEncounter('s9', walkthroughsBlocked || !!s?.profile?.walkthroughsSeen?.s9, queueOrBeginWalkthrough);
+  useWalkthroughEncounter('s10', walkthroughsBlocked || !!s?.profile?.walkthroughsSeen?.s10, queueOrBeginWalkthrough);
+  useWalkthroughEncounter('s11', walkthroughsBlocked || !!s?.profile?.walkthroughsSeen?.s11, queueOrBeginWalkthrough);
+  // Settings gets its own blocked condition rather than reusing
+  // walkthroughsBlocked above — that one deliberately includes showSettings
+  // (so s1/s3/s5/... don't fire behind the Settings overlay), but the
+  // Settings tour's whole trigger IS showSettings becoming true, so it must
+  // stay eligible while Settings is open, only blocked by genuinely
+  // unrelated overlays stacking on top of it.
+  const settingsWalkthroughBlocked = !s || showWiki || showHistory || chatOpen || showBriefing
+    || showAfternoonNewscast || showNightNewscast || showWeeklyReview || showImport || showTimeline
+    || forceOnboarding || !onboarded || loggerOpen || gridEditMode;
+  useWalkthroughEncounter('settings', settingsWalkthroughBlocked || !!s?.profile?.walkthroughsSeen?.settings, queueOrBeginWalkthrough);
 
   if (user === undefined) return <LoadingScreen />;
 

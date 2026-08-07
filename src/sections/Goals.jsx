@@ -222,7 +222,7 @@ export function S8({ s, refresh }) {
 
   return (
     <section id="s8" style={{ display: 'flex', flexDirection: 'column' }}>
-      <div className="fade panel-head" style={{ flexShrink: 0 }}>
+      <div className="fade panel-head" style={{ flexShrink: 0 }} data-tour="s8-headline">
         <div className="kicker">Goals</div>
         <div className="headline" style={{ fontSize: 'clamp(24px,6vw,44px)', lineHeight: '.96' }}>Your<br />Goals</div>
         <div className="deck" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8 }}>
@@ -230,7 +230,7 @@ export function S8({ s, refresh }) {
           {!editing && <button className="prof-btn" onClick={startEdit}>Edit</button>}
         </div>
       </div>
-      <div className="fade" style={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>
+      <div className="fade" style={{ flex: 1, minHeight: 0, overflowY: 'auto' }} data-tour="s8-list">
         {editing ? (
           <>
             <GoalEditor draft={draft} setDraft={setDraft} />
