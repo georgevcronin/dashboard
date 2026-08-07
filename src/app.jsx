@@ -622,7 +622,7 @@ function S1({ s, recommendation, briefing, onShowBriefing, onShowAfternoon, onSh
             </div>
           </div>
           <div style={{ borderTop: '1px solid var(--rule)', paddingTop: 10 }}>
-            <div className="sc-label">Fatigue</div>
+            <div className="sc-label">Recent Load</div>
             <div className="sc-num red" style={{ fontSize: 'clamp(26px,6vw,40px)' }}>{overallFatigue != null ? overallFatigue : '—'}<span style={{ fontSize: '.4em', color: 'var(--dim)' }}>/100</span></div>
             <div className="sc-delta up">{overallFatigue != null ? (overallFatigue < 40 ? 'Low — cleared for heavy load' : overallFatigue < 70 ? 'Moderate — train smart' : 'High — recovery first') : 'No recent sessions'}</div>
           </div>
@@ -637,7 +637,7 @@ function S1({ s, recommendation, briefing, onShowBriefing, onShowAfternoon, onSh
           { label: 'Recovery', color: 'var(--gold)',   val: recovery,                    target: 100,           fmt: v => `${Math.round(v)}`,                   tgt: '100' },
           { label: 'Steps',    color: 'var(--forest)', val: steps ? steps/1000 : null,   target: 10,            fmt: v => `${Math.round(v*1000).toLocaleString()}`, tgt: '10k' },
           { label: 'Protein',  color: 'var(--ember)',  val: protein,                     target: proteinTarget, fmt: v => `${Math.round(v)}g`,                  tgt: `${proteinTarget}g` },
-          { label: 'Fatigue',  color: 'var(--red)',    val: overallFatigue,              target: 100,           fmt: v => `${Math.round(v)}`,                   tgt: '100' },
+          { label: 'Recent Load',  color: 'var(--red)',    val: overallFatigue,              target: 100,           fmt: v => `${Math.round(v)}`,                   tgt: '100' },
         ].map(({ label, color, val, target, fmt, tgt }, i) => {
           const p = val != null && target ? Math.min(100, val / target * 100) : 0;
           return (
@@ -3648,10 +3648,10 @@ function WorkoutLogger({ planDay, lifts, customExercises, experienceLevel, cycle
             </div>
           )}
 
-          {/* Fatigue impact preview */}
+          {/* Load impact preview */}
           {fatigueMuscles.length > 0 && (
             <div style={{ marginBottom: 16 }}>
-              <div className="kicker" style={{ marginBottom: 6 }}>Session Fatigue</div>
+              <div className="kicker" style={{ marginBottom: 6 }}>Session Load</div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                 {fatigueMuscles.map(([m, pct]) => (
                   <div key={m} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
@@ -6102,7 +6102,7 @@ function S5({ s, recommendation, refresh }) {
   return (
     <section id="s5" style={{ padding: '18px 20px 12px', display: 'flex', flexDirection: 'column' }}>
       <div className="fade panel-head" style={{ flexShrink: 0 }} data-tour="s5-headline">
-        <div className="kicker">Recovery · Muscle Fatigue · Post Session</div>
+        <div className="kicker">Recovery · Recent Load · Post Session</div>
         <div className="headline" style={{ fontSize: 'clamp(24px,6vw,40px)', lineHeight: '.96', marginBottom: 0 }}>{hl1}<br />{hl2}</div>
         <Detail max="beginner">
           <div className="deck" style={{ marginTop: 10, marginBottom: 0 }}>{recoveryExplainer}</div>
@@ -6169,7 +6169,7 @@ function S5({ s, recommendation, refresh }) {
             </div>
             <div style={{ width: '1px', background: 'var(--rule)', margin: '0 16px', flexShrink: 0 }} />
             <div className="stat-cell" style={{ flex: '0 0 auto' }}>
-              <div className="sc-label">Avg Muscle Fatigue</div>
+              <div className="sc-label">Avg Recent Load</div>
               <div className="sc-num" style={{ fontSize: 22, color: overallFatigue > 60 ? 'var(--ember)' : overallFatigue > 30 ? 'var(--gold)' : 'var(--forest)' }}>
                 {overallFatigue ?? '—'}<span style={{ fontSize: '.5em', color: 'var(--dim)' }}>/100</span>
               </div>

@@ -52,11 +52,11 @@ const LIVE_PATH = path.join(outDir, 'live.json');
 // redeploy loop) can show real day-by-day progress — there's no push
 // channel from this script to a hosted page, so that loop polls this file
 // on its own schedule instead.
-function writeLive(day, personas, sample) {
+function writeLive(day, personas, sample, recommendation) {
   fs.writeFileSync(LIVE_PATH, JSON.stringify({
     day, totalDays: SIM_DAYS, generatedAt: new Date().toISOString(),
     personas: personas.map(({ rand, idToken, ...p }) => p),
-    issues, sample,
+    issues, sample, recommendation,
   }));
 }
 
@@ -256,6 +256,7 @@ async function main() {
   console.log(`${registered.length}/${personas.length} personas registered`);
 
   let sample = null;
+  let recommendation = null;
   for (let d = 0; d < SIM_DAYS; d++) {
     setClock(d);
     for (const persona of registered) {
@@ -266,8 +267,19 @@ async function main() {
     // periodically (not every day) — cheap enough to give the live report
     // a recent muscle-fatigue/nutrition sample without doubling request
     // volume for the whole run.
-    if (d % 14 === 0 && registered[0]) sample = await callApi(registered[0], 'GET', '/summary');
-    writeLive(d, personas, sample);
+    if (d % 14 === 0 && registered[0]) {
+      sample = await callApi(registered[0], 'GET', '/summary');
+      // This persona (like every simulated persona, matching real frontend
+      // behavior) never calls POST /plan/week — GET /plan/recommendation
+      // used to return null forever in that case. Regression check for the
+      // lazy-generation fix: after enough training history exists, this
+      // must come back non-null with a populated recoveryForecast.
+      recommendation = await callApi(registered[0], 'GET', '/plan/recommendation');
+      if (d >= 14 && (!recommendation || !recommendation.recoveryForecast)) {
+        flag('bad-value', registered[0], `/plan/recommendation still null/missing recoveryForecast on day ${d} despite never calling POST /plan/week`);
+      }
+    }
+    writeLive(d, personas, sample, recommendation);
     if (d % 30 === 0) console.log(`day ${d}/${SIM_DAYS} — ${issues.length} issues so far`);
   }
 
@@ -276,7 +288,11 @@ async function main() {
   const suspicious = [];
   for (const persona of registered) {
     const summary = await callApi(persona, 'GET', '/summary');
-    suspicious.push({ persona: persona.id, archetype: persona.archetype, summary });
+    const recommendation = await callApi(persona, 'GET', '/plan/recommendation');
+    if (!recommendation || !recommendation.recoveryForecast) {
+      flag('bad-value', persona, 'end-of-run /plan/recommendation still null/missing recoveryForecast — lazy weeklyPlan generation did not fire');
+    }
+    suspicious.push({ persona: persona.id, archetype: persona.archetype, summary, recommendation });
   }
 
   const stamp = new Date().toISOString().replace(/[:.]/g, '-');

@@ -2235,7 +2235,17 @@ function computeRecommendation(storedPlan) {
 // here. The dashboard fetches this after it has painted, so the reasoning
 // arrives a moment late instead of delaying everything else.
 app.get("/plan/recommendation", async (req, res) => {
-  if (!db.weeklyPlan) return res.json(null);
+  // db.weeklyPlan used to require an explicit POST /plan/week first — nothing
+  // in the frontend ever called that, so this endpoint (and the recovery
+  // forecast / limiting-factor data riding along on it) was permanently null
+  // for every real account. Generate it lazily on first read instead, same
+  // computation POST /plan/week already does, just not gated behind a client
+  // action that was never built. POST /plan/week still works unchanged for
+  // an explicit refresh.
+  if (!db.weeklyPlan) {
+    db.weeklyPlan = { ...computeWeeklyGuidance(), generatedAt: new Date().toISOString() };
+    await save();
+  }
   res.json(computeRecommendation(db.weeklyPlan));
 });
 
