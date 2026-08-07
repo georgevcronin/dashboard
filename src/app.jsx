@@ -1033,6 +1033,13 @@ const glycogenPct = (elapsedS, totalS) => {
 // app's first version — everything before this had no changelog at all.
 const CHANGELOG = [
   {
+    version: '1.06',
+    date: '2026-08-08',
+    features: [
+      'A day quick-marked busy from the Plan Ahead panel now also shows up in Settings → Plan Ahead — Holidays & Travel, with its own Remove button — previously it was only visible/clearable from the panel itself.',
+    ],
+  },
+  {
     version: '1.05',
     date: '2026-08-08',
     features: [
@@ -10217,6 +10224,28 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
           <div style={{ fontSize: 11, color: 'var(--dim)', marginBottom: 10, lineHeight: 1.5 }}>
             One-off date ranges the calendar should treat differently — a holiday, a trip with only a hotel gym, a week off entirely.
           </div>
+          {(s?.profile?.busyDates || []).length > 0 && (
+            <div style={{ marginBottom: 12 }}>
+              <div style={{ fontSize: 8, letterSpacing: '.16em', textTransform: 'uppercase', color: 'var(--dim)', marginBottom: 6 }}>
+                Busy Days <span style={{ textTransform: 'none' }}>(quick-marked from Plan Ahead)</span>
+              </div>
+              {[...s.profile.busyDates].sort().map(d => (
+                <div key={d} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, padding: '6px 0', borderBottom: '1px solid var(--rule)' }}>
+                  <div style={{ fontSize: 10, color: 'var(--ink)' }}>
+                    {d}<span style={{ color: 'var(--dim)', marginLeft: 6 }}>Marked busy</span>
+                  </div>
+                  <button className="prof-btn" style={{ fontSize: 9, padding: '4px 8px' }}
+                    onClick={async () => {
+                      const updated = s.profile.busyDates.filter(x => x !== d);
+                      await api('profile', { method: 'POST', body: JSON.stringify({ busyDates: updated }) });
+                      refresh({ ...s, profile: { ...s.profile, busyDates: updated } });
+                    }}>
+                    Remove
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
           {windowsLoading ? (
             <div style={{ fontSize: 10, color: 'var(--dim)' }}>Loading…</div>
           ) : (
