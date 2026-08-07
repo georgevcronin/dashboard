@@ -951,6 +951,7 @@ app.get("/summary", async (req, res) => {
   const sessionLoad = currentSessionLoad != null
     ? { current: currentSessionLoad, ...sessionLoadDelta(currentSessionLoad, trailingSessionLoads) }
     : null;
+  await ensureWeeklyPlan();
   res.json({
     profile: db.profile, hydrationCurve, hydrationNow: hydrationCurve.at(-1) ?? null,
     liftVolume,
@@ -2137,6 +2138,21 @@ function computeWeeklyGuidance() {
   return generateWeeklyGuidance(weeklyGuidanceInputs());
 }
 
+// db.weeklyPlan used to require an explicit POST /plan/week first — nothing
+// in the frontend ever called that, so it was permanently null for every
+// real account, along with everything riding on it (recovery forecast,
+// limiting factor, the Weekly Volume Pace widget). Both /summary (the
+// app's first request each session — src/app.jsx's planStamp gate needs a
+// stamp to originate here) and /plan/recommendation call this so the plan
+// exists lazily on first read instead. POST /plan/week still works
+// unchanged for an explicit refresh.
+async function ensureWeeklyPlan() {
+  if (!db.weeklyPlan) {
+    db.weeklyPlan = { ...computeWeeklyGuidance(), generatedAt: new Date().toISOString() };
+    await save();
+  }
+}
+
 // Why the guidance says what it says: reasoning, the alternatives that lost,
 // what changes if one is picked instead, and how much to trust any of it.
 // Explanation only — it never alters the guidance it describes.
@@ -2235,17 +2251,7 @@ function computeRecommendation(storedPlan) {
 // here. The dashboard fetches this after it has painted, so the reasoning
 // arrives a moment late instead of delaying everything else.
 app.get("/plan/recommendation", async (req, res) => {
-  // db.weeklyPlan used to require an explicit POST /plan/week first — nothing
-  // in the frontend ever called that, so this endpoint (and the recovery
-  // forecast / limiting-factor data riding along on it) was permanently null
-  // for every real account. Generate it lazily on first read instead, same
-  // computation POST /plan/week already does, just not gated behind a client
-  // action that was never built. POST /plan/week still works unchanged for
-  // an explicit refresh.
-  if (!db.weeklyPlan) {
-    db.weeklyPlan = { ...computeWeeklyGuidance(), generatedAt: new Date().toISOString() };
-    await save();
-  }
+  await ensureWeeklyPlan();
   res.json(computeRecommendation(db.weeklyPlan));
 });
 

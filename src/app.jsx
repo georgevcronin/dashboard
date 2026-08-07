@@ -1036,7 +1036,7 @@ const CHANGELOG = [
     version: '1.03',
     date: '2026-08-07',
     features: [
-      'Recovery Forecast (the per-muscle "ready again in ___" panel) and Today\'s Limiting Factor were silently broken for every account — both depended on a weekly plan that only ever got created by an action nothing in the app actually triggered. Now generates automatically the first time it\'s needed.',
+      'Recovery Forecast (the per-muscle "ready again in ___" panel), Today\'s Limiting Factor, and the Weekly Volume Pace widget were silently broken for every account — all three depended on a weekly plan that only ever got created by an action nothing in the app actually triggered. Now generates automatically the first time it\'s needed.',
       '"Fatigue" renamed to "Recent Load" throughout Dispatch, Recovery, and Training — same number, clearer that it\'s measured against your own recent peak, not some absolute scale.',
       'Deload suggestions (Training → performance trend) could never actually fire — they required a fully unbroken 10-day stretch of poor recovery, and a single normal rest day reset the count to zero regardless of how bad the preceding stretch was. Now looks at a 14-day rolling average instead, so it can actually catch sustained overreaching.',
     ],
