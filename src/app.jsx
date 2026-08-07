@@ -1033,6 +1033,13 @@ const glycogenPct = (elapsedS, totalS) => {
 // app's first version — everything before this had no changelog at all.
 const CHANGELOG = [
   {
+    version: '1.04',
+    date: '2026-08-07',
+    features: [
+      'A "Lose Fat" goal now actually changes your plan: the weekly guidance guarantees at least 2 cardio sessions regardless of your Training Priority setting, and the Cut macro auto-calculation sizes your calorie deficit to hit your goal\'s target by its target date (based on your real estimated maintenance calories) instead of a flat guess — falls back to a flat 15% deficit if the goal has no concrete target/date.',
+    ],
+  },
+  {
     version: '1.03',
     date: '2026-08-07',
     features: [

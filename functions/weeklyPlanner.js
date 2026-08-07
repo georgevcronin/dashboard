@@ -272,6 +272,12 @@ function scoreBucket(muscles, priority) {
 const TRAINING_PRIORITIES = ['strength', 'cardio', 'sport'];
 const LIFT_SESSION_CAP = { strength: 4, cardio: 2, sport: 2 };
 const CARDIO_SESSION_BASE = { strength: 1, cardio: 4, sport: 1 };
+// A concrete Lose Fat goal (functions/goalsAndActivities.js's GOAL_TYPES)
+// guarantees at least this much cardio regardless of trainingPriority —
+// "strength" priority alone (base 1) doesn't reflect a fat-loss goal the
+// athlete has actually set. Only raises the floor; the existing CNS>80
+// fatigue trim below still applies on top of it, same as any other week.
+const FATLOSS_CARDIO_FLOOR = 2;
 
 // How many genuine lifting sessions this week's systemic fatigue can
 // absorb — a target to hit whenever suits, not a count of locked slots.
@@ -287,8 +293,8 @@ function planLiftSessionsTarget(weekCNS, weekMetabolic, availableBucketCount, tr
 // Cardio doesn't compete for the same per-muscle fatigue buckets lifting
 // does, but it's still CNS-taxing (HIIT especially), so heavy CNS fatigue
 // trims it too.
-function planCardioSessionsTarget(weekCNS, trainingPriority = 'strength') {
-  const base = CARDIO_SESSION_BASE[trainingPriority] ?? CARDIO_SESSION_BASE.strength;
+function planCardioSessionsTarget(weekCNS, trainingPriority = 'strength', minSessions = 0) {
+  const base = Math.max(CARDIO_SESSION_BASE[trainingPriority] ?? CARDIO_SESSION_BASE.strength, minSessions);
   return weekCNS > 80 ? Math.max(0, base - 1) : base;
 }
 
@@ -336,7 +342,7 @@ function focusGroups(preferredSplit) {
 // atrophy-risk prioritization that /plan/session-exercises's full-body
 // auto-pick actually uses, rather than the display showing plain fatigue-
 // freshness while session generation weighs staleness too.
-function generateWeeklyGuidance({ currentFatigue, weekMetabolic, weekCNS, offlineMuscles, dataMature, trainingPriority = 'strength', muscleLastTrainedDays = null, preferredSplit = 'Full Body', muscleFocus = {} }) {
+function generateWeeklyGuidance({ currentFatigue, weekMetabolic, weekCNS, offlineMuscles, dataMature, trainingPriority = 'strength', muscleLastTrainedDays = null, preferredSplit = 'Full Body', muscleFocus = {}, fatLossGoalActive = false }) {
   const priority = computeMusclePriority(currentFatigue || {}, offlineMuscles || [], muscleLastTrainedDays, muscleFocus);
   const groups = focusGroups(preferredSplit);
 
@@ -349,7 +355,7 @@ function generateWeeklyGuidance({ currentFatigue, weekMetabolic, weekCNS, offlin
     .sort((a, b) => b.score - a.score);
 
   const liftSessionsTarget = planLiftSessionsTarget(weekCNS, weekMetabolic, buckets.length, trainingPriority);
-  const cardioSessionsTarget = planCardioSessionsTarget(weekCNS, trainingPriority);
+  const cardioSessionsTarget = planCardioSessionsTarget(weekCNS, trainingPriority, fatLossGoalActive ? FATLOSS_CARDIO_FLOOR : 0);
   const activeNames = new Set(buckets.map(b => b.name));
   const restingMuscleGroups = Object.keys(groups).filter(n => !activeNames.has(n));
 
