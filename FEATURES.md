@@ -50,7 +50,7 @@ This file records *what Press is meant to do*, not what is built yet. Implementa
 21. **Multi-Goal Selection** — Allow users to select multiple primary and secondary goals.
 22. **Smart Goal Defaults** — Automatically suggest sleep, hydration, frequency, and volume targets based on goals.
 23. **"Returning After a Break" Baseline** — Include a detraining-aware experience option alongside "New" and "Experienced".
-24. **Broad Activity Selection** — Support primary activities including Strength, Running, Hybrid, Team Sports, Endurance, CrossFit, and Other.
+24. **Broad Activity Selection** — Support primary activities including Strength, Running, Cycling, Swimming, Sport, Aerobic, and Other.
 25. **Entry-Point Prioritisation Options** — Offer Smart Recommendations, Goal-Based Presets, or Custom Priorities for muscle focus.
 26. **Goal-Based Focus Presets** — Provide pre-configured priorities like Balanced Physique, V-Taper, Bigger Arms, etc.
 27. **Layered Muscle Region Editor** — Keep body diagrams simple, opening detailed side panels for sub-muscles upon selection.

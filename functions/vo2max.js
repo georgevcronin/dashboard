@@ -5,9 +5,14 @@
 //
 // Preference order:
 // 1. Direct Apple Watch VO₂max reading (if recent, <30 days old)
-// 2. Calculated VDOT from time trial (if performed)
-// 3. EF trend proxy (if <4-week data history)
-// 4. Null (insufficient data)
+// 2. Calculated VDOT from time trial (running) or FTP (cycling, see
+//    estimateCyclingVO2maxFromRides/ENDURANCE_SCIENCE.md)
+// 3. HR-ratio estimate (Uth et al. 2004) -- sport-agnostic, lowest-confidence
+//    of the three real-number estimates; see estimateVO2maxFromHRRatio
+// 4. EF trend proxy (if <4-week data history; relative only, no absolute number)
+// 5. Null (insufficient data)
+
+const { estimateFTP } = require('./cyclingPower');
 
 // Step 1: Oxygen cost of running at race pace
 // VO₂ = -4.60 + 0.182258 × v + 0.000104 × v²
@@ -158,9 +163,58 @@ function vdotTrend(runs, windowDays = 30) {
   };
 }
 
+// #cyclingPower.js: cycling's own VO2max estimate, off real Strava power
+// data rather than a running-pace formula that doesn't apply to cycling.
+// VO2 at FTP via the ACSM leg-ergometry equation (ACSM's Guidelines for
+// Exercise Testing and Prescription -- standard textbook formula, same
+// citation rigor as runningPrescription.js's Karvonen/Astrand):
+//   VO2 (mL/kg/min) = 11.0 x Watts / bodyMassKg + 7
+// That's VO2 AT threshold, not VO2max -- threshold sits at roughly 85% of
+// VO2max in trained individuals (Coyle et al. 1988; Faria et al. 2005
+// cycling-physiology review), so VO2max ~= VO2atFTP / 0.85, the same spirit
+// as Daniels' own duration->%VO2max curve above. Returns the same
+// {vdot, vo2max, category} shape computeVDOT returns, so it plugs into
+// resolveVO2max's existing calculatedVDOT argument unmodified.
+function estimateCyclingVO2maxFromRides(rides, bodyMassKg, maxHeartRate) {
+  if (!bodyMassKg) return null;
+  const ftpResult = estimateFTP(rides, maxHeartRate);
+  if (!ftpResult) return null;
+
+  const vo2AtFTP = (11.0 * ftpResult.ftp) / bodyMassKg + 7;
+  const vdot = vo2AtFTP / 0.85;
+
+  return {
+    vdot: Math.round(vdot * 10) / 10,
+    vo2max: vdot,
+    category: vdotCategory(vdot),
+    ftp: ftpResult.ftp,
+    date: ftpResult.basedOnDate,
+    source: 'cycling-ftp', // resolveVO2max's medium tier reads this instead of defaulting to 'daniels-vdot'
+  };
+}
+
+// Heart Rate Ratio method (Uth, Sorensen, Overgaard & Pedersen, 2004, Eur J
+// Appl Physiol): VO2max ~= 15.3 x (HRmax/HRrest). No pace or power needed at
+// all, so it's the one estimate that works for every sport -- but the
+// weakest of the self-calculated methods here: the original validation was
+// in a narrow young-athlete sample, and replication studies in general
+// populations show far wider variance (r as low as ~0.5) than Daniels
+// VDOT's r>0.95 or the ACSM power-based estimate above. Always 'low'
+// confidence in resolveVO2max's chain below, never medium or high.
+function estimateVO2maxFromHRRatio(maxHR, restingHR) {
+  if (!maxHR || !restingHR || restingHR <= 0) return null;
+  const vo2max = 15.3 * (maxHR / restingHR);
+  if (!(vo2max > 0)) return null;
+  return {
+    vdot: Math.round(vo2max * 10) / 10,
+    vo2max,
+    category: vdotCategory(vo2max),
+  };
+}
+
 // Resolve best available VO₂max source
 // Prefers direct Apple Watch reading over calculated
-function resolveVO2max(appleHealthVO2max, calculatedVDOT, efTrend = null, maxAgeMs = 30 * 24 * 60 * 60 * 1000) {
+function resolveVO2max(appleHealthVO2max, calculatedVDOT, hrRatioInputs = null, efTrend = null, maxAgeMs = 30 * 24 * 60 * 60 * 1000) {
   // Check direct Apple Watch VO₂max (Series 3+)
   if (appleHealthVO2max && typeof appleHealthVO2max.value === 'number' && appleHealthVO2max.value > 0) {
     const ageMs = Date.now() - (appleHealthVO2max.dateMs || 0);
@@ -175,16 +229,41 @@ function resolveVO2max(appleHealthVO2max, calculatedVDOT, efTrend = null, maxAge
     }
   }
 
-  // Fallback: calculated VDOT from time trial
+  // Fallback: calculated VDOT from time trial (running) or FTP (cycling).
+  // calculatedVDOT.source, when the caller sets one (estimateCyclingVO2max
+  // FromRides does), overrides the 'daniels-vdot' default -- additive only,
+  // running's own vdotTrend result never carries a .source field, so this
+  // is unchanged behavior for every existing caller.
   if (calculatedVDOT && calculatedVDOT.vdot > 0) {
     return {
       vo2max: calculatedVDOT.vdot,
-      source: 'daniels-vdot',
+      source: calculatedVDOT.source || 'daniels-vdot',
       date: calculatedVDOT.date || null,
-      confidence: 'medium', // Calculated from race effort
+      confidence: 'medium', // Calculated from race/threshold effort
       vdot: calculatedVDOT.vdot,
-      note: 'Running economy may inflate/deflate vs. true lab VO₂max',
+      note: calculatedVDOT.source === 'cycling-ftp'
+        ? 'Threshold-to-VO2max approximation may inflate/deflate vs. true lab VO₂max'
+        : 'Running economy may inflate/deflate vs. true lab VO₂max',
     };
+  }
+
+  // Fallback: HR-ratio method -- sport-agnostic, only reached with no watch
+  // reading and no sport-specific calculatedVDOT (running pace-test or
+  // cycling FTP) available. A real absolute number, just a rougher one --
+  // tried before the EF-trend proxy below since that one can only ever
+  // return a relative trend, never an absolute vo2max value.
+  if (hrRatioInputs?.maxHR && hrRatioInputs?.restingHR) {
+    const est = estimateVO2maxFromHRRatio(hrRatioInputs.maxHR, hrRatioInputs.restingHR);
+    if (est) {
+      return {
+        vo2max: est.vo2max,
+        source: 'hr-ratio',
+        date: null,
+        confidence: 'low',
+        vdot: est.vdot,
+        note: 'Rough estimate from HR max/rest ratio; no pace or power test data available',
+      };
+    }
   }
 
   // Fallback: EF trend proxy
@@ -213,4 +292,6 @@ module.exports = {
   voTwo_costAtPace,
   fractionVo2max,
   resolveVO2max,
+  estimateCyclingVO2maxFromRides,
+  estimateVO2maxFromHRRatio,
 };

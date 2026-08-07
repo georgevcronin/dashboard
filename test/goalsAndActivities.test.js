@@ -43,7 +43,7 @@ test('validateGoals allows flexibility/sport concrete goals through with only a 
 });
 
 test('validateActivities accepts every documented activity type', () => {
-  const ACTIVITY_TYPES = ['strength', 'running', 'hybrid', 'team_sports', 'endurance', 'crossfit', 'other'];
+  const ACTIVITY_TYPES = ['strength', 'running', 'cycling', 'swimming', 'sport', 'aerobic', 'other'];
   assert.equal(validateActivities(ACTIVITY_TYPES.map(type => ({ type, priority: 'minor' }))), null);
 });
 
@@ -64,14 +64,14 @@ test('applyActivityDefaults uses a single activity\'s own numbers unchanged', ()
 });
 
 test('applyActivityDefaults blends two same-category activities weighted by priority tier', () => {
-  // strength (primary, weight 1) sessionsPerWeek=4 vs crossfit (minor, weight 0.25) sessionsPerWeek=5
-  // weighted average = (4*1 + 5*0.25) / 1.25 = 4.2 -> rounds to 4
-  const body = { activities: [{ type: 'strength', priority: 'primary' }, { type: 'crossfit', priority: 'minor' }] };
+  // sport (primary, weight 1) sessionsPerWeek=2 vs aerobic (minor, weight 0.25) sessionsPerWeek=4
+  // weighted average = (2*1 + 4*0.25) / 1.25 = 2.4 -> rounds to 2
+  const body = { activities: [{ type: 'sport', priority: 'primary' }, { type: 'aerobic', priority: 'minor' }] };
   applyActivityDefaults(body);
-  assert.equal(body.weeklyTargets.lifting.sessionsPerWeek, 4);
+  assert.equal(body.weeklyTargets.sports.sessionsPerWeek, 2);
 });
 
-test('applyActivityDefaults merges non-overlapping categories from different activities (hybrid)', () => {
+test('applyActivityDefaults merges non-overlapping categories from different activities', () => {
   const body = { activities: [{ type: 'running', priority: 'primary' }] };
   applyActivityDefaults(body);
   assert.ok(body.weeklyTargets.running);

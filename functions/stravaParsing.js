@@ -23,6 +23,12 @@ function parseStravaActivity(a) {
       elevationGainM: a.total_elevation_gain ?? null,
       avgHeartRate: a.average_heartrate ?? null,
       avgCadence: a.average_cadence ?? null,
+      // Cycling power (#cyclingPower.js) -- only device_watts:true is a real
+      // power meter reading; Strava's own speed/grade-estimated power
+      // (device_watts:false) isn't trustworthy enough for a physiology
+      // formula, so callers must check hasPowerMeter before trusting avgWatts.
+      avgWatts: a.average_watts ?? null,
+      hasPowerMeter: a.device_watts === true,
     } : null,
   };
 }

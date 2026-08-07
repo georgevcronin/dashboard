@@ -49,6 +49,28 @@ test('missing distance/speed/hr/cadence fields stay null rather than 0 or NaN', 
   assert.equal(p.structured.elevationGainM, null);
   assert.equal(p.structured.avgHeartRate, null);
   assert.equal(p.structured.avgCadence, null);
+  assert.equal(p.structured.avgWatts, null);
+  assert.equal(p.structured.hasPowerMeter, false);
+});
+
+test('a real power-meter ride captures avgWatts and hasPowerMeter:true', () => {
+  const a = {
+    id: 1, sport_type: 'Ride', start_date: '2026-08-01T00:00:00Z', moving_time: 1800,
+    average_watts: 210, device_watts: true,
+  };
+  const p = parseStravaActivity(a);
+  assert.equal(p.structured.avgWatts, 210);
+  assert.equal(p.structured.hasPowerMeter, true);
+});
+
+test('Strava-estimated power (no power meter) is captured but flagged untrusted', () => {
+  const a = {
+    id: 1, sport_type: 'Ride', start_date: '2026-08-01T00:00:00Z', moving_time: 1800,
+    average_watts: 180, device_watts: false,
+  };
+  const p = parseStravaActivity(a);
+  assert.equal(p.structured.avgWatts, 180);
+  assert.equal(p.structured.hasPowerMeter, false);
 });
 
 test('zero-duration activity (e.g. a manual/incomplete entry) gets no structured record', () => {

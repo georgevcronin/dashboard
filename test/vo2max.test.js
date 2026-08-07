@@ -9,6 +9,8 @@ const {
   voTwo_costAtPace,
   fractionVo2max,
   resolveVO2max,
+  estimateCyclingVO2maxFromRides,
+  estimateVO2maxFromHRRatio,
 } = require('../functions/vo2max');
 
 test('VO₂ cost at pace: increases with speed', () => {
@@ -204,4 +206,68 @@ test('Resolve VO₂max: ignores invalid Apple Watch value', () => {
   const result = resolveVO2max(invalidAppleWatch, vdot);
 
   assert.strictEqual(result.source, 'daniels-vdot', 'should skip invalid Apple Watch value');
+});
+
+test('estimateVO2maxFromHRRatio: applies the Uth et al. formula', () => {
+  // 15.3 * (190/50) = 58.14
+  const est = estimateVO2maxFromHRRatio(190, 50);
+  assert.strictEqual(est.vdot, 58.1);
+  assert.strictEqual(est.category, 'elite');
+});
+
+test('estimateVO2maxFromHRRatio: null with missing or invalid inputs', () => {
+  assert.strictEqual(estimateVO2maxFromHRRatio(null, 50), null);
+  assert.strictEqual(estimateVO2maxFromHRRatio(190, null), null);
+  assert.strictEqual(estimateVO2maxFromHRRatio(190, 0), null);
+});
+
+test('estimateCyclingVO2maxFromRides: null with no qualifying power-meter ride', () => {
+  assert.strictEqual(estimateCyclingVO2maxFromRides([], 75, 190), null);
+  const noPowerMeter = [{ hasPowerMeter: false, avgWatts: 250, durationMin: 30, avgHeartRate: 175, date: '2026-08-01' }];
+  assert.strictEqual(estimateCyclingVO2maxFromRides(noPowerMeter, 75, 190), null);
+});
+
+test('estimateCyclingVO2maxFromRides: null with no bodyMassKg', () => {
+  const rides = [{ hasPowerMeter: true, avgWatts: 250, durationMin: 30, avgHeartRate: 175, date: '2026-08-01' }];
+  assert.strictEqual(estimateCyclingVO2maxFromRides(rides, null, 190), null);
+});
+
+test('estimateCyclingVO2maxFromRides: derives VO2max from FTP via the ACSM equation', () => {
+  const rides = [{ hasPowerMeter: true, avgWatts: 250, durationMin: 30, avgHeartRate: 175, date: '2026-08-01' }];
+  const result = estimateCyclingVO2maxFromRides(rides, 75, 190);
+  // FTP = 250*0.95 = 237.5 -> 238 (estimateFTP rounds)
+  // VO2atFTP = 11*238/75 + 7 = 34.9 + 7 = 41.9 (approx)
+  // VO2max = 41.9 / 0.85 ≈ 49.3
+  assert.equal(result.ftp, 238);
+  assert.ok(result.vdot > 45 && result.vdot < 53, `expected a realistic VO2max, got ${result.vdot}`);
+  assert.equal(result.source, 'cycling-ftp');
+});
+
+test('Resolve VO₂max: labels a cycling FTP estimate correctly, not as "daniels-vdot"', () => {
+  const rides = [{ hasPowerMeter: true, avgWatts: 250, durationMin: 30, avgHeartRate: 175, date: '2026-08-01' }];
+  const cyclingVdot = estimateCyclingVO2maxFromRides(rides, 75, 190);
+  const result = resolveVO2max(null, cyclingVdot);
+  assert.strictEqual(result.source, 'cycling-ftp');
+});
+
+test('Resolve VO₂max: falls back to HR-ratio when there is no watch reading or calculatedVDOT', () => {
+  const result = resolveVO2max(null, null, { maxHR: 190, restingHR: 50 });
+  assert.strictEqual(result.source, 'hr-ratio');
+  assert.strictEqual(result.confidence, 'low');
+  assert.ok(result.vo2max > 0);
+});
+
+test('Resolve VO₂max: calculatedVDOT still wins over HR-ratio', () => {
+  const vdot = { vdot: 45.0 };
+  const result = resolveVO2max(null, vdot, { maxHR: 190, restingHR: 50 });
+  assert.strictEqual(result.source, 'daniels-vdot');
+});
+
+test('Resolve VO₂max: HR-ratio wins over the EF-trend proxy', () => {
+  const result = resolveVO2max(null, null, { maxHR: 190, restingHR: 50 }, { trend4wk: 5 });
+  assert.strictEqual(result.source, 'hr-ratio');
+});
+
+test('Resolve VO₂max: still null with no data at all, unchanged from before', () => {
+  assert.strictEqual(resolveVO2max(null, null), null);
 });
