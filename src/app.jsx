@@ -1033,6 +1033,13 @@ const glycogenPct = (elapsedS, totalS) => {
 // app's first version — everything before this had no changelog at all.
 const CHANGELOG = [
   {
+    version: '1.10',
+    date: '2026-08-08',
+    features: [
+      'Muscle Focus (Onboarding step 7 and Settings) now defaults to a simplified 15-region list — e.g. one "Traps" pick instead of separately setting traps/lower-traps/mid-traps, Obliques folded into Abs, Gluteus Medius folded into Glutes, Erectors relabelled Lower Back. Hip Flexors has no row at all in this view and defaults to Avoid while hidden, since there\'s no single recognisable hip-flexor exercise to fold it into. A "Show scientific muscle names" checkbox reveals the full granular breakdown (Latissimus Dorsi, Trapezius, Erector Spinae, etc.) for anyone who wants it; nothing about what\'s actually stored or how the planner reads it changes either way.',
+    ],
+  },
+  {
     version: '1.09',
     date: '2026-08-08',
     features: [
@@ -4678,6 +4685,47 @@ const MUSCLE_FOCUS_OPTIONS = [
 const MUSCLE_DISPLAY_LABELS = { abductors: 'Gluteus Medius' };
 const muscleDisplayLabel = m => MUSCLE_DISPLAY_LABELS[m] || m.replace(/-/g, ' ');
 
+// Muscle Focus's simplified view (profile.showNicheMuscles: false, the
+// default) folds PRIMARY_MUSCLES' granular subdivisions into the broader
+// region most people actually recognise -- e.g. one "Traps" pick instead of
+// three separate bets on traps/lower-traps/mid-traps for someone who's never
+// had a reason to tell those apart. Every PRIMARY_MUSCLES entry appears in
+// exactly one group here (a duplicate or missing muscle would silently make
+// part of the picker unreachable or double-write on a click, same failure
+// mode functions/muscleTaxonomy.js's own MUSCLE_GROUPS check guards
+// against). This is a display grouping only -- muscleFocus itself is always
+// stored keyed by the real muscle name PRIMARY_MUSCLES/weeklyPlanner.js
+// expect, whichever mode wrote it; toggling niche muscles back on just
+// splits the group's shared value back into per-muscle rows to edit
+// individually.
+const MUSCLE_FOCUS_GROUPS = [
+  { key: 'abs', label: 'Abs', muscles: ['abs', 'core', 'transverse-abs'] },
+  { key: 'obliques', label: 'Obliques', muscles: ['obliques'] },
+  { key: 'erectors', label: 'Erectors', muscles: ['erectors'] },
+  { key: 'chest', label: 'Chest', muscles: ['chest', 'serratus'] },
+  { key: 'shoulders', label: 'Shoulders', muscles: ['front-delt', 'mid-delt', 'rear-delt', 'rotator-cuff'] },
+  { key: 'upper-back', label: 'Upper Back', muscles: ['lats', 'rhomboids'] },
+  { key: 'traps', label: 'Traps', muscles: ['traps', 'lower-traps', 'mid-traps'] },
+  { key: 'biceps', label: 'Biceps', muscles: ['biceps', 'brachialis'] },
+  { key: 'triceps', label: 'Triceps', muscles: ['triceps'] },
+  { key: 'forearms', label: 'Forearms', muscles: ['forearms', 'brachioradialis'] },
+  { key: 'abductors', label: 'Gluteus Medius', muscles: ['abductors'] },
+  { key: 'adductors', label: 'Adductors', muscles: ['adductors'] },
+  { key: 'glutes', label: 'Glutes', muscles: ['glutes'] },
+  { key: 'hamstrings', label: 'Hamstrings', muscles: ['hamstrings'] },
+  { key: 'quads', label: 'Quads', muscles: ['quads'] },
+  { key: 'calves', label: 'Calves', muscles: ['calves', 'tibialis'] },
+  { key: 'hip-flexors', label: 'Hip Flexors', muscles: ['hip-flexors'] },
+];
+// A group reads as one value only when every member agrees (all unset also
+// counts as agreeing, on 'normal'); otherwise it's genuinely mixed -- e.g.
+// set individually with niche muscles on, then toggled off -- and no single
+// option button should claim to represent it.
+const muscleGroupValue = (group, muscleFocus) => {
+  const vals = group.muscles.map(m => muscleFocus[m] || 'normal');
+  return vals.every(v => v === vals[0]) ? vals[0] : 'mixed';
+};
+
 function StrengthLevelPanel({ muscleLevels, hasSex }) {
   const cutoff14 = toLocalDateStr(new Date(Date.now() - 14 * 864e5));
 
@@ -6922,6 +6970,14 @@ function Onboarding({ s, onComplete, onOpenImport }) {
   // generated session (folded into offlineMuscles server-side, same
   // mechanism as an injury).
   const [muscleFocus, setMuscleFocus] = useState(() => ({ ...(s?.profile?.muscleFocus || {}) }));
+  // Off by default -- MUSCLE_FOCUS_GROUPS' simplified picker, not the raw
+  // 29-muscle PRIMARY_MUSCLES list. See MUSCLE_FOCUS_GROUPS' comment.
+  const [showNicheMuscles, setShowNicheMuscles] = useState(() => !!s?.profile?.showNicheMuscles);
+  const setGroupFocus = (group, value) => setMuscleFocus(p => {
+    const next = { ...p };
+    for (const m of group.muscles) { if (value === 'normal') delete next[m]; else next[m] = value; }
+    return next;
+  });
 
   // Step 8 — Connect Services. stravaStarted/hevyKeySaved start from the
   // real connection state on a repeat setup (s.stravaConnected/
@@ -7016,7 +7072,7 @@ function Onboarding({ s, onComplete, onOpenImport }) {
   };
 
   const saveMuscleFocus = async () => {
-    await api('profile', { method: 'POST', body: JSON.stringify({ muscleFocus }), throwOnError: true });
+    await api('profile', { method: 'POST', body: JSON.stringify({ muscleFocus, showNicheMuscles }), throwOnError: true });
   };
 
   const advance = async () => {
@@ -7417,23 +7473,31 @@ function Onboarding({ s, onComplete, onOpenImport }) {
             <div className="ob-deck">
               Priority gives a muscle extra weight when picking what's freshest to train. Lower does the opposite without dropping it — still fully modelled and fatigue-tracked, just chosen less often. Avoid excludes it from selection entirely, same as an injury — reserve it for muscles you shouldn't be training right now. Everything defaults to Maintain; only set what you actually want to change.
             </div>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14, cursor: 'pointer' }}>
+              <input type="checkbox" checked={showNicheMuscles} onChange={e => setShowNicheMuscles(e.target.checked)}
+                style={{ width: 16, height: 16, flexShrink: 0 }} />
+              <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, letterSpacing: '.06em', color: 'var(--dim)' }}>
+                Show niche muscles <span style={{ textTransform: 'none', letterSpacing: 'normal' }}>(splits regions like Traps or Upper Back into the individual muscles behind them)</span>
+              </span>
+            </label>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 2, marginBottom: 20 }}>
-              {PRIMARY_MUSCLES.map(m => {
-                const val = muscleFocus[m] || 'normal';
-                return (
-                  <div key={m} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0', borderBottom: '1px solid var(--paper2)' }}>
-                    <span style={{ flex: 1, fontFamily: "'JetBrains Mono',monospace", fontSize: 11, textTransform: 'capitalize' }}>{muscleDisplayLabel(m)}</span>
-                    <div style={{ display: 'flex', gap: 4 }}>
-                      {MUSCLE_FOCUS_OPTIONS.map(opt => (
-                        <button key={opt.value} className={`prof-btn${val === opt.value ? ' solid' : ''}`} style={{ fontSize: 8, padding: '4px 6px' }}
-                          onClick={() => setMuscleFocus(p => opt.value === 'normal' ? { ...p, [m]: undefined } : { ...p, [m]: opt.value })}>
-                          {opt.label}
-                        </button>
-                      ))}
-                    </div>
+              {(showNicheMuscles ? PRIMARY_MUSCLES.map(m => ({
+                key: m, label: muscleDisplayLabel(m), value: muscleFocus[m] || 'normal', onSet: v => setMuscleFocus(p => v === 'normal' ? { ...p, [m]: undefined } : { ...p, [m]: v }),
+              })) : MUSCLE_FOCUS_GROUPS.map(g => ({
+                key: g.key, label: g.label, value: muscleGroupValue(g, muscleFocus), onSet: v => setGroupFocus(g, v),
+              }))).map(row => (
+                <div key={row.key} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0', borderBottom: '1px solid var(--paper2)' }}>
+                  <span style={{ flex: 1, fontFamily: "'JetBrains Mono',monospace", fontSize: 11, textTransform: 'capitalize' }}>{row.label}</span>
+                  <div style={{ display: 'flex', gap: 4 }}>
+                    {MUSCLE_FOCUS_OPTIONS.map(opt => (
+                      <button key={opt.value} className={`prof-btn${row.value === opt.value ? ' solid' : ''}`} style={{ fontSize: 8, padding: '4px 6px' }}
+                        onClick={() => row.onSet(opt.value)}>
+                        {opt.label}
+                      </button>
+                    ))}
                   </div>
-                );
-              })}
+                </div>
+              ))}
             </div>
             {stepError && <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--red)', marginBottom: 6 }}>{stepError}</div>}
             <div className="ob-nav">
@@ -9101,6 +9165,15 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
     if (val === 'normal') delete next[muscle]; else next[muscle] = val;
     api('profile', { method: 'POST', body: JSON.stringify({ muscleFocus: next }) }).then(profile => refresh({ ...s, profile }));
   };
+  const showNicheMuscles = !!s?.profile?.showNicheMuscles;
+  const saveShowNicheMuscles = (val) => {
+    api('profile', { method: 'POST', body: JSON.stringify({ showNicheMuscles: val }) }).then(profile => refresh({ ...s, profile }));
+  };
+  const saveGroupFocusValue = (group, val) => {
+    const next = { ...muscleFocusMap };
+    for (const m of group.muscles) { if (val === 'normal') delete next[m]; else next[m] = val; }
+    api('profile', { method: 'POST', body: JSON.stringify({ muscleFocus: next }) }).then(profile => refresh({ ...s, profile }));
+  };
 
   const setMuscleSensitivity = async (muscle, value) => {
     setSavingSens(true);
@@ -9823,23 +9896,33 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
               {showMuscleFocus ? 'Hide' : 'Show'} muscle list
             </button>
             {showMuscleFocus && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 2, width: '100%' }}>
-                {PRIMARY_MUSCLES.map(m => {
-                  const val = muscleFocusMap[m] || 'normal';
-                  return (
-                    <div key={m} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 0', borderBottom: '1px solid var(--paper2)' }}>
-                      <span style={{ flex: 1, fontFamily: "'JetBrains Mono',monospace", fontSize: 10, textTransform: 'capitalize' }}>{muscleDisplayLabel(m)}</span>
+              <div style={{ width: '100%' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, cursor: 'pointer' }}>
+                  <input type="checkbox" checked={showNicheMuscles} onChange={e => saveShowNicheMuscles(e.target.checked)}
+                    style={{ width: 14, height: 14, flexShrink: 0 }} />
+                  <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, color: 'var(--dim)' }}>
+                    Show niche muscles (splits regions like Traps or Upper Back into the individual muscles behind them)
+                  </span>
+                </label>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 2, width: '100%' }}>
+                  {(showNicheMuscles ? PRIMARY_MUSCLES.map(m => ({
+                    key: m, label: muscleDisplayLabel(m), value: muscleFocusMap[m] || 'normal', onSet: v => saveMuscleFocusValue(m, v),
+                  })) : MUSCLE_FOCUS_GROUPS.map(g => ({
+                    key: g.key, label: g.label, value: muscleGroupValue(g, muscleFocusMap), onSet: v => saveGroupFocusValue(g, v),
+                  }))).map(row => (
+                    <div key={row.key} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 0', borderBottom: '1px solid var(--paper2)' }}>
+                      <span style={{ flex: 1, fontFamily: "'JetBrains Mono',monospace", fontSize: 10, textTransform: 'capitalize' }}>{row.label}</span>
                       <div style={{ display: 'flex', gap: 4 }}>
                         {MUSCLE_FOCUS_OPTIONS.map(opt => (
-                          <button key={opt.value} className={`prof-btn${val === opt.value ? ' solid' : ''}`} style={{ fontSize: 8, padding: '4px 6px' }}
-                            onClick={() => saveMuscleFocusValue(m, opt.value)}>
+                          <button key={opt.value} className={`prof-btn${row.value === opt.value ? ' solid' : ''}`} style={{ fontSize: 8, padding: '4px 6px' }}
+                            onClick={() => row.onSet(opt.value)}>
                             {opt.label}
                           </button>
                         ))}
                       </div>
                     </div>
-                  );
-                })}
+                  ))}
+                </div>
               </div>
             )}
           </div>
