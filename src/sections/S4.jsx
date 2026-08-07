@@ -17,7 +17,7 @@ export function S4({ s, refresh }) {
   const cal = n.calories || 0;
   const calTarget = mt.calories || 2400;
   const short = calTarget - cal;
-  const exactCal = !!s?.profile?.exactCalories;
+  const exactCal = s?.profile?.exactCalories !== false;
 
   // Form state
   const [label, setLabel] = useState('');
@@ -67,6 +67,7 @@ export function S4({ s, refresh }) {
   const [camOpen, setCamOpen] = useState(false);
   const [camErr, setCamErr] = useState('');
   const photoRef = useRef();
+  const uploadRef = useRef();
   const videoRef = useRef();
   const camStreamRef = useRef(null);
   const camDetectorRef = useRef(null);
@@ -471,6 +472,7 @@ export function S4({ s, refresh }) {
 
             {/* Photo analysis */}
             <input ref={photoRef} type="file" accept="image/*" capture="environment" style={{ display: 'none' }} onChange={handlePhoto} />
+            <input ref={uploadRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handlePhoto} />
             <div className="scan-mode-toggle">
               <button className={`scan-mode-btn${scanMode === 'meal' ? ' active' : ''}`} onClick={() => setScanMode('meal')}>Meal Photo</button>
               <button className={`scan-mode-btn${scanMode === 'label' ? ' active' : ''}`} onClick={() => setScanMode('label')}>Nutrition Label</button>
@@ -480,9 +482,14 @@ export function S4({ s, refresh }) {
                 <img src={photoPreview} className={`scan-preview${analysing ? ' analysing' : ''}`} alt="scan preview" />
               )}
               <div style={{ flex: 1 }}>
-                <button className="nutri-photo-btn" onClick={() => photoRef.current?.click()} disabled={analysing}>
-                  {analysing ? 'Analysing…' : photoPreview ? 'Scan Again' : 'Scan Photo'}
-                </button>
+                <div style={{ display: 'flex', gap: 6 }}>
+                  <button className="nutri-photo-btn" onClick={() => photoRef.current?.click()} disabled={analysing}>
+                    {analysing ? 'Analysing…' : photoPreview ? 'Scan Again' : 'Take Photo'}
+                  </button>
+                  <button className="nutri-photo-btn" onClick={() => uploadRef.current?.click()} disabled={analysing}>
+                    Upload Photo
+                  </button>
+                </div>
                 {/* AI-scanned description now lands in the editable field below
                     in the manual log form instead of a separate read-only
                     caption here — showing the same text twice was redundant,
