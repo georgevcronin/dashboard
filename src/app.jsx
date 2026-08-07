@@ -1033,6 +1033,13 @@ const glycogenPct = (elapsedS, totalS) => {
 // app's first version — everything before this had no changelog at all.
 const CHANGELOG = [
   {
+    version: '1.06',
+    date: '2026-08-07',
+    features: [
+      'Fixed the interactive walkthrough repeatedly showing for Sleep and every panel after it on mobile — swiping (not tapping) between sections could fire a section\'s tour for wherever the drag was passing through mid-gesture, before it was actually the one on screen, sometimes leaving it unable to show correctly on a later, genuine visit either.',
+    ],
+  },
+  {
     version: '1.05',
     date: '2026-08-07',
     features: [
@@ -12266,7 +12273,31 @@ function App() {
     api('profile', { method: 'POST', body: JSON.stringify({ walkthroughSeen: sectionId }) })
       .then(profile => { if (profile && !profile.error) setS(prev => prev ? { ...prev, profile } : prev); });
   };
-  const beginWalkthrough = sectionId => {
+  // `forced` distinguishes a genuine forced start (Replay Walkthrough,
+  // re-arming a section while you're sitting on a different one) from a
+  // natural encounter (the IntersectionObserver in useWalkthroughEncounter
+  // actually seeing the section on screen). This used to be inferred from
+  // `activeSection !== sectionId` instead of being passed explicitly, on the
+  // assumption that a natural encounter only ever fires once the panel is
+  // truly the active one — true for a tap (setActiveSection runs synchronously
+  // in the click handler, before any transform changes) but not for a swipe:
+  // onSwipeMove drags .mobile-track's transform directly via a ref, live,
+  // frame by frame, well before onSwipeEnd finally calls setActiveSection.
+  // The IntersectionObserver's 0.15 threshold routinely crosses mid-drag,
+  // while `activeSection` still names the section you're swiping *away*
+  // from — so this branch used to fire on an ordinary swipe, force
+  // `activeSection` to the not-yet-committed target, and only spotlight it
+  // 360ms later, sometimes after the drag had already continued past it (or
+  // been released short of the swipe threshold and snapped back). That
+  // showed the tour for a section you'd only skimmed past, and — since nothing
+  // ever un-marks a section already added to walkthroughFiredRef — going back
+  // to that section normally afterward never gets a second chance to show it
+  // correctly, no matter how many more times you swipe through it. Scoping
+  // the branch to `forced` only removes the false positive: a natural
+  // encounter always measures the DOM immediately, using the same
+  // IntersectionObserver-confirmed visibility that triggered it in the
+  // first place, no swipe or delay of its own required.
+  const beginWalkthrough = (sectionId, forced = false) => {
     const content = WALKTHROUGH_CONTENT[sectionId];
     if (!content) return;
     const startTour = () => {
@@ -12285,17 +12316,13 @@ function App() {
     // sideways with a transform rather than unmounted — an inactive section
     // still has real (just off-screen) geometry, so hasVisibleStep's own
     // width/height check can't tell "not the active panel" from "genuinely
-    // visible." A natural encounter can only ever fire for the panel actually
-    // on screen (an off-track panel never intersects the viewport), so this
-    // only matters for a forced start — Replay Walkthrough re-arming s1
-    // while you're on a different section — which needs the same swipe a
-    // real visit would have made, before measuring anything. `activeSection`
-    // starts null until the first manual tap/swipe (the dock's own fallback
-    // for that is effectiveActiveId, not this), so `!= null` here is what
-    // stops that ordinary first-ever encounter from swiping to itself and
-    // eating a needless 360ms. DOCK_LABELS[sectionId] excludes 'settings',
-    // which isn't part of the mobile-track carousel at all.
-    if (isMobile && DOCK_LABELS[sectionId] && activeSection != null && activeSection !== sectionId) {
+    // visible." `activeSection` starts null until the first manual tap/swipe
+    // (the dock's own fallback for that is effectiveActiveId, not this), so
+    // `!= null` here is what stops the very first-ever forced start (s1,
+    // already on screen by default) from swiping to itself and eating a
+    // needless 360ms. DOCK_LABELS[sectionId] excludes 'settings', which
+    // isn't part of the mobile-track carousel at all.
+    if (forced && isMobile && DOCK_LABELS[sectionId] && activeSection != null && activeSection !== sectionId) {
       const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
       setActiveSection(sectionId);
       // .mobile-track's own slide transition is 320ms (skipped entirely
@@ -12342,7 +12369,7 @@ function App() {
       walkthroughFiredRef.current = new Set(['s1']);
       setS(prev => prev ? { ...prev, profile } : prev);
       setShowSettings(false);
-      setTimeout(() => beginWalkthrough('s1'), 50);
+      setTimeout(() => beginWalkthrough('s1', true), 50);
     });
   };
   // Auto-trigger is suppressed while anything else covers the screen — an
