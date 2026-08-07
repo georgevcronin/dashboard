@@ -2123,7 +2123,8 @@ function weeklyGuidanceInputs() {
   return {
     currentFatigue, weekMetabolic, weekCNS, offlineMuscles: ignoredMuscles,
     dataMature: maturityWeek.hasEnoughData,
-    trainingPriority: db.profile?.trainingPriority || 'strength',
+    trainingDaysPerWeek: db.profile?.trainingDaysPerWeek || 4,
+    activities: db.profile?.activities || [],
     muscleLastTrainedDays: computeMuscleLastTrainedDays(db.lifts),
     // Same "explicit choice always wins, auto-detect only fills in a
     // default" rule as /plan/session-exercises' own preferredSplit
@@ -2524,7 +2525,8 @@ app.get('/plan/calendar', async (req, res) => {
     availableDaysOfWeek: db.profile?.availableDaysOfWeek || [],
     splitDayAnchors: db.profile?.splitDayAnchors || {},
     weeklySessionTarget: db.profile?.weeklySessionTarget ?? null,
-    trainingPriority: db.profile?.trainingPriority || 'strength',
+    trainingDaysPerWeek: db.profile?.trainingDaysPerWeek || 4,
+    activities: db.profile?.activities || [],
     days,
   });
   res.json(result);

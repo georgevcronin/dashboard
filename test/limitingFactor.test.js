@@ -47,14 +47,14 @@ test('the CNS threshold matches where weeklyPlanner actually caps the week at 2 
   assert.ok(codes({ ...FRESH, cnsFatigue: 71 }).includes('cns-high'));
   assert.ok(!codes({ ...FRESH, cnsFatigue: 70 }).includes('cns-high'));
   // The engine's own behaviour at that boundary, which the copy describes.
-  assert.equal(planLiftSessionsTarget(71, 0, 4, 'strength'), 2);
-  assert.notEqual(planLiftSessionsTarget(70, 0, 4, 'strength'), 2);
+  assert.equal(planLiftSessionsTarget(71, 0, 4), 2);
+  assert.notEqual(planLiftSessionsTarget(70, 0, 4), 2);
 });
 
 test('the moderate CNS threshold matches the 3-session cap', () => {
   assert.ok(codes({ ...FRESH, cnsFatigue: 41 }).includes('cns-moderate'));
   assert.ok(!codes({ ...FRESH, cnsFatigue: 40 }).includes('cns-moderate'));
-  assert.equal(planLiftSessionsTarget(41, 0, 4, 'strength'), 3);
+  assert.equal(planLiftSessionsTarget(41, 0, 4), 3);
 });
 
 test('metabolic thresholds match sessionPlanner fatigueCeilingFor exactly', () => {

@@ -200,20 +200,28 @@ test('weightedCoverage falls back to the old array-position formula when the exe
 });
 
 test('planLiftSessionsTarget caps sessions hard when systemic fatigue is very high', () => {
-  assert.ok(planLiftSessionsTarget(90, 0, 4, 'strength') <= 2);
+  assert.ok(planLiftSessionsTarget(90, 0, 4) <= 2);
 });
 
-test('planLiftSessionsTarget respects the strength/cardio/sport priority cap', () => {
-  assert.ok(planLiftSessionsTarget(0, 0, 4, 'cardio') <= 2);
-  assert.ok(planLiftSessionsTarget(0, 0, 4, 'strength') <= 4);
+test('planLiftSessionsTarget splits trainingDaysPerWeek by activities priority weight', () => {
+  const cardioHeavy = [{ type: 'strength', priority: 'minor' }, { type: 'running', priority: 'primary' }];
+  const liftHeavy = [{ type: 'strength', priority: 'primary' }, { type: 'running', priority: 'minor' }];
+  assert.ok(planLiftSessionsTarget(0, 0, 4, 6, cardioHeavy) < planLiftSessionsTarget(0, 0, 4, 6, liftHeavy));
+  // No activities set at all defaults to mostly-lift with a 1-session cardio floor.
+  assert.equal(planLiftSessionsTarget(0, 0, 4, 5, []), 4);
 });
 
 test('planLiftSessionsTarget returns 0 when there are no available muscle buckets at all', () => {
-  assert.equal(planLiftSessionsTarget(0, 0, 0, 'strength'), 0);
+  assert.equal(planLiftSessionsTarget(0, 0, 0), 0);
 });
 
-test('planCardioSessionsTarget is highest under the cardio priority', () => {
-  assert.ok(planCardioSessionsTarget(0, 'cardio') > planCardioSessionsTarget(0, 'strength'));
+test('planCardioSessionsTarget is highest when activities weight toward cardio', () => {
+  const cardioHeavy = [{ type: 'strength', priority: 'minor' }, { type: 'running', priority: 'primary' }];
+  const liftHeavy = [{ type: 'strength', priority: 'primary' }, { type: 'running', priority: 'minor' }];
+  assert.ok(planCardioSessionsTarget(0, 6, cardioHeavy) > planCardioSessionsTarget(0, 6, liftHeavy));
+  // No activities set at all still gets a 1-session cardio floor, not zero.
+  assert.equal(planCardioSessionsTarget(0, 5, []), 1);
+  assert.equal(planCardioSessionsTarget(0, 1, []), 0);
 });
 
 test('generateWeeklyGuidance zeroes out lift sessions when every muscle bucket is offline', () => {

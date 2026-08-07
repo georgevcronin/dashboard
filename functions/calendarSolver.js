@@ -111,7 +111,7 @@ function solveCalendarWindow({
   // from that week's own simulated CNS/metabolic load. Without this, the
   // solver would greedily book a session every single day fatigue allowed,
   // which contradicts TRAINING_ETHOS.md's "2-4x/week" autoregulated stance.
-  weeklySessionTarget = null, trainingPriority = 'strength',
+  weeklySessionTarget = null, trainingDaysPerWeek = 4, activities = [],
   days = 7, startMs = null,
 }) {
   const start = startMs != null ? new Date(startMs) : new Date();
@@ -172,7 +172,7 @@ function solveCalendarWindow({
     if (weekTarget == null) {
       weekTarget = weeklySessionTarget != null ? weeklySessionTarget : generateWeeklyGuidance({
         currentFatigue, weekMetabolic: metabolicFatigue, weekCNS: cnsFatigue, offlineMuscles,
-        dataMature: computeDataMaturity(shiftedHistory).hasEnoughData, trainingPriority,
+        dataMature: computeDataMaturity(shiftedHistory).hasEnoughData, trainingDaysPerWeek, activities,
         muscleLastTrainedDays, preferredSplit, muscleFocus,
       }).liftSessionsTarget;
     }

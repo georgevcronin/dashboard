@@ -9586,21 +9586,6 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
         <div className="settings-sec" id="sec-training-preferences">
           <div className="settings-sh">Training Preferences <span style={{ fontWeight: 400, textTransform: 'none', fontSize: 9, color: 'var(--dim)' }}>(shape auto-generated sessions)</span></div>
           <div className="prof-field">
-            <span className="prof-lbl">Training Priority <span style={{ fontSize: 8, color: 'var(--dim)', textTransform: 'none' }}>(shapes weekly guidance)</span></span>
-            <div style={{ display: 'flex', gap: 6 }}>
-              {['strength','cardio','sport'].map(p => (
-                <button key={p} className="prof-btn"
-                  onClick={() => {
-                    refresh({ ...s, profile: { ...s.profile, trainingPriority: p } });
-                    api('profile', { method: 'POST', body: JSON.stringify({ trainingPriority: p }) }).then(profile => refresh({ ...s, profile }));
-                  }}
-                  style={{ textTransform: 'capitalize', ...((s?.profile?.trainingPriority || 'strength') === p ? { background: 'var(--ink)', color: 'var(--paper)', borderColor: 'var(--ink)' } : {}) }}>
-                  {p}
-                </button>
-              ))}
-            </div>
-          </div>
-          <div className="prof-field">
             <span className="prof-lbl">Preferred Split <span style={{ fontSize: 8, color: 'var(--dim)', textTransform: 'none' }}>(shapes full-body auto-generated sessions)</span></span>
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
               {['Full Body', 'Upper / Lower', 'Push / Pull / Legs', 'Arnold Split', 'PPL Arnold'].map(sp => (

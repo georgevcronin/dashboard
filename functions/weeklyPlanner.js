@@ -16,6 +16,7 @@
 const { EXERCISE_DB } = require('./exerciseDb');
 const { PRIMARY_MUSCLES, MUSCLE_GROUPS, loggedExerciseNames, isBodyweightOnlyExercise, redundancyPattern } = require('./muscleTaxonomy');
 const { SPLIT_GROUPS } = require('./splitPlanner');
+const { PRIORITY_WEIGHT } = require('./goalsAndActivities');
 const { stabilityScore } = require('./sessionPlanner');
 const { idealAngleForMuscle } = require('./emgActivation');
 const { emgProfileForExercise } = require('./exerciseEmgProfiles');
@@ -261,24 +262,48 @@ function scoreBucket(muscles, priority) {
   return { muscles: avail, score };
 }
 
-// A priority can't maximize every kind of training at once — the classic
-// competing-demands trade-off. 'strength' is the default (lifting gets full
-// frequency, cardio stays light so it doesn't dilute lifting stimulus, per
-// the ethos). 'cardio' flips that: lifting is capped to maintenance level so
-// recovery capacity goes to conditioning work instead. 'sport' caps both,
-// treating whatever sport the athlete plays as the primary stimulus and
-// general training as support work that shouldn't leave them too fatigued
-// to perform.
-const TRAINING_PRIORITIES = ['strength', 'cardio', 'sport'];
-const LIFT_SESSION_CAP = { strength: 4, cardio: 2, sport: 2 };
-const CARDIO_SESSION_BASE = { strength: 1, cardio: 4, sport: 1 };
+// Which profile.activities types (goalsAndActivities.js's GOAL_TYPES-
+// adjacent ACTIVITY_TYPES) count toward the lift vs. cardio half of the
+// weekly session budget. 'other' carries no signal, same as
+// ACTIVITY_DEFAULTS treats it.
+const LIFT_ACTIVITY_TYPES = ['strength'];
+const CARDIO_ACTIVITY_TYPES = ['running', 'cycling', 'swimming', 'sport', 'aerobic'];
+
+function activityWeight(activities, types) {
+  return (activities || [])
+    .filter(a => types.includes(a.type))
+    .reduce((sum, a) => sum + (PRIORITY_WEIGHT[a.priority] || 0), 0);
+}
+
+// Splits the athlete's self-reported weekly training-day budget
+// (profile.trainingDaysPerWeek) between lifting and cardio, weighted by
+// profile.activities' priority tiers — the same primary/secondary/minor
+// weighting goalsAndActivities.js's applyActivityDefaults already uses for
+// weeklyTargets, so two accounts with the same trainingDaysPerWeek get
+// genuinely different splits based on what they actually said they train
+// for. No activities set at all defaults to mostly-lift with a light (1
+// session) cardio floor, per TRAINING_ETHOS.md's "lifting is the primary
+// stimulus, cardio stays light [not absent]" default. Rounding is done once
+// here so the lift/cardio halves always sum back to trainingDaysPerWeek
+// before either side's own fatigue trim is applied.
+function rawSessionSplit(trainingDaysPerWeek, activities) {
+  const liftWeight = activityWeight(activities, LIFT_ACTIVITY_TYPES);
+  const cardioWeight = activityWeight(activities, CARDIO_ACTIVITY_TYPES);
+  const totalWeight = liftWeight + cardioWeight;
+  if (totalWeight === 0) {
+    const cardioRaw = trainingDaysPerWeek > 1 ? 1 : 0;
+    return { liftRaw: trainingDaysPerWeek - cardioRaw, cardioRaw };
+  }
+  const liftRaw = Math.round(trainingDaysPerWeek * liftWeight / totalWeight);
+  return { liftRaw, cardioRaw: trainingDaysPerWeek - liftRaw };
+}
 
 // How many genuine lifting sessions this week's systemic fatigue can
 // absorb — a target to hit whenever suits, not a count of locked slots.
-// Systemic (CNS/metabolic) fatigue pulls it down; low systemic fatigue with
-// several fresh muscle groups pulls it up toward the priority's cap.
-function planLiftSessionsTarget(weekCNS, weekMetabolic, availableBucketCount, trainingPriority = 'strength') {
-  let sessions = LIFT_SESSION_CAP[trainingPriority] ?? LIFT_SESSION_CAP.strength;
+// Systemic (CNS/metabolic) fatigue pulls it down from the activities-derived
+// raw split.
+function planLiftSessionsTarget(weekCNS, weekMetabolic, availableBucketCount, trainingDaysPerWeek = 4, activities = []) {
+  let sessions = rawSessionSplit(trainingDaysPerWeek, activities).liftRaw;
   if (weekCNS > 70 || weekMetabolic > 70) sessions = Math.min(sessions, 2);
   else if (weekCNS > 40 || weekMetabolic > 40) sessions = Math.min(sessions, 3);
   return Math.max(0, Math.min(sessions, availableBucketCount === 0 ? 0 : availableBucketCount + 1));
@@ -287,12 +312,12 @@ function planLiftSessionsTarget(weekCNS, weekMetabolic, availableBucketCount, tr
 // Cardio doesn't compete for the same per-muscle fatigue buckets lifting
 // does, but it's still CNS-taxing (HIIT especially), so heavy CNS fatigue
 // trims it too.
-function planCardioSessionsTarget(weekCNS, trainingPriority = 'strength') {
-  const base = CARDIO_SESSION_BASE[trainingPriority] ?? CARDIO_SESSION_BASE.strength;
+function planCardioSessionsTarget(weekCNS, trainingDaysPerWeek = 4, activities = []) {
+  const base = rawSessionSplit(trainingDaysPerWeek, activities).cardioRaw;
   return weekCNS > 80 ? Math.max(0, base - 1) : base;
 }
 
-function guidanceRationale(liftSessionsTarget, cardioSessionsTarget, weekCNS, weekMetabolic, trainingPriority) {
+function guidanceRationale(liftSessionsTarget, cardioSessionsTarget, weekCNS, weekMetabolic) {
   if (liftSessionsTarget === 0 && cardioSessionsTarget === 0) return 'Systemic fatigue is too high for productive loading of any kind right now — prioritise recovery.';
   const fatigueNote = weekCNS > 70 || weekMetabolic > 70
     ? 'Systemic fatigue is high, so this is intentionally light.'
@@ -300,12 +325,11 @@ function guidanceRationale(liftSessionsTarget, cardioSessionsTarget, weekCNS, we
     ? 'Moderate fatigue carried in, so this is a touch below max.'
     : 'Fatigue is low across the board.';
   const s = n => n === 1 ? '' : 's';
-  const priorityNote = {
-    strength: `${liftSessionsTarget} strength session${s(liftSessionsTarget)} is the priority this week${cardioSessionsTarget > 0 ? `, with ${cardioSessionsTarget} conditioning session${s(cardioSessionsTarget)} kept light so it doesn't dilute lifting stimulus` : ''}.`,
-    cardio: `Cardio is the priority this week — aim for ${cardioSessionsTarget} conditioning session${s(cardioSessionsTarget)}, with ${liftSessionsTarget} strength session${s(liftSessionsTarget)} kept to maintenance so lifting doesn't eat into cardio recovery.`,
-    sport: `Training is deliberately capped to preserve freshness for your sport — ${liftSessionsTarget} maintenance strength session${s(liftSessionsTarget)} and minimal structured cardio; let sport practice be the primary conditioning stimulus.`,
-  }[trainingPriority] || `${liftSessionsTarget} strength session${s(liftSessionsTarget)} this week.`;
-  return `${fatigueNote} ${priorityNote} Train them whenever suits, in whatever order, on top of whatever you've already done.`;
+  const parts = [];
+  if (liftSessionsTarget > 0) parts.push(`${liftSessionsTarget} strength session${s(liftSessionsTarget)}`);
+  if (cardioSessionsTarget > 0) parts.push(`${cardioSessionsTarget} conditioning session${s(cardioSessionsTarget)}`);
+  const sessionNote = parts.length ? `Aim for ${parts.join(' and ')} this week.` : '';
+  return `${fatigueNote} ${sessionNote} Train them whenever suits, in whatever order, on top of whatever you've already done.`;
 }
 
 // Which groups muscleFocus is bucketed into mirrors exactly what
@@ -328,15 +352,16 @@ function focusGroups(preferredSplit) {
 // is ranked freshest-first; restingMuscleGroups lists groups with nothing
 // available to load right now (fully fatigued or fully offline). Both are
 // meant to be recomputed on demand, since either can shift after a single
-// session. trainingPriority ('strength'|'cardio'|'sport') shifts how much of
-// the week's recovery capacity is earmarked for lifting vs. conditioning vs.
-// held back for a separately-practiced sport. muscleLastTrainedDays is
-// optional (functions/fatigue.js's computeMuscleLastTrainedDays) — passing
-// it keeps the displayed "freshness" chips consistent with the same
-// atrophy-risk prioritization that /plan/session-exercises's full-body
-// auto-pick actually uses, rather than the display showing plain fatigue-
-// freshness while session generation weighs staleness too.
-function generateWeeklyGuidance({ currentFatigue, weekMetabolic, weekCNS, offlineMuscles, dataMature, trainingPriority = 'strength', muscleLastTrainedDays = null, preferredSplit = 'Full Body', muscleFocus = {} }) {
+// session. trainingDaysPerWeek (profile setting, defaults to 4) is the
+// weekly session budget; activities (profile.activities, priority-tier
+// weighted) decides how much of it is lifting vs. conditioning — see
+// rawSessionSplit above. muscleLastTrainedDays is optional
+// (functions/fatigue.js's computeMuscleLastTrainedDays) — passing it keeps
+// the displayed "freshness" chips consistent with the same atrophy-risk
+// prioritization that /plan/session-exercises's full-body auto-pick actually
+// uses, rather than the display showing plain fatigue-freshness while
+// session generation weighs staleness too.
+function generateWeeklyGuidance({ currentFatigue, weekMetabolic, weekCNS, offlineMuscles, dataMature, trainingDaysPerWeek = 4, activities = [], muscleLastTrainedDays = null, preferredSplit = 'Full Body', muscleFocus = {} }) {
   const priority = computeMusclePriority(currentFatigue || {}, offlineMuscles || [], muscleLastTrainedDays, muscleFocus);
   const groups = focusGroups(preferredSplit);
 
@@ -348,13 +373,13 @@ function generateWeeklyGuidance({ currentFatigue, weekMetabolic, weekCNS, offlin
     .filter(Boolean)
     .sort((a, b) => b.score - a.score);
 
-  const liftSessionsTarget = planLiftSessionsTarget(weekCNS, weekMetabolic, buckets.length, trainingPriority);
-  const cardioSessionsTarget = planCardioSessionsTarget(weekCNS, trainingPriority);
+  const liftSessionsTarget = planLiftSessionsTarget(weekCNS, weekMetabolic, buckets.length, trainingDaysPerWeek, activities);
+  const cardioSessionsTarget = planCardioSessionsTarget(weekCNS, trainingDaysPerWeek, activities);
   const activeNames = new Set(buckets.map(b => b.name));
   const restingMuscleGroups = Object.keys(groups).filter(n => !activeNames.has(n));
 
   return {
-    trainingPriority,
+    trainingDaysPerWeek,
     liftSessionsTarget,
     cardioSessionsTarget,
     hiitRecommended: cardioSessionsTarget > 0,
@@ -370,14 +395,14 @@ function generateWeeklyGuidance({ currentFatigue, weekMetabolic, weekCNS, offlin
       score: Math.round(b.score * 10) / 10,
     })),
     restingMuscleGroups,
-    rationale: guidanceRationale(liftSessionsTarget, cardioSessionsTarget, weekCNS, weekMetabolic, trainingPriority),
+    rationale: guidanceRationale(liftSessionsTarget, cardioSessionsTarget, weekCNS, weekMetabolic),
     dataMature,
   };
 }
 
 module.exports = {
   generateWeeklyGuidance, pickBackboneExercises, weightedCoverage, computeMusclePriority, scoreBucket, planLiftSessionsTarget, planCardioSessionsTarget,
-  stalenessBoost, MUSCLE_GROUPS, FATIGUE_CEILING, SECONDARY_FATIGUE_CEILING, FOCUS_MUSCLE_BONUS, DEPRIORITISE_PENALTY, TRAINING_PRIORITIES,
+  stalenessBoost, MUSCLE_GROUPS, FATIGUE_CEILING, SECONDARY_FATIGUE_CEILING, FOCUS_MUSCLE_BONUS, DEPRIORITISE_PENALTY,
   // Exported for recommendation.js: a bucket in muscleFocus only carries the
   // muscles that were *available*, so explaining why one is missing needs the
   // full membership this resolves.
