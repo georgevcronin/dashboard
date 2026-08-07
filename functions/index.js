@@ -30,6 +30,7 @@ const { computeStimulusContributions, estimateAtrophyRate } = require('./adaptat
 const { sessionLoadScore, sessionLoadDelta } = require('./sessionLoad');
 const { computeTrend, deloadSuggestion } = require('./performanceTrend');
 const { validateTrackingCategories, resolveTrackingCategories } = require('./trackingCategories');
+const { cardioFatigueByMuscle } = require('./cardio');
 const { validateGoals, validateActivities, applyActivityDefaults, seedReturningAthleteAtrophy } = require('./goalsAndActivities');
 const { estimateMaintenanceCalories, applyDeficitLimit, calorieTargetForFatLossGoal } = require('./nutritionLimits');
 const { findNearbyGyms, normalizeExerciseKey, GYM_NEARBY_RADIUS_M } = require('./gyms');
@@ -866,7 +867,8 @@ app.get("/summary", async (req, res) => {
     db.soreness || [],
     db.muscleSensitivity || {},
     personalizedRecoveryHours(db.profile, activeCycleFactor(db)),
-    db.profile
+    db.profile,
+    db.sports || []
   );
   const monthWk = db.workouts.filter(w => w.date >= day(new Date(Date.now() - 30 * 864e5)));
   const sleepDebtH = last14.slice(-2).reduce((s, d) => s + (d.sleep_hours ? Math.max(0, sleep.target - d.sleep_hours) : 0), 0);

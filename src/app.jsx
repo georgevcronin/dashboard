@@ -1053,6 +1053,14 @@ const glycogenPct = (elapsedS, totalS) => {
 // app's first version — everything before this had no changelog at all.
 const CHANGELOG = [
   {
+    version: '1.18',
+    date: '2026-08-08',
+    features: [
+      'Swimming and biking now feed their own fatigue contribution into the same unified ceiling lifting and running already share, instead of being invisible to it — no re-syncing needed, this reads from Strava activity data already being received.',
+      'Fixed a bug where the running recommendation (Today\'s Run, Training) never actually loaded for an account with real logged runs, due to an incorrect import.',
+    ],
+  },
+  {
     version: '1.17',
     date: '2026-08-08',
     features: [
@@ -12424,6 +12432,21 @@ function App() {
       .catch(() => { if (!cancelled) setGeneralRecommendation(null); });
     return () => { cancelled = true; };
   }, [hasSportActivity, hasAerobicActivity, s?.today?.recovery, s?.workouts?.length]);
+
+  // #17: swim/bike prescription, same pattern as #95's run prescription
+  // above — the endpoint returns null for an account with no sessions of
+  // that type, so no separate existence check needed here either.
+  useEffect(() => {
+    if (!s) { setBikeRecommendation(null); setSwimRecommendation(null); return; }
+    let cancelled = false;
+    api('cardio/recommendation?type=bike')
+      .then(data => { if (!cancelled) setBikeRecommendation(data); })
+      .catch(() => { if (!cancelled) setBikeRecommendation(null); });
+    api('cardio/recommendation?type=swim')
+      .then(data => { if (!cancelled) setSwimRecommendation(data); })
+      .catch(() => { if (!cancelled) setSwimRecommendation(null); });
+    return () => { cancelled = true; };
+  }, [!!s]);
 
   // #12: fitness/fatigue/form trend. Same fetch-after-summary pattern; only
   // re-fires on session load like the run recommendation above (db.lifts

@@ -10,6 +10,10 @@
 const { computeCurrentFatigueScores } = require('./fatigue');
 const { computeRunningACWR, computeMetabolicFatigue, computeCNSFatigue } = require('./fatigue');
 const { dailyLoadsFromRuns } = require('./runningLoad');
+// #17 extension: bike/swim contribute to the same unified ceiling running
+// already does, via the same Gabbett-principle merge below — see
+// cardio.js's cardioFatigueByMuscle for the per-modality muscle split.
+const { cardioFatigueByMuscle } = require('./cardio');
 
 // Running contribution to muscle fatigue (lower body focus)
 // Running creates structural fatigue in legs, cardiovascular stress, and CNS load
@@ -75,54 +79,56 @@ function runningFatigueByMuscle(runs, profile = {}) {
   return runFatigue;
 }
 
-// #103: Hybrid fatigue = lifting fatigue + running fatigue, unified ceiling
-// Takes lifting-derived fatigue and adds running contribution
-// Result: unified per-muscle fatigue score (0-100) fed to FATIGUE_CEILING
-function computeHybridFatigue(lifts, runs, musclePeaks, soreness = {}, sensitivity = {}, recoveryHours = {}, profile = {}) {
-  // Base fatigue from lifting (structural, CNS, metabolic combined)
-  const liftingFatigue = computeCurrentFatigueScores(lifts || [], musclePeaks, soreness, sensitivity, recoveryHours);
-
-  // Running contribution (especially lower body)
-  const runningFatigue = runningFatigueByMuscle(runs || [], profile);
-
-  // Merge: combine contributions, cap at 100
-  const hybridFatigue = { ...liftingFatigue };
-  for (const [muscle, runLoad] of Object.entries(runningFatigue)) {
-    const base = hybridFatigue[muscle] || 0;
-    // Don't simply sum (would exceed 100). Use Gabbett principle:
-    // chronic load (base) is protective — high chronic load means
-    // same acute load has less cumulative effect
-    //
-    // Formula: if chronic > 50%, acute is less impactful
-    // combined = base + runLoad * (1 - base/100)^0.5
-    const chronicFraction = Math.max(0, Math.min(1, base / 100));
-    const protectionFactor = Math.sqrt(1 - chronicFraction); // sqrt(1 - chronic%)
-    const combined = base + runLoad * protectionFactor;
-
-    hybridFatigue[muscle] = Math.min(100, combined);
+// Applies the same Gabbett-principle protective merge computeHybridFatigue
+// always used for running to any additional per-muscle contribution map —
+// chronic load (the current combined base) is protective, so the same
+// acute contribution has less cumulative effect against a higher base.
+// combined = base + load * sqrt(1 - base/100)
+function mergeFatigueContribution(base, contribution) {
+  const merged = { ...base };
+  for (const [muscle, load] of Object.entries(contribution)) {
+    const current = merged[muscle] || 0;
+    const chronicFraction = Math.max(0, Math.min(1, current / 100));
+    const protectionFactor = Math.sqrt(1 - chronicFraction);
+    merged[muscle] = Math.min(100, current + load * protectionFactor);
   }
+  return merged;
+}
 
+// #103 (+ #17 extension): hybrid fatigue = lifting + running + bike + swim,
+// one unified ceiling. Each modality merges in via the same Gabbett-
+// principle formula in turn (order doesn't change the ceiling-capping
+// intent, just which contribution "sees" the others as already-chronic).
+// Result: unified per-muscle fatigue score (0-100) fed to FATIGUE_CEILING.
+function computeHybridFatigue(lifts, runs, musclePeaks, soreness = {}, sensitivity = {}, recoveryHours = {}, profile = {}, sports = []) {
+  const liftingFatigue = computeCurrentFatigueScores(lifts || [], musclePeaks, soreness, sensitivity, recoveryHours);
+  const runningFatigue = runningFatigueByMuscle(runs || [], profile);
+  const bikeFatigue = cardioFatigueByMuscle(sports, profile, 'bike');
+  const swimFatigue = cardioFatigueByMuscle(sports, profile, 'swim');
+
+  let hybridFatigue = mergeFatigueContribution(liftingFatigue, runningFatigue);
+  hybridFatigue = mergeFatigueContribution(hybridFatigue, bikeFatigue);
+  hybridFatigue = mergeFatigueContribution(hybridFatigue, swimFatigue);
   return hybridFatigue;
 }
 
-// Diagnostic: show which muscles are limited by running vs. lifting
-function hybridFatigueBreakdown(lifts, runs, musclePeaks, soreness = {}, sensitivity = {}, recoveryHours = {}, profile = {}) {
+// Diagnostic: show which muscles are limited by which modality.
+function hybridFatigueBreakdown(lifts, runs, musclePeaks, soreness = {}, sensitivity = {}, recoveryHours = {}, profile = {}, sports = []) {
   const liftingFatigue = computeCurrentFatigueScores(lifts || [], musclePeaks, soreness, sensitivity, recoveryHours);
   const runningFatigue = runningFatigueByMuscle(runs || [], profile);
+  const bikeFatigue = cardioFatigueByMuscle(sports, profile, 'bike');
+  const swimFatigue = cardioFatigueByMuscle(sports, profile, 'swim');
 
   const allMuscles = new Set([
-    ...Object.keys(liftingFatigue || {}),
-    ...Object.keys(runningFatigue || {}),
+    ...Object.keys(liftingFatigue || {}), ...Object.keys(runningFatigue || {}),
+    ...Object.keys(bikeFatigue || {}), ...Object.keys(swimFatigue || {}),
   ]);
 
   const breakdown = {};
   for (const muscle of allMuscles) {
-    breakdown[muscle] = {
-      lifting: liftingFatigue[muscle] || 0,
-      running: runningFatigue[muscle] || 0,
-      hybrid: (liftingFatigue[muscle] || 0) + (runningFatigue[muscle] || 0),
-      limitedBy: (liftingFatigue[muscle] || 0) > (runningFatigue[muscle] || 0) ? 'lifting' : 'running',
-    };
+    const byModality = { lifting: liftingFatigue[muscle] || 0, running: runningFatigue[muscle] || 0, bike: bikeFatigue[muscle] || 0, swim: swimFatigue[muscle] || 0 };
+    const limitedBy = Object.entries(byModality).sort((a, b) => b[1] - a[1])[0][0];
+    breakdown[muscle] = { ...byModality, hybrid: Object.values(byModality).reduce((a, b) => a + b, 0), limitedBy };
   }
 
   return breakdown;
