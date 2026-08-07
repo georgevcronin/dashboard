@@ -1033,6 +1033,13 @@ const glycogenPct = (elapsedS, totalS) => {
 // app's first version — everything before this had no changelog at all.
 const CHANGELOG = [
   {
+    version: '0.88',
+    date: '2026-08-07',
+    features: [
+      'The mobile header\'s Sync button now runs your own device\'s Shortcut (once picked in Settings\' Apple Health guide) instead of the old generic name every device shared — same fix as Settings\' guide link, now everywhere Sync appears.',
+    ],
+  },
+  {
     version: '0.87',
     date: '2026-08-07',
     features: [
@@ -8012,7 +8019,12 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
   const SHORTCUT_URL = `${API_BASE}/shortcut`;
   const [syncUrl, setSyncUrl] = useState(SHORTCUT_URL);
   const [guideAdvanced, setGuideAdvanced] = useState(false);
-  const [healthDevice, setHealthDevice] = useState('');
+  const [healthDevice, setHealthDevice] = useState(s?.profile?.healthDevice || '');
+  const saveHealthDevice = async (key) => {
+    setHealthDevice(key);
+    const profile = await api('profile', { method: 'POST', body: JSON.stringify({ healthDevice: key }) });
+    refresh({ ...s, profile });
+  };
   const openHealthGuide = () => {
     setHealthGuideOpen(v => {
       const next = !v;
@@ -9380,7 +9392,7 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
                 <label style={{ display: 'block', fontSize: 9, letterSpacing: '.08em', textTransform: 'uppercase', color: 'var(--dim)', marginBottom: 4 }}>
                   Your device
                 </label>
-                <select value={healthDevice} onChange={e => setHealthDevice(e.target.value)} style={{ ...inputStyle, marginBottom: 10 }}>
+                <select value={healthDevice} onChange={e => saveHealthDevice(e.target.value)} style={{ ...inputStyle, marginBottom: 10 }}>
                   <option value="">Select your watch, band, or ring…</option>
                   <optgroup label="Apple Watch">
                     {HEALTH_SHORTCUT_DEVICES.filter(d => d.key.startsWith('aw')).map(d => (
@@ -10790,7 +10802,8 @@ function App() {
 
   const [syncingShortcut, setSyncingShortcut] = useState(false);
   const syncShortcut = () => {
-    window.location.href = `shortcuts://x-callback-url/run-shortcut?name=${encodeURIComponent('pressnewsletter')}&x-success=${encodeURIComponent(window.location.href)}`;
+    const shortcutName = s?.profile?.healthDevice ? `pressnewsletter-${s.profile.healthDevice}` : 'pressnewsletter';
+    window.location.href = `shortcuts://x-callback-url/run-shortcut?name=${encodeURIComponent(shortcutName)}&x-success=${encodeURIComponent(window.location.href)}`;
     setSyncingShortcut(true);
     setTimeout(() => { loadSummary(); setSyncingShortcut(false); }, 5000);
   };
