@@ -1033,6 +1033,13 @@ const glycogenPct = (elapsedS, totalS) => {
 // app's first version — everything before this had no changelog at all.
 const CHANGELOG = [
   {
+    version: '1.09',
+    date: '2026-08-08',
+    features: [
+      'Fixed generated workouts occasionally piling extra sets onto every exercise at once: the working-set experiment (which cycles 2/3/4 sets per exercise over time to probe volume tolerance) now caps how many exercises in a single session can actually land on the higher end — at most 2, prioritized toward whichever trained muscle\'s recent strength trend is most stalled. A repeating exercise template previously could sync all its exercises onto "4 sets" the same session; now the rest stay at their normal 2.',
+    ],
+  },
+  {
     version: '1.08',
     date: '2026-08-08',
     features: [

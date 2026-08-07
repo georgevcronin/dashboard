@@ -6,11 +6,11 @@
 // in functions/muscleTaxonomy.js). One implementation, imported by both.
 
 const { RECOVERY_H, findExercise, musclesForExercise, isCompoundExercise } = require('./muscleTaxonomy');
-const { e1rm: calcE1RM } = require('./strengthStandards');
 const { classifyMuscles, emgForAngle } = require('./emgActivation');
 const { emgProfileForExercise } = require('./exerciseEmgProfiles');
 const { EXERCISE_ANGLES } = require('./exerciseAngles');
 const { STABLE_EQUIPMENT, UNSTABLE_EQUIPMENT } = require('./sessionPlanner');
+const { exercisePerformanceDecrements } = require('./musclePerformanceTrend');
 
 const avg = (a) => (a.length ? a.reduce((x, y) => x + y, 0) / a.length : null);
 const liftTime = (l) => new Date(l.start || l.date).getTime();
@@ -378,29 +378,13 @@ function computeRunningACWR(runs, targetDate, profile) {
 
 // Session-to-session estimated-1RM trend per exercise, most recent 2 sessions vs.
 // the 2 before that. Positive = declining performance under similar loads — a direct
-// performance-based fatigue signal, independent of volume or ACWR.
+// performance-based fatigue signal, independent of volume or ACWR. The actual
+// per-exercise computation lives in musclePerformanceTrend.js's
+// exercisePerformanceDecrements (shared with computeMusclePerformanceTrends
+// there, which re-groups the same per-exercise signal by muscle instead of
+// blending everything into this one whole-body number).
 function computePerformanceTrend(lifts) {
-  const byEx = {};
-  for (const l of (lifts || [])) {
-    if (!l.exercise || !l.kg || !l.reps) continue;
-    const daysAgo = (Date.now() - liftTime(l)) / 86_400_000;
-    if (daysAgo < 0 || daysAgo > 21) continue;
-    const date = l.date || l.start;
-    const e1rm = calcE1RM(l.kg, l.reps);
-    // Lowercased so the same exercise logged via different sources (Hevy
-    // import lowercases; other paths may not) doesn't silently split into
-    // two untracked trend buckets.
-    const key = l.exercise.toLowerCase();
-    (byEx[key] = byEx[key] || {})[date] = Math.max((byEx[key] || {})[date] || 0, e1rm);
-  }
-  const decrements = [];
-  for (const byDate of Object.values(byEx)) {
-    const dates = Object.keys(byDate).sort();
-    if (dates.length < 4) continue;
-    const recentAvg = avg(dates.slice(-2).map(d => byDate[d]));
-    const priorAvg = avg(dates.slice(-4, -2).map(d => byDate[d]));
-    if (priorAvg > 0) decrements.push((priorAvg - recentAvg) / priorAvg);
-  }
+  const decrements = Object.values(exercisePerformanceDecrements(lifts));
   return decrements.length ? avg(decrements) : null;
 }
 
