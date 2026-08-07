@@ -1037,7 +1037,7 @@ const CHANGELOG = [
     date: '2026-08-07',
     features: [
       'New Running panel — daily run readiness, session prescription, pace/HR zones and an 8-week VO₂max forecast, all previously computed server-side with nothing showing it. Only appears for an account with Running listed as an activity.',
-      'Onboarding\'s Daily Targets step no longer asks for a diet goal (Lose Fat/Build Muscle/Maintain/Athletic Performance) — that lives in Settings instead. The step now also recommends a water target from your weight, activity level, and climate, still fully editable.',
+      'Onboarding\'s Daily Targets step no longer asks for a diet goal (Lose Fat/Build Muscle/Maintain/Athletic Performance) — that lives in Settings instead. The step now also recommends a water target from your weight, activity level, and climate, still fully editable — the same calculator now lives in Settings\' Targets section too.',
     ],
   },
   {
@@ -8049,6 +8049,24 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
   const [sleepTarget, setSleepTarget] = useState(s?.profile?.sleepTarget || 8);
   const [waterTarget, setWaterTarget] = useState(s?.profile?.waterTarget || 7);
   const [trainingDays, setTrainingDays] = useState(s?.profile?.trainingDaysPerWeek || 4);
+  // Water calculator — mirrors Onboarding's Daily Targets step exactly
+  // (recommendedWaterGlasses above) so the two pickers can't drift the way
+  // the old diet-goal ones did. Weight comes straight from the athlete's own
+  // logged weight (db.weight is always kg) rather than asking again here.
+  const [waterActivityLevel, setWaterActivityLevel] = useState(s?.profile?.waterActivityLevel || 'moderate');
+  const [waterHotClimate, setWaterHotClimate] = useState(!!s?.profile?.waterHotClimate);
+  // Starts "touched" whenever a waterTarget is already saved — an explicit
+  // stored preference always wins over the calculator until the athlete
+  // actively picks a new activity level/climate here (same rule
+  // compoundIsolationPref/stabilityPref below use). Onboarding's version of
+  // this starts untouched instead, since there's no prior preference yet to
+  // protect from being overwritten.
+  const [waterTouched, setWaterTouched] = useState(s?.profile?.waterTarget != null);
+  const weightKgForWater = s?.weights?.length ? s.weights.at(-1).value : null;
+  const waterCalc = recommendedWaterGlasses(weightKgForWater, waterActivityLevel, waterHotClimate);
+  useEffect(() => {
+    if (!waterTouched && waterCalc != null) setWaterTarget(waterCalc);
+  }, [waterCalc, waterTouched]);
   const [trackingLevel, setTrackingLevel] = useState(s?.profile?.trackingLevel || 'full');
   const [warmupScheme, setWarmupScheme] = useState(s?.profile?.warmupScheme?.length ? s.profile.warmupScheme : DEFAULT_WARMUP_SCHEME);
   const [warmupSaving, setWarmupSaving] = useState(false);
@@ -8221,7 +8239,7 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
 
   const saveTargets = async () => {
     setSavingTargets(true);
-    const profile = await api('profile', { method: 'POST', body: JSON.stringify({ sleepTarget, waterTarget, trainingDaysPerWeek: trainingDays }) });
+    const profile = await api('profile', { method: 'POST', body: JSON.stringify({ sleepTarget, waterTarget, trainingDaysPerWeek: trainingDays, waterActivityLevel, waterHotClimate }) });
     setSavingTargets(false);
     refresh({ ...s, profile });
   };
@@ -9283,7 +9301,40 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
           <div className="settings-sh">Targets</div>
           {[
             ['Sleep Target', sleepTarget, v => setSleepTarget(v), .5, 5, 12, v => `${v}h`],
-            ['Water Target', waterTarget, v => setWaterTarget(v), 1, 2, 16, v => `${v} gl`],
+          ].map(([label, val, set, step, min, max, fmt]) => (
+            <div key={label} style={{ marginBottom: 14 }}>
+              <label className="ob-label" style={{ marginTop: 0 }}>{label}</label>
+              <div className="ob-stepper" style={{ margin: '8px 0' }}>
+                <button className="ob-stepper-btn" onClick={() => set(v => Math.max(min, parseFloat((v - step).toFixed(1))))}>−</button>
+                <div className="ob-stepper-val">{fmt(val)}</div>
+                <button className="ob-stepper-btn" onClick={() => set(v => Math.min(max, parseFloat((v + step).toFixed(1))))}>+</button>
+              </div>
+            </div>
+          ))}
+
+          <div style={{ marginBottom: 14 }}>
+            <label className="ob-label" style={{ marginTop: 0 }}>Water Target</label>
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
+              {WATER_ACTIVITY_LEVELS.map(l => (
+                <button key={l.key} className={`prof-btn${waterActivityLevel === l.key ? ' solid' : ''}`}
+                  onClick={() => { setWaterActivityLevel(l.key); setWaterTouched(false); }}>{l.label}</button>
+              ))}
+              <button className={`prof-btn${waterHotClimate ? ' solid' : ''}`}
+                onClick={() => { setWaterHotClimate(v => !v); setWaterTouched(false); }}>Hot / humid climate</button>
+            </div>
+            <div className="ob-stepper" style={{ margin: '8px 0 4px' }}>
+              <button className="ob-stepper-btn" onClick={() => { setWaterTouched(true); setWaterTarget(v => Math.max(2, v - 1)); }}>−</button>
+              <div className="ob-stepper-val">{waterTarget} gl</div>
+              <button className="ob-stepper-btn" onClick={() => { setWaterTouched(true); setWaterTarget(v => Math.min(16, v + 1)); }}>+</button>
+            </div>
+            <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, color: 'var(--dim)' }}>
+              {waterCalc != null
+                ? `Recommended ${waterCalc} glasses — ${Math.round(weightKgForWater)}kg × 35mL + ${waterActivityLevel} activity${waterHotClimate ? ' + hot climate' : ''}.`
+                : 'Log a weight entry for a recommended target.'}
+            </div>
+          </div>
+
+          {[
             ['Training Days / Week', trainingDays, v => setTrainingDays(v), 1, 1, 7, v => `${v} days`],
           ].map(([label, val, set, step, min, max, fmt]) => (
             <div key={label} style={{ marginBottom: 14 }}>
