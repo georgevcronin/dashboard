@@ -1033,6 +1033,13 @@ const glycogenPct = (elapsedS, totalS) => {
 // app's first version — everything before this had no changelog at all.
 const CHANGELOG = [
   {
+    version: '0.92',
+    date: '2026-08-07',
+    features: [
+      'Macro Targets\' presets are now High Carb / Low Carb / High Protein instead of Cut/Maintain/Bulk — each just fills in a split ratio, same as dragging the sliders by hand. Calorie Target is its own explicit stepper now, separate from the split entirely, so picking a split preset never changes your calorie total.',
+    ],
+  },
+  {
     version: '0.91',
     date: '2026-08-07',
     features: [
@@ -6413,19 +6420,18 @@ const ACTIVITY_DEFS = [
 ];
 // Macro Targets -- a different question from trainingGoals above (what you
 // eat, not what you train for). Settings-only (Onboarding step 3 dropped
-// diet goal entirely — see the Step 3 comment below). Three presets, not
-// four: Cut/Maintain/Bulk map 1:1 onto the only three bodyweight-based
-// profiles /macro-auto (functions/index.js) actually computes — 22/26/30
-// kcal per kg bodyweight, 2.2/2.0/1.8g protein per kg. The old picker had a
-// fourth label ("Athletic Performance") that silently computed the exact
-// same numbers as Maintain; collapsed into one honest preset instead of two
-// that read as different but weren't. Custom (rendered alongside these,
-// Settings only) bypasses the calculation entirely via /macro-targets,
-// which already existed server-side with no frontend calling it.
+// diet goal entirely — see the Step 3 comment below). Three named split
+// ratios, not a goal/deficit picker — clicking one just fills the
+// protein/carbs/fat sliders below with that ratio, same as dragging them by
+// hand. Calories are a separate, explicit stepper (their own control, not
+// derived from bodyweight or tied to any of these) — the old Cut/Maintain/
+// Bulk picker conflated "how many calories" with "what ratio," so picking a
+// split also silently changed the total; those are two different questions
+// now, matching Custom's split-only behaviour.
 const MACRO_SPLIT_PRESETS = [
-  { key: 'cut', label: 'Cut', desc: 'Calorie deficit, preserve muscle' },
-  { key: 'recomp', label: 'Maintain', desc: 'Balanced macros, steady weight' },
-  { key: 'bulk', label: 'Bulk', desc: 'Caloric surplus, progressive overload' },
+  { key: 'high_carb', label: 'High Carb', split: { protein: 20, carbs: 55, fat: 25 } },
+  { key: 'low_carb', label: 'Low Carb', split: { protein: 35, carbs: 20, fat: 45 } },
+  { key: 'high_protein', label: 'High Protein', split: { protein: 40, carbs: 35, fat: 25 } },
 ];
 // FEATURES.md #22 -- suggests a starting point for the sleep/water/frequency
 // steppers on the Targets step from whatever training goals were just
@@ -6560,10 +6566,10 @@ function Onboarding({ s, onComplete, onOpenImport }) {
     ? gs.filter(g => g.type !== key) : [...gs, { type: key, priority: 'secondary', concrete: false }]);
   const updateGoal = (key, patch) => setTrainingGoals(gs => gs.map(g => g.type === key ? { ...g, ...patch } : g));
 
-  // Step 3 — Daily Targets. Macro targets (Cut/Maintain/Bulk presets, or
-  // Custom) used to live here too — moved out entirely; it's Settings-only
-  // now (MACRO_SPLIT_PRESETS below, rendered there). This step no longer
-  // reads or writes profile.goal/macroTargets.
+  // Step 3 — Daily Targets. Macro targets (calorie stepper, split presets)
+  // used to live here too — moved out entirely; it's Settings-only now
+  // (MACRO_SPLIT_PRESETS below, rendered there). This step no longer reads
+  // or writes profile.goal/macroTargets.
   const [sleepTarget, setSleepTarget] = useState(() => s?.profile?.sleepTarget || 8);
   const [waterTarget, setWaterTarget] = useState(() => s?.profile?.waterTarget || 7);
   const [trainingDays, setTrainingDays] = useState(() => s?.profile?.trainingDaysPerWeek || 4);
@@ -8587,50 +8593,29 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
     setSavingActivities(false);
   };
 
-  // ── Macro Targets — three presets (MACRO_SPLIT_PRESETS above) driving
-  // /macro-auto's bodyweight-based calculation, plus Custom for direct
-  // numbers via /macro-targets (existed server-side, no frontend ever
-  // called it). Settings-only now — Onboarding step 3 dropped this
-  // entirely (see its comment there).
-  // activeMacroPreset is null while macroMode is 'manual' (Custom is
-  // active) so no preset card reads as selected when the real source of
-  // truth is the sliders below, not a calculated profile.
-  const activeMacroPreset = s?.profile?.macroMode === 'manual' ? null : s?.profile?.macroGoal || null;
-  // Cut only: /macro-auto checks the calculated deficit against a real
-  // per-person maintenance estimate (functions/nutritionLimits.js) and
-  // returns a status alongside the targets — 'hard-limit' means the raw
-  // calculation was capped, 'warning' means it went through unchanged but
-  // is aggressive. Surfaced here, immediately, same as every other
-  // Settings field's inline feedback — no confirmation gate needed since
-  // there's no multi-step flow to pause here the way Onboarding has.
-  const [dietGoalNotice, setDietGoalNotice] = useState(null);
-  // Percentage split only — Custom redistributes what the current calorie
-  // total is made of, it never changes the total itself (see
-  // macroSplitFromTargets/adjustMacroSplit/macroGramsFromSplit above).
-  const [customSplit, setCustomSplit] = useState(() => macroSplitFromTargets(s?.profile?.macroTargets));
-  const [showCustomMacros, setShowCustomMacros] = useState(s?.profile?.macroMode === 'manual');
-  const [savingCustomMacros, setSavingCustomMacros] = useState(false);
-  const customMacroCalories = s?.profile?.macroTargets?.calories || 2400;
-  const customMacroGrams = macroGramsFromSplit(customSplit, customMacroCalories);
-  const applyMacroPreset = async (preset) => {
-    setDietGoalNotice(null);
-    // Still writes profile.goal as a human label (not the short 'cut'/
-    // 'recomp'/'bulk' key /macro-auto stores as macroGoal) — Atlas's
-    // post-session prompt (functions/index.js) reads it as free text with a
-    // 'build muscle' fallback, and would silently stop getting a real value
-    // here the moment this stopped setting it.
-    const profile = await api('profile', { method: 'POST', body: JSON.stringify({ goal: preset.label }) });
-    const data = await api('macro-auto', { method: 'POST', body: JSON.stringify({ goal: preset.key }) });
-    refresh({ ...s, profile, macroGoal: data.goal, macroTargets: data.targets, macroMode: 'auto' });
-    setCustomSplit(macroSplitFromTargets(data.targets));
-    if (data.deficitCheck && data.deficitCheck.status !== 'ok') setDietGoalNotice(data.deficitCheck);
+  // ── Macro Targets — a calorie stepper (the only thing that sets the
+  // total; nothing here derives it from bodyweight anymore) plus a
+  // protein/carbs/fat split, always editable via the sliders below.
+  // MACRO_SPLIT_PRESETS just fills the sliders with a named ratio — same as
+  // dragging them by hand, doesn't touch macroCals. Everything commits
+  // together via /macro-targets on Save (already existed server-side with
+  // no frontend calling it).
+  const [macroCals, setMacroCals] = useState(s?.profile?.macroTargets?.calories || 2400);
+  const [macroSplit, setMacroSplit] = useState(() => macroSplitFromTargets(s?.profile?.macroTargets));
+  const [savingMacros, setSavingMacros] = useState(false);
+  const macroGrams = macroGramsFromSplit(macroSplit, macroCals);
+  const applySplitPreset = (preset) => {
+    setMacroSplit(preset.split);
+    // Human-readable label, best-effort — Atlas's post-session prompt
+    // (functions/index.js) reads profile.goal as free text with a 'build
+    // muscle' fallback. Fire-and-forget: it's just AI context, not worth
+    // blocking the slider fill on.
+    api('profile', { method: 'POST', body: JSON.stringify({ goal: preset.label }) }).then(profile => refresh({ ...s, profile })).catch(() => {});
   };
-  const saveCustomMacros = async () => {
-    setSavingCustomMacros(true);
-    // No `calories` key — /macro-targets only overwrites keys it's given,
-    // so the existing total is left exactly as it was.
-    const targets = await api('macro-targets', { method: 'POST', body: JSON.stringify(customMacroGrams) });
-    setSavingCustomMacros(false);
+  const saveMacros = async () => {
+    setSavingMacros(true);
+    const targets = await api('macro-targets', { method: 'POST', body: JSON.stringify({ calories: macroCals, ...macroGrams }) });
+    setSavingMacros(false);
     refresh({ ...s, macroTargets: targets, macroMode: 'manual' });
   };
 
@@ -8952,62 +8937,49 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
         {/* ── MACRO TARGETS ── */}
         <div className="settings-sec" id="sec-macro-targets">
           <div className="settings-sh">Macro Targets <span style={{ fontWeight: 400, textTransform: 'none', fontSize: 9, color: 'var(--dim)' }}>(calorie/protein/carb/fat targets)</span></div>
-          <div className="ob-goal-grid">
-            {MACRO_SPLIT_PRESETS.map(p => (
-              <button key={p.key} className={`ob-goal-card${activeMacroPreset === p.key ? ' selected' : ''}`} onClick={() => applyMacroPreset(p)}>
-                <div className="ob-goal-card-title">{p.label}</div>
-                <div className="ob-goal-card-desc">{p.desc}</div>
-              </button>
-            ))}
-            <button className={`ob-goal-card${s?.profile?.macroMode === 'manual' ? ' selected' : ''}`} onClick={() => setShowCustomMacros(v => !v)}>
-              <div className="ob-goal-card-title">Custom</div>
-              <div className="ob-goal-card-desc">Set calories and macros directly</div>
-            </button>
+
+          <label className="ob-label" style={{ marginTop: 0 }}>Calorie Target</label>
+          <div className="ob-stepper" style={{ margin: '8px 0 14px' }}>
+            <button className="ob-stepper-btn" onClick={() => setMacroCals(v => Math.max(1200, v - 50))}>−</button>
+            <div className="ob-stepper-val">{macroCals}<span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 12, color: 'var(--dim)', fontWeight: 400 }}> kcal</span></div>
+            <button className="ob-stepper-btn" onClick={() => setMacroCals(v => Math.min(5000, v + 50))}>+</button>
           </div>
-          {dietGoalNotice && (
-            <div style={{
-              fontFamily: "'JetBrains Mono',monospace", fontSize: 10, lineHeight: 1.5, marginTop: 4,
-              color: dietGoalNotice.status === 'hard-limit' ? 'var(--red)' : 'var(--ember)',
-            }}>
-              {dietGoalNotice.status === 'hard-limit' ? 'Hard limit — ' : '⚠ '}{dietGoalNotice.message}
-            </div>
-          )}
-          {showCustomMacros && (
-            <div style={{ marginTop: 10, borderTop: '1px solid var(--rule)', paddingTop: 10 }}>
-              <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)', marginBottom: 8 }}>
-                Redistributes your current {customMacroCalories.toLocaleString()} kcal target across macros — doesn't change the total. Pick a preset above first if you want a different calorie target.
-              </div>
 
-              {/* Segmented split bar — protein/carbs/fat proportional widths, same colors S4's macro rows already use. */}
-              <div style={{ display: 'flex', height: 10, width: '100%', overflow: 'hidden', border: '1px solid var(--rule)' }}>
-                <div style={{ width: `${customSplit.protein}%`, background: 'var(--navy)' }} />
-                <div style={{ width: `${customSplit.carbs}%`, background: 'var(--forest)' }} />
-                <div style={{ width: `${customSplit.fat}%`, background: 'var(--ember)' }} />
-              </div>
+          <label className="ob-label">Split</label>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
+            {MACRO_SPLIT_PRESETS.map(p => (
+              <button key={p.key} className="prof-btn" onClick={() => applySplitPreset(p)}>{p.label}</button>
+            ))}
+          </div>
 
-              {[
-                ['Protein', 'protein', 'var(--navy)'],
-                ['Carbs', 'carbs', 'var(--forest)'],
-                ['Fat', 'fat', 'var(--ember)'],
-              ].map(([label, key, color]) => (
-                <div key={key} className="prof-field">
-                  <span className="prof-lbl" style={{ color }}>{label}</span>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <input type="range" min={0} max={100} step={1} value={customSplit[key]}
-                      onChange={e => setCustomSplit(sp => adjustMacroSplit(sp, key, +e.target.value))}
-                      style={{ flex: 1, accentColor: color }} />
-                    <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, color: 'var(--ink)', minWidth: 84, textAlign: 'right' }}>
-                      {customSplit[key]}% · {customMacroGrams[key]}g
-                    </span>
-                  </div>
-                </div>
-              ))}
-              <button className="prof-btn solid" style={{ padding: '7px 20px', marginTop: 4 }}
-                onClick={saveCustomMacros} disabled={savingCustomMacros}>
-                {savingCustomMacros ? 'Saving…' : 'Save Custom Split'}
-              </button>
+          {/* Segmented split bar — protein/carbs/fat proportional widths, same colors S4's macro rows already use. */}
+          <div style={{ display: 'flex', height: 10, width: '100%', overflow: 'hidden', border: '1px solid var(--rule)' }}>
+            <div style={{ width: `${macroSplit.protein}%`, background: 'var(--navy)' }} />
+            <div style={{ width: `${macroSplit.carbs}%`, background: 'var(--forest)' }} />
+            <div style={{ width: `${macroSplit.fat}%`, background: 'var(--ember)' }} />
+          </div>
+
+          {[
+            ['Protein', 'protein', 'var(--navy)'],
+            ['Carbs', 'carbs', 'var(--forest)'],
+            ['Fat', 'fat', 'var(--ember)'],
+          ].map(([label, key, color]) => (
+            <div key={key} className="prof-field">
+              <span className="prof-lbl" style={{ color }}>{label}</span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <input type="range" min={0} max={100} step={1} value={macroSplit[key]}
+                  onChange={e => setMacroSplit(sp => adjustMacroSplit(sp, key, +e.target.value))}
+                  style={{ flex: 1, accentColor: color }} />
+                <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, color: 'var(--ink)', minWidth: 84, textAlign: 'right' }}>
+                  {macroSplit[key]}% · {macroGrams[key]}g
+                </span>
+              </div>
             </div>
-          )}
+          ))}
+          <button className="prof-btn solid" style={{ padding: '7px 20px', marginTop: 4 }}
+            onClick={saveMacros} disabled={savingMacros}>
+            {savingMacros ? 'Saving…' : 'Save Macro Targets'}
+          </button>
         </div>
 
         {/* ── TRACKING LEVEL ── */}
