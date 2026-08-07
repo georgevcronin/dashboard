@@ -11848,7 +11848,7 @@ function App() {
     if (saveGridLayoutTimer.current) clearTimeout(saveGridLayoutTimer.current);
     saveGridLayoutTimer.current = setTimeout(() => {
       const gridLayouts = { ...(s?.profile?.gridLayouts || {}), [columnCount]: layout };
-      setS(cur => ({ ...cur, profile: { ...cur.profile, gridLayouts } }));
+      setS(cur => cur ? { ...cur, profile: { ...cur.profile, gridLayouts } } : cur);
       api('profile', { method: 'POST', body: JSON.stringify({ gridLayouts }) }).catch(() => {});
     }, 300);
   };
@@ -12039,9 +12039,9 @@ function App() {
   // and layoutMasonry's ResizeObserver repacks off the resulting height change.
   const setPanelState = async (id, next) => {
     const merged = { ...panelStates, [id]: next };
-    setS(cur => ({ ...cur, profile: { ...cur.profile, panelStates: merged } }));
+    setS(cur => cur ? { ...cur, profile: { ...cur.profile, panelStates: merged } } : cur);
     const profile = await api('profile', { method: 'POST', body: JSON.stringify({ panelStates: merged }) });
-    setS(cur => ({ ...cur, profile }));
+    setS(cur => cur ? { ...cur, profile } : cur);
   };
 
   useEffect(() => {

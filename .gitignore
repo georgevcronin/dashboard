@@ -8,3 +8,4 @@ public/app.js
 scripts/simulate/out/
 scripts/simulate/.sim-clock
 firestore-debug.log
+firebase-debug.log
