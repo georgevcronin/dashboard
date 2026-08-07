@@ -77,7 +77,7 @@ const { personalizedRecoveryHours, trainingMonthsIfKnown, computeAgeYears } = re
 const { cyclePhaseFactor, observedHeaviness, nudgeLearnedHeaviness, periodsOverlap, predictedNextPeriod, parseDateOnly } = require('./cycleTracking');
 // Only computed when tracking is on and there's at least one logged entry
 // — otherwise cycleFactor stays exactly 1 (a no-op), same "opt-in changes
-// nothing until there's real data" posture as musclePriorities/goals.
+// nothing until there's real data" posture as muscleFocus/goals.
 function activeCycleFactor(db) {
   if (!db.profile?.cycleTrackingEnabled || !(db.cycle || []).length) return 1;
   return cyclePhaseFactor(db.cycle, Date.now(), db.profile?.cycleIrregular, db.profile?.cycleHeavinessLearned).factor;
@@ -1345,14 +1345,6 @@ app.post("/profile", async (req, res) => {
     const invalid = body.equipmentAvailable.filter(e => !validEquipment.includes(e));
     if (invalid.length) {
       return res.status(400).json({ error: `Invalid equipment: ${invalid.join(', ')}` });
-    }
-  }
-  if (body.musclePriorities && typeof body.musclePriorities === 'object') {
-    const validPriorities = ['focus', 'baseline', 'avoid'];
-    for (const [muscle, priority] of Object.entries(body.musclePriorities)) {
-      if (!validPriorities.includes(priority)) {
-        return res.status(400).json({ error: `Invalid priority for ${muscle}: ${priority}` });
-      }
     }
   }
   // Recurring "no gym Tuesday/Thursday"-style blackout, indefinite — see

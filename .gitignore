@@ -4,3 +4,7 @@ functions/node_modules/
 functions/.env
 .firebase/
 public/app.js
+
+scripts/simulate/out/
+scripts/simulate/.sim-clock
+firestore-debug.log

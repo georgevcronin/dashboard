@@ -21,7 +21,6 @@ Located: `functions/userDoc.js` (DEFAULTS)
     primaryActivity: "strength" | "running" | "hybrid" | "sports" | "crossfit",
     secondaryActivity: "strength" | "running" | "hybrid" | "sports" | "crossfit",
     equipmentAvailable: ["barbell" | "dumbbell" | "cable" | "machine" | "smith" | "bodyweight"],
-    musclePriorities: { [muscle]: "focus" | "baseline" | "avoid" },
     weeklyTargets: { lifting: {}, running: {}, sports: {} },
     activityPreferences: { lifting: {}, running: {} },
     visibility: { workoutSessions: boolean, comparison: boolean }
@@ -276,7 +275,6 @@ app.use(async (req, res, next) => {
   primaryActivity: "strength" | "running" | "hybrid" | "sports" | "crossfit",
   secondaryActivity: "strength" | "running" | "hybrid" | "sports" | "crossfit",
   equipmentAvailable: ["barbell" | "dumbbell" | "cable" | "machine" | "smith" | "bodyweight"],
-  musclePriorities: { [muscle]: "focus" | "baseline" | "avoid" },
   // ... other fields
 }
 ```
@@ -337,9 +335,8 @@ const [trainingExperienceYears, setTrainingExperienceYears] = useState('')
 const [primaryActivity, setPrimaryActivity] = useState('')
 const [secondaryActivity, setSecondaryActivity] = useState('')
 
-// Track 3: Equipment & Priorities
+// Track 3: Equipment
 const [equipmentAvailable, setEquipmentAvailable] = useState([])
-const [musclePriorities, setMusclePriorities] = useState({})
 
 // Macro targets
 const [macroMode, setMacroMode] = useState('manual')

@@ -34,7 +34,6 @@ const DEFAULTS = () => ({
     goals: [],
     activities: [],
     equipmentAvailable: [],
-    musclePriorities: {},
     weeklyTargets: { lifting: {}, running: {}, sports: {} },
     activityPreferences: { lifting: {}, running: {} },
     unavailableDaysOfWeek: [],
