@@ -1033,6 +1033,13 @@ const glycogenPct = (elapsedS, totalS) => {
 // app's first version — everything before this had no changelog at all.
 const CHANGELOG = [
   {
+    version: '0.93',
+    date: '2026-08-07',
+    features: [
+      'Settings\' Macro Targets section is now two separately-navigable TOC entries — Calorie Target and Macro Split — matching that they\'re two independent controls now (still saved together with one button).',
+    ],
+  },
+  {
     version: '0.92',
     date: '2026-08-07',
     features: [
@@ -8644,7 +8651,8 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
       { id: 'sec-identity', label: 'Identity' },
       { id: 'sec-training-goals', label: 'Training Goals' },
       { id: 'sec-activities', label: 'Activities' },
-      { id: 'sec-macro-targets', label: 'Macro Targets' },
+      { id: 'sec-calorie-target', label: 'Calorie Target' },
+      { id: 'sec-macro-split', label: 'Macro Split' },
       { id: 'sec-tracking-level', label: 'Tracking Level' },
       { id: 'sec-training-preferences', label: 'Training Preferences' },
       { id: 'sec-training-background', label: 'Training Background' },
@@ -8934,18 +8942,21 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
           </button>
         </div>
 
-        {/* ── MACRO TARGETS ── */}
-        <div className="settings-sec" id="sec-macro-targets">
-          <div className="settings-sh">Macro Targets <span style={{ fontWeight: 400, textTransform: 'none', fontSize: 9, color: 'var(--dim)' }}>(calorie/protein/carb/fat targets)</span></div>
-
-          <label className="ob-label" style={{ marginTop: 0 }}>Calorie Target</label>
-          <div className="ob-stepper" style={{ margin: '8px 0 14px' }}>
+        {/* ── CALORIE TARGET ── */}
+        <div className="settings-sec" id="sec-calorie-target">
+          <div className="settings-sh">Calorie Target</div>
+          <div className="ob-stepper" style={{ margin: '8px 0 4px' }}>
             <button className="ob-stepper-btn" onClick={() => setMacroCals(v => Math.max(1200, v - 50))}>−</button>
             <div className="ob-stepper-val">{macroCals}<span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 12, color: 'var(--dim)', fontWeight: 400 }}> kcal</span></div>
             <button className="ob-stepper-btn" onClick={() => setMacroCals(v => Math.min(5000, v + 50))}>+</button>
           </div>
+          <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, color: 'var(--dim)' }}>Saved together with the macro split below.</div>
+        </div>
 
-          <label className="ob-label">Split</label>
+        {/* ── MACRO SPLIT ── */}
+        <div className="settings-sec" id="sec-macro-split">
+          <div className="settings-sh">Macro Split <span style={{ fontWeight: 400, textTransform: 'none', fontSize: 9, color: 'var(--dim)' }}>(protein/carb/fat, at the calorie target above)</span></div>
+
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
             {MACRO_SPLIT_PRESETS.map(p => (
               <button key={p.key} className="prof-btn" onClick={() => applySplitPreset(p)}>{p.label}</button>
