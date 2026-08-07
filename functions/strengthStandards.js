@@ -1,6 +1,7 @@
-const { MUSCLE_EXERCISE_MAP, MUSCLE_EXERCISE_ALIASES, thresholdsForMuscle } = require('./muscleStandards');
+const { MUSCLE_EXERCISE_MAP, MUSCLE_EXERCISE_ALIASES, thresholdsForMuscle, MUSCLE_EMG_BLEND_SOURCES, thresholdsForExercise } = require('./muscleStandards');
 const { findExercise, musclesForExercise } = require('./muscleTaxonomy');
 const { EXERCISE_NAME_ALIASES } = require('./exerciseNameAliases');
+const { emgProfileForExercise } = require('./exerciseEmgProfiles');
 
 // Strength math shared across the app: e1RM estimation, and the "5 classic
 // lifts" (squat/bench/deadlift/OHP/row) classification used by the /trends
@@ -385,6 +386,69 @@ const MIN_SESSIONS_FOR_AGGREGATION = 2;
 // explicitly at the user's request despite the sourcing gap.
 const MAX_FATIGUE_1RM_DECREMENT = 0.25;
 
+// EMG-weighted blend for a muscle in MUSCLE_EMG_BLEND_SOURCES (rhomboids,
+// mid-traps — always co-primary with lats/rear-delt on every real exercise
+// that trains them, so no single canonical pick is honest). For each
+// contributing exercise: score the athlete's best raw e1RM against that
+// EXACT exercise's own real strengthlevel.com table (same scoreForRatio
+// math as the canonical path, just per-exercise instead of per-muscle),
+// then average those scores weighted by the muscle's real EMG activation
+// % in that exercise — the harder an exercise actually hits the muscle,
+// the more its score counts:
+//
+//   score_m = Σ(score_e · pct_m(e)) / Σ(pct_m(e))
+//
+// No fatigue correction here (unlike the canonical path) — fatigue
+// correction exists to make a fair ratio between two exercises measured in
+// the SAME unit (kg on the canonical lift vs. kg on a related one); here
+// every exercise is already converted to its own 0-100 score before
+// blending, so there's no cross-exercise kg comparison left to correct.
+// No ETA either — etaToNextLevel needs one consistent kg/threshold series
+// to fit a trend line against; a blended muscle has none.
+function computeBlendedMuscleLevel(muscle, sources, lifts, weightHistory, currentBodyweightKg, sex) {
+  const liftsByExercise = {};
+  for (const l of (lifts || [])) {
+    const canonical = findExercise(l.exercise)?.name;
+    if (canonical) (liftsByExercise[canonical] = liftsByExercise[canonical] || []).push(l);
+  }
+
+  const contributors = [];
+  for (const { exercise, standard } of sources) {
+    const entries = (liftsByExercise[exercise] || [])
+      .map(l => ({ raw: estimate1RM(l.kg, l.reps), date: l.date }))
+      .filter(e => e.raw != null);
+    const best = recentBest(entries);
+    if (!best) continue;
+    const bw = bodyweightNear(weightHistory, best.date) ?? currentBodyweightKg;
+    if (!bw) continue;
+    const thresholds = thresholdsForExercise(standard, sex, bw);
+    if (!thresholds) continue;
+    const emgPct = emgProfileForExercise(exercise)?.[muscle];
+    if (!emgPct) continue;
+    const { score } = scoreForRatio(best.raw, thresholds);
+    contributors.push({ exercise, e1RM: best.raw, date: best.date, bodyweightKg: bw, score, weight: emgPct });
+  }
+  if (!contributors.length) return null;
+
+  const weightTotal = contributors.reduce((a, c) => a + c.weight, 0);
+  const score = Math.round(contributors.reduce((a, c) => a + c.score * c.weight, 0) / weightTotal);
+  const dominant = contributors.reduce((a, c) => (c.weight > a.weight ? c : a));
+  const latestDate = contributors.reduce((a, c) => (c.date > a ? c.date : a), dominant.date);
+  const bandFloor = TIER_BANDS.filter(([floor]) => floor <= score).at(-1)?.[0] ?? 0;
+  const nextBand = TIER_BANDS.find(([floor]) => floor > score);
+  const others = contributors.filter(c => c !== dominant).map(c => c.exercise);
+
+  return {
+    e1RM: Math.round(dominant.e1RM * 10) / 10,
+    exercise: dominant.exercise,
+    date: latestDate,
+    bodyweightKg: dominant.bodyweightKg,
+    tier: tierNameForScore(score), score,
+    bandFloor, bandCeiling: nextBand ? nextBand[0] : null,
+    ...(others.length ? { blendedFrom: others } : {}),
+  };
+}
+
 // lifts: db.lifts. weightHistory/currentBodyweightKg/sex: see
 // computeStrengthLevels. fatigueTimeline: optional, index-aligned with
 // `lifts` (fatigueTimeline.js's fatigueTimeline() output) — each entry maps
@@ -416,6 +480,9 @@ function computeMuscleLevels(lifts, weightHistory, currentBodyweightKg, sex, fat
   }
 
   const muscles = {};
+  for (const muscle of Object.keys(MUSCLE_EMG_BLEND_SOURCES)) {
+    muscles[muscle] = computeBlendedMuscleLevel(muscle, MUSCLE_EMG_BLEND_SOURCES[muscle], lifts, weightHistory, currentBodyweightKg, sex);
+  }
   for (const muscle of Object.keys(MUSCLE_EXERCISE_MAP)) {
     const exerciseName = MUSCLE_EXERCISE_MAP[muscle];
     const exerciseNameLower = exerciseName.toLowerCase();
@@ -542,4 +609,4 @@ function computeMuscleLevels(lifts, weightHistory, currentBodyweightKg, sex, fat
   return muscles;
 }
 
-module.exports = { computeMuscleLevels, classifyLift, estimate1RM, e1rm, e1rmTrendSlope, bodyweightNear, scoreForRatio, STANDARDS, TIERS };
+module.exports = { computeMuscleLevels, computeBlendedMuscleLevel, classifyLift, estimate1RM, e1rm, e1rmTrendSlope, bodyweightNear, scoreForRatio, STANDARDS, TIERS };

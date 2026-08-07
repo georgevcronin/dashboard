@@ -1033,6 +1033,13 @@ const glycogenPct = (elapsedS, totalS) => {
 // app's first version — everything before this had no changelog at all.
 const CHANGELOG = [
   {
+    version: '0.94',
+    date: '2026-08-07',
+    features: [
+      'Strength Level ranking gets adductors back (removed by an earlier explicit request, since reversed) and, new, rhomboids and mid-traps — both were unrankable before since every real exercise that trains them shares the load with lats or rear-delt. They now score from an EMG-weighted blend of Seated Cable Row and Barbell Row (Overhand/Pendlay), weighted by each exercise\'s real published activation % for that muscle, using the same sourced strengthlevel.com bodyweight tables as every other ranked muscle. Lower-traps stays unranked — no real exercise credits it as more than an incidental stabilizer.',
+    ],
+  },
+  {
     version: '0.93',
     date: '2026-08-07',
     features: [

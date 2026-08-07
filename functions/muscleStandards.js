@@ -18,17 +18,19 @@
 // strengthStandards.js's computeMuscleLevels to kick in.
 //
 // Muscles with no ranking at all (no isolation exercise with real published
-// standards exists): hip-flexors, lower-traps, mid-traps, rhomboids,
-// tibialis, transverse-abs, core. 'core' was seriously considered for
+// standards exists, and — unlike rhomboids/mid-traps below — no real
+// EMG-blend path either): hip-flexors, lower-traps, tibialis,
+// transverse-abs, core. 'core' was seriously considered for
 // Bicycle Crunch (an EMG study ranks it #1 for abs/obliques/transverse-abs
 // combined) but the user opted to keep muscles on separate, distinct
 // exercises rather than share one across three — so 'core' stays unranked
 // since none of its own candidate exercises (Plank Shoulder Tap, Goblet
-// Carry) have published strengthlevel.com standards. rotator-cuff and
-// adductors both had real sourced standards (External Rotation (Cable),
-// Adductor Machine) but were removed from the map by explicit user request,
-// not for a data reason — re-add them plus their MUSCLE_STANDARDS tables
-// (still in git history) if that changes.
+// Carry) have published strengthlevel.com standards. rotator-cuff had a
+// real sourced standard (External Rotation (Cable)) but was removed from
+// the map by explicit user request, not for a data reason — re-add
+// 'rotator-cuff': 'External Rotation (Cable)' plus its MUSCLE_STANDARDS
+// table (still in git history) if that changes. adductors was removed for
+// the same reason and later re-added by later explicit user request.
 //
 // Values are raw kg thresholds at that exact bodyweight (strengthlevel.com's
 // own numbers are already bodyweight-scaled — no ratio/allometric step
@@ -39,6 +41,7 @@
 const MUSCLE_EXERCISE_MAP = {
   abductors: 'Abductor Machine',
   abs: 'Cable Crunch',
+  adductors: 'Adductor Machine',
   biceps: 'Barbell Curl',
   brachialis: 'Hammer Curl',
   brachioradialis: 'Reverse Curl',
@@ -64,6 +67,10 @@ const MUSCLE_STANDARDS = {
   'Abductor Machine': {
     male: [[50,14,35,66,107,156],[55,18,40,73,116,166],[60,21,45,80,125,176],[65,25,50,86,133,186],[70,28,55,93,140,195],[75,31,59,98,147,203],[80,34,64,104,154,211],[85,38,68,110,161,219],[90,41,72,115,167,227],[95,44,76,120,174,234],[100,47,80,125,180,241],[105,50,84,130,185,247],[110,53,88,135,191,254],[115,56,92,139,196,260],[120,58,95,143,202,266],[125,61,99,148,207,272],[130,64,102,152,212,278],[135,67,106,156,217,283],[140,69,109,160,221,289]],
     female: [[40,18,36,62,96,134],[45,19,38,65,99,138],[50,20,40,67,102,142],[55,22,42,70,105,145],[60,23,43,72,107,148],[65,24,45,74,110,151],[70,25,46,75,112,154],[75,26,47,77,114,156],[80,27,49,79,116,158],[85,28,50,80,118,161],[90,29,51,82,120,163],[95,29,52,83,121,165],[100,30,53,85,123,166],[105,31,54,86,125,168],[110,32,55,87,126,170],[115,32,56,88,127,172],[120,33,57,89,129,173]],
+  },
+  'Adductor Machine': {
+    male: [[50,16,39,74,121,175],[55,20,44,81,129,186],[60,23,49,88,138,195],[65,26,54,94,146,205],[70,29,59,100,153,214],[75,33,63,106,160,222],[80,36,68,112,167,230],[85,39,72,117,174,238],[90,42,76,122,180,245],[95,45,80,127,186,252],[100,48,84,132,192,259],[105,50,87,137,198,266],[110,53,91,141,203,272],[115,56,95,146,208,278],[120,59,98,150,213,284],[125,61,101,154,218,290],[130,64,105,158,223,295],[135,66,108,162,228,301],[140,69,111,166,232,306]],
+    female: [[40,14,31,55,86,122],[45,16,34,59,91,128],[50,18,36,62,95,132],[55,20,38,65,98,137],[60,21,41,68,102,141],[65,23,43,71,105,145],[70,24,45,73,108,149],[75,26,47,75,111,152],[80,27,48,78,114,155],[85,28,50,80,117,158],[90,29,52,82,119,161],[95,31,53,84,122,164],[100,32,55,86,124,167],[105,33,56,88,126,169],[110,34,58,90,128,172],[115,35,59,91,130,174],[120,36,60,93,132,176]],
   },
   'Cable Crunch': {
     male: [[50,7,23,49,85,128],[55,9,27,54,92,137],[60,12,30,60,99,145],[65,14,34,65,105,153],[70,16,38,70,112,161],[75,19,41,75,118,168],[80,21,45,79,124,175],[85,23,48,84,129,182],[90,26,52,88,135,188],[95,28,55,92,140,194],[100,30,58,96,145,200],[105,32,61,100,150,206],[110,35,64,104,154,211],[115,37,67,108,159,216],[120,39,70,112,163,222],[125,41,73,115,168,227],[130,43,75,119,172,231],[135,45,78,122,176,236],[140,47,81,125,180,241]],
@@ -151,6 +158,7 @@ const MUSCLE_STANDARDS = {
 // are deliberately excluded, same discipline as CLASSIFY_ALIASES.
 const MUSCLE_EXERCISE_ALIASES = {
   'hip abduction (machine)': 'Abductor Machine',
+  'hip adduction (machine)': 'Adductor Machine',
   'bench press (barbell)': 'Barbell Bench Press',
   'bicep curl (barbell)': 'Barbell Curl',
   'hammer curl (dumbbell)': 'Hammer Curl',
@@ -196,4 +204,59 @@ function thresholdsForMuscle(muscle, sex, bodyweightKg) {
   return { exerciseName, thresholds: interpolateStandards(table, bodyweightKg) };
 }
 
-module.exports = { MUSCLE_EXERCISE_MAP, MUSCLE_EXERCISE_ALIASES, MUSCLE_STANDARDS, interpolateStandards, thresholdsForMuscle };
+// EMG-weighted blend, for a muscle with no clean single-exercise standard
+// (always co-primary with lats or rear-delt on every real lift that trains
+// it — see MUSCLE_STANDARDS' own header). Rather than force a canonical
+// pick that would misattribute a lats-dominant compound's load as this
+// muscle's own strength, blend real strengthlevel.com tables from multiple
+// compounds, weighted by how hard each one actually activates the muscle
+// (raw EMG % from exerciseEmgProfiles.js, same source strengthStandards.js
+// already uses for fatigue). See strengthStandards.js's
+// computeBlendedMuscleLevel for the actual math.
+//
+// Both `exercise` (the exact exerciseDb.js name a logged set is matched
+// against, via findExercise so the ~140-alias import-name table already
+// used everywhere else covers it too) and `standard` (EXERCISE_STANDARDS'
+// key) are sourced from real strengthlevel.com pages — nothing invented.
+// lower-traps stays unranked: the only exercises that credit it via a real
+// curated EMG profile are heavy overhead presses, where it's an incidental
+// stabilizer, not what the lift's own published standard actually measures.
+const MUSCLE_EMG_BLEND_SOURCES = {
+  rhomboids: [
+    { exercise: 'Seated Cable Row', standard: 'Seated Cable Row' },
+    { exercise: 'Barbell Row (Overhand / Pendlay)', standard: 'Bent Over Row' },
+  ],
+  'mid-traps': [
+    { exercise: 'Seated Cable Row', standard: 'Seated Cable Row' },
+    { exercise: 'Barbell Row (Overhand / Pendlay)', standard: 'Bent Over Row' },
+  ],
+};
+
+// Same shape and same strengthlevel.com "By Bodyweight" sourcing as
+// MUSCLE_STANDARDS, keyed by exercise name instead of muscle — a compound
+// lift's own table is shared across every muscle blended from it.
+// strengthlevel.com's "Bent Over Row" is the generic barbell bent-over row
+// (no grip specified on the page); mapped to the overhand/Pendlay grip here
+// since that's the standard bent-over row grip and the one with a real
+// exerciseEmgProfiles.js entry.
+const EXERCISE_STANDARDS = {
+  'Seated Cable Row': {
+    male: [[50,26,40,57,78,101],[55,30,44,63,84,108],[60,33,49,68,90,115],[65,37,53,73,96,122],[70,40,57,78,102,128],[75,44,61,83,107,134],[80,47,65,87,112,140],[85,50,69,91,117,145],[90,53,72,96,122,150],[95,56,76,100,127,155],[100,59,79,104,131,160],[105,62,83,107,135,165],[110,65,86,111,139,170],[115,68,89,115,143,174],[120,70,92,118,147,178],[125,73,95,122,151,182],[130,76,98,125,155,186],[135,78,101,128,158,190],[140,81,104,131,162,194]],
+    female: [[40,14,23,35,50,66],[45,16,26,38,53,69],[50,18,28,41,56,73],[55,19,30,43,59,76],[60,21,32,45,62,79],[65,22,34,48,64,82],[70,24,35,50,66,85],[75,25,37,51,69,87],[80,26,38,53,71,89],[85,28,40,55,73,92],[90,29,41,57,75,94],[95,30,43,58,76,96],[100,31,44,60,78,98],[105,32,45,61,80,100],[110,33,47,63,82,102],[115,34,48,64,83,103],[120,35,49,66,85,105]],
+  },
+  'Bent Over Row': {
+    male: [[50,23,36,52,72,94],[55,27,41,59,80,103],[60,31,46,65,87,111],[65,36,51,71,94,119],[70,40,56,77,101,127],[75,44,61,83,107,134],[80,48,66,88,114,141],[85,52,71,93,120,147],[90,56,75,99,125,154],[95,59,79,104,131,160],[100,63,84,108,136,166],[105,67,88,113,142,172],[110,70,92,118,147,178],[115,74,96,122,152,183],[120,77,100,127,157,188],[125,80,103,131,161,194],[130,84,107,135,166,199],[135,87,111,139,170,203],[140,90,114,143,175,208]],
+    female: [[40,12,21,33,48,65],[45,14,23,36,51,69],[50,15,25,38,54,72],[55,17,27,41,57,75],[60,18,29,43,59,78],[65,19,30,44,62,80],[70,20,32,46,64,83],[75,22,33,48,66,85],[80,23,35,50,68,87],[85,24,36,51,69,89],[90,25,37,53,71,91],[95,26,38,54,73,93],[100,27,40,56,74,95],[105,28,41,57,76,97],[110,29,42,58,78,99],[115,29,43,60,79,100],[120,30,44,61,80,102]],
+  },
+};
+
+function thresholdsForExercise(standardName, sex, bodyweightKg) {
+  const table = EXERCISE_STANDARDS[standardName]?.[sex];
+  if (!table) return null;
+  return interpolateStandards(table, bodyweightKg);
+}
+
+module.exports = {
+  MUSCLE_EXERCISE_MAP, MUSCLE_EXERCISE_ALIASES, MUSCLE_STANDARDS, interpolateStandards, thresholdsForMuscle,
+  MUSCLE_EMG_BLEND_SOURCES, EXERCISE_STANDARDS, thresholdsForExercise,
+};

@@ -1,6 +1,7 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const { scoreForRatio, classifyLift, estimate1RM, computeMuscleLevels, STANDARDS } = require('../functions/strengthStandards');
+const { thresholdsForExercise } = require('../functions/muscleStandards');
 
 function mkLift(date, exercise, kg, reps) {
   return { date, exercise, kg, reps };
@@ -303,4 +304,49 @@ test('computeMuscleLevels falls back to the single most recent session (not the 
   const recentOnly = computeMuscleLevels([mkLift(daysAgo(500), 'Barbell Curl', 20, 5)], weights, null, 'male');
   assert.equal(result.biceps.e1RM, recentOnly.biceps.e1RM, 'should match the more recent, lighter session, not the older heavier one');
   assert.equal(result.biceps.date, daysAgo(500));
+});
+
+// rhomboids/mid-traps have no canonical isolation exercise -- MUSCLE_EMG_BLEND_SOURCES
+// scores them off Seated Cable Row and Barbell Row (Overhand/Pendlay) instead,
+// weighted by each exercise's real EMG activation % for that muscle.
+test('computeMuscleLevels scores rhomboids/mid-traps from a single contributing exercise with no blend', () => {
+  const weights = { '2026-01-01': 80 };
+  const lifts = [mkLift('2026-01-01', 'Seated Cable Row', 60, 6)];
+  const result = computeMuscleLevels(lifts, weights, null, 'male');
+  assert.equal(result.rhomboids.exercise, 'Seated Cable Row');
+  assert.equal(result.rhomboids.blendedFrom, undefined, 'single contributing exercise should not report a blend');
+  assert.equal(result['mid-traps'].exercise, 'Seated Cable Row');
+});
+
+test('computeMuscleLevels blends rhomboids across contributing exercises, weighted by EMG activation', () => {
+  const weights = { '2026-01-01': 80 };
+  const lifts = [
+    mkLift('2026-01-01', 'Seated Cable Row', 60, 6),
+    mkLift('2026-01-01', 'Barbell Row (Overhand / Pendlay)', 60, 6),
+  ];
+  const result = computeMuscleLevels(lifts, weights, null, 'male');
+  const e1rm = estimate1RM(60, 6);
+  const { score: rowScore } = scoreForRatio(e1rm, thresholdsForExercise('Seated Cable Row', 'male', 80));
+  const { score: barbellScore } = scoreForRatio(e1rm, thresholdsForExercise('Bent Over Row', 'male', 80));
+  // rhomboids EMG activation: 73 on Seated Cable Row, 50 on Barbell Row.
+  const expected = Math.round((rowScore * 73 + barbellScore * 50) / (73 + 50));
+  assert.equal(result.rhomboids.score, expected);
+  assert.equal(result.rhomboids.exercise, 'Seated Cable Row', 'higher-EMG exercise is the displayed one');
+  assert.deepEqual(result.rhomboids.blendedFrom, ['Barbell Row (Overhand / Pendlay)']);
+});
+
+test('computeMuscleLevels leaves rhomboids/mid-traps null with no history on either contributing exercise', () => {
+  const lifts = [mkLift('2026-01-01', 'Barbell Curl', 40, 6)];
+  const result = computeMuscleLevels(lifts, { '2026-01-01': 80 }, null, 'male');
+  assert.equal(result.rhomboids, null);
+  assert.equal(result['mid-traps'], null);
+});
+
+test('computeMuscleLevels leaves lower-traps unranked -- no EMG-blend source exists for it', () => {
+  const lifts = [
+    mkLift('2026-01-01', 'Seated Cable Row', 60, 6),
+    mkLift('2026-01-01', 'Barbell Overhead Press', 60, 6),
+  ];
+  const result = computeMuscleLevels(lifts, { '2026-01-01': 80 }, null, 'male');
+  assert.equal(result['lower-traps'], undefined, 'lower-traps has no map/blend entry at all, unlike a scored-but-empty muscle');
 });
