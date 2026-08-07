@@ -162,11 +162,21 @@ const { buildObservations, solveMuscleCapacities, predictExerciseE1RM, suggested
 
 
 
-const ECHELONS = [
+// Independent tracking areas -- any combination, including none. Replaces
+// the old workout/workout_sleep/full tiered hierarchy (each tier a strict
+// superset of the last); normalizeTrackingLevel migrates a profile still
+// holding that old string shape into this array shape on read, so existing
+// accounts need no data migration.
+const TRACKING_AREAS = [
   { key: 'workout', title: 'Training', desc: 'Workout logging, fatigue model, personal records, and AI-planned sessions.' },
-  { key: 'workout_sleep', title: 'Training + Recovery', desc: 'Adds sleep tracking, HRV analysis, and recovery-aware planning via Apple Health.' },
-  { key: 'full', title: 'Full System', desc: 'Everything — nutrition logging, macro tracking, meal photo scanning, and daily fuel briefings.' },
+  { key: 'sleep', title: 'Sleep', desc: 'Sleep tracking, HRV analysis, and recovery-aware planning via Apple Health.' },
+  { key: 'nutrition', title: 'Nutrition', desc: 'Nutrition logging, macro tracking, meal photo scanning, and daily fuel briefings.' },
 ];
+const LEGACY_TRACKING_LEVELS = { workout: ['workout'], workout_sleep: ['workout', 'sleep'], full: ['workout', 'sleep', 'nutrition'] };
+function normalizeTrackingLevel(v) {
+  if (Array.isArray(v)) return v;
+  return LEGACY_TRACKING_LEVELS[v] || LEGACY_TRACKING_LEVELS.full;
+}
 
 // ── HELPERS ─────────────────────────────────────────────────────────────────
 // Dates are stored as "YYYY-MM-DD" strings. `new Date("YYYY-MM-DD")` parses
@@ -1032,6 +1042,14 @@ const glycogenPct = (elapsedS, totalS) => {
 // instead of the list. v0.1 is the first tracked release, not literally the
 // app's first version — everything before this had no changelog at all.
 const CHANGELOG = [
+  {
+    version: '1.05',
+    date: '2026-08-07',
+    features: [
+      'Tracking Level (Onboarding step 5 and Settings) is now three independent checkboxes — Training, Sleep, Nutrition — instead of one tiered Training / Training+Recovery / Full System choice, so e.g. Sleep + Nutrition without Training is a valid combination.',
+      'Sport, Aerobic, and Other (Onboarding step 4 and Settings → Activities) now take a free-text label — what the activity actually is (e.g. "Basketball", "Hiking") — which carries through to the Sport/Aerobic panel\'s title in Training and prefills on Restart Setup like everything else there.',
+    ],
+  },
   {
     version: '1.04',
     date: '2026-08-07',
@@ -6662,10 +6680,15 @@ const TRAINING_SPLITS = ['Full Body', 'Upper / Lower', 'Push / Pull / Legs', 'Ar
 // were just volume presets layered on the same 3 buckets and, being
 // multi-select with independent priority already, were redundant with just
 // picking the underlying activities directly.
+// labelPlaceholder: strength/running/cycling/swimming are already a
+// specific activity; sport/aerobic/other are catch-all buckets sharing one
+// computation (see the Sport/Aerobic panel comment below), so those three
+// take a free-text label instead -- surfaced back as that panel's kicker
+// (S14/S15) rather than the generic "Sport"/"Aerobic" title.
 const ACTIVITY_DEFS = [
   { key: 'strength', label: 'Strength' }, { key: 'running', label: 'Running' }, { key: 'cycling', label: 'Cycling' },
-  { key: 'swimming', label: 'Swimming' }, { key: 'sport', label: 'Sport' },
-  { key: 'aerobic', label: 'Aerobic' }, { key: 'other', label: 'Other' },
+  { key: 'swimming', label: 'Swimming' }, { key: 'sport', label: 'Sport', labelPlaceholder: 'What sport? e.g. Basketball' },
+  { key: 'aerobic', label: 'Aerobic', labelPlaceholder: 'What kind? e.g. Hiking' }, { key: 'other', label: 'Other', labelPlaceholder: 'What is it? e.g. Rock climbing' },
 ];
 // Macro Targets -- a different question from trainingGoals above (what you
 // eat, not what you train for). Settings-only (Onboarding step 3 dropped
@@ -6843,8 +6866,9 @@ function Onboarding({ s, onComplete, onOpenImport }) {
     ? as.filter(a => a.type !== key) : [...as, { type: key, priority: 'secondary' }]);
   const updateActivity = (key, patch) => setActivities(as => as.map(a => a.type === key ? { ...a, ...patch } : a));
 
-  // Step 5 — Tracking Level
-  const [echelon, setEchelon] = useState(() => s?.profile?.trackingLevel || 'full');
+  // Step 5 — Tracking Level -- independent checkboxes, any combination.
+  const [trackingAreas, setTrackingAreas] = useState(() => normalizeTrackingLevel(s?.profile?.trackingLevel));
+  const toggleTrackingArea = key => setTrackingAreas(prev => prev.includes(key) ? prev.filter(k => k !== key) : [...prev, key]);
 
   // Step 6 — Training Background
   const bg = s?.profile?.trainingBackground;
@@ -6945,11 +6969,11 @@ function Onboarding({ s, onComplete, onOpenImport }) {
   };
 
   const saveActivities = async () => {
-    await api('profile', { method: 'POST', body: JSON.stringify({ activities: activities.map(({ type, priority }) => ({ type, priority })) }), throwOnError: true });
+    await api('profile', { method: 'POST', body: JSON.stringify({ activities: activities.map(({ type, priority, label }) => ({ type, priority, label: label || undefined })) }), throwOnError: true });
   };
 
   const saveTrackingLevel = async () => {
-    await api('profile', { method: 'POST', body: JSON.stringify({ trackingLevel: echelon }), throwOnError: true });
+    await api('profile', { method: 'POST', body: JSON.stringify({ trackingLevel: trackingAreas }), throwOnError: true });
   };
 
   const saveTrainingBackground = async () => {
@@ -7222,10 +7246,16 @@ function Onboarding({ s, onComplete, onOpenImport }) {
                     <div className="ob-goal-card-title">{ad.label}</div>
                   </button>
                   {a && (
-                    <div style={{ display: 'flex', gap: 4, padding: '8px 12px', border: '1px solid var(--rule)', borderTop: 'none' }}>
-                      {GOAL_PRIORITIES.map(p => (
-                        <button key={p.value} className={`prof-btn${a.priority === p.value ? ' solid' : ''}`} onClick={() => updateActivity(ad.key, { priority: p.value })}>{p.label}</button>
-                      ))}
+                    <div style={{ padding: '8px 12px', border: '1px solid var(--rule)', borderTop: 'none' }}>
+                      <div style={{ display: 'flex', gap: 4 }}>
+                        {GOAL_PRIORITIES.map(p => (
+                          <button key={p.value} className={`prof-btn${a.priority === p.value ? ' solid' : ''}`} onClick={() => updateActivity(ad.key, { priority: p.value })}>{p.label}</button>
+                        ))}
+                      </div>
+                      {ad.labelPlaceholder && (
+                        <input style={{ width: '100%', marginTop: 8, border: 'none', borderBottom: '1px solid var(--rule)', padding: '4px 0', background: 'transparent', fontFamily: 'Times New Roman,serif', fontSize: 13, outline: 'none', color: 'var(--ink)', boxSizing: 'border-box' }}
+                          placeholder={ad.labelPlaceholder} value={a.label || ''} onChange={e => updateActivity(ad.key, { label: e.target.value })} />
+                      )}
                     </div>
                   )}
                 </div>
@@ -7244,11 +7274,11 @@ function Onboarding({ s, onComplete, onOpenImport }) {
         {step === 5 && (
           <>
             <div className="ob-h">How deep do you want to go?</div>
-            <div className="ob-deck">Pick your tracking level. You can always change this in Settings.</div>
-            {ECHELONS.map(e => (
-              <button key={e.key} className={`echelon-card${echelon === e.key ? ' selected' : ''}`}
-                onClick={() => setEchelon(e.key)}>
-                <div className="echelon-card-dot" />
+            <div className="ob-deck">Tick whatever you want Press to track — any combination. You can always change this in Settings.</div>
+            {TRACKING_AREAS.map(e => (
+              <button key={e.key} className={`echelon-card${trackingAreas.includes(e.key) ? ' selected' : ''}`}
+                onClick={() => toggleTrackingArea(e.key)}>
+                <div className="echelon-card-dot sq" />
                 <div style={{ flex: 1 }}>
                   <div className="echelon-card-title">{e.title}</div>
                   <div className="echelon-card-desc">{e.desc}</div>
@@ -7528,7 +7558,7 @@ function Onboarding({ s, onComplete, onOpenImport }) {
                 [!!trainingGoals.length, trainingGoals.length ? `${trainingGoals.length} training goal${trainingGoals.length === 1 ? '' : 's'}` : 'No training goals set'],
                 [!!activities.length, activities.length ? `${activities.length} activit${activities.length === 1 ? 'y' : 'ies'}` : 'No activities set'],
                 [true, `${sleepTarget}h sleep · ${waterTarget} glasses water · ${trainingDays} training days`],
-                [true, ECHELONS.find(e => e.key === echelon)?.title || 'Full System'],
+                [!!trackingAreas.length, trackingAreas.length ? trackingAreas.map(k => TRACKING_AREAS.find(a => a.key === k)?.title).filter(Boolean).join(' + ') : 'Nothing tracked'],
                 [!!(split || favorites.length), split ? `${split}${favorites.length ? ` · ${favorites.length} favorite${favorites.length === 1 ? '' : 's'}` : ''}` : 'Training background skipped'],
                 [stravaStarted, 'Strava'],
                 [healthGuideOpen, 'Apple Health setup viewed'],
@@ -8676,17 +8706,17 @@ function S13({ swimmingRecommendation }) {
 // generalRecommendation object, gated and labelled independently.
 const GENERAL_SESSION_LABELS = { rest: 'Rest Day', recovery: 'Recovery Session', easy: 'Light Session', steady: 'Steady Session', tempo: 'Tempo Session', interval: 'Interval Session', long: 'Long Session' };
 
-function S14({ generalRecommendation }) {
+function S14({ generalRecommendation, label }) {
   return (
-    <EnduranceSportPanel id="s14" kicker="Sport" sessionLabels={GENERAL_SESSION_LABELS}
+    <EnduranceSportPanel id="s14" kicker={label || 'Sport'} sessionLabels={GENERAL_SESSION_LABELS}
       rec={generalRecommendation} noSessionsLabel="Sessions logged"
       emptyDeck="No sessions logged yet"
       emptyBody="Sync a session from Strava to get a daily readiness-based prescription here." />
   );
 }
-function S15({ generalRecommendation }) {
+function S15({ generalRecommendation, label }) {
   return (
-    <EnduranceSportPanel id="s15" kicker="Aerobic" sessionLabels={GENERAL_SESSION_LABELS}
+    <EnduranceSportPanel id="s15" kicker={label || 'Aerobic'} sessionLabels={GENERAL_SESSION_LABELS}
       rec={generalRecommendation} noSessionsLabel="Sessions logged"
       emptyDeck="No sessions logged yet"
       emptyBody="Sync a session from Strava to get a daily readiness-based prescription here." />
@@ -8725,7 +8755,7 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
   useEffect(() => {
     if (!waterTouched && waterCalc != null) setWaterTarget(waterCalc);
   }, [waterCalc, waterTouched]);
-  const [trackingLevel, setTrackingLevel] = useState(s?.profile?.trackingLevel || 'full');
+  const [trackingAreas, setTrackingAreas] = useState(() => normalizeTrackingLevel(s?.profile?.trackingLevel));
   const [warmupScheme, setWarmupScheme] = useState(s?.profile?.warmupScheme?.length ? s.profile.warmupScheme : DEFAULT_WARMUP_SCHEME);
   const [warmupSaving, setWarmupSaving] = useState(false);
   // Everything below mirrors a field originally only ever set once at
@@ -8896,9 +8926,10 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
   const supplements = s?.supplements || [];
   const inputStyle = { width: '100%', border: 'none', borderBottom: '2px solid var(--ink)', padding: '8px 0', background: 'transparent', fontFamily: 'Times New Roman,serif', fontSize: 16, outline: 'none', color: 'var(--ink)', boxSizing: 'border-box' };
 
-  const saveLevel = async (level) => {
-    setTrackingLevel(level);
-    const profile = await api('profile', { method: 'POST', body: JSON.stringify({ trackingLevel: level }) });
+  const saveLevel = async (key) => {
+    const next = trackingAreas.includes(key) ? trackingAreas.filter(k => k !== key) : [...trackingAreas, key];
+    setTrackingAreas(next);
+    const profile = await api('profile', { method: 'POST', body: JSON.stringify({ trackingLevel: next }) });
     refresh({ ...s, profile });
   };
 
@@ -9183,7 +9214,7 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
   const updateActivityDraft = (key, patch) => setActivitiesDraft(as => as.map(a => a.type === key ? { ...a, ...patch } : a));
   const saveActivitiesDraft = async () => {
     setSavingActivities(true);
-    const profile = await api('profile', { method: 'POST', body: JSON.stringify({ activities: activitiesDraft.map(({ type, priority }) => ({ type, priority })) }) });
+    const profile = await api('profile', { method: 'POST', body: JSON.stringify({ activities: activitiesDraft.map(({ type, priority, label }) => ({ type, priority, label: label || undefined })) }) });
     refresh({ ...s, profile });
     setSavingActivities(false);
   };
@@ -9514,10 +9545,16 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
                     <div className="ob-goal-card-title">{ad.label}</div>
                   </button>
                   {a && (
-                    <div style={{ padding: '10px 12px', border: '1px solid var(--rule)', borderTop: 'none', display: 'flex', gap: 4 }}>
-                      {GOAL_PRIORITIES.map(p => (
-                        <button key={p.value} className={`prof-btn${a.priority === p.value ? ' solid' : ''}`} onClick={() => updateActivityDraft(ad.key, { priority: p.value })}>{p.label}</button>
-                      ))}
+                    <div style={{ padding: '10px 12px', border: '1px solid var(--rule)', borderTop: 'none' }}>
+                      <div style={{ display: 'flex', gap: 4 }}>
+                        {GOAL_PRIORITIES.map(p => (
+                          <button key={p.value} className={`prof-btn${a.priority === p.value ? ' solid' : ''}`} onClick={() => updateActivityDraft(ad.key, { priority: p.value })}>{p.label}</button>
+                        ))}
+                      </div>
+                      {ad.labelPlaceholder && (
+                        <input className="prof-input" style={{ width: '100%', marginTop: 8, boxSizing: 'border-box', textAlign: 'left' }}
+                          placeholder={ad.labelPlaceholder} value={a.label || ''} onChange={e => updateActivityDraft(ad.key, { label: e.target.value })} />
+                      )}
                     </div>
                   )}
                 </div>
@@ -9583,11 +9620,11 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
 
         {/* ── TRACKING LEVEL ── */}
         <div className="settings-sec" id="sec-tracking-level">
-          <div className="settings-sh">Tracking Level</div>
-          {ECHELONS.map(e => (
-            <button key={e.key} className={`echelon-card${trackingLevel === e.key ? ' selected' : ''}`}
+          <div className="settings-sh">Tracking Level <span style={{ fontWeight: 400, textTransform: 'none', fontSize: 9, color: 'var(--dim)' }}>(any combination)</span></div>
+          {TRACKING_AREAS.map(e => (
+            <button key={e.key} className={`echelon-card${trackingAreas.includes(e.key) ? ' selected' : ''}`}
               onClick={() => saveLevel(e.key)}>
-              <div className="echelon-card-dot" />
+              <div className="echelon-card-dot sq" />
               <div style={{ flex: 1 }}>
                 <div className="echelon-card-title">{e.title}</div>
                 <div className="echelon-card-desc">{e.desc}</div>
@@ -12396,23 +12433,24 @@ function App() {
     return <UsernameSetup user={user} onComplete={refresh} />;
   }
 
-  const trackingLevel = s?.profile?.trackingLevel || 'full';
-  const showSleep = trackingLevel !== 'workout';
-  const showFuel = trackingLevel === 'full';
+  const trackingAreas = normalizeTrackingLevel(s?.profile?.trackingLevel);
+  const showTraining = trackingAreas.includes('workout');
+  const showSleep = trackingAreas.includes('sleep');
+  const showFuel = trackingAreas.includes('nutrition');
   const panelOrder = withNewDefaultsAppended(s?.profile?.panelOrder?.length ? s.profile.panelOrder : DEFAULT_PANEL_ORDER);
   const hiddenPanelSet = new Set(s?.profile?.hiddenPanels || []);
-  // trackingLevel's own s2/s4 gating still applies on top of the user's own
-  // order/hide preference — a "workout" tracking level shouldn't show Sleep
-  // just because it isn't in hiddenPanels. s10 (Cycle) is gated the same
-  // way, on the opt-in profile toggle instead of tracking level. s11
-  // (Running)/s12 (Cycling)/s13 (Swimming)/s14 (Sport)/s15 (Aerobic) are
-  // gated on hasRunningActivity/hasCyclingActivity/hasSwimmingActivity/
+  // trackingAreas' own s3/s2/s4 gating still applies on top of the user's own
+  // order/hide preference — unticking Sleep shouldn't show it just because
+  // it isn't in hiddenPanels. s10 (Cycle) is gated the same way, on the
+  // opt-in profile toggle instead of tracking areas. s11 (Running)/s12
+  // (Cycling)/s13 (Swimming)/s14 (Sport)/s15 (Aerobic) are gated on
+  // hasRunningActivity/hasCyclingActivity/hasSwimmingActivity/
   // hasSportActivity/hasAerobicActivity (computed above, alongside the
   // recommendation fetches they drive) instead — none of the five has a
   // separate opt-in toggle, just whether it's one of the athlete's listed
   // activities (Onboarding step 4 / Settings).
   const sectionIds = panelOrder.filter(id =>
-    !hiddenPanelSet.has(id) && (id !== 's2' || showSleep) && (id !== 's4' || showFuel)
+    !hiddenPanelSet.has(id) && (id !== 's3' || showTraining) && (id !== 's2' || showSleep) && (id !== 's4' || showFuel)
     && (id !== 's10' || s?.profile?.cycleTrackingEnabled) && (id !== 's11' || hasRunningActivity)
     && (id !== 's12' || hasCyclingActivity) && (id !== 's13' || hasSwimmingActivity)
     && (id !== 's14' || hasSportActivity) && (id !== 's15' || hasAerobicActivity)
@@ -12502,8 +12540,8 @@ function App() {
     s11: <S11 key="s11" s={s} runRecommendation={runRecommendation} />,
     s12: <S12 key="s12" cyclingRecommendation={cyclingRecommendation} />,
     s13: <S13 key="s13" swimmingRecommendation={swimmingRecommendation} />,
-    s14: <S14 key="s14" generalRecommendation={generalRecommendation} />,
-    s15: <S15 key="s15" generalRecommendation={generalRecommendation} />,
+    s14: <S14 key="s14" generalRecommendation={generalRecommendation} label={(s?.profile?.activities || []).find(a => a.type === 'sport')?.label} />,
+    s15: <S15 key="s15" generalRecommendation={generalRecommendation} label={(s?.profile?.activities || []).find(a => a.type === 'aerobic')?.label} />,
   };
   // Default grid size for an item that has no saved x/y/w/h yet — mirrors the
   // old CSS span logic (PANEL_WIDE + expanded state) so a fresh account's

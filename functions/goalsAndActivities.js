@@ -44,6 +44,11 @@ function validateActivities(activities) {
     if (!a || typeof a !== 'object') return 'invalid activity entry';
     if (!ACTIVITY_TYPES.includes(a.type)) return `Invalid activity type: ${a.type}`;
     if (!PRIORITY_TIERS.includes(a.priority)) return `Invalid priority for activity ${a.type}: ${a.priority}`;
+    // Free-text label -- what sport/aerobic activity/catch-all this actually
+    // is (e.g. "Basketball", "Hiking"), surfaced back as the Sport/Aerobic
+    // panel's kicker. Only sport/aerobic/other take one in the UI, but
+    // nothing downstream depends on that, so it's not enforced here either.
+    if (a.label != null && (typeof a.label !== 'string' || a.label.length > 60)) return `Invalid label for activity ${a.type}`;
   }
   return null;
 }

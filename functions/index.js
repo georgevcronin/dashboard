@@ -1348,6 +1348,19 @@ app.post("/profile", async (req, res) => {
       return res.status(400).json({ error: `Invalid equipment: ${invalid.join(', ')}` });
     }
   }
+  // Independent tracking-area checkboxes (Onboarding step 5 / Settings) --
+  // replaced the old workout/workout_sleep/full tiered string. Only
+  // validated when the new array shape is sent; a still-cached old client
+  // sending the legacy string just passes through unchanged, same as it
+  // always did, and gets migrated to the array shape on next read
+  // (normalizeTrackingLevel, src/app.jsx).
+  if (body.trackingLevel && Array.isArray(body.trackingLevel)) {
+    const validAreas = ['workout', 'sleep', 'nutrition'];
+    const invalid = body.trackingLevel.filter(a => !validAreas.includes(a));
+    if (invalid.length) {
+      return res.status(400).json({ error: `Invalid tracking area: ${invalid.join(', ')}` });
+    }
+  }
   // Recurring "no gym Tuesday/Thursday"-style blackout, indefinite — see
   // calendarSolver.js. Date#getDay convention: 0=Sunday..6=Saturday.
   if (body.unavailableDaysOfWeek) {

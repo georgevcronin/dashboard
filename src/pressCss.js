@@ -558,6 +558,7 @@ section.visible .fade:nth-child(6){transition-delay:.56s}
 .echelon-card{width:100%;padding:12px 14px;border:1px solid var(--rule);cursor:pointer;text-align:left;background:none;margin-bottom:8px;display:flex;align-items:flex-start;gap:12px;box-sizing:border-box}
 .echelon-card.selected{border-color:var(--ink);background:rgba(0,0,0,.04)}
 .echelon-card-dot{width:8px;height:8px;border-radius:50%;border:2px solid var(--rule);flex-shrink:0;margin-top:5px;transition:all .15s}
+.echelon-card-dot.sq{border-radius:2px}
 .echelon-card.selected .echelon-card-dot{border-color:var(--ink);background:var(--ink)}
 .echelon-card-title{font-family:'Playfair Display',serif;font-size:14px;font-weight:700;color:var(--ink);margin-bottom:3px}
 .echelon-card-desc{font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--dim);line-height:1.6}
