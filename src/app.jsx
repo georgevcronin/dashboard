@@ -1046,7 +1046,7 @@ const CHANGELOG = [
     version: '1.06',
     date: '2026-08-07',
     features: [
-      'Muscle Focus (Onboarding step 7 and Settings) now defaults to a simplified 15-region list — e.g. one "Traps" pick instead of separately setting traps/lower-traps/mid-traps, Obliques folded into Abs, Erectors relabelled Lower Back. Hip Flexors has no row at all in this view and defaults to Avoid while hidden, since there\'s no single recognisable hip-flexor exercise to fold it into. A "Show scientific muscle names" checkbox reveals the full granular 29-muscle breakdown (Latissimus Dorsi, Trapezius, Erector Spinae, etc.) for anyone who wants it; nothing about what\'s actually stored or how the planner reads it changes either way.',
+      'Muscle Focus (Onboarding step 7 and Settings) now defaults to a simplified 14-region list — e.g. one "Traps" pick instead of separately setting traps/lower-traps/mid-traps, Obliques folded into Abs, Gluteus Medius folded into Glutes, Erectors relabelled Lower Back. Hip Flexors has no row at all in this view and defaults to Avoid while hidden, since there\'s no single recognisable hip-flexor exercise to fold it into. A "Show scientific muscle names" checkbox reveals the full granular 29-muscle breakdown (Latissimus Dorsi, Trapezius, Erector Spinae, etc.) for anyone who wants it; nothing about what\'s actually stored or how the planner reads it changes either way.',
     ],
   },
   {
@@ -4711,9 +4711,8 @@ const MUSCLE_FOCUS_GROUPS = [
   { key: 'biceps', label: 'Biceps', muscles: ['biceps', 'brachialis'] },
   { key: 'triceps', label: 'Triceps', muscles: ['triceps'] },
   { key: 'forearms', label: 'Forearms', muscles: ['forearms', 'brachioradialis'] },
-  { key: 'abductors', label: 'Gluteus Medius', muscles: ['abductors'] },
   { key: 'adductors', label: 'Adductors', muscles: ['adductors'] },
-  { key: 'glutes', label: 'Glutes', muscles: ['glutes'] },
+  { key: 'glutes', label: 'Glutes', muscles: ['glutes', 'abductors'] },
   { key: 'hamstrings', label: 'Hamstrings', muscles: ['hamstrings'] },
   { key: 'quads', label: 'Quads', muscles: ['quads'] },
   { key: 'calves', label: 'Calves', muscles: ['calves', 'tibialis'] },
