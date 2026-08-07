@@ -23,6 +23,15 @@ test('suggestedRirSequence descends to 0 on the last set and never repeats a val
   assert.equal(seq.at(-1), 0, 'last set should always be true failure');
 });
 
+test('suggestedRirSequence(setCount) with no offset is unchanged (default is a no-op)', () => {
+  assert.deepEqual(suggestedRirSequence(3), suggestedRirSequence(3, 0));
+});
+
+test('suggestedRirSequence offset shifts every value and floors at 0', () => {
+  assert.deepEqual(suggestedRirSequence(3, 1), [3, 2, 1], 'a positive offset (cycle dip) should push every value up by that amount');
+  assert.deepEqual(suggestedRirSequence(3, -1), [1, 0, 0], 'a negative offset (cycle peak) should pull values down, floored at 0, never negative');
+});
+
 test('generateSessionExercises returns nothing for a non-lift session type', () => {
   assert.deepEqual(generateSessionExercises({ type: 'cardio', targetMuscles: ['chest'] }), []);
 });

@@ -14,6 +14,7 @@ export const PRESS_CSS = `
 html,body{height:100%;background:var(--paper)}
 body{font-family:'Times New Roman',Times,Georgia,serif;color:var(--ink)}
 .hdr{position:fixed;top:0;left:0;right:0;z-index:100;background:var(--paper);border-bottom:3px solid var(--ink)}
+.mobile-sync-btn{display:none}
 .masthead{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;padding:8px 20px 6px;border-bottom:1px solid var(--rule)}
 .mast-left{font-size:8px;letter-spacing:.16em;text-transform:uppercase;color:var(--dim)}
 .mast-title{font-family:'Playfair Display',Georgia,serif;font-weight:900;font-size:clamp(22px,5vw,30px);letter-spacing:-.01em;text-align:center;color:var(--ink)}
@@ -473,6 +474,18 @@ section.visible .fade:nth-child(6){transition-delay:.56s}
 .injury-sev{display:flex;gap:6px}
 .injury-sev-btn{flex:1;font-family:'JetBrains Mono',monospace;font-size:8px;letter-spacing:.1em;text-transform:uppercase;padding:5px;border:1px solid var(--rule);background:none;cursor:pointer;color:var(--dim)}
 .injury-sev-btn.active{background:var(--ink);color:var(--paper);border-color:var(--ink)}
+.cycle-status{padding:10px 12px;border-left:3px solid var(--navy);margin-bottom:10px}
+.cycle-summary{font-family:Times New Roman,serif;font-size:12px;color:var(--ink);margin-top:4px;line-height:1.5}
+.cycle-list{display:flex;flex-direction:column;gap:10px;margin-top:10px}
+.cycle-card{padding:10px 12px;border-left:3px solid var(--navy)}
+.cycle-meta{font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--dim);margin-top:2px}
+.cycle-actions{display:flex;gap:6px;margin-top:6px}
+.cycle-edit,.cycle-remove{font-family:'JetBrains Mono',monospace;font-size:8px;letter-spacing:.1em;text-transform:uppercase;background:none;border:1px solid var(--rule);color:var(--dim);padding:3px 8px;cursor:pointer}
+.cycle-form{margin-top:16px;padding-top:12px;border-top:1px solid var(--rule);display:flex;flex-direction:column;gap:8px}
+.cycle-input{width:100%;border:none;border-bottom:2px solid var(--ink);padding:6px 0;background:transparent;font-family:Times New Roman,serif;font-size:14px;color:var(--ink);outline:none}
+.cycle-heaviness{display:flex;gap:6px}
+.cycle-heaviness-btn{flex:1;font-family:'JetBrains Mono',monospace;font-size:8px;letter-spacing:.1em;text-transform:uppercase;padding:5px;border:1px solid var(--rule);background:none;cursor:pointer;color:var(--dim)}
+.cycle-heaviness-btn.active{background:var(--ink);color:var(--paper);border-color:var(--ink)}
 .travel-banner{margin:0 0 14px;padding:8px 12px;background:var(--navy);color:var(--paper);font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.12em;text-transform:uppercase;display:flex;align-items:center;justify-content:space-between}
 .experiment-card{padding:10px 12px;border-left:3px solid var(--gold);margin-bottom:10px}
 .experiment-h{font-family:'Playfair Display',serif;font-size:13px;font-weight:700;color:var(--ink);margin-bottom:3px}
@@ -538,6 +551,7 @@ section.visible .fade:nth-child(6){transition-delay:.56s}
 .settings-toc-group{margin-bottom:0;flex-shrink:0}
 .settings-toc-group-h{width:auto;padding:4px 10px}
 .settings-toc-sub{display:none}
+.mobile-sync-btn{display:block;position:fixed;top:10px;right:14px;z-index:101}
 .masthead{grid-template-columns:1fr;row-gap:6px;text-align:center;padding:10px 14px 8px}
 .mast-left{order:2}
 .mast-title{order:1}

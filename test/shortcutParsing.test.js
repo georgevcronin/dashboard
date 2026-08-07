@@ -1,7 +1,7 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const {
-  unwrapShortcutBody, parseShortcutDate, parseNumberList, average, sum, sumForDay,
+  unwrapShortcutBody, parseShortcutDate, parseNumberList, average, sum, sumForDay, averageForDay,
   isAsleepType, isAwakeType, isInBedType, isDeepType, isRemType, isLightType,
   unionDurationMs, computeSleepMetrics,
 } = require('../functions/shortcutParsing');
@@ -80,6 +80,26 @@ test('sumForDay returns null when no sample actually matches the target day', ()
   const dates = '18 Jul 2026 at 08:00\n18 Jul 2026 at 12:00';
   const dayFn = () => '2026-07-18';
   assert.equal(sumForDay(values, dates, '2026-07-19', dayFn), null);
+});
+
+test('averageForDay drops samples dated to a different day than the target', () => {
+  const values = '60\n70\n80';
+  const dates = '18 Jul 2026 at 23:50\n19 Jul 2026 at 08:00\n19 Jul 2026 at 12:00';
+  const dayFn = ms => new Date(ms).getDate() === 18 ? '2026-07-18' : '2026-07-19';
+  assert.equal(averageForDay(values, dates, '2026-07-19', dayFn), 75);
+});
+
+test('averageForDay falls back to averaging everything when dates is missing or mismatched in length', () => {
+  const values = '60\n70\n80';
+  assert.equal(averageForDay(values, '', '2026-07-19', () => '2026-07-19'), 70);
+  assert.equal(averageForDay(values, '19 Jul 2026 at 08:00', '2026-07-19', () => '2026-07-19'), 70);
+});
+
+test('averageForDay returns null when no sample actually matches the target day', () => {
+  const values = '60\n70';
+  const dates = '18 Jul 2026 at 08:00\n18 Jul 2026 at 12:00';
+  const dayFn = () => '2026-07-18';
+  assert.equal(averageForDay(values, dates, '2026-07-19', dayFn), null);
 });
 
 test('isAsleepType/isAwakeType/isInBedType match broadly, case-insensitively', () => {

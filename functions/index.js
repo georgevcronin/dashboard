@@ -21,7 +21,7 @@ const { buildSessionVariants } = require('./sessionVariants');
 const { computeSleepScore } = require('./sleepScore');
 const { computeDay, personalSleepTarget, recoveryDrivers } = require('./recoveryScore');
 const { callGeminiResilient, parseGeminiJSON } = require('./gemini');
-const { unwrapShortcutBody, average, sumForDay, computeSleepMetrics } = require('./shortcutParsing');
+const { unwrapShortcutBody, sumForDay, averageForDay, computeSleepMetrics } = require('./shortcutParsing');
 const {
   normalizeUsername, validateUsername, validateDisplayName, deriveDisplayNameFirst,
   generateUsernameSuggestion, canChangeUsername, usernameChangeAvailableAt,
@@ -72,6 +72,14 @@ const {
   computeMuscleLastTrainedDays, computeCompoundIsolationSplit, computeStabilitySplit,
 } = require('./fatigue');
 const { personalizedRecoveryHours, trainingMonthsIfKnown, computeAgeYears } = require('./recoveryPersonalization');
+const { cyclePhaseFactor, observedHeaviness, nudgeLearnedHeaviness } = require('./cycleTracking');
+// Only computed when tracking is on and there's at least one logged entry
+// — otherwise cycleFactor stays exactly 1 (a no-op), same "opt-in changes
+// nothing until there's real data" posture as musclePriorities/goals.
+function activeCycleFactor(db) {
+  if (!db.profile?.cycleTrackingEnabled || !(db.cycle || []).length) return 1;
+  return cyclePhaseFactor(db.cycle, Date.now(), db.profile?.cycleIrregular, db.profile?.cycleHeavinessLearned).factor;
+}
 const { alcoholStats, computeDataMaturity, compVerdict, toCsv, weekLiftSessionsCompleted } = require('./analytics');
 const { projectGoal, formatGoalLine, bucketWorkingAttention, ffm, ffmi } = require('./weeklyReview');
 const { computeHybridFatigue } = require('./hybridFatigue');
@@ -80,6 +88,7 @@ const { computeRunningACWR } = require('./runningLoad');
 const { vdotTrend, resolveVO2max, vdotTrainingPaces } = require('./vo2max');
 const { weeklyEfficiencyTrend, detectSessionDistanceSpike, dailyLoadsFromRuns } = require('./runningLoad');
 const { parseVO2max } = require('./shortcutParsing');
+const { parseStravaActivity } = require('./stravaParsing');
 const { predict8WeekVO2Gain } = require('./runningPrediction');
 
 // ---------- Unified workout schema ----------
@@ -324,9 +333,11 @@ app.post("/shortcut", async (req, res) => {
   // numeric metric in this codebase is stored pre-rounded (see fatigue.js),
   // and the frontend displays these fields directly with no rounding of
   // its own.
-  const hrv = average(d.hrv_values);
+  // Filtered to samples actually dated `k` -- hrv/rhr/hr_values otherwise
+  // include stragglers from the previous day's sync (see averageForDay).
+  const hrv = averageForDay(d.hrv_values, d.hrv_dates, k, day);
   if (hrv != null) db.metrics[k].heart_rate_variability = Math.round(hrv);
-  const rhr = average(d.rhr_values);
+  const rhr = averageForDay(d.rhr_values, d.rhr_dates, k, day);
   if (rhr != null) db.metrics[k].resting_heart_rate = Math.round(rhr);
   // step_count is stored in thousands (the frontend does `steps * 1000` to
   // display the real count — matches the existing /health Health Auto
@@ -335,15 +346,20 @@ app.post("/shortcut", async (req, res) => {
   // includes stragglers from the previous day (see sumForDay).
   const stepCount = sumForDay(d.steps_values, d.steps_dates, k, day);
   if (stepCount != null) db.metrics[k].step_count = stepCount / 1000;
-  const wrist = average(d.wrist_values);
+  // Same straggler filtering as hrv/rhr above.
+  const wrist = averageForDay(d.wrist_values, d.wrist_dates, k, day);
   if (wrist != null) db.metrics[k].wrist_temperature = Math.round(wrist * 10) / 10;
-  const hr = average(d.hr_values);
+  const hr = averageForDay(d.hr_values, d.hr_dates, k, day);
   if (hr != null) db.metrics[k].heart_rate = Math.round(hr);
-  const bloodOxygen = average(d.bloodoxygen_values);
+  const bloodOxygen = averageForDay(d.bloodoxygen_values, d.bloodoxygen_dates, k, day);
   if (bloodOxygen != null) db.metrics[k].blood_oxygen = Math.round(bloodOxygen);
-  if (d.weight) { db.metrics[k].body_mass = d.weight; db.weight[k] = d.weight; }
-  if (d.vo2max) db.metrics[k].vo2max = d.vo2max;
-  if (d.hrr_bpm) db.metrics[k].hrr_bpm = d.hrr_bpm;
+  // Same straggler filtering as hrv/rhr above.
+  const weight = averageForDay(d.weight_values, d.weight_dates, k, day);
+  if (weight != null) { db.metrics[k].body_mass = Math.round(weight * 10) / 10; db.weight[k] = db.metrics[k].body_mass; }
+  const vo2max = averageForDay(d.vo2max_values, d.vo2max_dates, k, day);
+  if (vo2max != null) db.metrics[k].vo2max = Math.round(vo2max * 10) / 10;
+  const hrr = averageForDay(d.hrr_values, d.hrr_dates, k, day);
+  if (hrr != null) db.metrics[k].hrr_bpm = Math.round(hrr);
   // Sleep: total asleep hours, WASO, efficiency, and deep/REM/light stage
   // minutes all derived from the same start/end/type triple — see
   // shortcutParsing.js's computeSleepMetrics for why (In Bed vs. Awake vs.
@@ -683,26 +699,24 @@ async function stravaAccessToken() {
 }
 
 function ingestActivity(a) {
-  const date = (a.start_date_local || a.start_date || "").slice(0, 10);
-  if (!date) return;
-  const name = (a.sport_type || a.type || "workout").toLowerCase().replace(/_/g, " ");
-  const duration = Math.round((a.moving_time || a.elapsed_time || 0) / 60);
-  const kcal = a.kilojoules ? Math.round(a.kilojoules * 0.239) : null;
+  const parsed = parseStravaActivity(a);
+  if (!parsed) return;
+  const { date, name, sourceId, duration, kcal, isRun, structured } = parsed;
   const now = new Date().toISOString();
   const mergeIdx = findOrMergeWorkout(db.workouts, date, 'strava');
   if (mergeIdx >= 0) {
     const existing = db.workouts[mergeIdx];
     db.workouts[mergeIdx] = createWorkoutRecord({
-      date, name, source: 'strava', sourceId: String(a.id),
+      date, name, source: 'strava', sourceId,
       duration: duration || (existing?.duration || null),
       kcal: kcal || (existing?.kcal || null),
       sets: existing?.sets || 0,
       createdAt: existing?.createdAt || (a.start_date_local || a.start_date),
       updatedAt: now,
     });
-  } else if (!db.workouts.find(w => w.source === "strava" && w.sourceId === String(a.id))) {
+  } else if (!db.workouts.find(w => w.source === "strava" && w.sourceId === sourceId)) {
     db.workouts.push(createWorkoutRecord({
-      date, name, source: 'strava', sourceId: String(a.id),
+      date, name, source: 'strava', sourceId,
       duration, kcal,
       createdAt: a.start_date_local || a.start_date,
       updatedAt: now,
@@ -713,21 +727,10 @@ function ingestActivity(a) {
   // workout record above stays a generic summary; distance/pace/HR/elevation
   // only live here. Split by Strava's own sport_type against the app's
   // existing lifting/running/sports vocabulary (userDoc.js weeklyTargets).
-  if (duration > 0) {
-    const sportType = (a.sport_type || a.type || "").toLowerCase();
-    const isRun = /run/.test(sportType);
+  if (structured) {
     const target = isRun ? db.runs : db.sports;
-    if (!target.find(r => r.sourceId === String(a.id))) {
-      target.push({
-        date, source: "strava", sourceId: String(a.id),
-        sportType: a.sport_type || a.type || null,
-        durationMin: duration,
-        distanceKm: a.distance ? +(a.distance / 1000).toFixed(2) : null,
-        paceMinPerKm: a.average_speed ? +((1000 / 60) / a.average_speed).toFixed(2) : null,
-        elevationGainM: a.total_elevation_gain ?? null,
-        avgHeartRate: a.average_heartrate ?? null,
-        avgCadence: a.average_cadence ?? null,
-      });
+    if (!target.find(r => r.sourceId === sourceId)) {
+      target.push({ date, source: "strava", sourceId, ...structured });
     }
   }
 }
@@ -839,7 +842,7 @@ app.get("/summary", async (req, res) => {
     summaryMusclePeaks,
     db.soreness || [],
     db.muscleSensitivity || {},
-    personalizedRecoveryHours(db.profile),
+    personalizedRecoveryHours(db.profile, activeCycleFactor(db)),
     db.profile
   );
   const monthWk = db.workouts.filter(w => w.date >= day(new Date(Date.now() - 30 * 864e5)));
@@ -923,6 +926,8 @@ app.get("/summary", async (req, res) => {
       elapsedDays: Math.floor((Date.now() - i.ts) / 864e5),
       clearance: Math.round(100 - injuryFatiguePenalty(i)),
     })),
+    cycle: db.cycle || [],
+    cycleStats: db.profile?.cycleTrackingEnabled ? cyclePhaseFactor(db.cycle || [], Date.now(), db.profile?.cycleIrregular, db.profile?.cycleHeavinessLearned) : null,
     weights, workouts: [...db.workouts].sort((a,b)=>(b.date||'').localeCompare(a.date||'')).slice(0,20), workoutsMonth: monthWk.length,
     water: lastN(db.water, 14), waterToday: db.water[day()] || 0,
     weeklyPlan: db.weeklyPlan ? { ...db.weeklyPlan, sessionsCompletedThisWeek: weekLiftSessionsCompleted(db.lifts) } : null,
@@ -968,7 +973,7 @@ app.get("/timeline", async (req, res) => {
 
 // ---------- Movement-pattern fatigue ----------
 app.get("/movement-patterns", async (req, res) => {
-  res.json({ patterns: computePatternFatigue(db.lifts, personalizedRecoveryHours(db.profile)) });
+  res.json({ patterns: computePatternFatigue(db.lifts, personalizedRecoveryHours(db.profile, activeCycleFactor(db))) });
 });
 
 // ---------- Long-arc trends ----------
@@ -1753,7 +1758,7 @@ app.post("/mentor", async (req, res) => {
 function sessionPlanContext() {
   const lifts = db.lifts || [];
   const peaks = musclePeaksFromLifts(lifts);
-  const structuralFatigue = computeStructuralFatigue(lifts, peaks, db.soreness || [], db.muscleSensitivity || {}, personalizedRecoveryHours(db.profile));
+  const structuralFatigue = computeStructuralFatigue(lifts, peaks, db.soreness || [], db.muscleSensitivity || {}, personalizedRecoveryHours(db.profile, activeCycleFactor(db)));
   const activeInjuries = (db.injuries || []).filter(i => !i.resolved);
   const currentFatigue = applyInjuryTaper(structuralFatigue, activeInjuries);
   const metabolicFatigue = computeMetabolicFatigue(lifts, (db.nutrition || {})[day()]?.carbs || 0);
@@ -2046,7 +2051,7 @@ app.post("/import/hevy", async (req, res) => {
 // only holds if it sees exactly the same fatigue map, exclusions and split.
 function weeklyGuidanceInputs() {
   const peaks = musclePeaksFromLifts(db.lifts);
-  const structuralFatigue = computeStructuralFatigue(db.lifts, peaks, db.soreness || [], db.muscleSensitivity || {}, personalizedRecoveryHours(db.profile));
+  const structuralFatigue = computeStructuralFatigue(db.lifts, peaks, db.soreness || [], db.muscleSensitivity || {}, personalizedRecoveryHours(db.profile, activeCycleFactor(db)));
   const currentFatigue = applyInjuryTaper(structuralFatigue, db.injuries || []);
   const weekMetabolic = computeMetabolicFatigue(db.lifts, (db.nutrition || {})[day()]?.carbs || 0);
   const weekCNS = computeCNSFatigue(db.lifts, db.cnsSensitivity || 1.0, getRecoveryScore(db));
@@ -2152,7 +2157,7 @@ function computeRecommendation(storedPlan) {
   const recoveryForecast = buildRecoveryForecast({
     currentFatigue: inputs.currentFatigue,
     cnsFatigue: inputs.weekCNS,
-    recoveryHours: personalizedRecoveryHours(db.profile),
+    recoveryHours: personalizedRecoveryHours(db.profile, activeCycleFactor(db)),
   });
 
   return {
@@ -2256,7 +2261,7 @@ app.get('/plan/calendar', async (req, res) => {
     lifts: ctx.lifts,
     soreness: db.soreness || [],
     sensitivity: db.muscleSensitivity || {},
-    recoveryHours: personalizedRecoveryHours(db.profile),
+    recoveryHours: personalizedRecoveryHours(db.profile, activeCycleFactor(db)),
     cnsSensitivity: db.cnsSensitivity || 1.0,
     recoveryScore: getRecoveryScore(db),
     carbsToday: (db.nutrition || {})[day()]?.carbs || 0,
@@ -2329,6 +2334,76 @@ app.post('/injuries/:id/resolve', async (req, res) => {
   if (!injury) return res.status(404).json({ error: 'not found' });
   injury.resolved = true;
   injury.resolvedAt = Date.now();
+  await save();
+  res.json({ ok: true });
+});
+
+// ---------- Menstrual cycle tracking (lightweight, manual — see cycleTracking.js) ----------
+app.get('/cycle', async (req, res) => {
+  const log = db.cycle || [];
+  res.json({ cycle: log, stats: cyclePhaseFactor(log, Date.now(), db.profile?.cycleIrregular, db.profile?.cycleHeavinessLearned) });
+});
+
+app.post('/cycle/start', async (req, res) => {
+  db.cycle = db.cycle || [];
+  if (db.cycle.some(c => c.endTs == null)) {
+    return res.status(400).json({ error: 'a period is already open — end it before starting a new one' });
+  }
+  const id = Date.now();
+  db.cycle.push({ id, startTs: id, endTs: null, heaviness: null, note: '' });
+  await save();
+  res.json({ ok: true, id });
+});
+
+app.post('/cycle/:id/end', async (req, res) => {
+  const id = +req.params.id;
+  db.cycle = db.cycle || [];
+  const entry = db.cycle.find(c => c.id === id);
+  if (!entry) return res.status(404).json({ error: 'not found' });
+  if (entry.endTs != null) return res.status(400).json({ error: 'already ended' });
+  const { heaviness, note } = req.body || {};
+  if (heaviness != null && (!Number.isInteger(heaviness) || heaviness < 1 || heaviness > 5)) {
+    return res.status(400).json({ error: 'heaviness must be an integer 1-5' });
+  }
+  entry.endTs = Date.now();
+  if (heaviness != null) entry.heaviness = heaviness;
+  if (note != null) entry.note = String(note).slice(0, 500);
+  // The pick above is only this cycle's starting estimate — nudge the
+  // persistent learned value toward what actually happened, same gentle
+  // shape as muscleSensitivity's soreness calibration. Seeded from the
+  // fresh pick (or the neutral midpoint) the first time there's nothing
+  // learned yet; a no-op if there isn't enough logged training in either
+  // window to judge.
+  const observed = observedHeaviness(db.lifts, entry, db.cycle);
+  const seed = db.profile.cycleHeavinessLearned ?? entry.heaviness ?? 3;
+  db.profile.cycleHeavinessLearned = nudgeLearnedHeaviness(seed, observed);
+  await save();
+  res.json({ ok: true });
+});
+
+// Correcting the training-impact rating after the fact — heaviness is
+// often only clear a few days after a period ends, not the moment it does.
+app.patch('/cycle/:id', async (req, res) => {
+  const id = +req.params.id;
+  db.cycle = db.cycle || [];
+  const entry = db.cycle.find(c => c.id === id);
+  if (!entry) return res.status(404).json({ error: 'not found' });
+  const { heaviness, note } = req.body || {};
+  if (heaviness != null) {
+    if (!Number.isInteger(heaviness) || heaviness < 1 || heaviness > 5) {
+      return res.status(400).json({ error: 'heaviness must be an integer 1-5' });
+    }
+    entry.heaviness = heaviness;
+  }
+  if (note != null) entry.note = String(note).slice(0, 500);
+  await save();
+  res.json({ ok: true, entry });
+});
+
+// Safety-net delete for a mis-tapped start/end — same shape as
+// /calendar-windows/:id.
+app.delete('/cycle/:id', async (req, res) => {
+  db.cycle = (db.cycle || []).filter(c => c.id !== +req.params.id);
   await save();
   res.json({ ok: true });
 });
@@ -3112,7 +3187,7 @@ async function generateMorningBriefing(db) {
   const hrv = todayMetrics.heart_rate_variability || yesterdayMetrics.heart_rate_variability;
   const rhr = todayMetrics.resting_heart_rate || yesterdayMetrics.resting_heart_rate;
 
-  const fatigue = computeCurrentFatigueScores(db.lifts || [], musclePeaksFromLifts(db.lifts || []), db.soreness || [], db.muscleSensitivity || {}, personalizedRecoveryHours(db.profile));
+  const fatigue = computeCurrentFatigueScores(db.lifts || [], musclePeaksFromLifts(db.lifts || []), db.soreness || [], db.muscleSensitivity || {}, personalizedRecoveryHours(db.profile, activeCycleFactor(db)));
   const topFatigued = Object.entries(fatigue).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([m, v]) => `${m} ${Math.round(v)}%`).join(', ');
 
   const briefingFatigue = fatigue;
@@ -3120,6 +3195,7 @@ async function generateMorningBriefing(db) {
   const briefingCNS = computeCNSFatigue(db.lifts || [], db.cnsSensitivity || 1.0, getRecoveryScore(db));
   const macroTargets = db.profile?.macroTargets || { protein: 160, calories: 2400 };
   const nutritionNotLogged = !totalCalories && !totalProtein;
+  const cycleInfo = db.profile?.cycleTrackingEnabled && (db.cycle || []).length ? cyclePhaseFactor(db.cycle, Date.now(), db.profile?.cycleIrregular, db.profile?.cycleHeavinessLearned) : null;
 
   const prompt = `You are generating a morning health briefing for a personal health app called Press. The briefing has three voices:
 
@@ -3137,7 +3213,7 @@ The user's data:
 - Yesterday's nutrition: ${totalCalories ? totalCalories + 'kcal, ' + totalProtein + 'g protein' : 'NOT LOGGED — flag this'}
 - Structural fatigue: ${topFatigued || 'none'}
 - Metabolic fatigue: ${briefingMetabolic}%
-- CNS fatigue: ${briefingCNS}%
+- CNS fatigue: ${briefingCNS}%${cycleInfo && cycleInfo.cycleDay != null ? `\n- Cycle phase: day ${cycleInfo.cycleDay}${cycleInfo.onPeriod ? ' (on period)' : ''}, recovery calibration factor ${cycleInfo.factor.toFixed(2)}, RIR guidance: ${cycleInfo.rirOffset > 0 ? '+' + cycleInfo.rirOffset : cycleInfo.rirOffset}` : ''}
 - Goal: ${db.profile?.goal || 'build muscle'}
 - Protein target: ${macroTargets.protein}g/day, Calorie target: ${macroTargets.calories}kcal/day
 - Supplements: ${(db.supplements || []).map(s => s.name).join(', ') || 'none logged'}
@@ -3180,9 +3256,10 @@ async function generateNewscast(db, period) {
   const nutritionLogged = todayNutrition.length > 0;
   const macroTargets = db.profile?.macroTargets || { calories: 2400, protein: 160 };
   const timeLabel = period === 'afternoon' ? 'Mid-Day Update' : "Tonight's Report";
-  const fatigue = computeCurrentFatigueScores(db.lifts || [], musclePeaksFromLifts(db.lifts || []), db.soreness || [], db.muscleSensitivity || {}, personalizedRecoveryHours(db.profile));
+  const fatigue = computeCurrentFatigueScores(db.lifts || [], musclePeaksFromLifts(db.lifts || []), db.soreness || [], db.muscleSensitivity || {}, personalizedRecoveryHours(db.profile, activeCycleFactor(db)));
   const topFatigued = Object.entries(fatigue).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([m, v]) => `${m} ${Math.round(v)}%`).join(', ') || 'none';
   const cns = computeCNSFatigue(db.lifts || [], db.cnsSensitivity || 1.0, getRecoveryScore(db));
+  const cycleInfo = db.profile?.cycleTrackingEnabled && (db.cycle || []).length ? cyclePhaseFactor(db.cycle, Date.now(), db.profile?.cycleIrregular, db.profile?.cycleHeavinessLearned) : null;
 
   const prompt = `You are generating a ${timeLabel} for a personal health app called Press. Same editorial voices as the morning edition — V (health editor, cool newspaper prose, no hand-holding) and Atlas (training analyst, methodical, science-grounded).
 
@@ -3190,7 +3267,7 @@ Today's data so far:
 - Workout: ${todayWorkout ? todayWorkout.name + ' — completed' : 'not yet logged'}
 - Nutrition logged: ${nutritionLogged ? `${totalCals}kcal, ${totalProtein}g protein (target: ${macroTargets.calories}kcal, ${macroTargets.protein}g protein)` : 'NOTHING LOGGED'}
 - Structural fatigue: ${topFatigued}
-- CNS fatigue: ${cns}%
+- CNS fatigue: ${cns}%${cycleInfo && cycleInfo.cycleDay != null ? `\n- Cycle phase: day ${cycleInfo.cycleDay}${cycleInfo.onPeriod ? ' (on period)' : ''}, recovery calibration factor ${cycleInfo.factor.toFixed(2)}, RIR guidance: ${cycleInfo.rirOffset > 0 ? '+' + cycleInfo.rirOffset : cycleInfo.rirOffset}` : ''}
 - Time of day: ${period === 'afternoon' ? 'mid-afternoon' : 'evening'}
 
 Return ONLY valid JSON:
@@ -3320,7 +3397,7 @@ async function generateWeeklyReview(db) {
   // current-moment snapshots (nothing stores them historically), so they
   // contextualize the recovery trend rather than being a trend themselves.
   const weeklyMusclePeaks = musclePeaksFromLifts(db.lifts || []);
-  const currentFatigue = computeCurrentFatigueScores(db.lifts || [], weeklyMusclePeaks, db.soreness || [], db.muscleSensitivity || {}, personalizedRecoveryHours(db.profile));
+  const currentFatigue = computeCurrentFatigueScores(db.lifts || [], weeklyMusclePeaks, db.soreness || [], db.muscleSensitivity || {}, personalizedRecoveryHours(db.profile, activeCycleFactor(db)));
   const topFatigued = Object.entries(currentFatigue).sort((a, b) => b[1] - a[1]).slice(0, 2).map(([m, v]) => `${m} ${Math.round(v)}%`);
   const fatigueTrend = {
     recoveryThisWeek: avgRecoveryThis != null ? Math.round(avgRecoveryThis) : null,
@@ -3329,6 +3406,10 @@ async function generateWeeklyReview(db) {
     cns: computeCNSFatigue(db.lifts || [], db.cnsSensitivity || 1.0, getRecoveryScore(db)),
     metabolic: computeMetabolicFatigue(db.lifts || [], (db.nutrition || {})[todayISO]?.carbs || 0),
   };
+  // Not woven into the LLM prompt below — this generator's prompt doesn't
+  // narrate fatigue numbers as text at all (unlike the morning briefing/
+  // newscast), it's display-only data for the frontend, same as fatigueTrend.
+  const cycleInfo = db.profile?.cycleTrackingEnabled && (db.cycle || []).length ? cyclePhaseFactor(db.cycle, Date.now(), db.profile?.cycleIrregular, db.profile?.cycleHeavinessLearned) : null;
 
   const prompt = `You are generating a Weekly Review for a personal health app called Press — a week-over-week digest, not a single-day report. Same editorial voices as the daily editions — V (health editor, cool newspaper prose, no hand-holding) and Atlas (training analyst, methodical, science-grounded).
 
@@ -3365,6 +3446,7 @@ Return ONLY valid JSON:
   review.goalCheck = goalCheck;
   review.workingAttention = workingAttention;
   review.fatigueTrend = fatigueTrend;
+  review.cycleInfo = cycleInfo;
   return review;
 }
 

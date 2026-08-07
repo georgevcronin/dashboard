@@ -215,7 +215,7 @@ function Detail({ min, max, children }) {
   return <>{children}</>;
 }
 
-function Header({ s, onSignOut, onOpenSettings, socialBadgeCount }) {
+function Header({ s, onSignOut, onOpenSettings, socialBadgeCount, onSyncShortcut, syncingShortcut }) {
   const today = s?.today || {};
   const n = s?.nutritionToday || {};
   const mt = s?.macroTargets || {};
@@ -235,6 +235,12 @@ function Header({ s, onSignOut, onOpenSettings, socialBadgeCount }) {
 
   return (
     <div className="hdr">
+      {onSyncShortcut && (
+        <button onClick={onSyncShortcut} disabled={syncingShortcut} className="mobile-sync-btn"
+          style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 7, letterSpacing: '.14em', textTransform: 'uppercase', background: 'none', border: '1px solid var(--rule)', color: 'var(--dim)', padding: '2px 6px', cursor: 'pointer', lineHeight: 1.4 }}>
+          {syncingShortcut ? 'Syncing…' : 'Sync'}
+        </button>
+      )}
       <div className="masthead">
         <div className="mast-left" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           {onOpenSettings && (
@@ -588,6 +594,11 @@ function S1({ s, recommendation, briefing, onShowBriefing, onShowAfternoon, onSh
             <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--forest)', marginTop: 10, letterSpacing: '.04em' }}>
               {recovery != null ? (recovery >= 70 ? '▲ TRAIN HEAVY' : recovery >= 50 ? '→ TRAIN MODERATE' : '▼ REST OR LIGHT') : 'AWAITING DATA'}
             </div>
+            {s?.profile?.cycleTrackingEnabled && s?.cycleStats?.cycleDay != null && (
+              <div className="sc-delta" style={{ marginTop: 4 }}>
+                Cycle day {s.cycleStats.cycleDay}{s.cycleStats.onPeriod ? ' · on period' : s.cycleStats.factor < 0.95 ? ' · peak window' : ''}
+              </div>
+            )}
           </div>
         </div>
 
@@ -1022,19 +1033,32 @@ const glycogenPct = (elapsedS, totalS) => {
 // app's first version — everything before this had no changelog at all.
 const CHANGELOG = [
   {
-    version: '0.85',
+    version: '0.86',
     date: '2026-08-07',
     features: [
       'Settings\' Apple Health setup guide now has a device picker (Apple Watch generation, Whoop, or Oura) that links straight to the Shortcut built for that device, instead of one Shortcut everyone has to hand-edit. Device-specific links are rolling out — picking one not yet published tells you so instead of a dead link.',
-      'The guide\'s "Sync Now" link now runs the exact Shortcut for your picked device (pressnewsletter-<device>) directly.',
+      'The guide\'s own "Sync Now" link runs the exact Shortcut for your picked device (pressnewsletter-<device>) directly, alongside the app\'s existing generic Sync button.',
+    ],
+  },
+  {
+    version: '0.85',
+    date: '2026-08-07',
+    features: [
+      'Apple Health setup guide now covers Blood Oxygen and Wrist Temperature per device (Apple Watch generations, Whoop, Oura) instead of one blanket "delete if unsupported" note — including the Oura gotcha where its temperature lands in Health as "Body Temperature", not "Wrist Temperature".',
+    ],
+  },
+  {
+    version: '0.84',
+    date: '2026-08-07',
+    features: [
+      'Added a Sync button, top-right corner on mobile only, next to Settings: launches your Apple Health Shortcut directly from the app and refreshes the dashboard a few seconds later so new data shows up without switching apps yourself.',
     ],
   },
   {
     version: '0.83',
     date: '2026-08-06',
     features: [
-      'Apple Health setup guide now covers Blood Oxygen and Wrist Temperature per device (Apple Watch generations, Whoop, Oura) instead of one blanket "delete if unsupported" note — including the Oura gotcha where its temperature lands in Health as "Body Temperature", not "Wrist Temperature".',
-      'Added a "Sync Now" link next to the Apple Health setup guide (Onboarding and Settings) that runs your Shortcut directly via the shortcuts:// URL scheme, once it\'s named "Press Sync".',
+      'Cycle-Aware Recovery (opt-in, Settings → Profile & Training): manually log when a period starts and ends, pick a starting estimate for how much it affects training capacity, and Press quietly extends recovery time during menstruation and shortens it again around the midpoint — plus a small RIR nudge on freestyle-logged sets. That estimate isn\'t static: it refines itself over time from how training actually went during each logged period, gently, one cycle at a time. A new Cycle panel holds the log and history; nothing changes until you turn it on and log at least one period.',
     ],
   },
   {
@@ -2678,7 +2702,7 @@ function ExerciseRoleTag({ role }) {
   );
 }
 
-function WorkoutLogger({ planDay, lifts, customExercises, experienceLevel, onClose, refresh }) {
+function WorkoutLogger({ planDay, lifts, customExercises, experienceLevel, cycleRirOffset = 0, onClose, refresh }) {
   const isBeginner = experienceLevel === 'New to training';
   // Read once, on mount — a session already restored into `exercises` below
   // shouldn't be re-read on every render (the App-level restore that opened
@@ -3535,7 +3559,7 @@ function WorkoutLogger({ planDay, lifts, customExercises, experienceLevel, onClo
             if (!planDay) {
               const sessionCount = new Set(lifts.filter(l => l.exercise === ex.name).map(l => l.date)).size;
               const setCount = suggestedWorkingSetCount(sessionCount);
-              freestyleSuggestion = `Suggested: ${setCount} sets · RIR ${suggestedRirSequence(setCount).join('→')}`;
+              freestyleSuggestion = `Suggested: ${setCount} sets · RIR ${suggestedRirSequence(setCount, cycleRirOffset).join('→')}`;
             }
             const isExpanded = expandedEx === i;
             const coach = coachNotes[ex.name];
@@ -7187,7 +7211,7 @@ function Onboarding({ s, onComplete, onOpenImport }) {
 // train today, and why" and so lead; sleep/nutrition/body/records are the
 // supporting record and follow. Only affects accounts that have never
 // reordered — a stored profile.panelOrder always wins.
-const DEFAULT_PANEL_ORDER = ['s1', 's3', 's5', 's2', 's4', 's6', 's7', 's8', 's9'];
+const DEFAULT_PANEL_ORDER = ['s1', 's3', 's5', 's2', 's4', 's6', 's7', 's8', 's9', 's10'];
 // A stored panelOrder always wins (see above), but it was captured at
 // whatever point the account last touched Settings → Dashboard Layout —
 // pre-dating panels added since then, which would otherwise never appear
@@ -7210,8 +7234,8 @@ const PANEL_WIDE = new Set(['s1', 's3', 's5']);
 // is never stored — an unset panel and an explicitly-standard one are the same
 // thing, so nothing has to be migrated when a panel is added.
 const PANEL_STATE_LABELS = { collapsed: 'Collapsed', standard: 'Standard', expanded: 'Wide' };
-const PANEL_LABELS = { s1: 'Dispatch', s2: 'Sleep', s3: 'Training', s4: 'Nutrition', s5: 'Recovery', s6: 'Body & Supplements', s7: 'Personal Records', s8: 'Goals', s9: 'Social' };
-const DOCK_LABELS = { s1: 'Dispatch', s2: 'Sleep', s3: 'Training', s4: 'Nutrition', s5: 'Recovery', s6: 'Body', s7: 'Records', s8: 'Goals', s9: 'Social' };
+const PANEL_LABELS = { s1: 'Dispatch', s2: 'Sleep', s3: 'Training', s4: 'Nutrition', s5: 'Recovery', s6: 'Body & Supplements', s7: 'Personal Records', s8: 'Goals', s9: 'Social', s10: 'Cycle' };
+const DOCK_LABELS = { s1: 'Dispatch', s2: 'Sleep', s3: 'Training', s4: 'Nutrition', s5: 'Recovery', s6: 'Body', s7: 'Records', s8: 'Goals', s9: 'Social', s10: 'Cycle' };
 // One-click desktop layout presets (order + panelStates together) — not a
 // new layout mechanism, just named combinations of the two settings above.
 // Review and Retrospective are mirror images of the same lead/supporting
@@ -7236,7 +7260,7 @@ const LAYOUT_PRESETS = [
   {
     id: 'review', label: 'Review',
     desc: 'Dispatch, Training and Recovery wide and first — today\'s decision, biggest.',
-    order: ['s1', 's3', 's5', 's2', 's4', 's6', 's7', 's8', 's9'],
+    order: ['s1', 's3', 's5', 's2', 's4', 's6', 's7', 's8', 's9', 's10'],
     states: { s1: 'expanded', s3: 'expanded', s5: 'expanded', s2: 'collapsed', s4: 'collapsed', s6: 'collapsed', s7: 'collapsed' },
     // Every column sums to 42. s8/s9 (unset -> 'standard', h=14) don't
     // divide evenly against everything else at their natural height, so s9
@@ -7270,7 +7294,7 @@ const LAYOUT_PRESETS = [
   {
     id: 'retrospective', label: 'Retrospective',
     desc: 'Sleep, Nutrition, Body and Records wide and first — the review, not the decision.',
-    order: ['s2', 's4', 's6', 's7', 's1', 's3', 's5', 's8', 's9'],
+    order: ['s2', 's4', 's6', 's7', 's1', 's3', 's5', 's8', 's9', 's10'],
     states: { s2: 'expanded', s4: 'expanded', s6: 'expanded', s7: 'expanded', s1: 'collapsed', s3: 'collapsed', s5: 'collapsed' },
     // Every column sums to 47. s9 is nudged to h=12 (unset -> 'standard'
     // h=14 otherwise) purely so the totals divide evenly here, same as
@@ -7668,6 +7692,157 @@ function S9({ s, followBadge, reloadFollowBadge }) {
         <ComparisonScreen username={comparingUsername} otherDisplayNameFirstHint={viewedProfile?.displayNameFirst}
           onClose={() => setComparingUsername(null)} />
       )}
+    </section>
+  );
+}
+
+// Manual, lightweight cycle log (see functions/cycleTracking.js for the
+// deterministic calibration math) — this component only owns the logging
+// UI and plain-language summary; s.cycleStats is computed server-side.
+const HEAVINESS_LABELS = ['None', 'Mild', 'Moderate', 'Significant', 'Severe'];
+function cycleImpactWord(avg) {
+  if (avg == null) return null;
+  if (avg <= 1.5) return 'minimal';
+  if (avg <= 2.5) return 'mild';
+  if (avg <= 3.5) return 'moderate';
+  if (avg <= 4.5) return 'significant';
+  return 'severe';
+}
+function cycleConsistencyWord(confidence, variation) {
+  if (confidence == null || confidence < 0.3) return null;
+  return variation < 1 ? 'fairly consistent' : 'variable';
+}
+function S10({ s, refresh }) {
+  const [heaviness, setHeaviness] = useState(3);
+  const [note, setNote] = useState('');
+  const [ending, setEnding] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [editingId, setEditingId] = useState(null);
+  const [editHeaviness, setEditHeaviness] = useState(3);
+
+  const log = s?.cycle || [];
+  const stats = s?.cycleStats || null;
+  const open = log.find(c => c.endTs == null);
+  const history = [...log].filter(c => c.endTs != null).sort((a, b) => b.startTs - a.startTs);
+
+  const startPeriod = async () => {
+    setBusy(true);
+    const data = await api('cycle/start', { method: 'POST' });
+    setBusy(false);
+    refresh({ ...s, cycle: [...log, { id: data.id, startTs: data.id, endTs: null, heaviness: null, note: '' }] });
+  };
+
+  const endPeriod = async () => {
+    setBusy(true);
+    await api(`cycle/${open.id}/end`, { method: 'POST', body: JSON.stringify({ heaviness, note: note.trim() }) });
+    setBusy(false); setEnding(false); setHeaviness(3); setNote('');
+    refresh({ ...s, cycle: log.map(c => c.id === open.id ? { ...c, endTs: Date.now(), heaviness, note: note.trim() } : c) });
+  };
+
+  const saveEdit = async (id) => {
+    await api(`cycle/${id}`, { method: 'PATCH', body: JSON.stringify({ heaviness: editHeaviness }) });
+    setEditingId(null);
+    refresh({ ...s, cycle: log.map(c => c.id === id ? { ...c, heaviness: editHeaviness } : c) });
+  };
+
+  const removeEntry = async (id) => {
+    await api(`cycle/${id}`, { method: 'DELETE' });
+    refresh({ ...s, cycle: log.filter(c => c.id !== id) });
+  };
+
+  const impactWord = cycleImpactWord(stats?.avgHeaviness);
+  const consistencyWord = cycleConsistencyWord(stats?.confidence, stats?.variation);
+  let summaryLine = 'Not enough history yet to calibrate.';
+  if (s?.profile?.cycleIrregular && !stats?.onPeriod) {
+    summaryLine = 'Irregular cycle — calibration resumes once a period is logged.';
+  } else if (impactWord && consistencyWord) {
+    summaryLine = `Training impact: ${impactWord}, ${consistencyWord}.`;
+  } else if (impactWord) {
+    summaryLine = `Training impact: ${impactWord}.`;
+  }
+  const rirOffset = stats?.rirOffset || 0;
+  const rirLine = rirOffset > 0 ? `Today: RIR +${rirOffset} — stay a rep further from failure.`
+    : rirOffset < 0 ? `Today: RIR ${rirOffset} — fine to push closer to failure.` : null;
+
+  return (
+    <section id="s10" style={{ display: 'flex', flexDirection: 'column' }}>
+      <div className="fade panel-head" style={{ flexShrink: 0 }}>
+        <div className="kicker">Cycle</div>
+        <div className="headline" style={{ fontSize: 'clamp(24px,6vw,44px)', lineHeight: '.96' }}>Cycle-Aware<br />Recovery</div>
+        <div className="deck">{open ? `Day ${stats?.cycleDay ?? '—'} of cycle` : 'No period currently logged'}</div>
+      </div>
+      <div className="fade" style={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>
+        <div className="cycle-status">
+          <div className="cycle-summary">{summaryLine}</div>
+          {rirLine && <div className="cycle-summary">{rirLine}</div>}
+        </div>
+
+        {open ? (
+          ending ? (
+            <div className="cycle-form">
+              <div className="kicker" style={{ margin: 0 }}>End Period</div>
+              <div>
+                <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, letterSpacing: '.14em', textTransform: 'uppercase', color: 'var(--dim)', marginBottom: 6 }}>Training impact this cycle</div>
+                <div style={{ fontFamily: 'Times New Roman,serif', fontSize: 11, fontStyle: 'italic', color: 'var(--dim)', marginBottom: 8 }}>
+                  A starting estimate — refined automatically afterward from how training actually went.
+                </div>
+                <div className="cycle-heaviness">
+                  {HEAVINESS_LABELS.map((label, i) => (
+                    <button key={label} className={`cycle-heaviness-btn${heaviness === i + 1 ? ' active' : ''}`} onClick={() => setHeaviness(i + 1)}>
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <input className="cycle-input" placeholder="Notes (optional)…" value={note} onChange={e => setNote(e.target.value)} />
+              <button className="prof-btn solid" disabled={busy} onClick={endPeriod} style={{ alignSelf: 'flex-start', padding: '6px 18px' }}>
+                {busy ? 'Saving…' : 'End Period'}
+              </button>
+            </div>
+          ) : (
+            <button className="prof-btn solid" onClick={() => setEnding(true)} style={{ marginTop: 12 }}>End Period</button>
+          )
+        ) : (
+          <button className="prof-btn solid" disabled={busy} onClick={startPeriod} style={{ marginTop: 12 }}>
+            {busy ? 'Logging…' : 'Log Period Start'}
+          </button>
+        )}
+
+        {history.length > 0 && (
+          <div className="cycle-list">
+            {history.map(c => (
+              <div key={c.id} className="cycle-card">
+                <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8 }}>
+                  <div>
+                    <div className="cycle-meta">
+                      {new Date(c.startTs).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })} – {new Date(c.endTs).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
+                      {c.heaviness != null && ` · ${HEAVINESS_LABELS[c.heaviness - 1]} impact`}
+                    </div>
+                    {c.note && <div className="injury-note">{c.note}</div>}
+                    {editingId === c.id && (
+                      <div className="cycle-heaviness" style={{ marginTop: 6 }}>
+                        {HEAVINESS_LABELS.map((label, i) => (
+                          <button key={label} className={`cycle-heaviness-btn${editHeaviness === i + 1 ? ' active' : ''}`} onClick={() => setEditHeaviness(i + 1)}>
+                            {label}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+                <div className="cycle-actions">
+                  {editingId === c.id ? (
+                    <button className="cycle-edit" onClick={() => saveEdit(c.id)}>Save</button>
+                  ) : (
+                    <button className="cycle-edit" onClick={() => { setEditingId(c.id); setEditHeaviness(c.heaviness || 3); }}>Edit</button>
+                  )}
+                  <button className="cycle-remove" onClick={() => removeEntry(c.id)}>Remove</button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
     </section>
   );
 }
@@ -8351,6 +8526,34 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
             <input className="prof-input" type="number" inputMode="decimal" value={heightVal} onChange={e => setHeightVal(e.target.value)} onBlur={saveHeight}
               placeholder="e.g. 180" style={{ flex: 1, minWidth: 0, maxWidth: 80 }} />
           </div>
+          {s?.profile?.sex === 'female' && (
+            <>
+              <div className="prof-field">
+                <span className="prof-lbl">Cycle-Aware Recovery <span style={{ fontSize: 8, color: 'var(--dim)', textTransform: 'none' }}>(manual period logging, no predictions)</span></span>
+                <button className="prof-btn" onClick={() => {
+                    const cycleTrackingEnabled = !s?.profile?.cycleTrackingEnabled;
+                    refresh({ ...s, profile: { ...s.profile, cycleTrackingEnabled } });
+                    api('profile', { method: 'POST', body: JSON.stringify({ cycleTrackingEnabled }) });
+                  }}
+                  style={s?.profile?.cycleTrackingEnabled ? { background: 'var(--ink)', color: 'var(--paper)', borderColor: 'var(--ink)' } : {}}>
+                  {s?.profile?.cycleTrackingEnabled ? 'On' : 'Off'}
+                </button>
+              </div>
+              {s?.profile?.cycleTrackingEnabled && (
+                <div className="prof-field">
+                  <span className="prof-lbl">I have an irregular cycle <span style={{ fontSize: 8, color: 'var(--dim)', textTransform: 'none' }}>(calibration only applies while a period is actively logged, not estimated between periods)</span></span>
+                  <button className="prof-btn" onClick={() => {
+                      const cycleIrregular = !s?.profile?.cycleIrregular;
+                      refresh({ ...s, profile: { ...s.profile, cycleIrregular } });
+                      api('profile', { method: 'POST', body: JSON.stringify({ cycleIrregular }) });
+                    }}
+                    style={s?.profile?.cycleIrregular ? { background: 'var(--ink)', color: 'var(--paper)', borderColor: 'var(--ink)' } : {}}>
+                    {s?.profile?.cycleIrregular ? 'On' : 'Off'}
+                  </button>
+                </div>
+              )}
+            </>
+          )}
         </div>
 
         {/* ── TRAINING GOALS ── */}
@@ -10578,6 +10781,13 @@ function App() {
     }, 300);
   };
 
+  const [syncingShortcut, setSyncingShortcut] = useState(false);
+  const syncShortcut = () => {
+    window.location.href = `shortcuts://run-shortcut?name=${encodeURIComponent('pressnewsletter')}`;
+    setSyncingShortcut(true);
+    setTimeout(() => { loadSummary(); setSyncingShortcut(false); }, 5000);
+  };
+
   const loadSummary = () => api('summary', { throwOnError: true })
     .then(data => {
       setS(data);
@@ -10989,9 +11199,10 @@ function App() {
   const hiddenPanelSet = new Set(s?.profile?.hiddenPanels || []);
   // trackingLevel's own s2/s4 gating still applies on top of the user's own
   // order/hide preference — a "workout" tracking level shouldn't show Sleep
-  // just because it isn't in hiddenPanels.
+  // just because it isn't in hiddenPanels. s10 (Cycle) is gated the same
+  // way, on the opt-in profile toggle instead of tracking level.
   const sectionIds = panelOrder.filter(id =>
-    !hiddenPanelSet.has(id) && (id !== 's2' || showSleep) && (id !== 's4' || showFuel)
+    !hiddenPanelSet.has(id) && (id !== 's2' || showSleep) && (id !== 's4' || showFuel) && (id !== 's10' || s?.profile?.cycleTrackingEnabled)
   );
   // Same "fall back to the first section" rule the dock buttons already used
   // (activeSection can be null on first render, or point at a section that
@@ -11074,6 +11285,7 @@ function App() {
     s7: <S7 key="s7" s={s} />,
     s8: <S8 key="s8" s={s} refresh={refresh} />,
     s9: <S9 key="s9" s={s} followBadge={followBadge} reloadFollowBadge={loadFollowRequests} />,
+    s10: <S10 key="s10" s={s} refresh={refresh} />,
   };
   // Default grid size for an item that has no saved x/y/w/h yet — mirrors the
   // old CSS span logic (PANEL_WIDE + expanded state) so a fresh account's
@@ -11105,7 +11317,7 @@ function App() {
           onOpenImport={() => { handleOnboardDone(); setForceOnboarding(false); setShowImport(true); }}
         />
       )}
-      <Header s={s} onSignOut={() => signOut(auth)} onOpenSettings={() => setShowSettings(true)} socialBadgeCount={socialBadgeCount} />
+      <Header s={s} onSignOut={() => signOut(auth)} onOpenSettings={() => setShowSettings(true)} socialBadgeCount={socialBadgeCount} onSyncShortcut={syncShortcut} syncingShortcut={syncingShortcut} />
       {summaryError && !s && (
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, padding: '8px 16px', background: '#7a1414', color: '#f5f0e2', fontFamily: 'JetBrains Mono, monospace', fontSize: 10, letterSpacing: '.06em' }}>
           <span>{summaryError}</span>
@@ -11202,6 +11414,7 @@ function App() {
           lifts={s?.lifts || []}
           customExercises={s?.customExercises || []}
           experienceLevel={s?.profile?.experienceLevel}
+          cycleRirOffset={s?.cycleStats?.rirOffset || 0}
           onClose={() => setLoggerPlanDay(undefined)}
           refresh={setS}
         />

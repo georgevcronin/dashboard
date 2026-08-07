@@ -33,6 +33,8 @@ jobs:
       - run: echo "GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}" >> functions/.env
       - run: echo "GEMINI_API_KEY_FALLBACK=${{ secrets.GEMINI_API_KEY_FALLBACK }}" >> functions/.env
       - run: echo "HEVY_API_KEY=${{ secrets.HEVY_API_KEY }}" >> functions/.env
+      - run: echo "STRAVA_CLIENT_ID=${{ secrets.STRAVA_CLIENT_ID }}" >> functions/.env
+      - run: echo "STRAVA_CLIENT_SECRET=${{ secrets.STRAVA_CLIENT_SECRET }}" >> functions/.env
       - run: echo "PRESS_OWNER_UID=uqJcOkpVXGYLjngCWCi0LvmSv8q1" >> functions/.env
 
       # A blank secret (e.g. GEMINI_API_KEY resolving to "") isn't a workflow
