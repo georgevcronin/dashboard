@@ -57,14 +57,18 @@ function shiftTs(entries, shiftMs) {
 
 function ymd(date) { return date.toISOString().slice(0, 10); }
 
-// Which constraint (if any) applies to this calendar date. calendarWindows:
+// Which constraint (if any) applies to this calendar date. busyDates:
+// ['YYYY-MM-DD', ...] — one-off, quick-marked straight from the Plan Ahead
+// panel itself (a single busy day, no equipment/reason detail). calendarWindows:
 // [{ start, end, level: 'rest'|'bodyweight'|'restricted', equipment, reason }]
-// (inclusive YYYY-MM-DD range) — one-off, e.g. a holiday. unavailableDaysOfWeek:
-// [0-6] (Date#getDay convention, 0=Sunday) — recurring, indefinite blackout.
-// availableDaysOfWeek: [0-6], the inverse shape — an allow-list ("I only ever
-// train Mon/Wed/Fri"); empty means no allow-list is set, i.e. no restriction.
-function constraintForDate(date, { calendarWindows = [], unavailableDaysOfWeek = [], availableDaysOfWeek = [] } = {}) {
+// (inclusive YYYY-MM-DD range) — one-off, e.g. a holiday, set from Settings.
+// unavailableDaysOfWeek: [0-6] (Date#getDay convention, 0=Sunday) — recurring,
+// indefinite blackout. availableDaysOfWeek: [0-6], the inverse shape — an
+// allow-list ("I only ever train Mon/Wed/Fri"); empty means no allow-list is
+// set, i.e. no restriction.
+function constraintForDate(date, { busyDates = [], calendarWindows = [], unavailableDaysOfWeek = [], availableDaysOfWeek = [] } = {}) {
   const dstr = ymd(date);
+  if ((busyDates || []).includes(dstr)) return { level: 'rest', equipment: null, reason: 'Marked busy' };
   const window = (calendarWindows || []).find(w => dstr >= w.start && dstr <= w.end);
   if (window) return { level: window.level, equipment: window.equipment || null, reason: window.reason || null };
   if ((unavailableDaysOfWeek || []).includes(date.getDay())) return { level: 'rest', equipment: null, reason: 'Recurring day off' };
@@ -96,7 +100,7 @@ function solveCalendarWindow({
   preferredSplit = 'Full Body', travelMode = false, favoriteExercises = [],
   trainingMonths = null, preferStable = false, maxDurationMin = null, warmupScheme = null,
   compoundIsolationPreference = null, equipmentAvailable = null,
-  calendarWindows = [], unavailableDaysOfWeek = [], availableDaysOfWeek = [], splitDayAnchors = {},
+  calendarWindows = [], unavailableDaysOfWeek = [], availableDaysOfWeek = [], splitDayAnchors = {}, busyDates = [],
   // Manual override for "how many lift sessions this week" — when null, each
   // Monday-aligned week auto-computes its own target the same way
   // generateWeeklyGuidance already does for the (now-retired) advisory block,
@@ -116,7 +120,7 @@ function solveCalendarWindow({
 
   for (let i = 0; i < days; i++) {
     const date = new Date(start.getTime() + i * DAY_MS);
-    const constraint = constraintForDate(date, { calendarWindows, unavailableDaysOfWeek, availableDaysOfWeek });
+    const constraint = constraintForDate(date, { busyDates, calendarWindows, unavailableDaysOfWeek, availableDaysOfWeek });
 
     if (constraint?.level === 'rest') {
       out.push({ date: ymd(date), type: 'rest', reason: constraint.reason || 'Marked unavailable', readiness: 'red' });
@@ -168,7 +172,20 @@ function solveCalendarWindow({
         muscleLastTrainedDays, preferredSplit, muscleFocus,
       }).liftSessionsTarget;
     }
-    if (weekSessionCount >= weekTarget) {
+    // Rolling trailing-7-day cap alongside the Monday-week cap above — two
+    // adjacent weeks' quotas can't stack into a run of training days with no
+    // rest between them (e.g. window starts Thursday: cap for Thu-Sun plus a
+    // fresh cap for the following Mon-Wed can otherwise cover all 7 visible
+    // days). Reads `history`, not the raw `lifts` param, since it must also
+    // see sessions the solver itself already scheduled earlier in this loop.
+    const trailing7Start = date.getTime() - 7 * DAY_MS;
+    const trailing7SessionCount = new Set(
+      (history || []).filter(l => {
+        const t = new Date(l.date).getTime();
+        return t >= trailing7Start && t < date.getTime();
+      }).map(l => l.date)
+    ).size;
+    if (weekSessionCount >= weekTarget || trailing7SessionCount >= weekTarget) {
       // A planned recovery day, not an unavailability — 'green' (not 'red',
       // which marks days the athlete can't train at all) since hitting the
       // weekly target is the goal working as intended.
@@ -180,7 +197,10 @@ function solveCalendarWindow({
     const dayEquipment = constraint?.level === 'restricted' ? constraint.equipment : equipmentAvailable;
 
     const dow = date.getDay();
-    const preferredBucket = Object.entries(splitDayAnchors).find(([, d]) => d === dow)?.[0] || null;
+    // Array.isArray guard: pre-multi-day accounts stored a single integer
+    // per bucket, not an array — accept both shapes rather than migrating.
+    const preferredBucket = Object.entries(splitDayAnchors)
+      .find(([, days]) => (Array.isArray(days) ? days : [days]).includes(dow))?.[0] || null;
 
     const picked = autoPickFullBodySession({
       lifts: shiftedHistory, currentFatigue, offlineMuscles, muscleFocus, muscleLastTrainedDays,

@@ -1371,14 +1371,17 @@ app.post("/profile", async (req, res) => {
       return res.status(400).json({ error: 'availableDaysOfWeek must be an array of integers 0-6' });
     }
   }
-  // Soft "Legs on Friday"-style preference — { [splitBucketName]: dayOfWeek }.
-  // Only meaningful against a named preferredSplit (Full Body has no fixed
-  // buckets to anchor); calendarSolver.js falls back and reports a conflict
-  // rather than forcing a fatigued muscle through when it can't be honored.
+  // Soft "Legs on Monday and Thursday"-style preference — { [splitBucketName]:
+  // [dayOfWeek, ...] }. Only meaningful against a named preferredSplit (Full
+  // Body has no fixed buckets to anchor); calendarSolver.js falls back and
+  // reports a conflict rather than forcing a fatigued muscle through when it
+  // can't be honored.
   if (body.splitDayAnchors) {
-    if (typeof body.splitDayAnchors !== 'object' || Array.isArray(body.splitDayAnchors)
-      || Object.values(body.splitDayAnchors).some(d => !Number.isInteger(d) || d < 0 || d > 6)) {
-      return res.status(400).json({ error: 'splitDayAnchors must be an object of bucket name -> integer 0-6' });
+    const valid = typeof body.splitDayAnchors === 'object' && !Array.isArray(body.splitDayAnchors)
+      && Object.values(body.splitDayAnchors).every(days =>
+        Array.isArray(days) && days.length > 0 && days.every(d => Number.isInteger(d) && d >= 0 && d <= 6));
+    if (!valid) {
+      return res.status(400).json({ error: 'splitDayAnchors must be an object of bucket name -> array of integers 0-6' });
     }
   }
   // Manual override of the calendar's auto-computed weekly session count —
@@ -1386,6 +1389,12 @@ app.post("/profile", async (req, res) => {
   if (body.weeklySessionTarget != null) {
     if (!Number.isInteger(body.weeklySessionTarget) || body.weeklySessionTarget < 0 || body.weeklySessionTarget > 14) {
       return res.status(400).json({ error: 'weeklySessionTarget must be an integer 0-14' });
+    }
+  }
+  // One-off busy/holiday dates marked from the calendar UI — array of YYYY-MM-DD strings.
+  if (body.busyDates) {
+    if (!Array.isArray(body.busyDates) || body.busyDates.some(d => typeof d !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(d))) {
+      return res.status(400).json({ error: 'busyDates must be an array of YYYY-MM-DD date strings' });
     }
   }
 
@@ -2492,6 +2501,7 @@ app.get('/plan/calendar', async (req, res) => {
     // same null-means-unrestricted convention as everywhere else this flows.
     equipmentAvailable: db.profile?.equipmentAvailable?.length ? db.profile.equipmentAvailable : null,
     calendarWindows: db.calendarWindows || [],
+    busyDates: db.profile?.busyDates || [],
     unavailableDaysOfWeek: db.profile?.unavailableDaysOfWeek || [],
     availableDaysOfWeek: db.profile?.availableDaysOfWeek || [],
     splitDayAnchors: db.profile?.splitDayAnchors || {},

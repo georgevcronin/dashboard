@@ -1033,6 +1033,15 @@ const glycogenPct = (elapsedS, totalS) => {
 // app's first version — everything before this had no changelog at all.
 const CHANGELOG = [
   {
+    version: '1.01',
+    date: '2026-08-07',
+    features: [
+      'Fixed a Plan Ahead bug where a window starting mid-week could chain two weeks\' worth of sessions into a run with zero rest days (e.g. every day showing a Full Body session) — the weekly session cap now also applies on a rolling trailing-7-day basis, not just per Monday-aligned week.',
+      'Split-Day Anchors (Settings → Plan Ahead) now accept more than one day per bucket — e.g. Legs on both Monday and Thursday, instead of a single fixed day.',
+      'Plan Ahead panel: tap a day, then "Mark Busy" to flag a one-off holiday or busy day directly from the calendar — the solver now rests that day, same as a Settings holiday window.',
+    ],
+  },
+  {
     version: '1.00',
     date: '2026-08-07',
     features: [
@@ -5072,34 +5081,29 @@ const WEEKDAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 // SPLIT_GROUPS keys are camelCase bucket names ('chestBack') for splits
 // whose buckets aren't already single words — spaced out for display.
 const bucketLabel = key => key.replace(/([A-Z])/g, ' $1').replace(/^./, c => c.toUpperCase());
-function CalendarGrid({ days, expandedDate, onSelect }) {
+function CalendarGrid({ days, expandedDate, onSelect, busyDates = [] }) {
   return (
-    // minmax(0,1fr), not bare 1fr — a raw SPLIT_GROUPS bucket name
-    // ('shouldersArms', 'chestBack') is one unbroken word that's wider than
-    // 1/7 of a narrow phone's width, and a bare 1fr track's implicit
-    // min-width is its content's min-content size, not 0, so it forces the
-    // whole grid wider than the viewport instead of shrinking (confirmed:
-    // this is the dashboard-panel side of the mobile horizontal-scroll bug).
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, minmax(0, 1fr))', gap: 4, marginBottom: 10 }}>
       {days.map(d => {
         const dateObj = localDateFromYMD(d.date);
         const isOpen = expandedDate === d.date;
+        const isBusy = busyDates.includes(d.date);
         return (
           <button key={d.date} onClick={() => onSelect(isOpen ? null : d.date)}
             aria-expanded={isOpen}
             style={{
               display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2, padding: '6px 2px',
-              minHeight: 44, cursor: 'pointer', background: 'none', minWidth: 0, overflowWrap: 'anywhere',
-              border: `1px solid ${isOpen ? 'var(--ink)' : 'var(--rule)'}`,
-              borderBottom: `3px solid ${READINESS_COLOR[d.readiness] || 'var(--rule)'}`,
+              minHeight: 44, cursor: 'pointer', background: isBusy ? 'rgba(255, 165, 0, 0.1)' : 'none', minWidth: 0, overflowWrap: 'anywhere',
+              border: `1px solid ${isOpen ? 'var(--ink)' : isBusy ? 'var(--gold)' : 'var(--rule)'}`,
+              borderBottom: `3px solid ${isBusy ? 'var(--gold)' : READINESS_COLOR[d.readiness] || 'var(--rule)'}`,
               fontFamily: "'JetBrains Mono',monospace",
             }}>
             <span style={{ fontSize: 8, color: 'var(--dim)', textTransform: 'uppercase' }}>
               {dateObj.toLocaleDateString('en-GB', { weekday: 'short' })}
             </span>
             <span style={{ fontSize: 10, color: 'var(--ink)' }}>{dateObj.getDate()}</span>
-            <span style={{ fontSize: 7, color: 'var(--dim)', textTransform: 'capitalize', textAlign: 'center', lineHeight: 1.2 }}>
-              {d.type === 'rest' ? 'Rest' : (d.bucket || 'Full Body')}
+            <span style={{ fontSize: 7, color: isBusy ? 'var(--gold)' : 'var(--dim)', textTransform: 'capitalize', textAlign: 'center', lineHeight: 1.2 }}>
+              {isBusy ? 'Busy' : d.type === 'rest' ? 'Rest' : (d.bucket || 'Full Body')}
             </span>
           </button>
         );
@@ -5175,6 +5179,7 @@ function S3({ s, recommendation, performanceTrend, onStartWorkout, onImport, onH
   };
 
   const [targetPlannerOpen, setTargetPlannerOpen] = useState(false);
+  const [togglingBusy, setTogglingBusy] = useState(false);
   // The same structural fatigue reading the Recovery panel shows — both the
   // target planner and (formerly) the sandbox rank against current state, so
   // they have to be looking at the same numbers the rest of the app is.
@@ -5385,7 +5390,7 @@ function S3({ s, recommendation, performanceTrend, onStartWorkout, onImport, onH
           )}
 
           {!calendarLoading && calendar && (
-            <CalendarGrid days={calendar.days} expandedDate={expandedDate} onSelect={setExpandedDate} />
+            <CalendarGrid days={calendar.days} expandedDate={expandedDate} onSelect={setExpandedDate} busyDates={s?.profile?.busyDates || []} />
           )}
         </div>
 
@@ -5393,6 +5398,20 @@ function S3({ s, recommendation, performanceTrend, onStartWorkout, onImport, onH
           const day = calendar.days.find(d => d.date === expandedDate);
           if (!day) return null;
           const isToday = day.date === calendar.days[0]?.date;
+          const isBusy = (s?.profile?.busyDates || []).includes(expandedDate);
+
+          const toggleBusy = async () => {
+            setTogglingBusy(true);
+            const updated = isBusy
+              ? (s.profile.busyDates || []).filter(d => d !== expandedDate)
+              : [...(s.profile.busyDates || []), expandedDate];
+            try {
+              await api('profile', { method: 'POST', body: JSON.stringify({ busyDates: updated }) });
+              refresh({ ...s, profile: { ...s.profile, busyDates: updated } });
+            } finally {
+              setTogglingBusy(false);
+            }
+          };
 
           if (day.type === 'rest') {
             return (
@@ -5522,6 +5541,9 @@ function S3({ s, recommendation, performanceTrend, onStartWorkout, onImport, onH
                   <button className="tool-btn plain" disabled={!day.exercises.length} onClick={addSessionToCalendar}>
                     Add to Calendar
                   </button>
+                  <button className={`tool-btn plain${isBusy ? ' solid' : ''}`} disabled={togglingBusy} onClick={toggleBusy} style={{ color: isBusy ? 'var(--gold)' : 'inherit' }}>
+                    {isBusy ? 'Busy' : 'Mark Busy'}
+                  </button>
                 </div>
               </div>
 
@@ -5566,6 +5588,14 @@ function S3({ s, recommendation, performanceTrend, onStartWorkout, onImport, onH
                 </div>
               )}
             </>
+          )}
+
+          {!isToday && (
+            <div style={{ paddingTop: 10, borderTop: '1px solid var(--rule)', display: 'flex', gap: 8 }}>
+              <button className={`tool-btn plain${isBusy ? ' solid' : ''}`} disabled={togglingBusy} onClick={toggleBusy} style={{ color: isBusy ? 'var(--gold)' : 'inherit', flex: 1 }}>
+                {isBusy ? 'Busy' : 'Mark Busy'}
+              </button>
+            </div>
           )}
           </div>
           );
@@ -8660,7 +8690,12 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
   const [unavailableDaysOfWeek, setUnavailableDaysOfWeek] = useState(s?.profile?.unavailableDaysOfWeek || []);
   const [availableDaysOfWeek, setAvailableDaysOfWeek] = useState(s?.profile?.availableDaysOfWeek || []);
   const [weeklySessionTargetVal, setWeeklySessionTargetVal] = useState(s?.profile?.weeklySessionTarget ?? '');
-  const [splitDayAnchors, setSplitDayAnchors] = useState(s?.profile?.splitDayAnchors || {});
+  // Array.isArray guard: pre-multi-day accounts stored a single integer per
+  // bucket, not an array — normalize on load rather than migrating stored data.
+  const [splitDayAnchors, setSplitDayAnchors] = useState(() => {
+    const raw = s?.profile?.splitDayAnchors || {};
+    return Object.fromEntries(Object.entries(raw).map(([k, v]) => [k, Array.isArray(v) ? v : [v]]));
+  });
   const [savingPlanConstraints, setSavingPlanConstraints] = useState(false);
   const [calendarWindows, setCalendarWindows] = useState([]);
   const [windowsLoading, setWindowsLoading] = useState(true);
@@ -10048,24 +10083,29 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
               <div style={{ fontSize: 8, letterSpacing: '.16em', textTransform: 'uppercase', color: 'var(--dim)', margin: '12px 0 6px' }}>
                 Split-Day Anchors <span style={{ textTransform: 'none' }}>(soft — honored only when fresh)</span>
               </div>
-              {Object.keys(SPLIT_GROUPS[s.profile.preferredSplit]).map(bucket => (
-                <div key={bucket} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0', borderBottom: '1px solid var(--rule)' }}>
-                  <span style={{ fontSize: 11, color: 'var(--ink)', flex: 1 }}>{bucketLabel(bucket)}</span>
-                  <select className="prof-input" style={{ width: 100, textAlign: 'left' }}
-                    value={splitDayAnchors[bucket] ?? ''}
-                    onChange={e => {
-                      const v = e.target.value;
-                      setSplitDayAnchors(prev => {
-                        const next = { ...prev };
-                        if (v === '') delete next[bucket]; else next[bucket] = +v;
-                        return next;
-                      });
-                    }}>
-                    <option value="">No anchor</option>
-                    {WEEKDAY_LABELS.map((lbl, i) => <option key={i} value={i}>{lbl}</option>)}
-                  </select>
-                </div>
-              ))}
+              {Object.keys(SPLIT_GROUPS[s.profile.preferredSplit]).map(bucket => {
+                const anchorDays = splitDayAnchors[bucket] || [];
+                return (
+                  <div key={bucket} style={{ padding: '6px 0', borderBottom: '1px solid var(--rule)' }}>
+                    <span style={{ fontSize: 11, color: 'var(--ink)' }}>{bucketLabel(bucket)}</span>
+                    <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginTop: 6 }}>
+                      {WEEKDAY_LABELS.map((lbl, i) => (
+                        <button key={i} type="button" className={`prof-btn${anchorDays.includes(i) ? ' solid' : ''}`}
+                          style={{ fontSize: 9, padding: '4px 8px' }}
+                          onClick={() => setSplitDayAnchors(prev => {
+                            const next = { ...prev };
+                            const cur = next[bucket] || [];
+                            const updated = cur.includes(i) ? cur.filter(d => d !== i) : [...cur, i];
+                            if (updated.length === 0) delete next[bucket]; else next[bucket] = updated;
+                            return next;
+                          })}>
+                          {lbl}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
             </>
           )}
           <button className="prof-btn solid" style={{ fontSize: 10, padding: '6px 12px', marginTop: 12 }}

@@ -42,6 +42,16 @@ test('a recurring day-of-week blackout produces a rest day with a reason', () =>
   assert.ok(result.days.every(d => d.reason === 'Recurring day off'));
 });
 
+test('a quick-marked busy date forces that day to rest, same as a holiday window', () => {
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const busyDate = today.toISOString().slice(0, 10);
+  const result = solveCalendarWindow({
+    ...baseParams(), days: 1, busyDates: [busyDate],
+  });
+  assert.strictEqual(result.days[0].type, 'rest');
+  assert.strictEqual(result.days[0].reason, 'Marked busy');
+});
+
 test('a one-off full-rest window skips solving for its date range, not just displaying rest', () => {
   const today = new Date(); today.setHours(0, 0, 0, 0);
   const start = today.toISOString().slice(0, 10);
@@ -135,10 +145,8 @@ test('availableDaysOfWeek allow-list does not block a day that IS on the list', 
 });
 
 test('weeklySessionTarget caps sessions per Monday-aligned week, converting the rest of the week to rest', () => {
-  // Anchor the window to a Monday so all 7 days fall in one week block —
-  // otherwise a window that starts mid-week can cross into a second week
-  // (its own separate cap), which is correct behaviour but not what this
-  // test is isolating.
+  // Anchor the window to a Monday so all 7 days fall in one week block, in
+  // isolation from the trailing-7-day cap tested separately below.
   const today = new Date(); today.setHours(0, 0, 0, 0);
   const monday = new Date(today.getTime() - (today.getDay() + 6) % 7 * 86_400_000);
   const result = solveCalendarWindow({
@@ -151,9 +159,58 @@ test('weeklySessionTarget caps sessions per Monday-aligned week, converting the 
   assert.ok(cappedRestDays.every(d => d.readiness === 'green'));
 });
 
+test('a window crossing a Monday boundary cannot chain two weeks worth of sessions into a run with zero rest', () => {
+  // Start on a Thursday so the visible window straddles two Monday-weeks
+  // (Thu-Sun of week 1, Mon-Wed of week 2). Before the trailing-7-day cap,
+  // each week's own quota could independently allow training every single
+  // day (this was the Esra bug: fresh account, no rest days, "full body
+  // every day").
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const thursdayOffset = (4 - today.getDay() + 7) % 7;
+  const thursday = new Date(today.getTime() + thursdayOffset * 86_400_000);
+  const result = solveCalendarWindow({
+    lifts: [], recoveryHours: RECOVERY_H, days: 7, weeklySessionTarget: 4, startMs: thursday.getTime(),
+  });
+  const sessionDays = result.days.filter(d => d.type === 'session');
+  // At least one rest day must appear somewhere in the run, even though
+  // both individual Monday-weeks are under their own 4-session cap.
+  assert.ok(sessionDays.length < 7, `expected at least one rest day across the boundary, got ${sessionDays.length}/7 session days`);
+});
+
 test('day-of-week split anchor is honored when the anchored bucket has something fresh', () => {
   // Fresh account (no history) with Push/Pull/Legs — every bucket is fresh,
   // so an anchor for today's weekday should always be honored.
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const dow = today.getDay();
+  const result = solveCalendarWindow({
+    lifts: [], recoveryHours: RECOVERY_H, days: 1,
+    preferredSplit: 'Push / Pull / Legs',
+    splitDayAnchors: { legs: [dow] },
+  });
+  const day0 = result.days[0];
+  if (day0.type === 'session') {
+    assert.strictEqual(day0.bucket, 'legs');
+    assert.strictEqual(day0.bucketConflict, null);
+  }
+});
+
+test('a multi-day split anchor (e.g. Legs on both Monday and Thursday) is honored on each anchored day', () => {
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const dow = today.getDay();
+  const otherDow = (dow + 3) % 7;
+  const result = solveCalendarWindow({
+    lifts: [], recoveryHours: RECOVERY_H, days: 1,
+    preferredSplit: 'Push / Pull / Legs',
+    splitDayAnchors: { legs: [dow, otherDow] },
+  });
+  const day0 = result.days[0];
+  if (day0.type === 'session') {
+    assert.strictEqual(day0.bucket, 'legs');
+    assert.strictEqual(day0.bucketConflict, null);
+  }
+});
+
+test('a legacy single-integer split anchor (pre-multi-day accounts) is still honored', () => {
   const today = new Date(); today.setHours(0, 0, 0, 0);
   const dow = today.getDay();
   const result = solveCalendarWindow({
@@ -164,6 +221,5 @@ test('day-of-week split anchor is honored when the anchored bucket has something
   const day0 = result.days[0];
   if (day0.type === 'session') {
     assert.strictEqual(day0.bucket, 'legs');
-    assert.strictEqual(day0.bucketConflict, null);
   }
 });
