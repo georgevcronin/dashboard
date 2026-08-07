@@ -580,16 +580,27 @@ section.visible .fade:nth-child(6){transition-delay:.56s}
 .sec-nav{display:none}
 /* The section swipe carousel. #press-scroll is the fixed viewport — its own
    height is pinned in JS (App()'s height-sync effect) to the active panel's
-   height, so overflow:hidden here only ever clips the other panels sitting
-   beside it, never the active one's own content. touch-action:pan-y hands
-   vertical scrolling to the browser untouched and leaves horizontal drags to
-   the touch handlers below (see .week-strip above for the one nested
+   height, so clipping here only ever hides the other panels sitting beside
+   it, never the active one's own content. touch-action:pan-y hands vertical
+   scrolling to the browser untouched and leaves horizontal drags to the
+   touch handlers below (see .week-strip above for the one nested
    exception). .mobile-track is the flex row every panel sits in side by
    side; its transform (driven by App()'s activeIdx, live-updated 1:1 during
    a drag) is the only thing that actually moves. align-items:flex-start
    stops a flex row's default stretch from forcing every panel to the height
-   of the tallest one. */
-.scroll{padding-bottom:60px;overflow:hidden;touch-action:pan-y}
+   of the tallest one.
+   overflow:clip, not :hidden — :hidden still creates a scrollable overflow
+   region, and the interactive walkthrough's step-target scrollIntoView()
+   calls (WalkthroughOverlay) walk up through every scrollable ancestor,
+   including this one, and can set a nonzero scrollTop on it to bring an
+   off-screen target into view. Nothing ever gives that scrollTop back —
+   there's no scrollbar and touch-action:pan-y hands touch gestures straight
+   to the page — so the active panel stays permanently cropped from the top,
+   which reads as the page being stuck scrolled down with no way back up.
+   :clip has no scrollable region at all, so scrollIntoView skips this
+   element and scrolls the real ancestor (the document) instead, which was
+   always the intent here. */
+.scroll{padding-bottom:60px;overflow:clip;touch-action:pan-y}
 .mobile-track{display:flex;align-items:flex-start;transition:transform .32s ease}
 .panel{display:block;flex:0 0 100%;min-width:0}
 .dock{display:flex;position:fixed;bottom:0;left:0;right:0;z-index:200;background:var(--paper);border-top:2px solid var(--ink);padding-bottom:env(safe-area-inset-bottom)}

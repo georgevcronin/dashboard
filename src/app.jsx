@@ -1033,6 +1033,15 @@ const glycogenPct = (elapsedS, totalS) => {
 // app's first version — everything before this had no changelog at all.
 const CHANGELOG = [
   {
+    version: '1.04',
+    date: '2026-08-07',
+    features: [
+      'Timeline entries for sleep now show "7h 18m" instead of the raw decimal hour count (e.g. "7.3h" or, worse, "8.116666666666667h").',
+      'Fixed the Recovery panel\'s Recovery/Resting HR readout exploding into a vertical stack of single characters on mobile — the "Avg Recent Load" tile next to it was hogging space it didn\'t need instead of sharing the row.',
+      'Fixed the interactive walkthrough sometimes leaving the page stuck scrolled down afterward with no way back up on mobile — its step-target scrollIntoView() calls could set a hidden, unrecoverable scroll offset on the section carousel itself.',
+    ],
+  },
+  {
     version: '1.03',
     date: '2026-08-07',
     features: [
@@ -6175,7 +6184,7 @@ function S5({ s, recommendation, refresh }) {
               </div>
             </div>
             <div style={{ width: '1px', background: 'var(--rule)', margin: '0 16px', flexShrink: 0 }} />
-            <div className="stat-cell" style={{ flex: '0 0 auto' }}>
+            <div className="stat-cell" style={{ flex: 1 }}>
               <div className="sc-label">Avg Recent Load</div>
               <div className="sc-num" style={{ fontSize: 22, color: overallFatigue > 60 ? 'var(--ember)' : overallFatigue > 30 ? 'var(--gold)' : 'var(--forest)' }}>
                 {overallFatigue ?? '—'}<span style={{ fontSize: '.5em', color: 'var(--dim)' }}>/100</span>
@@ -10867,7 +10876,7 @@ function timelineEntryLine(e) {
   switch (e.type) {
     case 'workout': return `${d.name || 'Session'} — ${d.exercises?.length || 0} exercise${d.exercises?.length === 1 ? '' : 's'}`;
     case 'lift': return `${d.exercise} · ${d.kg}kg × ${d.reps}`;
-    case 'sleep': return `${d.hours}h${d.efficiency != null ? ` · ${d.efficiency}% efficiency` : ''}`;
+    case 'sleep': return `${fmtHoursMins(d.hours)}${d.efficiency != null ? ` · ${d.efficiency}% efficiency` : ''}`;
     case 'injury': return `${d.area} — ${d.severity}${d.resolved ? ' (resolved)' : ''}`;
     case 'soreness': return `${d.muscle} · ${d.score}/10`;
     case 'thought': return `"${d.text}"`;
