@@ -12,7 +12,7 @@ const { buildRecoveryForecast } = require('./recoveryForecast');
 const { SPLIT_GROUPS, rankMusclesByFreshness, typicalSessionMuscleCount, mostOverdueGroup, detectPreferredSplit, neglectedMuscles } = require('./splitPlanner');
 const { autoPickFullBodySession } = require('./autoPick');
 const { solveCalendarWindow } = require('./calendarSolver');
-const { computeMuscleLevels, classifyLift, estimate1RM } = require('./strengthStandards');
+const { computeMuscleLevels, detectRankUps, classifyLift, estimate1RM } = require('./strengthStandards');
 const { loadAllLifts, appendLifts, removeLiftsAndAppend } = require('./liftChunks');
 const { DEFAULTS, loadForUserDoc, saveDocExcludingLifts } = require('./userDoc');
 const { computeProgression } = require('./progression');
@@ -2859,8 +2859,16 @@ async function applySessionComplete(data, liftsRef, saveFn, { workout, sets = []
   // in the same session.
   const comparisonCandidates = detectComparisonCandidates(newLiftEntries, priorLifts);
 
+  // Rank-up detection: same computeMuscleLevels tiers /summary and
+  // /compare use (via strengthLevelsFor), taken once against history
+  // before this session's sets and once after.
+  const rankUps = detectRankUps(
+    strengthLevelsFor(priorLifts, data.weight, data.profile?.sex),
+    strengthLevelsFor(data.lifts, data.weight, data.profile?.sex),
+  );
+
   await saveFn();
-  return { setsLogged: newLiftEntries.length, comparisonCandidates };
+  return { setsLogged: newLiftEntries.length, comparisonCandidates, rankUps };
 }
 
 app.post('/session/complete', async (req, res) => {
@@ -2870,8 +2878,8 @@ app.post('/session/complete', async (req, res) => {
     if (typeof elapsed !== 'number' || elapsed < 0) return res.status(400).json({ error: 'elapsed (ms) must be non-negative number' });
 
     const sessionResult = await applySessionComplete(db, liftsDocRef, save, { workout, sets, customExercises, elapsed });
-    if (sessionResult === null) return res.json({ ok: true, setsLogged: 0, atlasSummary: null, comparisonCandidates: [] });
-    const { setsLogged, comparisonCandidates } = sessionResult;
+    if (sessionResult === null) return res.json({ ok: true, setsLogged: 0, atlasSummary: null, comparisonCandidates: [], rankUps: [] });
+    const { setsLogged, comparisonCandidates, rankUps } = sessionResult;
 
     let atlasSummary = null;
     if (process.env.GEMINI_API_KEY && setsLogged > 0) {
@@ -2895,7 +2903,7 @@ Write a brief post-session note highlighting what the numbers say — mechanical
       atlasSummary = result.ok ? result.content.trim() : null;
     }
 
-    res.json({ ok: true, setsLogged, atlasSummary, comparisonCandidates });
+    res.json({ ok: true, setsLogged, atlasSummary, comparisonCandidates, rankUps });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -3259,14 +3267,14 @@ app.post('/session/:id/finish', async (req, res) => {
 
     const groupWith = data.participants.filter(p => p.uid !== req.uid).map(p => ({ uid: p.uid, username: p.username, displayNameFirst: p.displayNameFirst }));
     const sessionResult = await applySessionComplete(db, liftsDocRef, save, { workout, sets, customExercises, groupWith: groupWith.length ? groupWith : null, elapsed });
-    if (sessionResult === null) return res.json({ ok: true, setsLogged: 0, comparisonCandidates: [] });
-    const { setsLogged, comparisonCandidates } = sessionResult;
+    if (sessionResult === null) return res.json({ ok: true, setsLogged: 0, comparisonCandidates: [], rankUps: [] });
+    const { setsLogged, comparisonCandidates, rankUps } = sessionResult;
 
     const now = new Date().toISOString();
     const updatedParticipants = data.participants.map(p => p.uid === req.uid ? { ...p, status: 'finished', lastActivityAt: now } : p);
     await ref.update({ participants: updatedParticipants, participantUids: participantUidsOf(updatedParticipants) });
     await deleteSessionIfDone(ref, updatedParticipants);
-    res.json({ ok: true, setsLogged, comparisonCandidates });
+    res.json({ ok: true, setsLogged, comparisonCandidates, rankUps });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 

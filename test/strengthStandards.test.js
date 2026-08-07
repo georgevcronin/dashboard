@@ -1,6 +1,6 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { scoreForRatio, classifyLift, estimate1RM, computeMuscleLevels, STANDARDS } = require('../functions/strengthStandards');
+const { scoreForRatio, classifyLift, estimate1RM, computeMuscleLevels, detectRankUps, STANDARDS } = require('../functions/strengthStandards');
 const { thresholdsForExercise } = require('../functions/muscleStandards');
 
 function mkLift(date, exercise, kg, reps) {
@@ -101,6 +101,30 @@ test('computeMuscleLevels resolves real Hevy-import exercise names via MUSCLE_EX
   const lifts = [mkLift('2026-01-01', 'bicep curl (barbell)', 40, 6)];
   const result = computeMuscleLevels(lifts, { '2026-01-01': 80 }, null, 'male');
   assert.equal(result.biceps.exercise, 'Barbell Curl');
+});
+
+test('detectRankUps reports a muscle that crossed into a new named tier with a higher score', () => {
+  const weights = { '2026-01-01': 80 };
+  const before = computeMuscleLevels([mkLift('2026-01-01', 'Barbell Curl', 20, 8)], weights, null, 'male');
+  const after = computeMuscleLevels([mkLift('2026-01-01', 'Barbell Curl', 45, 8)], weights, null, 'male');
+  assert.notEqual(before.biceps.tier, after.biceps.tier, 'fixture should actually cross a tier boundary');
+  const rankUps = detectRankUps(before, after);
+  assert.deepEqual(rankUps, [{ muscle: 'biceps', fromTier: before.biceps.tier, toTier: after.biceps.tier }]);
+});
+
+test('detectRankUps ignores a muscle with no prior tier (first time logged, not a rank up)', () => {
+  const weights = { '2026-01-01': 80 };
+  const before = computeMuscleLevels([], weights, null, 'male');
+  const after = computeMuscleLevels([mkLift('2026-01-01', 'Barbell Curl', 40, 6)], weights, null, 'male');
+  assert.deepEqual(detectRankUps(before, after), []);
+});
+
+test('detectRankUps ignores an unchanged tier, and null before/after snapshots', () => {
+  const weights = { '2026-01-01': 80 };
+  const same = computeMuscleLevels([mkLift('2026-01-01', 'Barbell Curl', 20, 8)], weights, null, 'male');
+  assert.deepEqual(detectRankUps(same, same), []);
+  assert.deepEqual(detectRankUps(null, same), []);
+  assert.deepEqual(detectRankUps(same, null), []);
 });
 
 test('computeMuscleLevels leaves a muscle null when it has no logged data, while others score normally', () => {

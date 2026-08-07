@@ -1038,6 +1038,7 @@ const CHANGELOG = [
     features: [
       'Training now shows a "Load" number alongside Duration/Output/Month — a single 0-100 score for how hard your last session was, framed against your own recent average rather than an absolute scale.',
       'Added a "Form" line with a 30-day trend sparkline below that: a fitness/fatigue balance computed the way TrainingPeaks\' CTL/ATL/TSB model works, applied to the new Load number. If form stays deeply negative for 10+ straight days, it now says so and suggests a lighter week — a suggestion only, nothing gets changed in your plan automatically.',
+      'The finish-workout screen now flags it when a muscle crosses into a new strength tier (e.g. Novice 2 → Novice 3) during that session — a "Rank Up" block above Atlas\' summary, one line per muscle with the tier it climbed from and to.',
     ],
   },
   {
@@ -2841,6 +2842,9 @@ function WorkoutLogger({ planDay, lifts, customExercises, experienceLevel, cycle
   // applySessionComplete response, shown one at a time on the finish screen.
   const [comparisonCandidates, setComparisonCandidates] = useState([]);
   const [comparisonIndex, setComparisonIndex] = useState(0);
+  // Muscles that crossed into a new strength tier this session (same
+  // applySessionComplete response), shown on the finish screen.
+  const [rankUps, setRankUps] = useState([]);
   const [newCustomExercises, setNewCustomExercises] = useState(() => restored?.newCustomExercises || []);
   // Guards against losing work by accident — null when no confirmation is
   // pending, 'discard' or 'finish' while one is. Discard only prompts if
@@ -3408,6 +3412,7 @@ function WorkoutLogger({ planDay, lifts, customExercises, experienceLevel, cycle
       });
       setComparisonCandidates(r.comparisonCandidates || []);
       setComparisonIndex(0);
+      setRankUps(r.rankUps || []);
     } catch (e) {
       // Left persisted deliberately: session/complete failed (network etc.),
       // so the in-progress draft is still the only copy of this data.
@@ -3565,6 +3570,20 @@ function WorkoutLogger({ planDay, lifts, customExercises, experienceLevel, cycle
               {new Date().toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })} · {summary.duration}min · {summary.setsLogged} sets
             </div>
           </div>
+          {rankUps.length > 0 && (
+            <div style={{ borderTop: '2px solid var(--ink)', paddingTop: 14 }}>
+              <div className="kicker" style={{ marginBottom: 8 }}>Rank Up</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {rankUps.map(({ muscle, fromTier, toTier }) => (
+                  <div key={muscle} style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+                    <div style={{ width: 8, height: 8, borderRadius: '50%', background: TIER_COLOR[toTier] || 'var(--ink)', flexShrink: 0 }} />
+                    <span style={{ fontFamily: "'Playfair Display',serif", fontWeight: 700, fontSize: 14, textTransform: 'capitalize' }}>{muscle.replace(/-/g, ' ')}</span>
+                    <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)' }}>{fromTier} → {toTier}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
           <div style={{ borderTop: '2px solid var(--ink)', paddingTop: 14 }}>
             <div className="kicker" style={{ marginBottom: 8 }}>Atlas · Training</div>
             {summary.atlasSummary

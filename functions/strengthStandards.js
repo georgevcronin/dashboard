@@ -609,4 +609,17 @@ function computeMuscleLevels(lifts, weightHistory, currentBodyweightKg, sex, fat
   return muscles;
 }
 
-module.exports = { computeMuscleLevels, computeBlendedMuscleLevel, classifyLift, estimate1RM, e1rm, e1rmTrendSlope, bodyweightNear, scoreForRatio, STANDARDS, TIERS, TIER_BANDS };
+// Diffs two computeMuscleLevels() snapshots (before/after a session) into
+// the muscles that climbed to a new named tier. Requires a real prior tier
+// to climb from — a muscle appearing for the first time is starting, not
+// ranking up — and requires score to have actually risen, since a
+// bodyweight change between the two snapshots could otherwise shift a
+// muscle's ratio thresholds and flip its tier without any new strength.
+function detectRankUps(beforeLevels, afterLevels) {
+  if (!beforeLevels || !afterLevels) return [];
+  return Object.keys(afterLevels)
+    .filter(m => beforeLevels[m] && afterLevels[m] && afterLevels[m].tier !== beforeLevels[m].tier && afterLevels[m].score > beforeLevels[m].score)
+    .map(m => ({ muscle: m, fromTier: beforeLevels[m].tier, toTier: afterLevels[m].tier }));
+}
+
+module.exports = { computeMuscleLevels, computeBlendedMuscleLevel, detectRankUps, classifyLift, estimate1RM, e1rm, e1rmTrendSlope, bodyweightNear, scoreForRatio, STANDARDS, TIERS, TIER_BANDS };
