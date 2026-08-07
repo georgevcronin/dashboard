@@ -1033,6 +1033,13 @@ const glycogenPct = (elapsedS, totalS) => {
 // app's first version — everything before this had no changelog at all.
 const CHANGELOG = [
   {
+    version: '1.11',
+    date: '2026-08-08',
+    features: [
+      'Fixed the "Month" stat on Training wrapping its "sessions" label mid-word (e.g. "ses" / "sions" on two lines) when the Load tile pushed it into a narrower column.',
+    ],
+  },
+  {
     version: '1.10',
     date: '2026-08-08',
     features: [
@@ -5484,7 +5491,7 @@ function S3({ s, recommendation, performanceTrend, onStartWorkout, onImport, onH
         <div className={`stat-cols stat-cols-${s?.sessionLoad ? '4' : '3'}`} style={{ borderTop: '1px solid var(--rule)', paddingTop: 10 }} data-tour="s3-stats">
           <div className="stat-cell"><div className="sc-label">Duration</div><div className="sc-num" style={{ fontSize: 22 }}>{lastSession?.duration ?? '—'}<span style={{ fontSize: '.5em', color: 'var(--dim)' }}>min</span></div></div>
           <div className="stat-cell"><div className="sc-label">Output</div><div className="sc-num" style={{ fontSize: 22 }}>{lastSession?.kcal ?? '—'}<span style={{ fontSize: '.5em', color: 'var(--dim)' }}>kcal</span></div></div>
-          <div className="stat-cell"><div className="sc-label">Month</div><div className="sc-num forest" style={{ fontSize: 22 }}>{s?.workoutsMonth ?? '—'}<span style={{ fontSize: '.5em', color: 'var(--dim)' }}>sessions</span></div></div>
+          <div className="stat-cell"><div className="sc-label">Month</div><div className="sc-num forest" style={{ fontSize: 22 }}>{s?.workoutsMonth ?? '—'}<span style={{ fontSize: '.5em', color: 'var(--dim)' }}> sessions</span></div></div>
           {/* #11: session-load headline number — a Relative-Effort-style 0-100
               figure for the most recent session, framed against this same
               athlete's own trailing average rather than an absolute scale. */}
