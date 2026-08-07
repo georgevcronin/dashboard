@@ -1033,6 +1033,13 @@ const glycogenPct = (elapsedS, totalS) => {
 // app's first version — everything before this had no changelog at all.
 const CHANGELOG = [
   {
+    version: '0.89',
+    date: '2026-08-07',
+    features: [
+      'Reverted the "return to Press automatically" behaviour on both Sync buttons (0.87) — the shortcuts://x-callback-url wrapper it relied on made the Shortcut itself fail to run for at least one real device, worse than the UX gap it was fixing. Both buttons are back to the plain shortcuts:// link that was confirmed working.',
+    ],
+  },
+  {
     version: '0.88',
     date: '2026-08-07',
     features: [
@@ -9430,7 +9437,7 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
                 </div>
                 {healthDevice && (
                   <div style={{ marginTop: 8 }}>
-                    This link runs your Shortcut directly and brings you back to Press when it's done: <a href={`shortcuts://x-callback-url/run-shortcut?name=${encodeURIComponent(`pressnewsletter-${healthDevice}`)}&x-success=${encodeURIComponent(window.location.href)}`} style={{ color: 'var(--forest)', fontWeight: 700 }}>Sync Now →</a>
+                    This link runs your Shortcut directly, no need to open Shortcuts first: <a href={`shortcuts://run-shortcut?name=${encodeURIComponent(`pressnewsletter-${healthDevice}`)}`} style={{ color: 'var(--forest)', fontWeight: 700 }}>Sync Now →</a>
                   </div>
                 )}
                 <button onClick={() => setGuideAdvanced(v => !v)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, marginTop: 10, fontSize: 9, letterSpacing: '.08em', textTransform: 'uppercase', color: 'var(--dim)' }}>
@@ -10803,7 +10810,7 @@ function App() {
   const [syncingShortcut, setSyncingShortcut] = useState(false);
   const syncShortcut = () => {
     const shortcutName = s?.profile?.healthDevice ? `pressnewsletter-${s.profile.healthDevice}` : 'pressnewsletter';
-    window.location.href = `shortcuts://x-callback-url/run-shortcut?name=${encodeURIComponent(shortcutName)}&x-success=${encodeURIComponent(window.location.href)}`;
+    window.location.href = `shortcuts://run-shortcut?name=${encodeURIComponent(shortcutName)}`;
     setSyncingShortcut(true);
     setTimeout(() => { loadSummary(); setSyncingShortcut(false); }, 5000);
   };
