@@ -1033,6 +1033,13 @@ const glycogenPct = (elapsedS, totalS) => {
 // app's first version — everything before this had no changelog at all.
 const CHANGELOG = [
   {
+    version: '0.91',
+    date: '2026-08-07',
+    features: [
+      'Settings\' Diet Goal picker is now Macro Targets — three presets (Cut/Maintain/Bulk, collapsed down from four labels that secretly computed only three different results) plus a new Custom option with direct calorie/protein/carb/fat sliders.',
+    ],
+  },
+  {
     version: '0.90',
     date: '2026-08-07',
     features: [
@@ -6404,20 +6411,22 @@ const ACTIVITY_DEFS = [
   { key: 'team_sports', label: 'Team Sports' }, { key: 'endurance', label: 'Endurance' },
   { key: 'crossfit', label: 'CrossFit' }, { key: 'other', label: 'Other' },
 ];
-// Diet goal -- a different question from trainingGoals above (what you eat,
-// not what you train for). Settings-only now (Onboarding step 3 dropped it —
-// see the Step 3 comment below); still the single definition both the old
-// onboarding picker and Settings' picker read, so they never drifted out of
-// sync with each other the way they previously did (Settings had its own,
-// differently-labeled cut/recomp/bulk picker that never wrote profile.goal
-// at all).
-const DIET_GOAL_DEFS = [
-  ['Lose Fat', 'Calorie deficit, preserve muscle'],
-  ['Build Muscle', 'Caloric surplus, progressive overload'],
-  ['Maintain', 'Body recomposition, balanced macros'],
-  ['Athletic Performance', 'Power, endurance, sport-specific'],
+// Macro Targets -- a different question from trainingGoals above (what you
+// eat, not what you train for). Settings-only (Onboarding step 3 dropped
+// diet goal entirely — see the Step 3 comment below). Three presets, not
+// four: Cut/Maintain/Bulk map 1:1 onto the only three bodyweight-based
+// profiles /macro-auto (functions/index.js) actually computes — 22/26/30
+// kcal per kg bodyweight, 2.2/2.0/1.8g protein per kg. The old picker had a
+// fourth label ("Athletic Performance") that silently computed the exact
+// same numbers as Maintain; collapsed into one honest preset instead of two
+// that read as different but weren't. Custom (rendered alongside these,
+// Settings only) bypasses the calculation entirely via /macro-targets,
+// which already existed server-side with no frontend calling it.
+const MACRO_SPLIT_PRESETS = [
+  { key: 'cut', label: 'Cut', desc: 'Calorie deficit, preserve muscle' },
+  { key: 'recomp', label: 'Maintain', desc: 'Balanced macros, steady weight' },
+  { key: 'bulk', label: 'Bulk', desc: 'Caloric surplus, progressive overload' },
 ];
-const DIET_GOAL_MACRO_MAP = { 'Lose Fat': 'cut', 'Build Muscle': 'bulk', 'Maintain': 'recomp', 'Athletic Performance': 'recomp' };
 // FEATURES.md #22 -- suggests a starting point for the sleep/water/frequency
 // steppers on the Targets step from whatever training goals were just
 // picked; still fully editable there. Weighted contributions rather than
@@ -6503,11 +6512,10 @@ function Onboarding({ s, onComplete, onOpenImport }) {
     ? gs.filter(g => g.type !== key) : [...gs, { type: key, priority: 'secondary', concrete: false }]);
   const updateGoal = (key, patch) => setTrainingGoals(gs => gs.map(g => g.type === key ? { ...g, ...patch } : g));
 
-  // Step 3 — Daily Targets. Diet goal (Lose Fat/Build Muscle/Maintain/
-  // Athletic Performance) used to live here too, driving macro-auto — moved
-  // out entirely; it's asked in Settings instead (DIET_GOAL_DEFS below,
-  // rendered there), which already had its own picker writing the same
-  // profile.goal field. This step no longer reads or writes it.
+  // Step 3 — Daily Targets. Macro targets (Cut/Maintain/Bulk presets, or
+  // Custom) used to live here too — moved out entirely; it's Settings-only
+  // now (MACRO_SPLIT_PRESETS below, rendered there). This step no longer
+  // reads or writes profile.goal/macroTargets.
   const [sleepTarget, setSleepTarget] = useState(() => s?.profile?.sleepTarget || 8);
   const [waterTarget, setWaterTarget] = useState(() => s?.profile?.waterTarget || 7);
   const [trainingDays, setTrainingDays] = useState(() => s?.profile?.trainingDaysPerWeek || 4);
@@ -8531,14 +8539,16 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
     setSavingActivities(false);
   };
 
-  // ── Diet Goal — mirrors Onboarding step 3's picker exactly (DIET_GOAL_DEFS
-  // above), replacing a Settings-only cut/recomp/bulk picker that used
-  // different labels and, more importantly, never wrote profile.goal at
-  // all — so the Personal Journalist's "Goal: …" context stayed frozen at
-  // whatever Onboarding set (or its 'build muscle' fallback) no matter what
-  // anyone picked here afterward.
-  const dietGoalVal = s?.profile?.goal || '';
-  // Lose Fat only: /macro-auto checks the calculated deficit against a real
+  // ── Macro Targets — three presets (MACRO_SPLIT_PRESETS above) driving
+  // /macro-auto's bodyweight-based calculation, plus Custom for direct
+  // numbers via /macro-targets (existed server-side, no frontend ever
+  // called it). Settings-only now — Onboarding step 3 dropped this
+  // entirely (see its comment there).
+  // activeMacroPreset is null while macroMode is 'manual' (Custom is
+  // active) so no preset card reads as selected when the real source of
+  // truth is the sliders below, not a calculated profile.
+  const activeMacroPreset = s?.profile?.macroMode === 'manual' ? null : s?.profile?.macroGoal || null;
+  // Cut only: /macro-auto checks the calculated deficit against a real
   // per-person maintenance estimate (functions/nutritionLimits.js) and
   // returns a status alongside the targets — 'hard-limit' means the raw
   // calculation was capped, 'warning' means it went through unchanged but
@@ -8546,15 +8556,31 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
   // Settings field's inline feedback — no confirmation gate needed since
   // there's no multi-step flow to pause here the way Onboarding has.
   const [dietGoalNotice, setDietGoalNotice] = useState(null);
-  const saveDietGoal = async (g) => {
+  const [customCals, setCustomCals] = useState(s?.profile?.macroTargets?.calories || 2400);
+  const [customProtein, setCustomProtein] = useState(s?.profile?.macroTargets?.protein || 160);
+  const [customCarbs, setCustomCarbs] = useState(s?.profile?.macroTargets?.carbs || 250);
+  const [customFat, setCustomFat] = useState(s?.profile?.macroTargets?.fat || 75);
+  const [showCustomMacros, setShowCustomMacros] = useState(s?.profile?.macroMode === 'manual');
+  const [savingCustomMacros, setSavingCustomMacros] = useState(false);
+  const applyMacroPreset = async (preset) => {
     setDietGoalNotice(null);
-    const profile = await api('profile', { method: 'POST', body: JSON.stringify({ goal: g }) });
-    refresh({ ...s, profile });
-    if (DIET_GOAL_MACRO_MAP[g]) {
-      const data = await api('macro-auto', { method: 'POST', body: JSON.stringify({ goal: DIET_GOAL_MACRO_MAP[g] }) });
-      refresh({ ...s, profile, macroGoal: data.goal, macroTargets: data.targets, macroMode: 'auto' });
-      if (data.deficitCheck && data.deficitCheck.status !== 'ok') setDietGoalNotice(data.deficitCheck);
-    }
+    // Still writes profile.goal as a human label (not the short 'cut'/
+    // 'recomp'/'bulk' key /macro-auto stores as macroGoal) — Atlas's
+    // post-session prompt (functions/index.js) reads it as free text with a
+    // 'build muscle' fallback, and would silently stop getting a real value
+    // here the moment this stopped setting it.
+    const profile = await api('profile', { method: 'POST', body: JSON.stringify({ goal: preset.label }) });
+    const data = await api('macro-auto', { method: 'POST', body: JSON.stringify({ goal: preset.key }) });
+    refresh({ ...s, profile, macroGoal: data.goal, macroTargets: data.targets, macroMode: 'auto' });
+    setCustomCals(data.targets.calories); setCustomProtein(data.targets.protein);
+    setCustomCarbs(data.targets.carbs); setCustomFat(data.targets.fat);
+    if (data.deficitCheck && data.deficitCheck.status !== 'ok') setDietGoalNotice(data.deficitCheck);
+  };
+  const saveCustomMacros = async () => {
+    setSavingCustomMacros(true);
+    const targets = await api('macro-targets', { method: 'POST', body: JSON.stringify({ calories: customCals, protein: customProtein, carbs: customCarbs, fat: customFat }) });
+    setSavingCustomMacros(false);
+    refresh({ ...s, macroTargets: targets, macroMode: 'manual' });
   };
 
   // returningBreakWeeks: only meaningful alongside experienceLevel
@@ -8582,7 +8608,7 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
       { id: 'sec-identity', label: 'Identity' },
       { id: 'sec-training-goals', label: 'Training Goals' },
       { id: 'sec-activities', label: 'Activities' },
-      { id: 'sec-diet-goal', label: 'Diet Goal' },
+      { id: 'sec-macro-targets', label: 'Macro Targets' },
       { id: 'sec-tracking-level', label: 'Tracking Level' },
       { id: 'sec-training-preferences', label: 'Training Preferences' },
       { id: 'sec-training-background', label: 'Training Background' },
@@ -8872,16 +8898,20 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
           </button>
         </div>
 
-        {/* ── DIET GOAL ── */}
-        <div className="settings-sec" id="sec-diet-goal">
-          <div className="settings-sh">Diet Goal <span style={{ fontWeight: 400, textTransform: 'none', fontSize: 9, color: 'var(--dim)' }}>(drives auto-calculated macro targets)</span></div>
+        {/* ── MACRO TARGETS ── */}
+        <div className="settings-sec" id="sec-macro-targets">
+          <div className="settings-sh">Macro Targets <span style={{ fontWeight: 400, textTransform: 'none', fontSize: 9, color: 'var(--dim)' }}>(calorie/protein/carb/fat targets)</span></div>
           <div className="ob-goal-grid">
-            {DIET_GOAL_DEFS.map(([g, d]) => (
-              <button key={g} className={`ob-goal-card${dietGoalVal === g ? ' selected' : ''}`} onClick={() => saveDietGoal(g)}>
-                <div className="ob-goal-card-title">{g}</div>
-                <div className="ob-goal-card-desc">{d}</div>
+            {MACRO_SPLIT_PRESETS.map(p => (
+              <button key={p.key} className={`ob-goal-card${activeMacroPreset === p.key ? ' selected' : ''}`} onClick={() => applyMacroPreset(p)}>
+                <div className="ob-goal-card-title">{p.label}</div>
+                <div className="ob-goal-card-desc">{p.desc}</div>
               </button>
             ))}
+            <button className={`ob-goal-card${s?.profile?.macroMode === 'manual' ? ' selected' : ''}`} onClick={() => setShowCustomMacros(v => !v)}>
+              <div className="ob-goal-card-title">Custom</div>
+              <div className="ob-goal-card-desc">Set calories and macros directly</div>
+            </button>
           </div>
           {dietGoalNotice && (
             <div style={{
@@ -8889,6 +8919,30 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
               color: dietGoalNotice.status === 'hard-limit' ? 'var(--red)' : 'var(--ember)',
             }}>
               {dietGoalNotice.status === 'hard-limit' ? 'Hard limit — ' : '⚠ '}{dietGoalNotice.message}
+            </div>
+          )}
+          {showCustomMacros && (
+            <div style={{ marginTop: 10, borderTop: '1px solid var(--rule)', paddingTop: 10 }}>
+              {[
+                ['Calories', customCals, setCustomCals, 1200, 5000, 50, 'kcal'],
+                ['Protein', customProtein, setCustomProtein, 50, 400, 5, 'g'],
+                ['Carbs', customCarbs, setCustomCarbs, 0, 600, 5, 'g'],
+                ['Fat', customFat, setCustomFat, 20, 200, 5, 'g'],
+              ].map(([label, val, setVal, min, max, step, unit]) => (
+                <div key={label} className="prof-field">
+                  <span className="prof-lbl">{label}</span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <input type="range" min={min} max={max} step={step} value={val}
+                      onChange={e => setVal(+e.target.value)}
+                      style={{ flex: 1, accentColor: 'var(--ink)' }} />
+                    <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, color: 'var(--ink)', minWidth: 56, textAlign: 'right' }}>{val}{unit}</span>
+                  </div>
+                </div>
+              ))}
+              <button className="prof-btn solid" style={{ padding: '7px 20px', marginTop: 4 }}
+                onClick={saveCustomMacros} disabled={savingCustomMacros}>
+                {savingCustomMacros ? 'Saving…' : 'Save Custom Macros'}
+              </button>
             </div>
           )}
         </div>
