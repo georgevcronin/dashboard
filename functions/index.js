@@ -29,6 +29,7 @@ const {
 const { computeStimulusContributions, estimateAtrophyRate } = require('./adaptation');
 const { sessionLoadScore, sessionLoadDelta } = require('./sessionLoad');
 const { computeTrend, deloadSuggestion } = require('./performanceTrend');
+const { validateTrackingCategories } = require('./trackingCategories');
 const { validateGoals, validateActivities, applyActivityDefaults, seedReturningAthleteAtrophy } = require('./goalsAndActivities');
 const { estimateMaintenanceCalories, applyDeficitLimit, calorieTargetForFatLossGoal } = require('./nutritionLimits');
 const { findNearbyGyms, normalizeExerciseKey, GYM_NEARBY_RADIUS_M } = require('./gyms');
@@ -1341,6 +1342,16 @@ app.post("/profile", async (req, res) => {
     body.visibility = { ...(db.profile?.visibility || {}), ...v };
   } else {
     delete body.visibility;
+  }
+
+  // #14/#15: independent tracking-category checkboxes, superseding the old
+  // trackingLevel 3-preset string (see src/app.jsx's LEGACY_TRACKING_LEVEL_MAP
+  // for the read-time migration — this endpoint never writes the old shape
+  // again once an account has saved through the new UI, and never touches
+  // an existing stored trackingLevel value directly).
+  if (body.trackingCategories) {
+    const err = validateTrackingCategories(body.trackingCategories);
+    if (err) return res.status(400).json({ error: err });
   }
 
   // FEATURES.md #21/#24: goals and activities, each entry independently
