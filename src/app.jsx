@@ -1046,7 +1046,7 @@ const CHANGELOG = [
     version: '1.06',
     date: '2026-08-07',
     features: [
-      'Muscle Focus (Onboarding step 7 and Settings) now defaults to a simplified 17-region list — e.g. one "Traps" pick instead of separately setting traps/lower-traps/mid-traps. A "Show niche muscles" checkbox reveals the full granular 29-muscle breakdown for anyone who wants it; nothing about what\'s actually stored or how the planner reads it changes either way.',
+      'Muscle Focus (Onboarding step 7 and Settings) now defaults to a simplified 15-region list — e.g. one "Traps" pick instead of separately setting traps/lower-traps/mid-traps, Obliques folded into Abs, Erectors relabelled Lower Back. Hip Flexors has no row at all in this view and defaults to Avoid while hidden, since there\'s no single recognisable hip-flexor exercise to fold it into. A "Show scientific muscle names" checkbox reveals the full granular 29-muscle breakdown (Latissimus Dorsi, Trapezius, Erector Spinae, etc.) for anyone who wants it; nothing about what\'s actually stored or how the planner reads it changes either way.',
     ],
   },
   {
@@ -4668,23 +4668,42 @@ const MUSCLE_FOCUS_OPTIONS = [
 const MUSCLE_DISPLAY_LABELS = { abductors: 'Gluteus Medius' };
 const muscleDisplayLabel = m => MUSCLE_DISPLAY_LABELS[m] || m.replace(/-/g, ' ');
 
+// Scientific/anatomical names, used only by the Muscle Focus editor's niche
+// (showNicheMuscles: true) rows -- not muscleDisplayLabel/MUSCLE_DISPLAY_LABELS
+// above, which every other surface (Recovery bars, PR panels, tooltips)
+// still reads unchanged. Only listed where it actually differs from the
+// plain hyphen-split label; hamstrings/obliques/rhomboids/rotator-cuff/
+// brachialis/brachioradialis are already the correct anatomical term.
+const MUSCLE_SCIENTIFIC_LABELS = {
+  abductors: 'Gluteus Medius', abs: 'Rectus Abdominis', adductors: 'Adductor Group',
+  biceps: 'Biceps Brachii', calves: 'Gastrocnemius', chest: 'Pectoralis Major',
+  core: 'Core Stabilizers', erectors: 'Erector Spinae', forearms: 'Forearm Flexors',
+  'front-delt': 'Anterior Deltoid', glutes: 'Gluteus Maximus', 'hip-flexors': 'Iliopsoas',
+  lats: 'Latissimus Dorsi', 'lower-traps': 'Lower Trapezius', 'mid-delt': 'Lateral Deltoid',
+  'mid-traps': 'Middle Trapezius', quads: 'Quadriceps Femoris', 'rear-delt': 'Posterior Deltoid',
+  serratus: 'Serratus Anterior', tibialis: 'Tibialis Anterior', traps: 'Trapezius',
+  'transverse-abs': 'Transverse Abdominis', triceps: 'Triceps Brachii',
+};
+const nicheMuscleLabel = m => MUSCLE_SCIENTIFIC_LABELS[m] || muscleDisplayLabel(m);
+
 // Muscle Focus's simplified view (profile.showNicheMuscles: false, the
 // default) folds PRIMARY_MUSCLES' granular subdivisions into the broader
 // region most people actually recognise -- e.g. one "Traps" pick instead of
 // three separate bets on traps/lower-traps/mid-traps for someone who's never
 // had a reason to tell those apart. Every PRIMARY_MUSCLES entry appears in
-// exactly one group here (a duplicate or missing muscle would silently make
-// part of the picker unreachable or double-write on a click, same failure
-// mode functions/muscleTaxonomy.js's own MUSCLE_GROUPS check guards
-// against). This is a display grouping only -- muscleFocus itself is always
-// stored keyed by the real muscle name PRIMARY_MUSCLES/weeklyPlanner.js
-// expect, whichever mode wrote it; toggling niche muscles back on just
-// splits the group's shared value back into per-muscle rows to edit
-// individually.
+// exactly one group here *except* hip-flexors, deliberately dropped rather
+// than folded into another region -- see withHipFlexorDefault below (a
+// duplicate or any other missing muscle would silently make part of the
+// picker unreachable or double-write on a click, same failure mode
+// functions/muscleTaxonomy.js's own MUSCLE_GROUPS check guards against).
+// This is a display grouping only -- muscleFocus itself is always stored
+// keyed by the real muscle name PRIMARY_MUSCLES/weeklyPlanner.js expect,
+// whichever mode wrote it; toggling niche muscles back on just splits the
+// group's shared value back into per-muscle rows (labelled via
+// nicheMuscleLabel above) to edit individually.
 const MUSCLE_FOCUS_GROUPS = [
-  { key: 'abs', label: 'Abs', muscles: ['abs', 'core', 'transverse-abs'] },
-  { key: 'obliques', label: 'Obliques', muscles: ['obliques'] },
-  { key: 'erectors', label: 'Erectors', muscles: ['erectors'] },
+  { key: 'abs', label: 'Abs', muscles: ['abs', 'core', 'transverse-abs', 'obliques'] },
+  { key: 'erectors', label: 'Lower Back', muscles: ['erectors'] },
   { key: 'chest', label: 'Chest', muscles: ['chest', 'serratus'] },
   { key: 'shoulders', label: 'Shoulders', muscles: ['front-delt', 'mid-delt', 'rear-delt', 'rotator-cuff'] },
   { key: 'upper-back', label: 'Upper Back', muscles: ['lats', 'rhomboids'] },
@@ -4698,7 +4717,6 @@ const MUSCLE_FOCUS_GROUPS = [
   { key: 'hamstrings', label: 'Hamstrings', muscles: ['hamstrings'] },
   { key: 'quads', label: 'Quads', muscles: ['quads'] },
   { key: 'calves', label: 'Calves', muscles: ['calves', 'tibialis'] },
-  { key: 'hip-flexors', label: 'Hip Flexors', muscles: ['hip-flexors'] },
 ];
 // A group reads as one value only when every member agrees (all unset also
 // counts as agreeing, on 'normal'); otherwise it's genuinely mixed -- e.g.
@@ -4708,6 +4726,20 @@ const muscleGroupValue = (group, muscleFocus) => {
   const vals = group.muscles.map(m => muscleFocus[m] || 'normal');
   return vals.every(v => v === vals[0]) ? vals[0] : 'mixed';
 };
+// Hip flexors have no row at all in the simplified view -- there's no
+// widely-recognised single "hip flexor" exercise the way there is for every
+// other group, so folding it into a neighbouring region (glutes? abs?)
+// would misrepresent it rather than simplify it. Defaults it to Avoid
+// instead of the usual Maintain while it's hidden, since a value the
+// interface never surfaces shouldn't silently opt someone into whatever
+// hip-flexor accessory the planner happens to reach for. Only fills in the
+// gap when unset -- an explicit Priority/Lower/Avoid choice made with niche
+// muscles on is never overwritten. (Maintain isn't distinguishable from
+// unset here, same as every other muscle -- picking it clears the key
+// rather than storing 'normal' -- so it re-defaults to Avoid on the next
+// save while niche muscles are off, same as if it had never been touched.)
+const withHipFlexorDefault = (muscleFocus, showNiche) =>
+  (!showNiche && muscleFocus['hip-flexors'] === undefined) ? { ...muscleFocus, 'hip-flexors': 'ignore' } : muscleFocus;
 
 function StrengthLevelPanel({ muscleLevels, hasSex }) {
   const cutoff14 = toLocalDateStr(new Date(Date.now() - 14 * 864e5));
@@ -7046,7 +7078,7 @@ function Onboarding({ s, onComplete, onOpenImport }) {
   };
 
   const saveMuscleFocus = async () => {
-    await api('profile', { method: 'POST', body: JSON.stringify({ muscleFocus, showNicheMuscles }), throwOnError: true });
+    await api('profile', { method: 'POST', body: JSON.stringify({ muscleFocus: withHipFlexorDefault(muscleFocus, showNicheMuscles), showNicheMuscles }), throwOnError: true });
   };
 
   const advance = async () => {
@@ -7458,12 +7490,12 @@ function Onboarding({ s, onComplete, onOpenImport }) {
               <input type="checkbox" checked={showNicheMuscles} onChange={e => setShowNicheMuscles(e.target.checked)}
                 style={{ width: 16, height: 16, flexShrink: 0 }} />
               <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, letterSpacing: '.06em', color: 'var(--dim)' }}>
-                Show niche muscles <span style={{ textTransform: 'none', letterSpacing: 'normal' }}>(splits regions like Traps or Upper Back into the individual muscles behind them)</span>
+                Show scientific muscle names <span style={{ textTransform: 'none', letterSpacing: 'normal' }}>(splits regions like Traps or Upper Back into the individual muscles behind them, named anatomically)</span>
               </span>
             </label>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 2, marginBottom: 20 }}>
               {(showNicheMuscles ? PRIMARY_MUSCLES.map(m => ({
-                key: m, label: muscleDisplayLabel(m), value: muscleFocus[m] || 'normal', onSet: v => setMuscleFocus(p => v === 'normal' ? { ...p, [m]: undefined } : { ...p, [m]: v }),
+                key: m, label: nicheMuscleLabel(m), value: muscleFocus[m] || 'normal', onSet: v => setMuscleFocus(p => v === 'normal' ? { ...p, [m]: undefined } : { ...p, [m]: v }),
               })) : MUSCLE_FOCUS_GROUPS.map(g => ({
                 key: g.key, label: g.label, value: muscleGroupValue(g, muscleFocus), onSet: v => setGroupFocus(g, v),
               }))).map(row => (
@@ -9142,19 +9174,21 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
   };
 
   const muscleFocusMap = s?.profile?.muscleFocus || {};
+  const showNicheMuscles = !!s?.profile?.showNicheMuscles;
   const saveMuscleFocusValue = (muscle, val) => {
     const next = { ...muscleFocusMap };
     if (val === 'normal') delete next[muscle]; else next[muscle] = val;
-    api('profile', { method: 'POST', body: JSON.stringify({ muscleFocus: next }) }).then(profile => refresh({ ...s, profile }));
+    api('profile', { method: 'POST', body: JSON.stringify({ muscleFocus: withHipFlexorDefault(next, showNicheMuscles) }) }).then(profile => refresh({ ...s, profile }));
   };
-  const showNicheMuscles = !!s?.profile?.showNicheMuscles;
   const saveShowNicheMuscles = (val) => {
-    api('profile', { method: 'POST', body: JSON.stringify({ showNicheMuscles: val }) }).then(profile => refresh({ ...s, profile }));
+    const body = { showNicheMuscles: val };
+    if (!val) body.muscleFocus = withHipFlexorDefault(muscleFocusMap, val);
+    api('profile', { method: 'POST', body: JSON.stringify(body) }).then(profile => refresh({ ...s, profile }));
   };
   const saveGroupFocusValue = (group, val) => {
     const next = { ...muscleFocusMap };
     for (const m of group.muscles) { if (val === 'normal') delete next[m]; else next[m] = val; }
-    api('profile', { method: 'POST', body: JSON.stringify({ muscleFocus: next }) }).then(profile => refresh({ ...s, profile }));
+    api('profile', { method: 'POST', body: JSON.stringify({ muscleFocus: withHipFlexorDefault(next, showNicheMuscles) }) }).then(profile => refresh({ ...s, profile }));
   };
 
   const setMuscleSensitivity = async (muscle, value) => {
@@ -9904,12 +9938,12 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
                   <input type="checkbox" checked={showNicheMuscles} onChange={e => saveShowNicheMuscles(e.target.checked)}
                     style={{ width: 14, height: 14, flexShrink: 0 }} />
                   <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, color: 'var(--dim)' }}>
-                    Show niche muscles (splits regions like Traps or Upper Back into the individual muscles behind them)
+                    Show scientific muscle names (splits regions like Traps or Upper Back into the individual muscles behind them, named anatomically)
                   </span>
                 </label>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 2, width: '100%' }}>
                   {(showNicheMuscles ? PRIMARY_MUSCLES.map(m => ({
-                    key: m, label: muscleDisplayLabel(m), value: muscleFocusMap[m] || 'normal', onSet: v => saveMuscleFocusValue(m, v),
+                    key: m, label: nicheMuscleLabel(m), value: muscleFocusMap[m] || 'normal', onSet: v => saveMuscleFocusValue(m, v),
                   })) : MUSCLE_FOCUS_GROUPS.map(g => ({
                     key: g.key, label: g.label, value: muscleGroupValue(g, muscleFocusMap), onSet: v => saveGroupFocusValue(g, v),
                   }))).map(row => (
