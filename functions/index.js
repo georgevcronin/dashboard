@@ -72,6 +72,7 @@ const {
   INJURY_HEALING_DAYS, injuryFatiguePenalty, applyInjuryTaper,
   computeMetabolicFatigue, computeCNSFatigue, sessionStartStamp, importedStartStamp,
   computeMuscleLastTrainedDays, computeCompoundIsolationSplit, computeStabilitySplit,
+  computeRunningACWR,
 } = require('./fatigue');
 const { personalizedRecoveryHours, trainingMonthsIfKnown, computeAgeYears } = require('./recoveryPersonalization');
 const { cyclePhaseFactor, observedHeaviness, nudgeLearnedHeaviness, periodsOverlap, predictedNextPeriod, parseDateOnly } = require('./cycleTracking');
@@ -86,7 +87,6 @@ const { alcoholStats, computeDataMaturity, compVerdict, toCsv, weekLiftSessionsC
 const { projectGoal, formatGoalLine, bucketWorkingAttention, ffm, ffmi } = require('./weeklyReview');
 const { computeHybridFatigue } = require('./hybridFatigue');
 const { buildRunningRecommendation } = require('./runningRecommendation');
-const { computeRunningACWR } = require('./runningLoad');
 const { vdotTrend, resolveVO2max, vdotTrainingPaces, estimateCyclingVO2maxFromRides } = require('./vo2max');
 const { weeklyEfficiencyTrend, detectSessionDistanceSpike, dailyLoadsFromRuns } = require('./runningLoad');
 const { parseVO2max } = require('./shortcutParsing');
