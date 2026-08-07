@@ -37,6 +37,33 @@ const SEED = +arg('seed', 1);
 const CLOCK_FILE = process.env.SIM_CLOCK_FILE || path.join(__dirname, '.sim-clock');
 const LEAK_CHECK_EVERY_DAYS = 30;
 
+// Session-generation severity — sets/RPE (proxy for RIR: rpe 10 = RIR 0,
+// rpe 6 = RIR 4) / exercise breadth per workout. 'moderate' matches this
+// script's original hardcoded values; the others exist to answer "does the
+// fatigue model's recovery estimate scale sensibly with load, and does it
+// always eventually resolve (nothing gets permanently stuck) even under an
+// extreme single session?" — not modeled by varying persona behavior alone,
+// since a persona's archetype controls frequency/adherence, not how hard
+// any single logged session actually is.
+const SEVERITY_PRESETS = {
+  light: { sets: [1, 2], rpe: [4, 6], multiExerciseChance: 0.15, exerciseCount: [2, 3] },
+  moderate: { sets: [2, 4], rpe: [6, 9], multiExerciseChance: 0.3, exerciseCount: [2, 4] },
+  heavy: { sets: [3, 5], rpe: [8, 10], multiExerciseChance: 0.5, exerciseCount: [3, 5] },
+  extreme: { sets: [4, 6], rpe: [9, 10], multiExerciseChance: 0.7, exerciseCount: [4, 6] },
+};
+const SEVERITY = SEVERITY_PRESETS[arg('severity', 'moderate')];
+if (!SEVERITY) throw new Error(`--severity must be one of ${Object.keys(SEVERITY_PRESETS).join(', ')}`);
+
+// Default mode self-generates sessions from progressionPctPerWeek — tests
+// whether the app correctly DESCRIBES a given training pattern (fatigue,
+// recovery, overreach detection), independent of whether the app itself
+// would have recommended that pattern. This flag switches to asking the
+// app what to do (POST /plan/session-exercises) and logging that back,
+// scaled by the persona's own compliance — tests whether the app's actual
+// recommendation converges on sane stimulus over time, a different and
+// harder question the self-generated mode can't answer.
+const FOLLOW_RECOMMENDATIONS = arg('follow-recommendations', null) !== null;
+
 const MEAL_TEMPLATES = [
   { label: 'Oats + whey', protein: 35, carbs: 60, fat: 10, calories: 470 },
   { label: 'Chicken + rice', protein: 45, carbs: 70, fat: 12, calories: 570 },
@@ -54,7 +81,7 @@ const LIVE_PATH = path.join(outDir, 'live.json');
 // on its own schedule instead.
 function writeLive(day, personas, sample, recommendation) {
   fs.writeFileSync(LIVE_PATH, JSON.stringify({
-    day, totalDays: SIM_DAYS, generatedAt: new Date().toISOString(),
+    day, totalDays: SIM_DAYS, severity: arg('severity', 'moderate'), generatedAt: new Date().toISOString(),
     personas: personas.map(({ rand, idToken, ...p }) => p),
     issues, sample, recommendation,
   }));
@@ -174,6 +201,44 @@ function inTaperWindow(persona, dayIdx) {
   return persona.injuryDay != null && dayIdx >= persona.injuryDay && dayIdx < persona.injuryDay + persona.taperDays;
 }
 
+// --follow-recommendations mode: ask the app what today's session should be
+// (POST /plan/session-exercises, the same call the real client makes for
+// auto-pick), then log that back — scaled by the persona's own compliance
+// (>1 = systematically does more than advised, <1 = systematically does
+// less) — instead of generating an independently-invented session. This is
+// what actually tests whether the recommendation engine converges on sane
+// stimulus; the default mode only tests whether the app correctly reacts
+// to a pattern I invented myself.
+async function buildFollowedWorkoutSets(persona, rand) {
+  const rec = await callApi(persona, 'POST', '/plan/session-exercises', { body: {} });
+  if (!rec || !rec.exercises || !rec.exercises.length) return null;
+  const compliance = persona.compliance;
+  const sets = [];
+  for (const ex of rec.exercises) {
+    const working = (ex.sets || []).filter(s => s.type !== 'W');
+    const warmups = (ex.sets || []).filter(s => s.type === 'W');
+    if (!working.length) continue;
+    // kg=0 means "no history yet — pick a comfortable weight" (sessionPlanner.js's
+    // setsFor) — a real first-timer just picks something, so this fallback
+    // guesses off bodyweight the same way persona generation's own
+    // startingLifts does, rather than logging a nonsensical 0kg set.
+    const fallbackKg = Math.max(2.5, Math.round((persona.startWeightKg * 0.25) / 2.5) * 2.5);
+    const weightMult = compliance >= 1 ? 1 + (compliance - 1) * 0.3 : 0.85 + compliance * 0.15;
+    for (const w of warmups) {
+      const baseKg = w.kg > 0 ? w.kg : fallbackKg * 0.6;
+      sets.push({ exercise: ex.name, type: 'W', kg: Math.max(2.5, Math.round((baseKg * weightMult) / 2.5) * 2.5), reps: w.reps });
+    }
+    const targetCount = Math.max(1, Math.round(working.length * compliance));
+    const baseKg = working[0].kg > 0 ? working[0].kg : fallbackKg;
+    const kg = Math.max(2.5, Math.round((baseKg * weightMult * (0.97 + rand() * 0.06)) / 2.5) * 2.5);
+    for (let i = 0; i < targetCount; i++) {
+      const repShortfall = compliance < 0.8 && rand() < 0.4 ? 1 + Math.floor(rand() * 2) : 0;
+      sets.push({ exercise: ex.name, kg, reps: Math.max(1, (working[i % working.length]?.reps || 8) - repShortfall) });
+    }
+  }
+  return sets;
+}
+
 async function simulateDay(persona, dayIdx) {
   const rand = persona.rand;
 
@@ -183,18 +248,28 @@ async function simulateDay(persona, dayIdx) {
 
   const wantsTraining = scheduledTrainingDay(persona, dayIdx) && !inTaperWindow(persona, dayIdx);
   if (wantsTraining && rand() < persona.adherence) {
-    const weeksElapsed = dayIdx / 7;
-    const growth = 1 + (persona.progressionPctPerWeek / 100) * weeksElapsed;
-    const lifts = rand() < 0.3 ? CORE_LIFTS.slice(0, 2 + Math.floor(rand() * 3)) : [CORE_LIFTS[Math.floor(rand() * CORE_LIFTS.length)]];
-    const sets = lifts.flatMap(name => {
-      const base = persona.startingLifts[name] * growth;
-      const kg = Math.max(2.5, Math.round((base * (0.95 + rand() * 0.1)) / 2.5) * 2.5);
-      const setCount = 2 + Math.floor(rand() * 3);
-      return Array.from({ length: setCount }, () => ({ exercise: name, kg, reps: 4 + Math.floor(rand() * 8), rpe: 6 + Math.floor(rand() * 4) }));
-    });
-    const date = simDate(dayIdx).toISOString().slice(0, 10);
-    await callApi(persona, 'PUT', `/workout/${date}`, { body: { sets } });
-    if (rand() < 0.4) await callApi(persona, 'POST', '/soreness', { body: { muscle: 'chest', score: Math.floor(rand() * 8) } });
+    let sets;
+    if (FOLLOW_RECOMMENDATIONS) {
+      sets = await buildFollowedWorkoutSets(persona, rand);
+    } else {
+      const weeksElapsed = dayIdx / 7;
+      const growth = 1 + (persona.progressionPctPerWeek / 100) * weeksElapsed;
+      const [exMin, exMax] = SEVERITY.exerciseCount;
+      const lifts = rand() < SEVERITY.multiExerciseChance ? CORE_LIFTS.slice(0, exMin + Math.floor(rand() * (exMax - exMin + 1))) : [CORE_LIFTS[Math.floor(rand() * CORE_LIFTS.length)]];
+      const [setsMin, setsMax] = SEVERITY.sets;
+      const [rpeMin, rpeMax] = SEVERITY.rpe;
+      sets = lifts.flatMap(name => {
+        const base = persona.startingLifts[name] * growth;
+        const kg = Math.max(2.5, Math.round((base * (0.95 + rand() * 0.1)) / 2.5) * 2.5);
+        const setCount = setsMin + Math.floor(rand() * (setsMax - setsMin + 1));
+        return Array.from({ length: setCount }, () => ({ exercise: name, kg, reps: 4 + Math.floor(rand() * 8), rpe: rpeMin + Math.floor(rand() * (rpeMax - rpeMin + 1)) }));
+      });
+    }
+    if (sets && sets.length) {
+      const date = simDate(dayIdx).toISOString().slice(0, 10);
+      await callApi(persona, 'PUT', `/workout/${date}`, { body: { sets } });
+      if (rand() < 0.4) await callApi(persona, 'POST', '/soreness', { body: { muscle: 'chest', score: Math.floor(rand() * 8) } });
+    }
   }
 
   if (rand() < persona.nutritionLogRate) {
@@ -297,7 +372,7 @@ async function main() {
 
   const stamp = new Date().toISOString().replace(/[:.]/g, '-');
   const reportPath = path.join(outDir, `report-${stamp}.json`);
-  fs.writeFileSync(reportPath, JSON.stringify({ personas: personas.map(({ rand, ...p }) => p), issues, suspicious }, null, 2));
+  fs.writeFileSync(reportPath, JSON.stringify({ severity: arg('severity', 'moderate'), personas: personas.map(({ rand, ...p }) => p), issues, suspicious }, null, 2));
 
   console.log(`\nDone. ${issues.length} issues flagged. Report: ${reportPath}`);
   const byKind = {};

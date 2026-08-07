@@ -72,28 +72,35 @@ function computeTrend(lifts) {
   });
 }
 
-// Sustained, not a single rough day: form has sat at/below threshold for at
-// least minConsecutiveDays straight, checked back from the most recent point.
+// Sustained, not a single rough day — but a strict unbroken streak turned
+// out to be unreachable for a realistic training pattern: a persona
+// training hard 5-7 days/week with normal rest days dipped form below
+// threshold on 18 of 120 simulated days, but the longest unbroken streak
+// was only 3 (any single recovered rest day reset the count to zero), so
+// the streak version never fired even for someone doing ~50% more volume
+// than recommended for 4 straight months (see scripts/simulate/ closed-loop
+// run, 2026-08-07). A rolling average tolerates the occasional good day
+// while still requiring sustained accumulated fatigue over the window —
+// closer to what "worth a deliberately lighter week" is actually about.
 const DELOAD_FORM_THRESHOLD = -10;
-const DELOAD_MIN_CONSECUTIVE_DAYS = 10;
+const DELOAD_WINDOW_DAYS = 14;
 
 function deloadSuggestion(trend) {
-  if (!trend || !trend.length) return null;
-  let streak = 0;
-  for (let i = trend.length - 1; i >= 0; i--) {
-    if (trend[i].form <= DELOAD_FORM_THRESHOLD) streak++;
-    else break;
-  }
-  if (streak < DELOAD_MIN_CONSECUTIVE_DAYS) return null;
+  if (!trend || trend.length < DELOAD_WINDOW_DAYS) return null;
+  const window = trend.slice(-DELOAD_WINDOW_DAYS);
+  const avgForm = window.reduce((sum, t) => sum + t.form, 0) / window.length;
+  if (avgForm > DELOAD_FORM_THRESHOLD) return null;
+  const rounded = Math.round(avgForm * 10) / 10;
   return {
     suggested: true,
-    consecutiveDays: streak,
+    windowDays: DELOAD_WINDOW_DAYS,
+    avgForm: rounded,
     form: trend.at(-1).form,
-    reason: `Form has stayed at or below ${DELOAD_FORM_THRESHOLD} for ${streak} straight days — accumulated fatigue is consistently outpacing banked fitness. Worth a deliberately lighter week.`,
+    reason: `Form has averaged ${rounded} over the last ${DELOAD_WINDOW_DAYS} days — accumulated fatigue is consistently outpacing banked fitness. Worth a deliberately lighter week.`,
   };
 }
 
 module.exports = {
   dailyLoadSeries, computeTrend, deloadSuggestion,
-  FITNESS_DAYS, FATIGUE_DAYS, DELOAD_FORM_THRESHOLD, DELOAD_MIN_CONSECUTIVE_DAYS,
+  FITNESS_DAYS, FATIGUE_DAYS, DELOAD_FORM_THRESHOLD, DELOAD_WINDOW_DAYS,
 };

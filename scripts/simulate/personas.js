@@ -16,13 +16,18 @@ const CORE_LIFTS = ['Barbell Bench Press', 'Back Squat', 'Conventional Deadlift'
 
 // Each archetype exists to stress a specific code path — not a realism
 // exercise. Weights sum to 1.
+// `compliance` only matters in run.js's --follow-recommendations mode: a
+// multiplier on the app's own suggested sets/weight (1.0 = does exactly
+// what's recommended). In the default mode (self-generated sessions,
+// progressionPctPerWeek-driven) it's unused — kept on every archetype
+// anyway so a run can switch modes without regenerating personas.
 const ARCHETYPES = [
-  { key: 'consistent', weight: 0.35, adherence: [0.8, 0.95], daysPerWeek: [3, 5], progressionPctPerWeek: [0.5, 1.2], nutritionLogRate: [0.6, 0.9] },
-  { key: 'erratic', weight: 0.2, adherence: [0.25, 0.55], daysPerWeek: [2, 5], progressionPctPerWeek: [-0.3, 0.8], nutritionLogRate: [0.1, 0.4] },
-  { key: 'overreaching', weight: 0.15, adherence: [0.9, 1.0], daysPerWeek: [5, 7], progressionPctPerWeek: [1.5, 3], nutritionLogRate: [0.3, 0.7] },
-  { key: 'underloading', weight: 0.15, adherence: [0.4, 0.7], daysPerWeek: [1, 2], progressionPctPerWeek: [-0.5, 0.2], nutritionLogRate: [0.3, 0.7] },
-  { key: 'injury-taper', weight: 0.1, adherence: [0.7, 0.9], daysPerWeek: [3, 5], progressionPctPerWeek: [0.5, 1.2], nutritionLogRate: [0.4, 0.8] },
-  { key: 'beginner-sparse', weight: 0.05, adherence: [0.2, 0.5], daysPerWeek: [1, 3], progressionPctPerWeek: [1, 2.5], nutritionLogRate: [0.1, 0.5] },
+  { key: 'consistent', weight: 0.35, adherence: [0.8, 0.95], daysPerWeek: [3, 5], progressionPctPerWeek: [0.5, 1.2], nutritionLogRate: [0.6, 0.9], compliance: [0.9, 1.05] },
+  { key: 'erratic', weight: 0.2, adherence: [0.25, 0.55], daysPerWeek: [2, 5], progressionPctPerWeek: [-0.3, 0.8], nutritionLogRate: [0.1, 0.4], compliance: [0.4, 1.1] },
+  { key: 'overreaching', weight: 0.15, adherence: [0.9, 1.0], daysPerWeek: [5, 7], progressionPctPerWeek: [1.5, 3], nutritionLogRate: [0.3, 0.7], compliance: [1.2, 1.6] },
+  { key: 'underloading', weight: 0.15, adherence: [0.4, 0.7], daysPerWeek: [1, 2], progressionPctPerWeek: [-0.5, 0.2], nutritionLogRate: [0.3, 0.7], compliance: [0.3, 0.6] },
+  { key: 'injury-taper', weight: 0.1, adherence: [0.7, 0.9], daysPerWeek: [3, 5], progressionPctPerWeek: [0.5, 1.2], nutritionLogRate: [0.4, 0.8], compliance: [0.85, 1.0] },
+  { key: 'beginner-sparse', weight: 0.05, adherence: [0.2, 0.5], daysPerWeek: [1, 3], progressionPctPerWeek: [1, 2.5], nutritionLogRate: [0.1, 0.5], compliance: [0.7, 1.0] },
 ];
 
 function pickArchetype(rand) {
@@ -57,6 +62,7 @@ function generatePersonas(count, seed) {
       adherence: between(rand, a.adherence),
       daysPerWeek: Math.round(between(rand, a.daysPerWeek)),
       progressionPctPerWeek: between(rand, a.progressionPctPerWeek),
+      compliance: between(rand, a.compliance),
       nutritionLogRate: between(rand, a.nutritionLogRate),
       sleepBaseHours: between(rand, [5.5, 8.5]),
       sleepVariance: between(rand, [0.3, 2]),

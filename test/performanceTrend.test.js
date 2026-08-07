@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert');
 
-const { dailyLoadSeries, computeTrend, deloadSuggestion, DELOAD_FORM_THRESHOLD, DELOAD_MIN_CONSECUTIVE_DAYS } = require('../functions/performanceTrend');
+const { dailyLoadSeries, computeTrend, deloadSuggestion, DELOAD_FORM_THRESHOLD, DELOAD_WINDOW_DAYS } = require('../functions/performanceTrend');
 
 function dateNDaysAgo(n) {
   const d = new Date();
@@ -74,31 +74,46 @@ test('deloadSuggestion: null when trend is empty or form is fine', () => {
   assert.strictEqual(deloadSuggestion([{ date: dateNDaysAgo(0), load: 50, fitness: 50, fatigue: 50, form: 0 }]), null);
 });
 
-test('deloadSuggestion: null when the negative streak is too short', () => {
+test('deloadSuggestion: null when there is less than a full window of data yet', () => {
   const trend = [];
-  for (let i = DELOAD_MIN_CONSECUTIVE_DAYS - 2; i >= 0; i--) {
+  for (let i = DELOAD_WINDOW_DAYS - 2; i >= 0; i--) {
     trend.push({ date: dateNDaysAgo(i), load: 0, fitness: 0, fatigue: 0, form: DELOAD_FORM_THRESHOLD - 5 });
   }
   assert.strictEqual(deloadSuggestion(trend), null);
 });
 
-test('deloadSuggestion: suggests when form has stayed at/below threshold for the full window', () => {
+test('deloadSuggestion: suggests when the window average sits at/below threshold', () => {
   const trend = [];
-  for (let i = DELOAD_MIN_CONSECUTIVE_DAYS + 3; i >= 0; i--) {
+  for (let i = DELOAD_WINDOW_DAYS + 3; i >= 0; i--) {
     trend.push({ date: dateNDaysAgo(i), load: 0, fitness: 0, fatigue: 0, form: DELOAD_FORM_THRESHOLD - 5 });
   }
   const result = deloadSuggestion(trend);
   assert(result, 'should suggest a deload');
   assert.strictEqual(result.suggested, true);
-  assert(result.consecutiveDays >= DELOAD_MIN_CONSECUTIVE_DAYS);
+  assert.strictEqual(result.windowDays, DELOAD_WINDOW_DAYS);
+  assert(result.avgForm <= DELOAD_FORM_THRESHOLD);
   assert(result.reason.includes('Form'), 'reason should be descriptive prose explaining the trigger');
 });
 
-test('deloadSuggestion: a single good day breaks the streak', () => {
+test('deloadSuggestion: a single good day does not clear it if the window average is still below threshold', () => {
+  // This is the actual bug being fixed: a realistic training pattern with
+  // occasional rest days used to reset a strict consecutive-day streak to
+  // zero every time, so it never fired. One recovered day out of a
+  // DELOAD_WINDOW_DAYS-sized window barely moves the average and should
+  // still trigger.
   const trend = [];
-  for (let i = DELOAD_MIN_CONSECUTIVE_DAYS + 3; i >= 1; i--) {
+  for (let i = DELOAD_WINDOW_DAYS - 1; i >= 1; i--) {
     trend.push({ date: dateNDaysAgo(i), load: 0, fitness: 0, fatigue: 0, form: DELOAD_FORM_THRESHOLD - 5 });
   }
-  trend.push({ date: dateNDaysAgo(0), load: 0, fitness: 0, fatigue: 0, form: 5 }); // today's form recovers
-  assert.strictEqual(deloadSuggestion(trend), null, 'a recovered most-recent day should break the streak entirely');
+  trend.push({ date: dateNDaysAgo(0), load: 0, fitness: 0, fatigue: 0, form: 5 }); // one recovered day
+  const result = deloadSuggestion(trend);
+  assert(result, 'a single good day among many bad ones should not clear the suggestion');
+});
+
+test('deloadSuggestion: sustained recovery (window average back above threshold) clears it', () => {
+  const trend = [];
+  for (let i = DELOAD_WINDOW_DAYS - 1; i >= 0; i--) {
+    trend.push({ date: dateNDaysAgo(i), load: 0, fitness: 0, fatigue: 0, form: 5 });
+  }
+  assert.strictEqual(deloadSuggestion(trend), null, 'a full window of recovered days should clear the suggestion');
 });
