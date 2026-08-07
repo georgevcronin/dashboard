@@ -29,8 +29,6 @@ const {
 const { computeStimulusContributions, estimateAtrophyRate } = require('./adaptation');
 const { sessionLoadScore, sessionLoadDelta } = require('./sessionLoad');
 const { computeTrend, deloadSuggestion } = require('./performanceTrend');
-const { sessionLoadScore, sessionLoadDelta } = require('./sessionLoad');
-const { computeTrend, deloadSuggestion } = require('./performanceTrend');
 const { validateGoals, validateActivities, applyActivityDefaults, seedReturningAthleteAtrophy } = require('./goalsAndActivities');
 const { estimateMaintenanceCalories, applyDeficitLimit } = require('./nutritionLimits');
 const { findNearbyGyms, normalizeExerciseKey, GYM_NEARBY_RADIUS_M } = require('./gyms');
