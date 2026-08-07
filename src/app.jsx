@@ -1033,6 +1033,14 @@ const glycogenPct = (elapsedS, totalS) => {
 // app's first version — everything before this had no changelog at all.
 const CHANGELOG = [
   {
+    version: '0.90',
+    date: '2026-08-07',
+    features: [
+      'New Running panel — daily run readiness, session prescription, pace/HR zones and an 8-week VO₂max forecast, all previously computed server-side with nothing showing it. Only appears for an account with Running listed as an activity.',
+      'Onboarding\'s Daily Targets step no longer asks for a diet goal (Lose Fat/Build Muscle/Maintain/Athletic Performance) — that lives in Settings instead. The step now also recommends a water target from your weight, activity level, and climate, still fully editable.',
+    ],
+  },
+  {
     version: '0.89',
     date: '2026-08-07',
     features: [
@@ -6397,10 +6405,12 @@ const ACTIVITY_DEFS = [
   { key: 'crossfit', label: 'CrossFit' }, { key: 'other', label: 'Other' },
 ];
 // Diet goal -- a different question from trainingGoals above (what you eat,
-// not what you train for). Shared by Onboarding step 3 and Settings so the
-// two pickers can't drift out of sync with each other the way they
-// previously did (Settings had its own, differently-labeled cut/recomp/bulk
-// picker that never wrote profile.goal at all).
+// not what you train for). Settings-only now (Onboarding step 3 dropped it —
+// see the Step 3 comment below); still the single definition both the old
+// onboarding picker and Settings' picker read, so they never drifted out of
+// sync with each other the way they previously did (Settings had its own,
+// differently-labeled cut/recomp/bulk picker that never wrote profile.goal
+// at all).
 const DIET_GOAL_DEFS = [
   ['Lose Fat', 'Calorie deficit, preserve muscle'],
   ['Build Muscle', 'Caloric surplus, progressive overload'],
@@ -6427,6 +6437,29 @@ function suggestTargets(goals) {
     waterTarget: Math.min(12, Math.round(water)),
     trainingDays: Math.min(6, Math.round(days)),
   };
+}
+// Sweat-loss addition on top of base intake — a range rather than a single
+// number because a sedentary day and an extremely active one lose very
+// different amounts of water to exercise, same idea as an activity
+// multiplier on a calorie calculator. Values in mL, one glass = 250mL (the
+// unit the app already tracks water in), so each tier is a whole number of
+// glasses by construction.
+const WATER_ACTIVITY_LEVELS = [
+  { key: 'light', label: 'Light', addMl: 250 },
+  { key: 'moderate', label: 'Moderate', addMl: 500 },
+  { key: 'active', label: 'Active', addMl: 750 },
+  { key: 'extreme', label: 'Extremely Active', addMl: 1000 },
+];
+// Base intake = bodyweight(kg) × 35mL, plus the exercise-driven sweat-loss
+// tier above, plus a flat 500mL for a hot/humid climate's extra heat-driven
+// loss. Returns glasses (250mL each), or null when weight isn't known yet —
+// the Targets step falls back to suggestTargets()'s goal-based number in
+// that case rather than showing a recommendation with no basis.
+function recommendedWaterGlasses(weightKg, activityLevel, hotClimate) {
+  if (!weightKg || weightKg <= 0) return null;
+  const activityMl = WATER_ACTIVITY_LEVELS.find(l => l.key === activityLevel)?.addMl ?? WATER_ACTIVITY_LEVELS[1].addMl;
+  const totalMl = weightKg * 35 + activityMl + (hotClimate ? 500 : 0);
+  return Math.round(totalMl / 250);
 }
 
 // Onboarding is reopened, not just opened once — "Restart Setup" in
@@ -6470,19 +6503,27 @@ function Onboarding({ s, onComplete, onOpenImport }) {
     ? gs.filter(g => g.type !== key) : [...gs, { type: key, priority: 'secondary', concrete: false }]);
   const updateGoal = (key, patch) => setTrainingGoals(gs => gs.map(g => g.type === key ? { ...g, ...patch } : g));
 
-  // Step 3 — Diet Goal & Daily Targets -- unchanged single-select diet goal
-  // driving macro-auto; deliberately kept separate from trainingGoals above
-  // (different question: what you eat, not what you train for).
-  const [goal, setGoal] = useState(() => s?.profile?.goal || '');
+  // Step 3 — Daily Targets. Diet goal (Lose Fat/Build Muscle/Maintain/
+  // Athletic Performance) used to live here too, driving macro-auto — moved
+  // out entirely; it's asked in Settings instead (DIET_GOAL_DEFS below,
+  // rendered there), which already had its own picker writing the same
+  // profile.goal field. This step no longer reads or writes it.
   const [sleepTarget, setSleepTarget] = useState(() => s?.profile?.sleepTarget || 8);
   const [waterTarget, setWaterTarget] = useState(() => s?.profile?.waterTarget || 7);
   const [trainingDays, setTrainingDays] = useState(() => s?.profile?.trainingDaysPerWeek || 4);
-  // Lose Fat's deficit-limit notice (see saveDietGoalAndTargets below) —
-  // shown once per goal pick, then Acked lets a second Continue click
-  // through without re-pausing on the same notice.
-  const [dietGoalNotice, setDietGoalNotice] = useState(null);
-  const [dietGoalNoticeAcked, setDietGoalNoticeAcked] = useState(false);
-  const chooseGoal = (g) => { setGoal(g); setDietGoalNotice(null); setDietGoalNoticeAcked(false); };
+  // Water calculator inputs — see recommendedWaterGlasses above. waterTouched
+  // stops the calculator from clobbering a manual +/- edit once the athlete's
+  // made one; until then, changing weight/activity/climate keeps the target
+  // in sync with the calculator, same "suggested, not locked" behaviour as
+  // suggestTargets() gives sleep/water/days after Step 2's goals.
+  const [waterActivityLevel, setWaterActivityLevel] = useState(() => s?.profile?.waterActivityLevel || 'moderate');
+  const [waterHotClimate, setWaterHotClimate] = useState(() => !!s?.profile?.waterHotClimate);
+  const [waterTouched, setWaterTouched] = useState(false);
+  const weightKgForWater = weightVal ? (weightUnit === 'kg' ? parseFloat(weightVal) : parseFloat(weightVal) * 0.453592) : null;
+  const waterCalc = recommendedWaterGlasses(weightKgForWater, waterActivityLevel, waterHotClimate);
+  useEffect(() => {
+    if (!waterTouched && waterCalc != null) setWaterTarget(waterCalc);
+  }, [waterCalc, waterTouched]);
 
   // Step 4 — Activities -- each: { type, priority }. See ACTIVITY_DEFS above.
   const [activities, setActivities] = useState(() => (s?.profile?.activities || []).map(a => ({ ...a })));
@@ -6582,15 +6623,8 @@ function Onboarding({ s, onComplete, onOpenImport }) {
     await api('profile', { method: 'POST', body: JSON.stringify({ goals: buildGoalsPayload(trainingGoals) }), throwOnError: true });
   };
 
-  // Returns the deficit notice from /macro-auto (functions/nutritionLimits.js)
-  // when Lose Fat's calculated calories aren't a mild deficit — null
-  // otherwise. advance() below shows it once per goal pick before letting
-  // the athlete move on, same as a confirmation step.
-  const saveDietGoalAndTargets = async () => {
-    await api('profile', { method: 'POST', body: JSON.stringify({ goal, sleepTarget, waterTarget, trainingDaysPerWeek: trainingDays }), throwOnError: true });
-    if (!DIET_GOAL_MACRO_MAP[goal]) return null;
-    const data = await api('macro-auto', { method: 'POST', body: JSON.stringify({ goal: DIET_GOAL_MACRO_MAP[goal] }), throwOnError: true });
-    return data.deficitCheck && data.deficitCheck.status !== 'ok' ? data.deficitCheck : null;
+  const saveDailyTargets = async () => {
+    await api('profile', { method: 'POST', body: JSON.stringify({ sleepTarget, waterTarget, trainingDaysPerWeek: trainingDays, waterActivityLevel, waterHotClimate }), throwOnError: true });
   };
 
   const saveActivities = async () => {
@@ -6628,16 +6662,7 @@ function Onboarding({ s, onComplete, onOpenImport }) {
         const sug = suggestTargets(trainingGoals);
         setSleepTarget(sug.sleepTarget); setWaterTarget(sug.waterTarget); setTrainingDays(sug.trainingDays);
       }
-      if (step === 3) {
-        const notice = await saveDietGoalAndTargets();
-        if (notice && !dietGoalNoticeAcked) {
-          setDietGoalNotice(notice);
-          setDietGoalNoticeAcked(true);
-          setSaving(false);
-          return; // pause here once so the notice is actually seen before moving on
-        }
-        setDietGoalNotice(null);
-      }
+      if (step === 3) await saveDailyTargets();
       if (step === 4) await saveActivities();
       if (step === 5) await saveTrackingLevel();
       if (step === 6) await saveTrainingBackground();
@@ -6815,63 +6840,53 @@ function Onboarding({ s, onComplete, onOpenImport }) {
           </>
         )}
 
-        {/* ── STEP 3: DIET GOAL & DAILY TARGETS ── */}
+        {/* ── STEP 3: DAILY TARGETS ── */}
         {step === 3 && (
           <>
-            <div className="ob-h">Diet & Daily Targets</div>
-            <div className="ob-deck">A separate question from the training goals you just set — this drives macro auto-calculation and sleep/water/frequency targets, not what you're training for.</div>
+            <div className="ob-h">Daily Targets</div>
+            <div className="ob-deck">Prefilled from the training goals you just set — adjust freely. Diet goal (what you eat, for macro targets) lives in Settings instead.</div>
 
-            <label className="ob-label">Primary Diet Goal</label>
-            <div className="ob-goal-grid">
-              {DIET_GOAL_DEFS.map(([g, d]) => (
-                <button key={g} className={`ob-goal-card${goal === g ? ' selected' : ''}`} onClick={() => chooseGoal(g)}>
-                  <div className="ob-goal-card-title">{g}</div>
-                  <div className="ob-goal-card-desc">{d}</div>
-                </button>
-              ))}
+            <label className="ob-label" style={{ marginTop: 0 }}>Sleep Target</label>
+            <div className="ob-stepper" style={{ margin: '10px 0 16px' }}>
+              <button className="ob-stepper-btn" onClick={() => setSleepTarget(t => Math.max(5, t - 0.5))}>−</button>
+              <div className="ob-stepper-val">{sleepTarget}<span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 12, color: 'var(--dim)', fontWeight: 400 }}>h</span></div>
+              <button className="ob-stepper-btn" onClick={() => setSleepTarget(t => Math.min(12, t + 0.5))}>+</button>
+              <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 9, color: 'var(--dim)', marginLeft: 6 }}>per night</span>
             </div>
-            {dietGoalNotice && (
-              <div style={{
-                fontFamily: "'JetBrains Mono',monospace", fontSize: 10, lineHeight: 1.5, marginBottom: 16,
-                color: dietGoalNotice.status === 'hard-limit' ? 'var(--red)' : 'var(--ember)',
-              }}>
-                {dietGoalNotice.status === 'hard-limit' ? 'Hard limit — ' : '⚠ '}{dietGoalNotice.message}
-              </div>
-            )}
 
-            <div style={{ borderTop: '1px solid var(--rule)', paddingTop: 16 }}>
-              <label className="ob-label" style={{ marginTop: 0 }}>Sleep Target</label>
-              <div className="ob-stepper" style={{ margin: '10px 0 16px' }}>
-                <button className="ob-stepper-btn" onClick={() => setSleepTarget(t => Math.max(5, t - 0.5))}>−</button>
-                <div className="ob-stepper-val">{sleepTarget}<span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 12, color: 'var(--dim)', fontWeight: 400 }}>h</span></div>
-                <button className="ob-stepper-btn" onClick={() => setSleepTarget(t => Math.min(12, t + 0.5))}>+</button>
-                <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 9, color: 'var(--dim)', marginLeft: 6 }}>per night</span>
-              </div>
+            <label className="ob-label" style={{ marginTop: 0 }}>Water Target</label>
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
+              {WATER_ACTIVITY_LEVELS.map(l => (
+                <button key={l.key} className={`prof-btn${waterActivityLevel === l.key ? ' solid' : ''}`}
+                  onClick={() => { setWaterActivityLevel(l.key); setWaterTouched(false); }}>{l.label}</button>
+              ))}
+              <button className={`prof-btn${waterHotClimate ? ' solid' : ''}`}
+                onClick={() => { setWaterHotClimate(v => !v); setWaterTouched(false); }}>Hot / humid climate</button>
+            </div>
+            <div className="ob-stepper" style={{ margin: '10px 0 4px' }}>
+              <button className="ob-stepper-btn" onClick={() => { setWaterTouched(true); setWaterTarget(t => Math.max(2, t - 1)); }}>−</button>
+              <div className="ob-stepper-val">{waterTarget}</div>
+              <button className="ob-stepper-btn" onClick={() => { setWaterTouched(true); setWaterTarget(t => Math.min(16, t + 1)); }}>+</button>
+              <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 9, color: 'var(--dim)', marginLeft: 6 }}>glasses / day</span>
+            </div>
+            <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, color: 'var(--dim)', marginBottom: 16 }}>
+              {waterCalc != null
+                ? `Recommended ${waterCalc} glasses — ${Math.round(weightKgForWater)}kg × 35mL + ${waterActivityLevel} activity${waterHotClimate ? ' + hot climate' : ''}.`
+                : 'Add your weight in About You for a recommended target — using your training goals for now.'}
+            </div>
 
-              <label className="ob-label" style={{ marginTop: 0 }}>Water Target</label>
-              <div className="ob-stepper" style={{ margin: '10px 0 16px' }}>
-                <button className="ob-stepper-btn" onClick={() => setWaterTarget(t => Math.max(2, t - 1))}>−</button>
-                <div className="ob-stepper-val">{waterTarget}</div>
-                <button className="ob-stepper-btn" onClick={() => setWaterTarget(t => Math.min(16, t + 1))}>+</button>
-                <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 9, color: 'var(--dim)', marginLeft: 6 }}>glasses / day</span>
-              </div>
-
-              <label className="ob-label" style={{ marginTop: 0 }}>Training Days per Week</label>
-              <div className="ob-stepper" style={{ margin: '10px 0' }}>
-                <button className="ob-stepper-btn" onClick={() => setTrainingDays(t => Math.max(1, t - 1))}>−</button>
-                <div className="ob-stepper-val">{trainingDays}</div>
-                <button className="ob-stepper-btn" onClick={() => setTrainingDays(t => Math.min(7, t + 1))}>+</button>
-                <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 9, color: 'var(--dim)', marginLeft: 6 }}>days</span>
-              </div>
-              <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, color: 'var(--dim)', marginTop: 8 }}>Prefilled from your training goals — adjust freely.</div>
+            <label className="ob-label" style={{ marginTop: 0 }}>Training Days per Week</label>
+            <div className="ob-stepper" style={{ margin: '10px 0' }}>
+              <button className="ob-stepper-btn" onClick={() => setTrainingDays(t => Math.max(1, t - 1))}>−</button>
+              <div className="ob-stepper-val">{trainingDays}</div>
+              <button className="ob-stepper-btn" onClick={() => setTrainingDays(t => Math.min(7, t + 1))}>+</button>
+              <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 9, color: 'var(--dim)', marginLeft: 6 }}>days</span>
             </div>
 
             {stepError && <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--red)', marginBottom: 6 }}>{stepError}</div>}
             <div className="ob-nav">
               <button className="ob-back" onClick={() => { setStepError(''); setStep(2); }}>← Back</button>
-              <button className="ob-next" onClick={advance} disabled={saving}>
-                {saving ? 'Saving…' : stepError ? 'Retry' : dietGoalNotice ? 'Continue anyway' : 'Continue'}
-              </button>
+              <button className="ob-next" onClick={advance} disabled={saving}>{saving ? 'Saving…' : stepError ? 'Retry' : 'Continue'}</button>
             </div>
           </>
         )}
@@ -7185,7 +7200,7 @@ function Onboarding({ s, onComplete, onOpenImport }) {
 
             <div style={{ borderTop: '1px solid var(--ink)', borderBottom: '1px solid var(--ink)', margin: '8px 0 28px', padding: '4px 0' }}>
               {[
-                [!!name, name ? `${name}${goal ? ` · ${goal}` : ''}` : 'Profile skipped'],
+                [!!name, name || 'Profile skipped'],
                 [!!trainingGoals.length, trainingGoals.length ? `${trainingGoals.length} training goal${trainingGoals.length === 1 ? '' : 's'}` : 'No training goals set'],
                 [!!activities.length, activities.length ? `${activities.length} activit${activities.length === 1 ? 'y' : 'ies'}` : 'No activities set'],
                 [true, `${sleepTarget}h sleep · ${waterTarget} glasses water · ${trainingDays} training days`],
@@ -7232,7 +7247,7 @@ function Onboarding({ s, onComplete, onOpenImport }) {
 // train today, and why" and so lead; sleep/nutrition/body/records are the
 // supporting record and follow. Only affects accounts that have never
 // reordered — a stored profile.panelOrder always wins.
-const DEFAULT_PANEL_ORDER = ['s1', 's3', 's5', 's2', 's4', 's6', 's7', 's8', 's9', 's10'];
+const DEFAULT_PANEL_ORDER = ['s1', 's3', 's5', 's2', 's4', 's6', 's7', 's8', 's9', 's10', 's11'];
 // A stored panelOrder always wins (see above), but it was captured at
 // whatever point the account last touched Settings → Dashboard Layout —
 // pre-dating panels added since then, which would otherwise never appear
@@ -7255,8 +7270,8 @@ const PANEL_WIDE = new Set(['s1', 's3', 's5']);
 // is never stored — an unset panel and an explicitly-standard one are the same
 // thing, so nothing has to be migrated when a panel is added.
 const PANEL_STATE_LABELS = { collapsed: 'Collapsed', standard: 'Standard', expanded: 'Wide' };
-const PANEL_LABELS = { s1: 'Dispatch', s2: 'Sleep', s3: 'Training', s4: 'Nutrition', s5: 'Recovery', s6: 'Body & Supplements', s7: 'Personal Records', s8: 'Goals', s9: 'Social', s10: 'Cycle' };
-const DOCK_LABELS = { s1: 'Dispatch', s2: 'Sleep', s3: 'Training', s4: 'Nutrition', s5: 'Recovery', s6: 'Body', s7: 'Records', s8: 'Goals', s9: 'Social', s10: 'Cycle' };
+const PANEL_LABELS = { s1: 'Dispatch', s2: 'Sleep', s3: 'Training', s4: 'Nutrition', s5: 'Recovery', s6: 'Body & Supplements', s7: 'Personal Records', s8: 'Goals', s9: 'Social', s10: 'Cycle', s11: 'Running' };
+const DOCK_LABELS = { s1: 'Dispatch', s2: 'Sleep', s3: 'Training', s4: 'Nutrition', s5: 'Recovery', s6: 'Body', s7: 'Records', s8: 'Goals', s9: 'Social', s10: 'Cycle', s11: 'Running' };
 // One-click desktop layout presets (order + panelStates together) — not a
 // new layout mechanism, just named combinations of the two settings above.
 // Review and Retrospective are mirror images of the same lead/supporting
@@ -7281,7 +7296,7 @@ const LAYOUT_PRESETS = [
   {
     id: 'review', label: 'Review',
     desc: 'Dispatch, Training and Recovery wide and first — today\'s decision, biggest.',
-    order: ['s1', 's3', 's5', 's2', 's4', 's6', 's7', 's8', 's9', 's10'],
+    order: ['s1', 's3', 's5', 's2', 's4', 's6', 's7', 's8', 's9', 's10', 's11'],
     states: { s1: 'expanded', s3: 'expanded', s5: 'expanded', s2: 'collapsed', s4: 'collapsed', s6: 'collapsed', s7: 'collapsed' },
     // Every column sums to 42. s8/s9 (unset -> 'standard', h=14) don't
     // divide evenly against everything else at their natural height, so s9
@@ -7315,7 +7330,7 @@ const LAYOUT_PRESETS = [
   {
     id: 'retrospective', label: 'Retrospective',
     desc: 'Sleep, Nutrition, Body and Records wide and first — the review, not the decision.',
-    order: ['s2', 's4', 's6', 's7', 's1', 's3', 's5', 's8', 's9', 's10'],
+    order: ['s2', 's4', 's6', 's7', 's1', 's3', 's5', 's8', 's9', 's10', 's11'],
     states: { s2: 'expanded', s4: 'expanded', s6: 'expanded', s7: 'expanded', s1: 'collapsed', s3: 'collapsed', s5: 'collapsed' },
     // Every column sums to 47. s9 is nudged to h=12 (unset -> 'standard'
     // h=14 otherwise) purely so the totals divide evenly here, same as
@@ -7862,6 +7877,158 @@ function S10({ s, refresh }) {
               </div>
             ))}
           </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
+// #95-#113 Standalone Running Subsystem (RUNNING_SCIENCE.md) — the frontend
+// consumer for /run/recommendation (functions/runningRecommendation.js) and
+// the VO2max trend/8-week forecast /summary already computes
+// (runningPrediction). Both existed server-side with nothing rendering
+// them; this is that missing panel. Only ever mounted for an account with
+// Running listed as an activity — see App()'s hasRunningActivity gate,
+// same "opt-in, not tracking-level" pattern s10's cycleTrackingEnabled uses.
+const RUN_SESSION_LABELS = { rest: 'Rest Day', recovery: 'Recovery Run', easy: 'Easy Run', steady: 'Steady Run', tempo: 'Tempo Run', interval: 'Interval Session', long: 'Long Run' };
+const VO2MAX_SOURCE_LABELS = { 'apple-watch': 'Apple Watch', 'daniels-vdot': 'Estimated from pace' };
+// RUNNING_SCIENCE.md #107 (Williams et al. 2017) thresholds — the same zones
+// buildRunningRecommendation's own cautions already check against, just
+// labelled here for display rather than only surfacing as a caution string.
+function runningAcwrZone(acwr) {
+  if (acwr == null) return null;
+  if (acwr > 1.5) return { label: 'High', color: 'var(--red)' };
+  if (acwr > 1.3) return { label: 'Elevated', color: 'var(--ember)' };
+  if (acwr < 0.8) return { label: 'Detraining', color: 'var(--dim)' };
+  return { label: 'Safe range', color: 'var(--forest)' };
+}
+function S11({ s, runRecommendation }) {
+  const mono = { fontFamily: "'JetBrains Mono',monospace" };
+  const rec = runRecommendation;
+  const prediction = s?.runningPrediction || null;
+  const acwrZone = rec ? runningAcwrZone(rec.acwr) : null;
+  const readinessColor = rec ? (rec.readiness >= 60 ? 'var(--forest)' : rec.readiness >= 40 ? 'var(--gold)' : 'var(--red)') : 'var(--ink)';
+
+  return (
+    <section id="s11" style={{ display: 'flex', flexDirection: 'column' }}>
+      <div className="fade panel-head" style={{ flexShrink: 0 }}>
+        <div className="kicker">Running</div>
+        <div className="headline" style={{ fontSize: 'clamp(24px,6vw,44px)', lineHeight: '.96' }}>
+          {rec ? (RUN_SESSION_LABELS[rec.sessionType] || 'Today’s Run') : 'Running'}
+        </div>
+        <div className="deck">{rec ? rec.readinessLabel : 'No runs logged yet'}</div>
+      </div>
+      <div className="fade" style={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>
+        {!rec ? (
+          <div style={{ ...mono, fontSize: 11, color: 'var(--dim)', lineHeight: 1.6 }}>
+            Sync a run from Strava or Apple Health to get a daily readiness-based prescription here.
+          </div>
+        ) : (
+          <>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 10 }}>
+              <span style={{ ...mono, fontSize: 10, color: 'var(--dim)' }}>Readiness</span>
+              <span style={{ ...mono, fontSize: 16, fontWeight: 700, color: readinessColor }}>{Math.round(rec.readiness)}%</span>
+            </div>
+
+            {rec.sessionType !== 'rest' && (
+              <div style={{ marginBottom: 10 }}>
+                <div style={{ ...mono, fontSize: 10, color: 'var(--dim)', marginBottom: 3 }}>Duration</div>
+                <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 15, fontWeight: 700 }}>
+                  {rec.duration.min}–{rec.duration.max} min <span style={{ ...mono, fontSize: 10, fontWeight: 400, color: 'var(--dim)' }}>(target {rec.duration.target})</span>
+                </div>
+                {!rec.workoutPrescription && rec.intensity && (
+                  <div style={{ ...mono, fontSize: 10, color: 'var(--dim)', marginTop: 3 }}>{rec.intensity}</div>
+                )}
+              </div>
+            )}
+
+            {rec.workoutPrescription && (
+              <div style={{ marginBottom: 10, borderTop: '1px solid var(--paper2)', paddingTop: 8 }}>
+                <div style={{ ...mono, fontSize: 10, color: 'var(--dim)', marginBottom: 3 }}>{rec.workoutPrescription.hrZone}</div>
+                <div style={{ ...mono, fontSize: 12, color: 'var(--ink)' }}>
+                  {rec.workoutPrescription.hrRange}{rec.workoutPrescription.pace ? ` · ${rec.workoutPrescription.pace}` : ''}
+                </div>
+                <div style={{ fontFamily: 'Times New Roman,serif', fontSize: 11, fontStyle: 'italic', color: 'var(--dim)', marginTop: 3 }}>
+                  {rec.workoutPrescription.purpose}
+                </div>
+              </div>
+            )}
+
+            {rec.alternatives?.length > 0 && (
+              <div style={{ ...mono, fontSize: 9, color: 'var(--dim)', marginBottom: 10 }}>
+                Alternatives: {rec.alternatives.map(a => RUN_SESSION_LABELS[a] || a).join(', ')}
+              </div>
+            )}
+
+            <div style={{ fontFamily: 'Times New Roman,serif', fontSize: 12, lineHeight: 1.6, color: 'var(--ink)', marginBottom: 10 }}>
+              {rec.reasoning}
+            </div>
+
+            {rec.cautions?.length > 0 && rec.cautions.map((c, i) => (
+              <div key={i} style={{ ...mono, fontSize: 10, color: 'var(--ember)', lineHeight: 1.6, marginBottom: 4 }}>⚠ {c}</div>
+            ))}
+
+            <div style={{ borderTop: '1px solid var(--rule)', paddingTop: 8, marginTop: 4 }}>
+              <div className="kicker" style={{ marginBottom: 6 }}>This Week</div>
+              <div style={{ ...mono, fontSize: 10, color: 'var(--dim)', display: 'flex', justifyContent: 'space-between', lineHeight: 1.8 }}>
+                <span>Runs logged</span><span style={{ color: 'var(--ink)' }}>{rec.weekSessionCount}</span>
+              </div>
+              {acwrZone && (
+                <div style={{ ...mono, fontSize: 10, display: 'flex', justifyContent: 'space-between', lineHeight: 1.8 }}>
+                  <span style={{ color: 'var(--dim)' }}>Acute:Chronic load</span>
+                  <span style={{ color: acwrZone.color }}>{rec.acwr} — {acwrZone.label}</span>
+                </div>
+              )}
+              {rec.efficiencyTrend?.trend4wk != null && (
+                <div style={{ ...mono, fontSize: 10, display: 'flex', justifyContent: 'space-between', lineHeight: 1.8 }}>
+                  <span style={{ color: 'var(--dim)' }}>Efficiency (4wk)</span>
+                  <span style={{ color: rec.efficiencyTrend.trend4wk < -3 ? 'var(--ember)' : 'var(--ink)' }}>
+                    {rec.efficiencyTrend.trend4wk > 0 ? '+' : ''}{Math.round(rec.efficiencyTrend.trend4wk * 10) / 10}%
+                  </span>
+                </div>
+              )}
+            </div>
+
+            <Detail min="intermediate">
+              {rec.paceZones && (
+                <div style={{ borderTop: '1px solid var(--rule)', paddingTop: 8, marginTop: 10 }}>
+                  <div className="kicker" style={{ marginBottom: 6 }}>Pace Zones</div>
+                  {Object.entries(rec.paceZones).map(([k, v]) => (
+                    <div key={k} style={{ ...mono, fontSize: 9, color: 'var(--dim)', display: 'flex', justifyContent: 'space-between', lineHeight: 1.8, textTransform: 'capitalize' }}>
+                      <span>{k}</span><span style={{ color: 'var(--ink)', textAlign: 'right' }}>{v}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {rec.hrZones && (
+                <div style={{ borderTop: '1px solid var(--rule)', paddingTop: 8, marginTop: 10 }}>
+                  <div className="kicker" style={{ marginBottom: 6 }}>Heart Rate Zones</div>
+                  {Object.values(rec.hrZones).map(z => (
+                    <div key={z.name} style={{ ...mono, fontSize: 9, color: 'var(--dim)', display: 'flex', justifyContent: 'space-between', lineHeight: 1.8 }}>
+                      <span>{z.name}</span><span style={{ color: 'var(--ink)' }}>{z.range}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </Detail>
+
+            {(rec.vo2maxValue || prediction) && (
+              <div style={{ borderTop: '1px solid var(--rule)', paddingTop: 8, marginTop: 10 }}>
+                <div className="kicker" style={{ marginBottom: 6 }}>VO₂max</div>
+                {rec.vo2maxValue && (
+                  <div style={{ ...mono, fontSize: 10, display: 'flex', justifyContent: 'space-between', lineHeight: 1.8 }}>
+                    <span style={{ color: 'var(--dim)' }}>{VO2MAX_SOURCE_LABELS[rec.vo2maxSource] || 'Current'}</span>
+                    <span style={{ color: 'var(--ink)' }}>{Math.round(rec.vo2maxValue * 10) / 10}</span>
+                  </div>
+                )}
+                {prediction && (
+                  <div style={{ fontFamily: 'Times New Roman,serif', fontSize: 11, fontStyle: 'italic', color: 'var(--dim)', marginTop: 4, lineHeight: 1.6 }}>
+                    Projected {prediction.predictedVO2maxAfter8Weeks} in 8 weeks at this training load ({prediction.predictedGainPercent > 0 ? '+' : ''}{prediction.predictedGainPercent}%, {prediction.confidenceInterval.min}–{prediction.confidenceInterval.max}% range).
+                  </div>
+                )}
+              </div>
+            )}
+          </>
         )}
       </div>
     </section>
@@ -10914,6 +11081,22 @@ function App() {
     return () => { cancelled = true; };
   }, [planStamp, liftCount]);
 
+  // #95's /run/recommendation (functions/runningRecommendation.js) — only
+  // fetched for an account that actually listed Running as one of its
+  // activities (profile.activities, Onboarding step 4/Settings), same gate
+  // S11 itself renders behind below. The endpoint already returns null with
+  // no runs logged, so this is cheap to call speculatively once that's true.
+  const hasRunningActivity = (s?.profile?.activities || []).some(a => a.type === 'running');
+  const [runRecommendation, setRunRecommendation] = useState(null);
+  useEffect(() => {
+    if (!s || !hasRunningActivity) { setRunRecommendation(null); return; }
+    let cancelled = false;
+    api('run/recommendation')
+      .then(data => { if (!cancelled) setRunRecommendation(data); })
+      .catch(() => { if (!cancelled) setRunRecommendation(null); });
+    return () => { cancelled = true; };
+  }, [hasRunningActivity, s?.today?.recovery, s?.workouts?.length]);
+
   const expertise = normalizeExpertise(s?.profile?.expertiseLevel);
   const panelStates = s?.profile?.panelStates || {};
   // Optimistic: the panel resizes on click rather than after the round trip,
@@ -11227,9 +11410,14 @@ function App() {
   // trackingLevel's own s2/s4 gating still applies on top of the user's own
   // order/hide preference — a "workout" tracking level shouldn't show Sleep
   // just because it isn't in hiddenPanels. s10 (Cycle) is gated the same
-  // way, on the opt-in profile toggle instead of tracking level.
+  // way, on the opt-in profile toggle instead of tracking level. s11
+  // (Running) is gated on hasRunningActivity (computed above, alongside the
+  // /run/recommendation fetch it also drives) instead — Running has no
+  // separate opt-in toggle, just whether it's one of the athlete's listed
+  // activities (Onboarding step 4 / Settings).
   const sectionIds = panelOrder.filter(id =>
-    !hiddenPanelSet.has(id) && (id !== 's2' || showSleep) && (id !== 's4' || showFuel) && (id !== 's10' || s?.profile?.cycleTrackingEnabled)
+    !hiddenPanelSet.has(id) && (id !== 's2' || showSleep) && (id !== 's4' || showFuel)
+    && (id !== 's10' || s?.profile?.cycleTrackingEnabled) && (id !== 's11' || hasRunningActivity)
   );
   // Same "fall back to the first section" rule the dock buttons already used
   // (activeSection can be null on first render, or point at a section that
@@ -11313,6 +11501,7 @@ function App() {
     s8: <S8 key="s8" s={s} refresh={refresh} />,
     s9: <S9 key="s9" s={s} followBadge={followBadge} reloadFollowBadge={loadFollowRequests} />,
     s10: <S10 key="s10" s={s} refresh={refresh} />,
+    s11: <S11 key="s11" s={s} runRecommendation={runRecommendation} />,
   };
   // Default grid size for an item that has no saved x/y/w/h yet — mirrors the
   // old CSS span logic (PANEL_WIDE + expanded state) so a fresh account's
