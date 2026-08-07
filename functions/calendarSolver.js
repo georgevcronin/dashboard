@@ -101,6 +101,10 @@ function solveCalendarWindow({
   trainingMonths = null, preferStable = false, maxDurationMin = null, warmupScheme = null,
   compoundIsolationPreference = null, equipmentAvailable = null,
   calendarWindows = [], unavailableDaysOfWeek = [], availableDaysOfWeek = [], splitDayAnchors = {}, busyDates = [],
+  // Per-day duration override — { 'YYYY-MM-DD': minutes }, quick-set from the
+  // Plan Ahead panel ("only have 30 min Thursday"). Falls back to the global
+  // maxDurationMin (profile.maxSessionDurationMin) for any date not listed.
+  dayDurationOverrides = {},
   // Manual override for "how many lift sessions this week" — when null, each
   // Monday-aligned week auto-computes its own target the same way
   // generateWeeklyGuidance already does for the (now-retired) advisory block,
@@ -202,10 +206,12 @@ function solveCalendarWindow({
     const preferredBucket = Object.entries(splitDayAnchors)
       .find(([, days]) => (Array.isArray(days) ? days : [days]).includes(dow))?.[0] || null;
 
+    const dayMaxDuration = dayDurationOverrides[ymd(date)] ?? maxDurationMin;
+
     const picked = autoPickFullBodySession({
       lifts: shiftedHistory, currentFatigue, offlineMuscles, muscleFocus, muscleLastTrainedDays,
       preferredSplit, travelMode: dayTravelMode, favoriteExercises, avoidMuscles, avoidMusclesSecondary,
-      cnsFatigue, metabolicFatigue, trainingMonths, preferStable, maxDurationMin, warmupScheme,
+      cnsFatigue, metabolicFatigue, trainingMonths, preferStable, maxDurationMin: dayMaxDuration, warmupScheme,
       compoundIsolationSplit: computeCompoundIsolationSplit(shiftedHistory),
       compoundIsolationPreference, equipmentAvailable: dayEquipment, preferredBucket,
     });

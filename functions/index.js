@@ -1397,6 +1397,17 @@ app.post("/profile", async (req, res) => {
       return res.status(400).json({ error: 'busyDates must be an array of YYYY-MM-DD date strings' });
     }
   }
+  // Per-day session duration override, quick-set from the Plan Ahead panel —
+  // { 'YYYY-MM-DD': minutes }. Falls back to maxSessionDurationMin for any
+  // date not listed; see calendarSolver.js's dayDurationOverrides.
+  if (body.dayDurationOverrides) {
+    const valid = typeof body.dayDurationOverrides === 'object' && !Array.isArray(body.dayDurationOverrides)
+      && Object.entries(body.dayDurationOverrides).every(([d, mins]) =>
+        /^\d{4}-\d{2}-\d{2}$/.test(d) && Number.isInteger(mins) && mins >= 10 && mins <= 240);
+    if (!valid) {
+      return res.status(400).json({ error: 'dayDurationOverrides must be an object of YYYY-MM-DD -> minutes (10-240)' });
+    }
+  }
 
   // Interactive section walkthrough seen-state (FEATURES.md #145) — merged
   // in one key at a time, same reasoning as `visibility` above: the client
@@ -2502,6 +2513,7 @@ app.get('/plan/calendar', async (req, res) => {
     equipmentAvailable: db.profile?.equipmentAvailable?.length ? db.profile.equipmentAvailable : null,
     calendarWindows: db.calendarWindows || [],
     busyDates: db.profile?.busyDates || [],
+    dayDurationOverrides: db.profile?.dayDurationOverrides || {},
     unavailableDaysOfWeek: db.profile?.unavailableDaysOfWeek || [],
     availableDaysOfWeek: db.profile?.availableDaysOfWeek || [],
     splitDayAnchors: db.profile?.splitDayAnchors || {},

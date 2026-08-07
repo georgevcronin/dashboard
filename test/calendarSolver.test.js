@@ -52,6 +52,37 @@ test('a quick-marked busy date forces that day to rest, same as a holiday window
   assert.strictEqual(result.days[0].reason, 'Marked busy');
 });
 
+test('a per-day duration override trims that day\'s session shorter than the unbounded default', () => {
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const short = today.toISOString().slice(0, 10);
+  const longResult = solveCalendarWindow({ ...baseParams(), days: 1 });
+  const shortResult = solveCalendarWindow({
+    ...baseParams(), days: 1, dayDurationOverrides: { [short]: 20 },
+  });
+  const longDay = longResult.days[0];
+  const shortDay = shortResult.days[0];
+  if (longDay.type === 'session' && shortDay.type === 'session') {
+    assert.ok(shortDay.estimatedDurationMin <= longDay.estimatedDurationMin);
+    assert.ok(shortDay.estimatedDurationMin <= 30, `expected a ~20min-capped session, got ${shortDay.estimatedDurationMin}`);
+  }
+});
+
+test('a per-day duration override only applies to its own date, not the whole window', () => {
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const day0Str = today.toISOString().slice(0, 10);
+  const result = solveCalendarWindow({
+    ...baseParams(), days: 2, dayDurationOverrides: { [day0Str]: 20 },
+  });
+  const day0 = result.days[0], day1 = result.days[1];
+  if (day0.type === 'session' && day1.type === 'session') {
+    assert.ok(day0.estimatedDurationMin <= 30, `day0 should be capped, got ${day0.estimatedDurationMin}`);
+    // day1 has no override of its own — it may legitimately differ from
+    // day0's plan (different fatigue carried forward from day0's shorter
+    // session), but it must not itself be capped down to day0's 20min limit.
+    assert.ok(day1.estimatedDurationMin > 30, `day1 should not inherit day0's cap, got ${day1.estimatedDurationMin}`);
+  }
+});
+
 test('a one-off full-rest window skips solving for its date range, not just displaying rest', () => {
   const today = new Date(); today.setHours(0, 0, 0, 0);
   const start = today.toISOString().slice(0, 10);

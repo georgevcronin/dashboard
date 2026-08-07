@@ -1033,6 +1033,13 @@ const glycogenPct = (elapsedS, totalS) => {
 // app's first version — everything before this had no changelog at all.
 const CHANGELOG = [
   {
+    version: '1.02',
+    date: '2026-08-07',
+    features: [
+      'Plan Ahead panel: tap a day and pick a session length (30/45/60/90 min) just for that date, overriding the global max-duration default — useful for a day you know is going to be tight.',
+    ],
+  },
+  {
     version: '1.01',
     date: '2026-08-07',
     features: [
@@ -5180,6 +5187,7 @@ function S3({ s, recommendation, performanceTrend, onStartWorkout, onImport, onH
 
   const [targetPlannerOpen, setTargetPlannerOpen] = useState(false);
   const [togglingBusy, setTogglingBusy] = useState(false);
+  const [savingDayDuration, setSavingDayDuration] = useState(false);
   // The same structural fatigue reading the Recovery panel shows — both the
   // target planner and (formerly) the sandbox rank against current state, so
   // they have to be looking at the same numbers the rest of the app is.
@@ -5197,6 +5205,10 @@ function S3({ s, recommendation, performanceTrend, onStartWorkout, onImport, onH
   const [calendar, setCalendar] = useState(null);
   const [calendarLoading, setCalendarLoading] = useState(true);
   const [expandedDate, setExpandedDate] = useState(null);
+  // Bumped after saving a per-day duration override (or anything else that
+  // changes what the solver would produce) to force a refetch without
+  // touching calendarView itself.
+  const [calendarRefreshNonce, setCalendarRefreshNonce] = useState(0);
   useEffect(() => {
     let cancelled = false;
     setCalendarLoading(true);
@@ -5207,7 +5219,7 @@ function S3({ s, recommendation, performanceTrend, onStartWorkout, onImport, onH
       setCalendarLoading(false);
     }).catch(() => { if (!cancelled) setCalendarLoading(false); });
     return () => { cancelled = true; };
-  }, [calendarView]);
+  }, [calendarView, calendarRefreshNonce]);
   // Today's cell specifically — the one Start Session/Other Ways/.ics export
   // act on. null when today is a rest day or nothing was fetched yet.
   const today0 = calendar?.days?.[0]?.type === 'session' ? calendar.days[0] : null;
@@ -5413,6 +5425,21 @@ function S3({ s, recommendation, performanceTrend, onStartWorkout, onImport, onH
             }
           };
 
+          const dayDurationOverride = (s?.profile?.dayDurationOverrides || {})[expandedDate] ?? null;
+
+          const setDayDuration = async (mins) => {
+            setSavingDayDuration(true);
+            const overrides = { ...(s.profile.dayDurationOverrides || {}) };
+            if (mins == null) delete overrides[expandedDate]; else overrides[expandedDate] = mins;
+            try {
+              await api('profile', { method: 'POST', body: JSON.stringify({ dayDurationOverrides: overrides }) });
+              refresh({ ...s, profile: { ...s.profile, dayDurationOverrides: overrides } });
+              setCalendarRefreshNonce(n => n + 1);
+            } finally {
+              setSavingDayDuration(false);
+            }
+          };
+
           if (day.type === 'rest') {
             return (
               <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, color: 'var(--dim)', fontStyle: 'italic', padding: '4px 0 8px' }}>
@@ -5435,6 +5462,23 @@ function S3({ s, recommendation, performanceTrend, onStartWorkout, onImport, onH
           <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--gold)', textTransform: 'capitalize', marginBottom: 6, display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
             <span>{day.bucket || 'Full Body'}</span>
             {day.estimatedDurationMin != null && <span style={{ color: 'var(--dim)' }}>~{day.estimatedDurationMin} min</span>}
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap', marginBottom: 10 }}>
+            <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, color: 'var(--dim)', marginRight: 2 }}>Length</span>
+            {[30, 45, 60, 90].map(mins => (
+              <button key={mins} type="button" disabled={savingDayDuration}
+                className={`prof-btn${dayDurationOverride === mins ? ' solid' : ''}`}
+                style={{ fontSize: 9, padding: '4px 8px' }}
+                onClick={() => setDayDuration(dayDurationOverride === mins ? null : mins)}>
+                {mins}m
+              </button>
+            ))}
+            {dayDurationOverride != null && (
+              <button type="button" disabled={savingDayDuration} className="prof-btn" style={{ fontSize: 9, padding: '4px 8px', color: 'var(--dim)' }}
+                onClick={() => setDayDuration(null)}>
+                Reset
+              </button>
+            )}
           </div>
           {day.exercises.length > 0 && (
             <div style={{ marginBottom: 10 }}>
