@@ -1033,6 +1033,13 @@ const glycogenPct = (elapsedS, totalS) => {
 // app's first version — everything before this had no changelog at all.
 const CHANGELOG = [
   {
+    version: '1.04',
+    date: '2026-08-07',
+    features: [
+      'Onboarding: "New to training" no longer asks for a usual working-sets-per-exercise number, even behind the "set a split/sets/rep-range anyway" link — a true beginner has no such habit to report. "Returning after a break" now clearly marks the break-length question as optional.',
+    ],
+  },
+  {
     version: '1.03',
     date: '2026-08-07',
     features: [
@@ -6948,7 +6955,7 @@ function Onboarding({ s, onComplete, onOpenImport }) {
   const saveTrainingBackground = async () => {
     const trainingBackground = {
       split: split || undefined,
-      usualSets: usualSets ? parseInt(usualSets) : undefined,
+      usualSets: (experienceLevel !== 'New to training' && usualSets) ? parseInt(usualSets) : undefined,
       usualRepsLow: usualRepsLow ? parseInt(usualRepsLow) : undefined,
       usualRepsHigh: usualRepsHigh ? parseInt(usualRepsHigh) : undefined,
       favoriteExercises: favorites,
@@ -7275,7 +7282,7 @@ function Onboarding({ s, onComplete, onOpenImport }) {
             </div>
             {experienceLevel === 'Returning after a break' && (
               <>
-                <label className="ob-label">How long was the break?</label>
+                <label className="ob-label">How long was the break? <span style={{ fontWeight: 400, textTransform: 'none', fontSize: 9, color: 'var(--dim)' }}>(optional — leave blank if you don't remember exactly)</span></label>
                 <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 20 }}>
                   <input style={{ ...inputStyle, flex: 1, width: 'auto' }} type="number" inputMode="decimal" placeholder="e.g. 8"
                     value={returningBreakWeeks} onChange={e => setReturningBreakWeeks(e.target.value)} />
@@ -7293,8 +7300,15 @@ function Onboarding({ s, onComplete, onOpenImport }) {
                   ))}
                 </div>
 
-                <div className="ob-label">Usual working sets per exercise</div>
-                <input style={inputStyle} type="number" inputMode="numeric" placeholder="e.g. 3" value={usualSets} onChange={e => setUsualSets(e.target.value)} />
+                {/* A true beginner has no "usual" sets-per-exercise habit to
+                    report, unlike split/rep-range preferences — so this one
+                    stays out even behind the reveal-anyway link. */}
+                {experienceLevel !== 'New to training' && (
+                  <>
+                    <div className="ob-label">Usual working sets per exercise</div>
+                    <input style={inputStyle} type="number" inputMode="numeric" placeholder="e.g. 3" value={usualSets} onChange={e => setUsualSets(e.target.value)} />
+                  </>
+                )}
 
                 <div className="ob-label" style={{ marginTop: 16 }}>Usual rep range</div>
                 <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 20 }}>
