@@ -1033,6 +1033,13 @@ const glycogenPct = (elapsedS, totalS) => {
 // app's first version — everything before this had no changelog at all.
 const CHANGELOG = [
   {
+    version: '1.13',
+    date: '2026-08-08',
+    features: [
+      'Goal-editor text fields (exercise name, benchmark, target) no longer invite the browser\'s autofill/strong-password suggestions — they were unmarked free-text inputs, which some mobile browsers guess are login or contact fields and overlay with irrelevant autofill UI.',
+    ],
+  },
+  {
     version: '1.12',
     date: '2026-08-08',
     features: [
@@ -7283,19 +7290,19 @@ function Onboarding({ s, onComplete, onOpenImport }) {
                             </div>
                           )}
                           {g.metric === 'lift' && (
-                            <input style={{ ...inputStyle, marginBottom: 10 }} placeholder="Exercise, e.g. Barbell Bench Press"
+                            <input style={{ ...inputStyle, marginBottom: 10 }} placeholder="Exercise, e.g. Barbell Bench Press" autoComplete="off"
                               value={g.exercise || ''} onChange={e => updateGoal(gd.key, { exercise: e.target.value })} />
                           )}
                           {g.metric === 'benchmark' && (
-                            <input style={{ ...inputStyle, marginBottom: 10 }} placeholder="What, e.g. 5k"
+                            <input style={{ ...inputStyle, marginBottom: 10 }} placeholder="What, e.g. 5k" autoComplete="off"
                               value={g.benchmarkLabel || ''} onChange={e => updateGoal(gd.key, { benchmarkLabel: e.target.value })} />
                           )}
                           <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 4 }}>
                             {metrics ? (
-                              <input style={{ ...inputStyle, flex: 1, width: 'auto' }} type="number" inputMode="decimal"
+                              <input style={{ ...inputStyle, flex: 1, width: 'auto' }} type="number" inputMode="decimal" autoComplete="off"
                                 placeholder={`Target${metricDef?.unit ? ` (${metricDef.unit})` : ''}`} value={g.target || ''} onChange={e => updateGoal(gd.key, { target: e.target.value })} />
                             ) : (
-                              <input style={{ ...inputStyle, flex: 1, width: 'auto' }} placeholder="Target, e.g. sub-25min 5k"
+                              <input style={{ ...inputStyle, flex: 1, width: 'auto' }} placeholder="Target, e.g. sub-25min 5k" autoComplete="off"
                                 value={g.target || ''} onChange={e => updateGoal(gd.key, { target: e.target.value })} />
                             )}
                             <input style={{ ...inputStyle, flex: 1, width: 'auto' }} type="date" value={g.targetDate || ''} onChange={e => updateGoal(gd.key, { targetDate: e.target.value })} />
@@ -9642,19 +9649,19 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
                           </div>
                         )}
                         {g.metric === 'lift' && (
-                          <input style={{ ...inputStyle, marginBottom: 10 }} placeholder="Exercise, e.g. Barbell Bench Press"
+                          <input style={{ ...inputStyle, marginBottom: 10 }} placeholder="Exercise, e.g. Barbell Bench Press" autoComplete="off"
                             value={g.exercise || ''} onChange={e => updateGoalDraft(gd.key, { exercise: e.target.value })} />
                         )}
                         {g.metric === 'benchmark' && (
-                          <input style={{ ...inputStyle, marginBottom: 10 }} placeholder="What, e.g. 5k"
+                          <input style={{ ...inputStyle, marginBottom: 10 }} placeholder="What, e.g. 5k" autoComplete="off"
                             value={g.benchmarkLabel || ''} onChange={e => updateGoalDraft(gd.key, { benchmarkLabel: e.target.value })} />
                         )}
                         <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 4 }}>
                           {metrics ? (
-                            <input style={{ ...inputStyle, flex: 1, width: 'auto' }} type="number" inputMode="decimal"
+                            <input style={{ ...inputStyle, flex: 1, width: 'auto' }} type="number" inputMode="decimal" autoComplete="off"
                               placeholder={`Target${metricDef?.unit ? ` (${metricDef.unit})` : ''}`} value={g.target || ''} onChange={e => updateGoalDraft(gd.key, { target: e.target.value })} />
                           ) : (
-                            <input style={{ ...inputStyle, flex: 1, width: 'auto' }} placeholder="Target, e.g. sub-25min 5k"
+                            <input style={{ ...inputStyle, flex: 1, width: 'auto' }} placeholder="Target, e.g. sub-25min 5k" autoComplete="off"
                               value={g.target || ''} onChange={e => updateGoalDraft(gd.key, { target: e.target.value })} />
                           )}
                           <input style={{ ...inputStyle, flex: 1, width: 'auto' }} type="date" value={g.targetDate || ''} onChange={e => updateGoalDraft(gd.key, { targetDate: e.target.value })} />
