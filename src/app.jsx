@@ -1033,6 +1033,13 @@ const glycogenPct = (elapsedS, totalS) => {
 // app's first version — everything before this had no changelog at all.
 const CHANGELOG = [
   {
+    version: '0.87',
+    date: '2026-08-07',
+    features: [
+      'Both Sync buttons (Settings\' per-device guide and the mobile header) now bring you straight back to Press once the Shortcut finishes, instead of leaving you sitting in the Shortcuts app — via x-success on the shortcuts:// callback.',
+    ],
+  },
+  {
     version: '0.86',
     date: '2026-08-07',
     features: [
@@ -9411,7 +9418,7 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
                 </div>
                 {healthDevice && (
                   <div style={{ marginTop: 8 }}>
-                    This link runs your Shortcut directly, no need to open Shortcuts first: <a href={`shortcuts://run-shortcut?name=${encodeURIComponent(`pressnewsletter-${healthDevice}`)}`} style={{ color: 'var(--forest)', fontWeight: 700 }}>Sync Now →</a>
+                    This link runs your Shortcut directly and brings you back to Press when it's done: <a href={`shortcuts://x-callback-url/run-shortcut?name=${encodeURIComponent(`pressnewsletter-${healthDevice}`)}&x-success=${encodeURIComponent(window.location.href)}`} style={{ color: 'var(--forest)', fontWeight: 700 }}>Sync Now →</a>
                   </div>
                 )}
                 <button onClick={() => setGuideAdvanced(v => !v)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, marginTop: 10, fontSize: 9, letterSpacing: '.08em', textTransform: 'uppercase', color: 'var(--dim)' }}>
@@ -10783,7 +10790,7 @@ function App() {
 
   const [syncingShortcut, setSyncingShortcut] = useState(false);
   const syncShortcut = () => {
-    window.location.href = `shortcuts://run-shortcut?name=${encodeURIComponent('pressnewsletter')}`;
+    window.location.href = `shortcuts://x-callback-url/run-shortcut?name=${encodeURIComponent('pressnewsletter')}&x-success=${encodeURIComponent(window.location.href)}`;
     setSyncingShortcut(true);
     setTimeout(() => { loadSummary(); setSyncingShortcut(false); }, 5000);
   };
