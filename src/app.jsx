@@ -1053,6 +1053,13 @@ const glycogenPct = (elapsedS, totalS) => {
 // app's first version — everything before this had no changelog at all.
 const CHANGELOG = [
   {
+    version: '1.17',
+    date: '2026-08-08',
+    features: [
+      'If fat loss is one of your goals, your running recommendation now weights toward steady Zone 2 aerobic work (60-70% HR reserve) rather than mixing in as much interval/tempo intensity — Zone 2 is the effort level most associated with fat oxidation as fuel, and the reasoning says so rather than just picking it silently.',
+    ],
+  },
+  {
     version: '1.16',
     date: '2026-08-08',
     features: [
