@@ -1033,6 +1033,13 @@ const glycogenPct = (elapsedS, totalS) => {
 // app's first version — everything before this had no changelog at all.
 const CHANGELOG = [
   {
+    version: '1.05',
+    date: '2026-08-08',
+    features: [
+      'Onboarding\'s Welcome screen now shows how to save Press to your home screen (Share → Add to Home Screen on iOS, the Chrome menu on Android), with instructions matched to your device — hidden automatically once you\'ve already installed it.',
+    ],
+  },
+  {
     version: '1.04',
     date: '2026-08-07',
     features: [
@@ -6774,6 +6781,20 @@ function macroGramsFromSplit(split, calories) {
   };
 }
 
+// null once already running standalone (installed) — no point telling
+// someone to add to their home screen when they launched it from there.
+// iPadOS 13+ reports as 'MacIntel' with no touch-point signal beyond
+// maxTouchPoints, so that combination is the standard iPad tell.
+function homeScreenGuide() {
+  const ua = navigator.userAgent || '';
+  const isStandalone = window.matchMedia?.('(display-mode: standalone)').matches || navigator.standalone === true;
+  if (isStandalone) return null;
+  const isIOS = /iPad|iPhone|iPod/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  if (isIOS) return { label: 'iPhone / iPad', steps: 'Tap the Share icon in Safari’s toolbar, then choose "Add to Home Screen".' };
+  if (/Android/.test(ua)) return { label: 'Android', steps: 'Tap the ⋮ menu in Chrome, then choose "Install app" (or "Add to Home screen").' };
+  return { label: 'Desktop', steps: 'Look for an install icon in your browser’s address bar, or open the browser menu and choose "Install Press".' };
+}
+
 // Onboarding is reopened, not just opened once — "Restart Setup" in
 // Settings (SettingsOverlay's onRestartSetup) mounts this same component
 // again on an account that already has real data. Every field below reads
@@ -6782,6 +6803,7 @@ function macroGramsFromSplit(split, calories) {
 // brand-new account (s.profile is empty) sees exactly the same blank form
 // as before — this only changes behaviour when there's something to prefill.
 function Onboarding({ s, onComplete, onOpenImport }) {
+  const [hsGuide] = useState(homeScreenGuide);
   const TOTAL = 10;
   const [step, setStep] = useState(0);
   const [saving, setSaving] = useState(false);
@@ -7027,6 +7049,12 @@ function Onboarding({ s, onComplete, onOpenImport }) {
                 </div>
               ))}
             </div>
+            {hsGuide && (
+              <div className="ob-guide" style={{ marginBottom: 32 }}>
+                <strong>Save Press as an app ({hsGuide.label})</strong><br />
+                {hsGuide.steps} It'll open full-screen from your home screen, just like a native app.
+              </div>
+            )}
             <button className="ob-next" style={{ width: '100%', padding: '14px 0' }} onClick={() => setStep(1)}>Get Started</button>
           </>
         )}
