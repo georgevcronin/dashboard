@@ -27,6 +27,20 @@ const FACTOR_MAX = 1.3; // same order of magnitude as computeCNSFatigue's recove
 
 const DAY_MS = 86_400_000;
 
+// Parses a plain YYYY-MM-DD date-only string (from an <input type="date">)
+// into a timestamp that reads back as the *same calendar date* in virtually
+// any timezone. `new Date(str)` parses a date-only string as UTC midnight,
+// which rolls back to "the day before" once formatted in any timezone
+// behind UTC — a real bug for any user west of UTC. Anchoring to noon UTC
+// instead gives +-12h of slack, covering every real-world UTC offset
+// (-12..+14) except the handful of Pacific-island zones past +12.
+// ponytail: doesn't handle those edge-case offsets — a per-user timezone
+// field would, if it ever matters for this user base.
+function parseDateOnly(str) {
+  const ts = new Date(`${str}T12:00:00Z`).getTime();
+  return Number.isFinite(ts) ? ts : NaN;
+}
+
 // Average cycle length from consecutive start-to-start gaps. Needs >=2
 // starts to say anything; with 0 or 1 the population default is the only
 // honest answer, so it's returned rather than a guess dressed up as data.
@@ -76,6 +90,25 @@ function currentCycleDay(cycleLog, now = Date.now(), irregular = false) {
   const cycleDay = (daysSince % Math.round(avgLen)) + 1;
   const periodLen = averagePeriodLengthDays(log);
   return { cycleDay, avgLen, onPeriod: cycleDay <= periodLen, lastStart };
+}
+
+// A single predicted next-period window (start+end), for a lightweight
+// "what's coming" marker on the calendar — not a fertility-window model,
+// just the same average-cycle-length extrapolation currentCycleDay already
+// uses for cycleDay, turned into a date range instead of a day count. Null
+// whenever that extrapolation shouldn't be trusted: currently mid-period
+// (there's no "next" to predict, real data already covers today),
+// irregular cycles (an average that doesn't hold for this user), or no
+// prior start logged at all.
+function predictedNextPeriod(cycleLog, now = Date.now(), irregular = false) {
+  const log = cycleLog || [];
+  if (log.some(c => c.endTs == null)) return null;
+  if (irregular) return null;
+  const lastStart = log.length ? Math.max(...log.map(c => c.startTs)) : null;
+  if (!lastStart) return null;
+  const startTs = lastStart + Math.round(averageCycleLengthDays(log)) * DAY_MS;
+  const endTs = startTs + Math.round(averagePeriodLengthDays(log)) * DAY_MS;
+  return { startTs, endTs };
 }
 
 // Heaviness average + variation (population stdev, since we're describing
@@ -159,6 +192,14 @@ function cyclePhaseFactor(cycleLog, now = Date.now(), irregular = false, learned
   return { factor, rirOffset, cycleDay, onPeriod, confidence: conf, avgHeaviness, variation };
 }
 
+// Guards a retrospectively-logged period against overlapping one already in
+// the log (open entries treated as ongoing to "now" for this check) — used
+// by POST /cycle/retro so backfilled history can't double-count the same
+// days for calibration.
+function periodsOverlap(startTs, endTs, cycleLog) {
+  return (cycleLog || []).some(c => startTs < (c.endTs ?? Infinity) && endTs > c.startTs);
+}
+
 // --- Learning the heaviness rating from actual training performance ---
 //
 // The picker (1-5) is only ever a starting point, per cycle — a self-
@@ -235,7 +276,8 @@ function nudgeLearnedHeaviness(current, observed) {
 
 module.exports = {
   DEFAULT_CYCLE_LEN_DAYS, DEFAULT_PERIOD_LEN_DAYS,
-  averageCycleLengthDays, averagePeriodLengthDays, currentCycleDay,
+  parseDateOnly,
+  averageCycleLengthDays, averagePeriodLengthDays, currentCycleDay, predictedNextPeriod,
   heavinessStats, confidence, cyclePhaseFactor,
-  avgVolumePerDay, observedHeaviness, nudgeLearnedHeaviness,
+  avgVolumePerDay, observedHeaviness, nudgeLearnedHeaviness, periodsOverlap,
 };

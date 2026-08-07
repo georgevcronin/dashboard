@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const {
   averageCycleLengthDays, averagePeriodLengthDays, currentCycleDay,
   heavinessStats, confidence, cyclePhaseFactor,
-  avgVolumePerDay, observedHeaviness, nudgeLearnedHeaviness,
+  avgVolumePerDay, observedHeaviness, nudgeLearnedHeaviness, periodsOverlap, predictedNextPeriod, parseDateOnly,
 } = require('../functions/cycleTracking');
 
 const DAY_MS = 86_400_000;
@@ -245,4 +245,47 @@ test('nudgeLearnedHeaviness moves gently (25%-in-ratio-terms) toward the observe
 test('nudgeLearnedHeaviness stays within [1, 5]', () => {
   assert.ok(nudgeLearnedHeaviness(1, 5) <= 5);
   assert.ok(nudgeLearnedHeaviness(5, 1) >= 1);
+});
+
+test('periodsOverlap catches a retro entry landing inside a closed period', () => {
+  const log = [{ startTs: daysAgo(40), endTs: daysAgo(35) }];
+  assert.equal(periodsOverlap(daysAgo(38), daysAgo(36), log), true);
+});
+
+test('periodsOverlap catches a retro entry overlapping the still-open period', () => {
+  const log = [{ startTs: daysAgo(3), endTs: null }];
+  assert.equal(periodsOverlap(daysAgo(10), daysAgo(2), log), true, 'an open entry should be treated as ongoing to now');
+});
+
+test('periodsOverlap is false for a retro entry that fits cleanly between logged periods', () => {
+  const log = [{ startTs: daysAgo(70), endTs: daysAgo(65) }, { startTs: daysAgo(14), endTs: daysAgo(9) }];
+  assert.equal(periodsOverlap(daysAgo(42), daysAgo(37), log), false);
+});
+
+test('predictedNextPeriod is null with no logged start, an open period, or an irregular cycle', () => {
+  assert.equal(predictedNextPeriod([]), null);
+  assert.equal(predictedNextPeriod([{ startTs: daysAgo(3), endTs: null }]), null, 'currently on a period — nothing to predict');
+  const log = [{ startTs: daysAgo(56), endTs: daysAgo(51) }, { startTs: daysAgo(28), endTs: daysAgo(23) }];
+  assert.equal(predictedNextPeriod(log, Date.now(), true), null, 'irregular disables extrapolation');
+});
+
+test('parseDateOnly reads back as the same calendar date regardless of local timezone', () => {
+  const ts = parseDateOnly('2026-08-05');
+  // Simulating "any real timezone" isn't feasible without mocking Intl, but
+  // UTC getters are timezone-independent and pin down the actual moment:
+  // noon UTC on the given date, not midnight.
+  const d = new Date(ts);
+  assert.equal(d.getUTCFullYear(), 2026);
+  assert.equal(d.getUTCMonth(), 7);
+  assert.equal(d.getUTCDate(), 5);
+  assert.equal(d.getUTCHours(), 12);
+});
+
+test('predictedNextPeriod extrapolates start+end from the average cycle/period length', () => {
+  const lastStart = daysAgo(28);
+  const log = [{ startTs: daysAgo(56), endTs: daysAgo(51) }, { startTs: lastStart, endTs: daysAgo(23) }];
+  const out = predictedNextPeriod(log);
+  // avg cycle length 28 days from the two starts, avg period length 5 days
+  assert.equal(out.startTs, lastStart + 28 * DAY_MS);
+  assert.equal(out.endTs, out.startTs + 5 * DAY_MS);
 });

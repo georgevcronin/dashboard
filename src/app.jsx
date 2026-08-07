@@ -1033,6 +1033,16 @@ const glycogenPct = (elapsedS, totalS) => {
 // app's first version — everything before this had no changelog at all.
 const CHANGELOG = [
   {
+    version: '0.95',
+    date: '2026-08-07',
+    features: [
+      'Cycle panel can now log a past period (pick a start and end date directly, instead of only "starting now") — same heaviness pick and calibration step as ending a period live, so history from before you started tracking can feed the recovery calibration too.',
+      '"Log Period Start"/"End Period" replaced with Set Period Start Date/Set Period End Date — pick the actual day instead of only "right now", so a late log doesn\'t skew the calibration.',
+      'New bubble tracker shows the current day of an open period at a glance, extended out to your own average logged period length.',
+      'Cycle history is now a monthly calendar — logged periods marked solid, one predicted next-period window marked as an outline (still just the same average-cycle-length math, not a fertility model). Tap a logged day to see, edit, or remove that period.',
+    ],
+  },
+  {
     version: '0.94',
     date: '2026-08-07',
     features: [
@@ -7832,31 +7842,107 @@ function cycleConsistencyWord(confidence, variation) {
   if (confidence == null || confidence < 0.3) return null;
   return variation < 1 ? 'fairly consistent' : 'variable';
 }
+// Local (not UTC) YYYY-MM-DD — toISOString() shifts by a day near midnight
+// for any non-UTC timezone, which would wrongly block "today" as a date
+// input's max in half the world's timezones. Used for both date-input
+// bounds and the calendar grid, so a stored moment and a grid cell always
+// land on the same day for the same reason.
+const cycleDayKey = ts => {
+  const d = new Date(ts);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
+// Builds one calendar month's day cells, each tagged with the logged period
+// (if any) covering that day, whether it falls in the single predicted
+// next-period window, and whether it's today — the three states the
+// calendar needs to distinguish, by fill/outline/border rather than color
+// alone (WCAG colorblind-safe requirement).
+function cycleMonthGrid(year, month, log, prediction) {
+  const startOffset = new Date(year, month, 1).getDay();
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const todayKey = cycleDayKey(Date.now());
+  const cells = [];
+  for (let i = 0; i < startOffset; i++) cells.push(null);
+  for (let d = 1; d <= daysInMonth; d++) {
+    const key = cycleDayKey(new Date(year, month, d).getTime());
+    const entry = log.find(c => {
+      const s = cycleDayKey(c.startTs);
+      const e = c.endTs != null ? cycleDayKey(c.endTs) : todayKey;
+      return key >= s && key <= e;
+    });
+    const predicted = !entry && prediction && key >= cycleDayKey(prediction.startTs) && key < cycleDayKey(prediction.endTs);
+    cells.push({ day: d, key, entry, predicted, today: key === todayKey });
+  }
+  return cells;
+}
 function S10({ s, refresh }) {
+  const todayStr = cycleDayKey(Date.now());
   const [heaviness, setHeaviness] = useState(3);
   const [note, setNote] = useState('');
-  const [ending, setEnding] = useState(false);
+  const [startDate, setStartDate] = useState(todayStr);
+  const [endDate, setEndDate] = useState(todayStr);
+  const [startError, setStartError] = useState('');
+  const [endError, setEndError] = useState('');
   const [busy, setBusy] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [editHeaviness, setEditHeaviness] = useState(3);
+  const [loggingPast, setLoggingPast] = useState(false);
+  const [pastStart, setPastStart] = useState('');
+  const [pastEnd, setPastEnd] = useState('');
+  const [pastHeaviness, setPastHeaviness] = useState(3);
+  const [pastNote, setPastNote] = useState('');
+  const [pastError, setPastError] = useState('');
+  const [calMonth, setCalMonth] = useState(() => { const d = new Date(); return { y: d.getFullYear(), m: d.getMonth() }; });
+  const [selectedId, setSelectedId] = useState(null);
 
   const log = s?.cycle || [];
   const stats = s?.cycleStats || null;
+  const prediction = s?.cyclePrediction || null;
   const open = log.find(c => c.endTs == null);
   const history = [...log].filter(c => c.endTs != null).sort((a, b) => b.startTs - a.startTs);
+  const calCells = cycleMonthGrid(calMonth.y, calMonth.m, log, prediction);
+  const calLabel = new Date(calMonth.y, calMonth.m, 1).toLocaleDateString('en-GB', { month: 'long', year: 'numeric' });
+  const selectedEntry = log.find(c => c.id === selectedId) || null;
 
-  const startPeriod = async () => {
+  // Bubble tracker's day count — current day of the open period, extended
+  // to this user's own average logged period length (5 as the same
+  // population default cycleTracking.js's averagePeriodLengthDays uses)
+  // so a short-so-far period still shows where it's typically headed.
+  // Capped so a period nobody's gotten around to ending yet can't grow the
+  // row without bound.
+  const closedLens = history.map(c => Math.round((c.endTs - c.startTs) / 86_400_000)).filter(d => d > 0);
+  const avgPeriodLen = closedLens.length ? Math.round(closedLens.reduce((a, b) => a + b, 0) / closedLens.length) : 5;
+  const bubbleCount = open && stats?.cycleDay ? Math.min(Math.max(stats.cycleDay, avgPeriodLen), 14) : 0;
+
+  const setPeriodStart = async () => {
+    setStartError('');
     setBusy(true);
-    const data = await api('cycle/start', { method: 'POST' });
+    const data = await api('cycle/start', { method: 'POST', body: JSON.stringify({ start: startDate }) });
     setBusy(false);
-    refresh({ ...s, cycle: [...log, { id: data.id, startTs: data.id, endTs: null, heaviness: null, note: '' }] });
+    if (data.error) { setStartError(data.error); return; }
+    setStartDate(todayStr);
+    refresh({ ...s, cycle: [...log, { id: data.id, startTs: data.startTs, endTs: null, heaviness: null, note: '' }] });
   };
 
-  const endPeriod = async () => {
+  const setPeriodEnd = async () => {
+    setEndError('');
     setBusy(true);
-    await api(`cycle/${open.id}/end`, { method: 'POST', body: JSON.stringify({ heaviness, note: note.trim() }) });
-    setBusy(false); setEnding(false); setHeaviness(3); setNote('');
-    refresh({ ...s, cycle: log.map(c => c.id === open.id ? { ...c, endTs: Date.now(), heaviness, note: note.trim() } : c) });
+    const data = await api(`cycle/${open.id}/end`, { method: 'POST', body: JSON.stringify({ end: endDate, heaviness, note: note.trim() }) });
+    setBusy(false);
+    if (data.error) { setEndError(data.error); return; }
+    setEndDate(todayStr); setHeaviness(3); setNote('');
+    refresh({ ...s, cycle: log.map(c => c.id === open.id ? { ...c, endTs: data.endTs, heaviness, note: note.trim() } : c) });
+  };
+
+  const submitPast = async () => {
+    setPastError('');
+    if (!pastStart || !pastEnd) { setPastError('Start and end dates are required.'); return; }
+    if (pastEnd < pastStart) { setPastError('End must be on or after start.'); return; }
+    setBusy(true);
+    const data = await api('cycle/retro', { method: 'POST', body: JSON.stringify({ start: pastStart, end: pastEnd, heaviness: pastHeaviness, note: pastNote.trim() }) });
+    setBusy(false);
+    if (data.error) { setPastError(data.error); return; }
+    refresh({ ...s, cycle: [...log, data.entry] });
+    setLoggingPast(false); setPastStart(''); setPastEnd(''); setPastHeaviness(3); setPastNote('');
   };
 
   const saveEdit = async (id) => {
@@ -7892,74 +7978,143 @@ function S10({ s, refresh }) {
         <div className="deck">{open ? `Day ${stats?.cycleDay ?? '—'} of cycle` : 'No period currently logged'}</div>
       </div>
       <div className="fade" style={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>
+        {bubbleCount > 0 && (
+          <div className="cycle-bubbles" aria-hidden="true">
+            {Array.from({ length: bubbleCount }, (_, i) => i + 1).map(day => (
+              <div key={day} className={`cycle-bubble${day < stats.cycleDay ? ' filled' : ''}${day === stats.cycleDay ? ' current' : ''}`}>
+                {day}
+              </div>
+            ))}
+          </div>
+        )}
         <div className="cycle-status">
           <div className="cycle-summary">{summaryLine}</div>
           {rirLine && <div className="cycle-summary">{rirLine}</div>}
         </div>
 
         {open ? (
-          ending ? (
-            <div className="cycle-form">
-              <div className="kicker" style={{ margin: 0 }}>End Period</div>
-              <div>
-                <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, letterSpacing: '.14em', textTransform: 'uppercase', color: 'var(--dim)', marginBottom: 6 }}>Training impact this cycle</div>
-                <div style={{ fontFamily: 'Times New Roman,serif', fontSize: 11, fontStyle: 'italic', color: 'var(--dim)', marginBottom: 8 }}>
-                  A starting estimate — refined automatically afterward from how training actually went.
-                </div>
-                <div className="cycle-heaviness">
-                  {HEAVINESS_LABELS.map((label, i) => (
-                    <button key={label} className={`cycle-heaviness-btn${heaviness === i + 1 ? ' active' : ''}`} onClick={() => setHeaviness(i + 1)}>
-                      {label}
-                    </button>
-                  ))}
-                </div>
+          <div className="cycle-form">
+            <div className="kicker" style={{ margin: 0 }}>Set Period End Date</div>
+            <input className="cycle-input" type="date" value={endDate} min={cycleDayKey(open.startTs)} max={todayStr} onChange={e => setEndDate(e.target.value)} />
+            <div>
+              <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, letterSpacing: '.14em', textTransform: 'uppercase', color: 'var(--dim)', marginBottom: 6 }}>Training impact this cycle</div>
+              <div style={{ fontFamily: 'Times New Roman,serif', fontSize: 11, fontStyle: 'italic', color: 'var(--dim)', marginBottom: 8 }}>
+                A starting estimate — refined automatically afterward from how training actually went.
               </div>
-              <input className="cycle-input" placeholder="Notes (optional)…" value={note} onChange={e => setNote(e.target.value)} />
-              <button className="prof-btn solid" disabled={busy} onClick={endPeriod} style={{ alignSelf: 'flex-start', padding: '6px 18px' }}>
-                {busy ? 'Saving…' : 'End Period'}
-              </button>
+              <div className="cycle-heaviness">
+                {HEAVINESS_LABELS.map((label, i) => (
+                  <button key={label} className={`cycle-heaviness-btn${heaviness === i + 1 ? ' active' : ''}`} onClick={() => setHeaviness(i + 1)}>
+                    {label}
+                  </button>
+                ))}
+              </div>
             </div>
-          ) : (
-            <button className="prof-btn solid" onClick={() => setEnding(true)} style={{ marginTop: 12 }}>End Period</button>
-          )
+            <input className="cycle-input" placeholder="Notes (optional)…" value={note} onChange={e => setNote(e.target.value)} />
+            {endError && <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, color: 'var(--red)' }}>{endError}</div>}
+            <button className="prof-btn solid" disabled={busy} onClick={setPeriodEnd} style={{ alignSelf: 'flex-start', padding: '6px 18px' }}>
+              {busy ? 'Saving…' : 'Save End Date'}
+            </button>
+          </div>
         ) : (
-          <button className="prof-btn solid" disabled={busy} onClick={startPeriod} style={{ marginTop: 12 }}>
-            {busy ? 'Logging…' : 'Log Period Start'}
-          </button>
+          <div className="cycle-form">
+            <div className="kicker" style={{ margin: 0 }}>Set Period Start Date</div>
+            <input className="cycle-input" type="date" value={startDate} max={todayStr} onChange={e => setStartDate(e.target.value)} />
+            {startError && <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, color: 'var(--red)' }}>{startError}</div>}
+            <button className="prof-btn solid" disabled={busy} onClick={setPeriodStart} style={{ alignSelf: 'flex-start', padding: '6px 18px' }}>
+              {busy ? 'Saving…' : 'Save Start Date'}
+            </button>
+          </div>
         )}
 
-        {history.length > 0 && (
-          <div className="cycle-list">
-            {history.map(c => (
-              <div key={c.id} className="cycle-card">
-                <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8 }}>
-                  <div>
-                    <div className="cycle-meta">
-                      {new Date(c.startTs).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })} – {new Date(c.endTs).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
-                      {c.heaviness != null && ` · ${HEAVINESS_LABELS[c.heaviness - 1]} impact`}
-                    </div>
-                    {c.note && <div className="injury-note">{c.note}</div>}
-                    {editingId === c.id && (
-                      <div className="cycle-heaviness" style={{ marginTop: 6 }}>
-                        {HEAVINESS_LABELS.map((label, i) => (
-                          <button key={label} className={`cycle-heaviness-btn${editHeaviness === i + 1 ? ' active' : ''}`} onClick={() => setEditHeaviness(i + 1)}>
-                            {label}
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                </div>
-                <div className="cycle-actions">
-                  {editingId === c.id ? (
-                    <button className="cycle-edit" onClick={() => saveEdit(c.id)}>Save</button>
-                  ) : (
-                    <button className="cycle-edit" onClick={() => { setEditingId(c.id); setEditHeaviness(c.heaviness || 3); }}>Edit</button>
-                  )}
-                  <button className="cycle-remove" onClick={() => removeEntry(c.id)}>Remove</button>
-                </div>
+        {loggingPast ? (
+          <div className="cycle-form">
+            <div className="kicker" style={{ margin: 0 }}>Log a Past Period</div>
+            <div style={{ fontFamily: 'Times New Roman,serif', fontSize: 11, fontStyle: 'italic', color: 'var(--dim)' }}>
+              Backfilling history sharpens the calibration — more logged cycles to learn from.
+            </div>
+            <div style={{ display: 'flex', gap: 16 }}>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, letterSpacing: '.14em', textTransform: 'uppercase', color: 'var(--dim)', marginBottom: 6 }}>Start</div>
+                <input className="cycle-input" type="date" value={pastStart} max={todayStr} onChange={e => setPastStart(e.target.value)} />
               </div>
-            ))}
+              <div style={{ flex: 1 }}>
+                <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, letterSpacing: '.14em', textTransform: 'uppercase', color: 'var(--dim)', marginBottom: 6 }}>End</div>
+                <input className="cycle-input" type="date" value={pastEnd} max={todayStr} onChange={e => setPastEnd(e.target.value)} />
+              </div>
+            </div>
+            <div>
+              <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, letterSpacing: '.14em', textTransform: 'uppercase', color: 'var(--dim)', marginBottom: 6 }}>Training impact that cycle</div>
+              <div className="cycle-heaviness">
+                {HEAVINESS_LABELS.map((label, i) => (
+                  <button key={label} className={`cycle-heaviness-btn${pastHeaviness === i + 1 ? ' active' : ''}`} onClick={() => setPastHeaviness(i + 1)}>
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <input className="cycle-input" placeholder="Notes (optional)…" value={pastNote} onChange={e => setPastNote(e.target.value)} />
+            {pastError && <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, color: 'var(--red)' }}>{pastError}</div>}
+            <div style={{ display: 'flex', gap: 12 }}>
+              <button className="prof-btn solid" disabled={busy} onClick={submitPast} style={{ padding: '6px 18px' }}>
+                {busy ? 'Saving…' : 'Add Period'}
+              </button>
+              <button className="cycle-edit" onClick={() => { setLoggingPast(false); setPastError(''); }}>Cancel</button>
+            </div>
+          </div>
+        ) : (
+          <button className="cycle-edit" style={{ marginTop: 12 }} onClick={() => setLoggingPast(true)}>Log a past period</button>
+        )}
+
+        {log.length > 0 && (
+          <div className="cycle-cal">
+            <div className="cycle-cal-head">
+              <button className="cycle-cal-nav" onClick={() => setCalMonth(({ y, m }) => m === 0 ? { y: y - 1, m: 11 } : { y, m: m - 1 })} aria-label="Previous month">‹</button>
+              <div className="cycle-cal-label">{calLabel}</div>
+              <button className="cycle-cal-nav" onClick={() => setCalMonth(({ y, m }) => m === 11 ? { y: y + 1, m: 0 } : { y, m: m + 1 })} aria-label="Next month">›</button>
+            </div>
+            <div className="cycle-cal-grid">
+              {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((d, i) => <div key={i} className="cycle-cal-dow">{d}</div>)}
+              {calCells.map((c, i) => c == null ? <div key={`pad${i}`} /> : (
+                <div
+                  key={c.key}
+                  className={`cycle-cal-day${c.entry ? ' logged' : ''}${c.predicted ? ' predicted' : ''}${c.today ? ' today' : ''}${c.entry && c.entry.id === selectedId ? ' selected' : ''}`}
+                  onClick={() => c.entry && setSelectedId(c.entry.id === selectedId ? null : c.entry.id)}
+                >
+                  {c.day}
+                </div>
+              ))}
+            </div>
+            <div className="cycle-cal-legend">
+              <span><span className="cycle-cal-swatch logged" /> Logged</span>
+              {prediction && <span><span className="cycle-cal-swatch predicted" /> Predicted next</span>}
+            </div>
+          </div>
+        )}
+
+        {selectedEntry && (
+          <div className="cycle-card">
+            <div className="cycle-meta">
+              {new Date(selectedEntry.startTs).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })} – {selectedEntry.endTs != null ? new Date(selectedEntry.endTs).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : 'ongoing'}
+              {selectedEntry.heaviness != null && ` · ${HEAVINESS_LABELS[selectedEntry.heaviness - 1]} impact`}
+            </div>
+            {selectedEntry.note && <div className="injury-note">{selectedEntry.note}</div>}
+            {editingId === selectedEntry.id && (
+              <div className="cycle-heaviness" style={{ marginTop: 6 }}>
+                {HEAVINESS_LABELS.map((label, i) => (
+                  <button key={label} className={`cycle-heaviness-btn${editHeaviness === i + 1 ? ' active' : ''}`} onClick={() => setEditHeaviness(i + 1)}>
+                    {label}
+                  </button>
+                ))}
+              </div>
+            )}
+            <div className="cycle-actions">
+              {selectedEntry.endTs != null && (editingId === selectedEntry.id ? (
+                <button className="cycle-edit" onClick={() => saveEdit(selectedEntry.id)}>Save</button>
+              ) : (
+                <button className="cycle-edit" onClick={() => { setEditingId(selectedEntry.id); setEditHeaviness(selectedEntry.heaviness || 3); }}>Edit</button>
+              ))}
+              <button className="cycle-remove" onClick={() => { removeEntry(selectedEntry.id); setSelectedId(null); }}>Remove</button>
+            </div>
           </div>
         )}
       </div>

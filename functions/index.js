@@ -72,7 +72,7 @@ const {
   computeMuscleLastTrainedDays, computeCompoundIsolationSplit, computeStabilitySplit,
 } = require('./fatigue');
 const { personalizedRecoveryHours, trainingMonthsIfKnown, computeAgeYears } = require('./recoveryPersonalization');
-const { cyclePhaseFactor, observedHeaviness, nudgeLearnedHeaviness } = require('./cycleTracking');
+const { cyclePhaseFactor, observedHeaviness, nudgeLearnedHeaviness, periodsOverlap, predictedNextPeriod, parseDateOnly } = require('./cycleTracking');
 // Only computed when tracking is on and there's at least one logged entry
 // — otherwise cycleFactor stays exactly 1 (a no-op), same "opt-in changes
 // nothing until there's real data" posture as musclePriorities/goals.
@@ -928,6 +928,7 @@ app.get("/summary", async (req, res) => {
     })),
     cycle: db.cycle || [],
     cycleStats: db.profile?.cycleTrackingEnabled ? cyclePhaseFactor(db.cycle || [], Date.now(), db.profile?.cycleIrregular, db.profile?.cycleHeavinessLearned) : null,
+    cyclePrediction: db.profile?.cycleTrackingEnabled ? predictedNextPeriod(db.cycle || [], Date.now(), db.profile?.cycleIrregular) : null,
     weights, workouts: [...db.workouts].sort((a,b)=>(b.date||'').localeCompare(a.date||'')).slice(0,20), workoutsMonth: monthWk.length,
     water: lastN(db.water, 14), waterToday: db.water[day()] || 0,
     weeklyPlan: db.weeklyPlan ? { ...db.weeklyPlan, sessionsCompletedThisWeek: weekLiftSessionsCompleted(db.lifts) } : null,
@@ -2341,18 +2342,32 @@ app.post('/injuries/:id/resolve', async (req, res) => {
 // ---------- Menstrual cycle tracking (lightweight, manual — see cycleTracking.js) ----------
 app.get('/cycle', async (req, res) => {
   const log = db.cycle || [];
-  res.json({ cycle: log, stats: cyclePhaseFactor(log, Date.now(), db.profile?.cycleIrregular, db.profile?.cycleHeavinessLearned) });
+  res.json({
+    cycle: log,
+    stats: cyclePhaseFactor(log, Date.now(), db.profile?.cycleIrregular, db.profile?.cycleHeavinessLearned),
+    prediction: predictedNextPeriod(log, Date.now(), db.profile?.cycleIrregular),
+  });
 });
 
+// `start`/`end` (YYYY-MM-DD) are optional and default to now — lets a user
+// pick the actual day a period began/ended instead of only "right now",
+// same date-driven shape /cycle/retro uses for a fully-past period.
 app.post('/cycle/start', async (req, res) => {
   db.cycle = db.cycle || [];
   if (db.cycle.some(c => c.endTs == null)) {
     return res.status(400).json({ error: 'a period is already open — end it before starting a new one' });
   }
-  const id = Date.now();
-  db.cycle.push({ id, startTs: id, endTs: null, heaviness: null, note: '' });
+  const { start } = req.body || {};
+  const startTs = start ? parseDateOnly(start) : Date.now();
+  if (!Number.isFinite(startTs)) return res.status(400).json({ error: 'invalid start date' });
+  if (startTs > Date.now()) return res.status(400).json({ error: "start date can't be in the future" });
+  // Open-ended entry: extends to "now or later" until closed, so it
+  // overlaps anything already logged after this chosen start date too.
+  if (periodsOverlap(startTs, Infinity, db.cycle)) return res.status(400).json({ error: "overlaps a period that's already logged" });
+  const id = startTs;
+  db.cycle.push({ id, startTs, endTs: null, heaviness: null, note: '' });
   await save();
-  res.json({ ok: true, id });
+  res.json({ ok: true, id, startTs });
 });
 
 app.post('/cycle/:id/end', async (req, res) => {
@@ -2361,11 +2376,15 @@ app.post('/cycle/:id/end', async (req, res) => {
   const entry = db.cycle.find(c => c.id === id);
   if (!entry) return res.status(404).json({ error: 'not found' });
   if (entry.endTs != null) return res.status(400).json({ error: 'already ended' });
-  const { heaviness, note } = req.body || {};
+  const { heaviness, note, end } = req.body || {};
   if (heaviness != null && (!Number.isInteger(heaviness) || heaviness < 1 || heaviness > 5)) {
     return res.status(400).json({ error: 'heaviness must be an integer 1-5' });
   }
-  entry.endTs = Date.now();
+  const endTs = end ? parseDateOnly(end) : Date.now();
+  if (!Number.isFinite(endTs)) return res.status(400).json({ error: 'invalid end date' });
+  if (endTs <= entry.startTs) return res.status(400).json({ error: 'end must be after start' });
+  if (endTs > Date.now()) return res.status(400).json({ error: "end date can't be in the future" });
+  entry.endTs = endTs;
   if (heaviness != null) entry.heaviness = heaviness;
   if (note != null) entry.note = String(note).slice(0, 500);
   // The pick above is only this cycle's starting estimate — nudge the
@@ -2378,7 +2397,34 @@ app.post('/cycle/:id/end', async (req, res) => {
   const seed = db.profile.cycleHeavinessLearned ?? entry.heaviness ?? 3;
   db.profile.cycleHeavinessLearned = nudgeLearnedHeaviness(seed, observed);
   await save();
-  res.json({ ok: true });
+  res.json({ ok: true, endTs });
+});
+
+// Backfilling a period that already happened, entirely in the past — same
+// endTs-time learning step as /cycle/:id/end, just start+end supplied
+// together instead of start-now/end-later. More logged history is what
+// currentCycleDay/heavinessStats/nudgeLearnedHeaviness all key off, so this
+// is purely about giving the calibration more to work with, not a new kind
+// of entry.
+app.post('/cycle/retro', async (req, res) => {
+  db.cycle = db.cycle || [];
+  const { start, end, heaviness, note } = req.body || {};
+  const startTs = start ? parseDateOnly(start) : NaN;
+  const endTs = end ? parseDateOnly(end) : NaN;
+  if (!Number.isFinite(startTs) || !Number.isFinite(endTs)) return res.status(400).json({ error: 'start and end (YYYY-MM-DD) required' });
+  if (endTs <= startTs) return res.status(400).json({ error: 'end must be after start' });
+  if (endTs > Date.now()) return res.status(400).json({ error: 'cannot log a period in the future' });
+  if (heaviness != null && (!Number.isInteger(heaviness) || heaviness < 1 || heaviness > 5)) {
+    return res.status(400).json({ error: 'heaviness must be an integer 1-5' });
+  }
+  if (periodsOverlap(startTs, endTs, db.cycle)) return res.status(400).json({ error: 'overlaps a period that\'s already logged' });
+  const entry = { id: startTs, startTs, endTs, heaviness: heaviness ?? null, note: note ? String(note).slice(0, 500) : '' };
+  db.cycle.push(entry);
+  const observed = observedHeaviness(db.lifts, entry, db.cycle);
+  const seed = db.profile.cycleHeavinessLearned ?? entry.heaviness ?? 3;
+  db.profile.cycleHeavinessLearned = nudgeLearnedHeaviness(seed, observed);
+  await save();
+  res.json({ ok: true, entry });
 });
 
 // Correcting the training-impact rating after the fact — heaviness is
