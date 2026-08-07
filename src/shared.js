@@ -36,7 +36,10 @@ export const api = async (path, opts = {}) => {
   // loadSummary, where silently accepting an error body as if it were real
   // summary data would defeat the initial loading-screen gate (s becomes
   // non-null "garbage" instead of staying null until real data arrives).
-  if (!r.ok && opts.throwOnError) throw new Error(`${path}: ${r.status}`);
+  if (!r.ok && opts.throwOnError) {
+    const body = await r.json().catch(() => null);
+    throw new Error(body?.error || `${path}: HTTP ${r.status}`);
+  }
   return r.json();
 };
 

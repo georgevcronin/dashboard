@@ -242,13 +242,24 @@ app.use(async (req, res, next) => {
   const header = req.headers.authorization;
   if (!header?.startsWith('Bearer ')) return res.status(401).json({ error: 'auth required' });
   try {
-    const { uid } = await admin.auth().verifyIdToken(header.slice(7));
+    const { uid, email } = await admin.auth().verifyIdToken(header.slice(7));
     req.uid = uid;
+    req.email = email || null;
     await loadForUid(uid);
     next();
   } catch {
     res.status(401).json({ error: 'invalid token' });
   }
+});
+
+// Dev-only data editor, gated server-side (not just hidden in the UI) on the
+// developer's own account email — this writes/deletes arbitrary user data,
+// so client-side hiding alone would leave it reachable by anyone who found
+// the route.
+const ADMIN_EMAIL = 'georgevcronin@gmail.com';
+app.use('/admin', (req, res, next) => {
+  if (req.email !== ADMIN_EMAIL) return res.status(403).json({ error: 'not authorized' });
+  next();
 });
 
 // ---------- Identity ----------
@@ -4097,6 +4108,66 @@ app.get('/exercise-stats', (req, res) => {
     : [];
 
   res.json({ recent, frequent, today });
+});
+
+// ---------- Admin data editor (georgevcronin@gmail.com only, see /admin gate above) ----------
+// Raw JSON editor over the `users/{uid}` doc — deliberately not field-specific
+// forms, since the doc shape changes as features ship. `lifts` never appears
+// here: it lives in the liftChunks subcollection (see userDoc.js), not on
+// this doc, so editing/overwriting this JSON can't touch it.
+app.get('/admin/users', async (req, res) => {
+  const snap = await firestore.collection('users').get();
+  res.json(snap.docs.map(d => ({ uid: d.id, username: d.data()?.profile?.username || null, displayName: d.data()?.profile?.displayName || null })));
+});
+
+app.get('/admin/users/:uid', async (req, res) => {
+  const snap = await userDocRef(req.params.uid).get();
+  if (!snap.exists) return res.status(404).json({ error: 'no such user doc' });
+  res.json(snap.data());
+});
+
+// Backs up the previous doc before overwriting — the earlier support case
+// that prompted this whole page was exactly "deleted the doc by hand with no
+// way back", so every destructive admin write gets one.
+async function backupUserDoc(uid) {
+  const snap = await userDocRef(uid).get();
+  if (snap.exists) await firestore.collection('adminBackups').add({ uid, data: snap.data(), deletedAt: new Date().toISOString() });
+}
+
+app.put('/admin/users/:uid', async (req, res) => {
+  const { uid } = req.params;
+  const data = req.body?.data;
+  if (!data || typeof data !== 'object') return res.status(400).json({ error: 'body.data must be an object' });
+  await backupUserDoc(uid);
+  await userDocRef(uid).set(data);
+  delete userDbs[uid]; // stale in-memory cache is exactly what caused the original bug report
+  res.json({ ok: true });
+});
+
+app.delete('/admin/users/:uid', async (req, res) => {
+  const { uid } = req.params;
+  if (req.body?.confirmUid !== uid) return res.status(400).json({ error: 'confirmUid must match uid to delete' });
+  await backupUserDoc(uid);
+  await userDocRef(uid).delete();
+  delete userDbs[uid];
+  res.json({ ok: true });
+});
+
+app.get('/admin/usernames', async (req, res) => {
+  const snap = await firestore.collection('usernames').get();
+  res.json(snap.docs.map(d => ({ username: d.id, ...d.data() })));
+});
+
+app.put('/admin/usernames/:username', async (req, res) => {
+  const { uid, displayNameFirst } = req.body || {};
+  if (!uid) return res.status(400).json({ error: 'body.uid required' });
+  await firestore.collection('usernames').doc(req.params.username.toLowerCase()).set({ uid, displayNameFirst: displayNameFirst || '' });
+  res.json({ ok: true });
+});
+
+app.delete('/admin/usernames/:username', async (req, res) => {
+  await firestore.collection('usernames').doc(req.params.username.toLowerCase()).delete();
+  res.json({ ok: true });
 });
 
 exports.api = functions.region("europe-west2").runWith({ timeoutSeconds: 300, memory: "256MB", invoker: "public" }).https.onRequest(app);

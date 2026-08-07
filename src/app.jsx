@@ -1033,6 +1033,13 @@ const glycogenPct = (elapsedS, totalS) => {
 // app's first version — everything before this had no changelog at all.
 const CHANGELOG = [
   {
+    version: '1.08',
+    date: '2026-08-08',
+    features: [
+      'Error messages across the app (setup, mentor chat, profile/username saves, newscasts, comparisons, feed) now show the actual failure reason instead of a generic "Connection error — try again."',
+    ],
+  },
+  {
     version: '1.07',
     date: '2026-08-08',
     features: [
@@ -7021,8 +7028,8 @@ function Onboarding({ s, onComplete, onOpenImport }) {
       if (step === 6) await saveTrainingBackground();
       if (step === 7) await saveMuscleFocus();
       setStep(s => s + 1);
-    } catch {
-      setStepError('Something didn’t save — check your connection and try again.');
+    } catch (e) {
+      setStepError(`Something didn't save: ${e.message}`);
     }
     setSaving(false);
   };
@@ -7787,7 +7794,7 @@ function ComparisonScreen({ username, otherDisplayNameFirstHint, onClose }) {
     setError('');
     api(`compare/${encodeURIComponent(username)}?metric=${metric}${metric === 'stimulus' ? `&window=${windowDays}` : ''}`)
       .then(r => { if (r.error) setError(r.error); else setData(r); })
-      .catch(() => setError('Connection error — try again.'))
+      .catch(e => setError(`Connection error: ${e.message}`))
       .finally(() => setLoading(false));
   }, [username, metric, windowDays]);
 
@@ -7898,7 +7905,7 @@ function S9({ s, followBadge, reloadFollowBadge }) {
     setFeedLoading(true);
     api('feed')
       .then(r => { if (!cancelled) setFeed(r.entries || []); })
-      .catch(() => { if (!cancelled) setFeedError('Connection error — try again.'); })
+      .catch(e => { if (!cancelled) setFeedError(`Connection error: ${e.message}`); })
       .finally(() => { if (!cancelled) setFeedLoading(false); });
     return () => { cancelled = true; };
   }, []);
@@ -8728,7 +8735,7 @@ function S15({ generalRecommendation }) {
   );
 }
 
-function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenWiki, setBriefing, onRestartSetup, onReplayWalkthrough, followBadge, reloadFollowBadge, onOpenGridEdit }) {
+function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenWiki, setBriefing, onRestartSetup, onReplayWalkthrough, followBadge, reloadFollowBadge, onOpenGridEdit, onOpenAdmin }) {
   const [nameVal, setNameVal] = useState(s?.profile?.name || '');
   const [nameSaving, setNameSaving] = useState(false);
   const [nameSaved, setNameSaved] = useState(false);
@@ -9006,8 +9013,8 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
       refresh({ ...s, profile });
       setNameSaved(true);
       setTimeout(() => setNameSaved(false), 2000);
-    } catch {
-      setNameError('Save failed — check your connection and try again.');
+    } catch (e) {
+      setNameError(`Save failed: ${e.message}`);
     }
     setNameSaving(false);
   };
@@ -9037,8 +9044,8 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
         setUsernameSaved(true);
         setTimeout(() => setUsernameSaved(false), 2000);
       }
-    } catch {
-      setUsernameError('Save failed — check your connection and try again.');
+    } catch (e) {
+      setUsernameError(`Save failed: ${e.message}`);
     }
     setUsernameSaving(false);
   };
@@ -10651,6 +10658,9 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
           <div className="settings-sh">Account</div>
           <button className="prof-btn" style={{ width: '100%', padding: '11px', textAlign: 'center', marginTop: 4 }} onClick={onRestartSetup}>Restart Setup</button>
           <button className="prof-btn" style={{ width: '100%', padding: '11px', textAlign: 'center', marginTop: 8 }} onClick={onReplayWalkthrough}>Replay Walkthrough</button>
+          {auth.currentUser?.email === ADMIN_EMAIL && (
+            <button className="prof-btn" style={{ width: '100%', padding: '11px', textAlign: 'center', marginTop: 8 }} onClick={onOpenAdmin}>Admin</button>
+          )}
           <button className="prof-btn" style={{ width: '100%', padding: '11px', textAlign: 'center', marginTop: 8 }} onClick={onSignOut}>Sign Out</button>
           <div style={{ display: 'flex', gap: 14, justifyContent: 'center', marginTop: 14, fontFamily: "'JetBrains Mono',monospace", fontSize: 9, letterSpacing: '.06em' }}>
             <a href="/privacy.html" target="_blank" rel="noopener" style={{ color: 'var(--dim)' }}>Privacy Policy</a>
@@ -10876,8 +10886,8 @@ function MentorChat({ onClose }) {
         new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 130_000)),
       ]);
       setMsgs(p => [...p, { role: 'assistant', content: data.reply || 'No reply.' }]);
-    } catch {
-      setMsgs(p => [...p, { role: 'assistant', content: 'Connection error — try again.' }]);
+    } catch (e) {
+      setMsgs(p => [...p, { role: 'assistant', content: `Connection error: ${e.message}` }]);
     }
     setThinking(false);
   };
@@ -10978,6 +10988,136 @@ function TimelineOverlay({ onClose }) {
             ))}
           </div>
         ))}
+      </div>
+    </div>
+  );
+}
+
+// ── ADMIN OVERLAY ────────────────────────────────────────────────────────────
+// Dev-only raw data editor. Hidden here for anyone but the admin email, but
+// that's cosmetic — the real gate is server-side (see functions/index.js's
+// /admin middleware), since a client-side-only check would leave the routes
+// reachable by anyone who found them.
+const ADMIN_EMAIL = 'georgevcronin@gmail.com';
+
+function AdminOverlay({ onClose }) {
+  const [tab, setTab] = useState('users');
+  const [users, setUsers] = useState(null);
+  const [usernames, setUsernames] = useState(null);
+  const [selectedUid, setSelectedUid] = useState(null);
+  const [docText, setDocText] = useState('');
+  const [status, setStatus] = useState('');
+
+  const loadUsers = () => api('admin/users').then(setUsers).catch(e => setStatus('Failed to load: ' + e.message));
+  const loadUsernames = () => api('admin/usernames').then(setUsernames).catch(e => setStatus('Failed to load: ' + e.message));
+  useEffect(() => { loadUsers(); loadUsernames(); }, []);
+
+  const openUser = (uid) => {
+    setSelectedUid(uid);
+    setStatus('');
+    api(`admin/users/${uid}`).then(d => setDocText(JSON.stringify(d, null, 2))).catch(e => setStatus('Failed to load doc: ' + e.message));
+  };
+
+  const saveUser = async () => {
+    let parsed;
+    try { parsed = JSON.parse(docText); } catch (e) { setStatus('Invalid JSON: ' + e.message); return; }
+    if (!confirm(`Overwrite users/${selectedUid} with this JSON? A backup of the current doc is saved first.`)) return;
+    try {
+      await api(`admin/users/${selectedUid}`, { method: 'PUT', body: JSON.stringify({ data: parsed }), throwOnError: true });
+      setStatus('Saved.');
+      loadUsers();
+    } catch (e) { setStatus('Save failed: ' + e.message); }
+  };
+
+  const deleteUser = async () => {
+    const typed = prompt(`Type the uid to permanently delete this doc (backed up first):\n${selectedUid}`);
+    if (typed !== selectedUid) { if (typed !== null) setStatus('uid did not match — nothing deleted.'); return; }
+    try {
+      await api(`admin/users/${selectedUid}`, { method: 'DELETE', body: JSON.stringify({ confirmUid: selectedUid }), throwOnError: true });
+      setStatus('Deleted.');
+      setSelectedUid(null); setDocText('');
+      loadUsers();
+    } catch (e) { setStatus('Delete failed: ' + e.message); }
+  };
+
+  const editUsername = async (username, current) => {
+    const uid = prompt(`uid for username "${username}"`, current?.uid || '');
+    if (uid === null) return;
+    const displayNameFirst = prompt('displayNameFirst', current?.displayNameFirst || '') || '';
+    try {
+      await api(`admin/usernames/${username}`, { method: 'PUT', body: JSON.stringify({ uid, displayNameFirst }), throwOnError: true });
+      loadUsernames();
+    } catch (e) { setStatus('Save failed: ' + e.message); }
+  };
+
+  const addUsername = async () => {
+    const username = prompt('New username (will be lowercased)');
+    if (!username) return;
+    await editUsername(username.toLowerCase(), null);
+  };
+
+  const deleteUsername = async (username) => {
+    if (!confirm(`Delete usernames/${username}? This frees it up for anyone to claim.`)) return;
+    try {
+      await api(`admin/usernames/${username}`, { method: 'DELETE', throwOnError: true });
+      loadUsernames();
+    } catch (e) { setStatus('Delete failed: ' + e.message); }
+  };
+
+  const mono = { fontFamily: "'JetBrains Mono',monospace", fontSize: 11 };
+
+  return (
+    <div className="settings-overlay">
+      <div className="settings-hdr">
+        <div className="settings-hdr-title">Admin</div>
+        <button className="settings-close" onClick={onClose}>Close ×</button>
+      </div>
+      <div className="settings-body">
+        <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+          <button className="prof-btn" onClick={() => setTab('users')} style={{ fontWeight: tab === 'users' ? 700 : 400 }}>Users</button>
+          <button className="prof-btn" onClick={() => setTab('usernames')} style={{ fontWeight: tab === 'usernames' ? 700 : 400 }}>Usernames</button>
+        </div>
+        {status && <div style={{ ...mono, color: 'var(--dim)', marginBottom: 10 }}>{status}</div>}
+
+        {tab === 'users' && (
+          <div style={{ display: 'flex', gap: 16 }}>
+            <div style={{ width: 220, flexShrink: 0, maxHeight: 480, overflowY: 'auto' }}>
+              {(users || []).map(u => (
+                <div key={u.uid} onClick={() => openUser(u.uid)}
+                  style={{ ...mono, fontSize: 10, padding: '6px 4px', cursor: 'pointer', borderBottom: '1px solid var(--rule)', background: selectedUid === u.uid ? 'var(--rule)' : 'transparent' }}>
+                  <div>{u.username || '(no username)'}</div>
+                  <div style={{ color: 'var(--dim)' }}>{u.uid}</div>
+                </div>
+              ))}
+            </div>
+            <div style={{ flex: 1 }}>
+              {selectedUid ? (
+                <>
+                  <textarea value={docText} onChange={e => setDocText(e.target.value)}
+                    style={{ ...mono, width: '100%', height: 400, boxSizing: 'border-box' }} />
+                  <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                    <button className="prof-btn" onClick={saveUser}>Save</button>
+                    <button className="prof-btn" onClick={deleteUser} style={{ color: 'var(--bad, red)' }}>Delete</button>
+                  </div>
+                </>
+              ) : <div style={{ ...mono, color: 'var(--dim)' }}>Select a user.</div>}
+            </div>
+          </div>
+        )}
+
+        {tab === 'usernames' && (
+          <div>
+            <button className="prof-btn" onClick={addUsername} style={{ marginBottom: 10 }}>+ Add username</button>
+            {(usernames || []).map(u => (
+              <div key={u.username} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 0', borderBottom: '1px solid var(--rule)' }}>
+                <span style={{ ...mono, width: 140 }}>{u.username}</span>
+                <span style={{ ...mono, fontSize: 10, color: 'var(--dim)', flex: 1 }}>{u.uid} · {u.displayNameFirst}</span>
+                <button className="prof-btn" onClick={() => editUsername(u.username, u)}>Edit</button>
+                <button className="prof-btn" onClick={() => deleteUsername(u.username)}>Delete</button>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -11376,8 +11516,8 @@ function UsernameSetup({ user, onComplete }) {
       });
       if (r.error) { setError(r.error); setSaving(false); return; }
       onComplete();
-    } catch {
-      setError('Connection error — try again.');
+    } catch (e) {
+      setError(`Connection error: ${e.message}`);
       setSaving(false);
     }
   };
@@ -11805,6 +11945,7 @@ function App() {
   const [showSettings, setShowSettings] = useState(false);
   const [showWiki, setShowWiki] = useState(false);
   const [showTimeline, setShowTimeline] = useState(false);
+  const [showAdmin, setShowAdmin] = useState(false);
   const [summaryError, setSummaryError] = useState('');
   const [bubblePos, setBubblePos] = useState(() => {
     try {
@@ -11932,7 +12073,7 @@ function App() {
         setOnboarded(true);
       }
     })
-    .catch(() => setSummaryError('Failed to load — check your connection and try again.'));
+    .catch(e => setSummaryError(`Failed to load: ${e.message}`));
 
   const fetchNewscast = async (period) => {
     if (loadingPeriod) return;
@@ -11946,8 +12087,8 @@ function App() {
       } else {
         setNewscastError(data.error || 'Generation failed — Gemini may be overloaded. Try again in a moment.');
       }
-    } catch {
-      setNewscastError('Connection error — try again.');
+    } catch (e) {
+      setNewscastError(`Connection error: ${e.message}`);
     }
     setLoadingPeriod(null);
   };
@@ -11960,8 +12101,8 @@ function App() {
       const data = await api('weekly-review');
       if (data.review) { setWeeklyReview(data.review); setShowWeeklyReview(true); }
       else setNewscastError(data.error || 'Generation failed — Gemini may be overloaded. Try again in a moment.');
-    } catch {
-      setNewscastError('Connection error — try again.');
+    } catch (e) {
+      setNewscastError(`Connection error: ${e.message}`);
     }
     setLoadingPeriod(null);
   };
@@ -12392,7 +12533,7 @@ function App() {
   // geometric overlap, so without this a walkthrough could start firing
   // behind Settings or the onboarding wizard.
   const walkthroughsBlocked = !s || showSettings || showWiki || showHistory || chatOpen || showBriefing
-    || showAfternoonNewscast || showNightNewscast || showWeeklyReview || showImport || showTimeline
+    || showAfternoonNewscast || showNightNewscast || showWeeklyReview || showImport || showTimeline || showAdmin
     || forceOnboarding || !onboarded || loggerOpen || gridEditMode;
   useWalkthroughEncounter('s1', walkthroughsBlocked || !!s?.profile?.walkthroughsSeen?.s1, queueOrBeginWalkthrough);
   useWalkthroughEncounter('s2', walkthroughsBlocked || !!s?.profile?.walkthroughsSeen?.s2, queueOrBeginWalkthrough);
@@ -12412,7 +12553,7 @@ function App() {
   // stay eligible while Settings is open, only blocked by genuinely
   // unrelated overlays stacking on top of it.
   const settingsWalkthroughBlocked = !s || showWiki || showHistory || chatOpen || showBriefing
-    || showAfternoonNewscast || showNightNewscast || showWeeklyReview || showImport || showTimeline
+    || showAfternoonNewscast || showNightNewscast || showWeeklyReview || showImport || showTimeline || showAdmin
     || forceOnboarding || !onboarded || loggerOpen || gridEditMode;
   useWalkthroughEncounter('settings', settingsWalkthroughBlocked || !!s?.profile?.walkthroughsSeen?.settings, queueOrBeginWalkthrough);
 
@@ -12661,9 +12802,10 @@ function App() {
         <WalkthroughOverlay sectionId={activeWalkthrough.sectionId} stepIndex={activeWalkthrough.stepIndex}
           onNext={nextWalkthroughStep} onBack={backWalkthroughStep} onClose={closeWalkthrough} />
       )}
-      {showSettings && <SettingsOverlay s={s} onClose={() => { setShowSettings(false); loadFollowRequests(); }} refresh={refresh} onSignOut={() => signOut(auth)} onOpenImport={() => { setShowSettings(false); setShowImport(true); }} onOpenWiki={() => { setShowSettings(false); setShowWiki(true); }} setBriefing={setBriefing} onRestartSetup={() => { setForceOnboarding(true); setShowSettings(false); }} onReplayWalkthrough={replayWalkthrough} followBadge={followBadge} reloadFollowBadge={loadFollowRequests} onOpenGridEdit={() => setGridEditMode(true)} />}
+      {showSettings && <SettingsOverlay s={s} onClose={() => { setShowSettings(false); loadFollowRequests(); }} refresh={refresh} onSignOut={() => signOut(auth)} onOpenImport={() => { setShowSettings(false); setShowImport(true); }} onOpenWiki={() => { setShowSettings(false); setShowWiki(true); }} setBriefing={setBriefing} onRestartSetup={() => { setForceOnboarding(true); setShowSettings(false); }} onReplayWalkthrough={replayWalkthrough} followBadge={followBadge} reloadFollowBadge={loadFollowRequests} onOpenGridEdit={() => setGridEditMode(true)} onOpenAdmin={() => { setShowSettings(false); setShowAdmin(true); }} />}
       {showWiki && <WikiOverlay onClose={() => setShowWiki(false)} />}
       {showTimeline && <TimelineOverlay onClose={() => setShowTimeline(false)} />}
+      {showAdmin && <AdminOverlay onClose={() => setShowAdmin(false)} />}
       {showBriefing && briefing && <BriefingOverlay briefing={briefing} onClose={() => setShowBriefing(false)} />}
       {showAfternoonNewscast && afternoonNewscast && <NewscastOverlay newscast={afternoonNewscast} onClose={() => setShowAfternoonNewscast(false)} />}
       {showNightNewscast && nightNewscast && <NewscastOverlay newscast={nightNewscast} onClose={() => setShowNightNewscast(false)} />}
