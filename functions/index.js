@@ -29,7 +29,7 @@ const {
 const { computeStimulusContributions, estimateAtrophyRate } = require('./adaptation');
 const { sessionLoadScore, sessionLoadDelta } = require('./sessionLoad');
 const { computeTrend, deloadSuggestion } = require('./performanceTrend');
-const { validateTrackingCategories } = require('./trackingCategories');
+const { validateTrackingCategories, resolveTrackingCategories } = require('./trackingCategories');
 const { validateGoals, validateActivities, applyActivityDefaults, seedReturningAthleteAtrophy } = require('./goalsAndActivities');
 const { estimateMaintenanceCalories, applyDeficitLimit, calorieTargetForFatLossGoal } = require('./nutritionLimits');
 const { findNearbyGyms, normalizeExerciseKey, GYM_NEARBY_RADIUS_M } = require('./gyms');
@@ -3505,6 +3505,14 @@ async function generateMorningBriefing(db) {
   const today = day();
   const yesterday = day(Date.now() - 86400000);
 
+  // #14: an account that has turned Recovery or Nutrition off in Settings
+  // never has real data in those categories to report — this briefing used
+  // to say "not logged" / "NOT LOGGED — flag this" regardless of *why*
+  // nothing was there, which reads as a permanent nag for someone who
+  // deliberately opted out rather than someone who just hasn't logged
+  // today yet. Below, an off category's lines are omitted entirely instead.
+  const categories = resolveTrackingCategories(db.profile);
+
   const yesterdayWorkout = (db.workouts || []).find(w => w.date === yesterday);
   const yesterdayLifts = (db.lifts || []).filter(l => l.date === yesterday);
   const yesterdayNutrition = (db.nutritionLog || []).filter(n => n.date === yesterday);
@@ -3525,29 +3533,34 @@ async function generateMorningBriefing(db) {
   const briefingMetabolic = computeMetabolicFatigue(db.lifts || [], (db.nutrition || {})[today]?.carbs || 0);
   const briefingCNS = computeCNSFatigue(db.lifts || [], db.cnsSensitivity || 1.0, getRecoveryScore(db));
   const macroTargets = db.profile?.macroTargets || { protein: 160, calories: 2400 };
-  const nutritionNotLogged = !totalCalories && !totalProtein;
+  const nutritionNotLogged = categories.nutrition && !totalCalories && !totalProtein;
   const cycleInfo = db.profile?.cycleTrackingEnabled && (db.cycle || []).length ? cyclePhaseFactor(db.cycle, Date.now(), db.profile?.cycleIrregular, db.profile?.cycleHeavinessLearned) : null;
 
-  const prompt = `You are generating a morning health briefing for a personal health app called Press. The briefing has three voices:
+  const dataLines = [
+    categories.sleep ? `- Sleep: ${sleepH ? sleepH + 'h' : 'not logged'}` : null,
+    categories.sleep ? `- HRV: ${hrv ? hrv + 'ms' : 'not logged'}` : null,
+    categories.sleep ? `- RHR: ${rhr ? rhr + 'bpm' : 'not logged'}` : null,
+    `- Yesterday's workout: ${yesterdayWorkout ? yesterdayWorkout.name + ' — ' + yesterdayLifts.length + ' sets logged' : 'rest day'}`,
+    categories.nutrition ? `- Yesterday's nutrition: ${totalCalories ? totalCalories + 'kcal, ' + totalProtein + 'g protein' : 'NOT LOGGED — flag this'}` : null,
+    `- Structural fatigue: ${topFatigued || 'none'}`,
+    `- Metabolic fatigue: ${briefingMetabolic}%`,
+    `- CNS fatigue: ${briefingCNS}%`,
+    cycleInfo && cycleInfo.cycleDay != null ? `- Cycle phase: day ${cycleInfo.cycleDay}${cycleInfo.onPeriod ? ' (on period)' : ''}, recovery calibration factor ${cycleInfo.factor.toFixed(2)}, RIR guidance: ${cycleInfo.rirOffset > 0 ? '+' + cycleInfo.rirOffset : cycleInfo.rirOffset}` : null,
+    `- Goal: ${db.profile?.goal || 'build muscle'}`,
+    categories.nutrition ? `- Protein target: ${macroTargets.protein}g/day, Calorie target: ${macroTargets.calories}kcal/day` : null,
+    `- Supplements: ${(db.supplements || []).map(s => s.name).join(', ') || 'none logged'}`,
+  ].filter(Boolean).join('\n');
+
+  const prompt = `You are generating a morning health briefing for a personal health app called Press. The briefing has ${categories.nutrition ? 'three voices' : 'two voices'}:
 
 V — the health editor. Cool, authoritative, deliberate. Treats health data like breaking news. No gender, no backstory, just V. Always writes something even on rest days — rest has a story too. Editorial newspaper voice, punchy and precise.
 
 Atlas — the training analyst. Methodical, precise, science-grounded. Only speaks on training days or to preview tomorrow's session on rest days.
-
-Fuel — the nutrition editor. Precise, no-nonsense. Prescribes today's nutrition based on training demands and recovery needs. One short paragraph.
+${categories.nutrition ? '\nFuel — the nutrition editor. Precise, no-nonsense. Prescribes today\'s nutrition based on training demands and recovery needs. One short paragraph.\n' : ''}
+This user has turned off ${[!categories.sleep && 'sleep/recovery tracking', !categories.nutrition && 'nutrition tracking'].filter(Boolean).join(' and ') || 'nothing'} — never mention, ask about, or reference ${!categories.sleep && !categories.nutrition ? 'anything outside training' : [!categories.sleep && 'sleep, HRV, or RHR', !categories.nutrition && 'nutrition, calories, or protein'].filter(Boolean).join(' or ')} anywhere in the output, including implicitly. Only reference data categories actually listed below.
 
 The user's data:
-- Sleep: ${sleepH ? sleepH + 'h' : 'not logged'}
-- HRV: ${hrv ? hrv + 'ms' : 'not logged'}
-- RHR: ${rhr ? rhr + 'bpm' : 'not logged'}
-- Yesterday's workout: ${yesterdayWorkout ? yesterdayWorkout.name + ' — ' + yesterdayLifts.length + ' sets logged' : 'rest day'}
-- Yesterday's nutrition: ${totalCalories ? totalCalories + 'kcal, ' + totalProtein + 'g protein' : 'NOT LOGGED — flag this'}
-- Structural fatigue: ${topFatigued || 'none'}
-- Metabolic fatigue: ${briefingMetabolic}%
-- CNS fatigue: ${briefingCNS}%${cycleInfo && cycleInfo.cycleDay != null ? `\n- Cycle phase: day ${cycleInfo.cycleDay}${cycleInfo.onPeriod ? ' (on period)' : ''}, recovery calibration factor ${cycleInfo.factor.toFixed(2)}, RIR guidance: ${cycleInfo.rirOffset > 0 ? '+' + cycleInfo.rirOffset : cycleInfo.rirOffset}` : ''}
-- Goal: ${db.profile?.goal || 'build muscle'}
-- Protein target: ${macroTargets.protein}g/day, Calorie target: ${macroTargets.calories}kcal/day
-- Supplements: ${(db.supplements || []).map(s => s.name).join(', ') || 'none logged'}
+${dataLines}
 
 Return ONLY valid JSON in this exact structure:
 {
@@ -3557,11 +3570,11 @@ Return ONLY valid JSON in this exact structure:
   "bullets": {
     "wins": ["win 1", "win 2"],
     "misses": ["miss 1${nutritionNotLogged ? ', nutrition not logged yesterday' : ''}"],
-    "numbers": [{"label": "Sleep", "value": "8.2h"}, {"label": "HRV", "value": "68ms"}, {"label": "Calories", "value": "3,200"}]
+    "numbers": [${categories.sleep ? '{"label": "Sleep", "value": "8.2h"}, {"label": "HRV", "value": "68ms"}, ' : ''}${categories.nutrition ? '{"label": "Calories", "value": "3,200"}' : '{"label": "Structural Fatigue", "value": "' + (topFatigued ? topFatigued.split(',')[0] : '—') + '"}'}]
   },
   "v": "2-3 sentences of flowing editorial prose from V. Newspaper voice, no bullet points. Contextualises the data as a narrative.",
-  "atlas": "1-2 sentences from Atlas on training. Null if true rest day with no training context.",
-  "fuel": "Fuel's prescription for today. Based on today's training demands, metabolic state (${briefingMetabolic}% depleted), and goal. Specific: name protein sources, carb timing around training, total targets. 2-3 sentences max.",
+  "atlas": "1-2 sentences from Atlas on training. Null if true rest day with no training context."${categories.nutrition ? `,
+  "fuel": "Fuel's prescription for today. Based on today's training demands, metabolic state (${briefingMetabolic}% depleted), and goal. Specific: name protein sources, carb timing around training, total targets. 2-3 sentences max."` : ''},
   "notification": "The headline rephrased for a push notification — under 60 chars, punchy"
 }`;
 
@@ -3581,6 +3594,7 @@ async function generateNewscast(db, period) {
   if (!process.env.GEMINI_API_KEY) return null;
   const today = day();
   const todayNutrition = (db.nutritionLog || []).filter(n => n.date === today);
+  const categories = resolveTrackingCategories(db.profile);
   const totalCals = todayNutrition.reduce((s, n) => s + (n.calories || 0), 0);
   const totalProtein = todayNutrition.reduce((s, n) => s + (n.protein || 0), 0);
   const todayWorkout = (db.workouts || []).find(w => w.date === today);
@@ -3591,25 +3605,29 @@ async function generateNewscast(db, period) {
   const topFatigued = Object.entries(fatigue).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([m, v]) => `${m} ${Math.round(v)}%`).join(', ') || 'none';
   const cns = computeCNSFatigue(db.lifts || [], db.cnsSensitivity || 1.0, getRecoveryScore(db));
   const cycleInfo = db.profile?.cycleTrackingEnabled && (db.cycle || []).length ? cyclePhaseFactor(db.cycle, Date.now(), db.profile?.cycleIrregular, db.profile?.cycleHeavinessLearned) : null;
+  // #14: same "off means don't reference it at all" rule as the morning
+  // briefing — a nutrition-tracking-off account never gets a "NOTHING
+  // LOGGED" line or the nutritionNote nag below.
+  const nutritionGapMissed = categories.nutrition && !nutritionLogged;
 
   const prompt = `You are generating a ${timeLabel} for a personal health app called Press. Same editorial voices as the morning edition — V (health editor, cool newspaper prose, no hand-holding) and Atlas (training analyst, methodical, science-grounded).
 
 Today's data so far:
-- Workout: ${todayWorkout ? todayWorkout.name + ' — completed' : 'not yet logged'}
-- Nutrition logged: ${nutritionLogged ? `${totalCals}kcal, ${totalProtein}g protein (target: ${macroTargets.calories}kcal, ${macroTargets.protein}g protein)` : 'NOTHING LOGGED'}
+- Workout: ${todayWorkout ? todayWorkout.name + ' — completed' : 'not yet logged'}${categories.nutrition ? `
+- Nutrition logged: ${nutritionLogged ? `${totalCals}kcal, ${totalProtein}g protein (target: ${macroTargets.calories}kcal, ${macroTargets.protein}g protein)` : 'NOTHING LOGGED'}` : ''}
 - Structural fatigue: ${topFatigued}
 - CNS fatigue: ${cns}%${cycleInfo && cycleInfo.cycleDay != null ? `\n- Cycle phase: day ${cycleInfo.cycleDay}${cycleInfo.onPeriod ? ' (on period)' : ''}, recovery calibration factor ${cycleInfo.factor.toFixed(2)}, RIR guidance: ${cycleInfo.rirOffset > 0 ? '+' + cycleInfo.rirOffset : cycleInfo.rirOffset}` : ''}
 - Time of day: ${period === 'afternoon' ? 'mid-afternoon' : 'evening'}
-
+${!categories.nutrition ? '\nThis user has turned off nutrition tracking — never mention, ask about, or reference nutrition, calories, or protein anywhere in the output, including implicitly.\n' : ''}
 Return ONLY valid JSON:
 {
   "headline": "HEADLINE IN CAPS — MAX 55 CHARS",
   "subheading": "One sharp sentence.",
   "pullQuote": "One standalone, quotable sentence pulled from today's most important thread so far — not a repeat of the headline or subheading.",
-  "bullets": { "numbers": [{"label": "Calories", "value": "1,850"}, {"label": "Protein", "value": "120g"}] },
-  "v": "${period === 'afternoon' ? 'Check-in tone — how is the day building. 2-3 sentences.' : 'Closing note — what the day amounted to. 2-3 sentences.'}${!nutritionLogged ? ' Address the missing nutrition log directly and briefly — frame it as a data gap, not a nag.' : ''}",
-  "atlas": "1-2 sentences from Atlas on today's training/fatigue state. Null if there's genuinely nothing training-relevant to say (e.g. true rest day, nothing logged yet).",
-  "nutritionNote": ${nutritionLogged ? 'null' : '"A single direct sentence prompting the user to log their nutrition today."'}
+  "bullets": { "numbers": [${categories.nutrition ? '{"label": "Calories", "value": "1,850"}, {"label": "Protein", "value": "120g"}' : '{"label": "CNS Fatigue", "value": "' + cns + '%"}'}] },
+  "v": "${period === 'afternoon' ? 'Check-in tone — how is the day building. 2-3 sentences.' : 'Closing note — what the day amounted to. 2-3 sentences.'}${nutritionGapMissed ? ' Address the missing nutrition log directly and briefly — frame it as a data gap, not a nag.' : ''}",
+  "atlas": "1-2 sentences from Atlas on today's training/fatigue state. Null if there's genuinely nothing training-relevant to say (e.g. true rest day, nothing logged yet)."${categories.nutrition ? `,
+  "nutritionNote": ${nutritionLogged ? 'null' : '"A single direct sentence prompting the user to log their nutrition today."'}` : ''}
 }`;
 
   const result = await callGeminiResilient({ messages: [{ role: 'user', content: prompt }], maxTokens: 500, jsonMode: true, temperature: 0.75 });
@@ -3629,6 +3647,10 @@ Return ONLY valid JSON:
 // but comparing this week to the prior week instead of describing a single day.
 async function generateWeeklyReview(db) {
   if (!process.env.GEMINI_API_KEY) return null;
+  // #14: same rule as the morning briefing/newscast — an off category is
+  // never referenced, not reported as a permanent "no data"/"gap" week
+  // after week for someone who deliberately isn't tracking it.
+  const categories = resolveTrackingCategories(db.profile);
   const cutoffThis = day(new Date(Date.now() - 7 * 864e5));
   const cutoffLast = day(new Date(Date.now() - 14 * 864e5));
 
@@ -3719,8 +3741,14 @@ async function generateWeeklyReview(db) {
     sessionsThis: thisWeekWorkouts.length, sessionsLast: lastWeekWorkouts.length,
     volThis: thisVol, volLast: lastVol,
     recoveryThis: avgRecoveryThis, recoveryLast: avgRecoveryLast,
-    sleepThis: avgSleepThis, sleepTarget: sleepT.target,
-    nutritionDaysLogged: nutritionKeysThis.length, prCount: prLifts.length,
+    sleepThis: categories.sleep ? avgSleepThis : null, sleepTarget: sleepT.target,
+    // nutritionKeysThis.length is always a real number (0 when nothing's
+    // logged), not null — bucketWorkingAttention's own null-check only
+    // protects sleepThis's "genuinely no data this week" case, so an
+    // account with nutrition tracking off needs null passed explicitly
+    // here, or it always reads as "Nutrition logged 0/7 days" needing
+    // attention, forever.
+    nutritionDaysLogged: categories.nutrition ? nutritionKeysThis.length : null, prCount: prLifts.length,
   });
 
   // Same fatigue functions the morning briefing already calls (fatigue.js) —
@@ -3747,21 +3775,21 @@ async function generateWeeklyReview(db) {
 This week vs. last week:
 - Sessions: ${thisWeekWorkouts.length} this week vs ${lastWeekWorkouts.length} last week
 - Lift volume: ${thisVol}kg total this week vs ${lastVol}kg last week
-- Avg recovery: ${avgRecoveryThis != null ? Math.round(avgRecoveryThis) + '%' : 'no data'} this week vs ${avgRecoveryLast != null ? Math.round(avgRecoveryLast) + '%' : 'no data'} last week
-- Avg sleep: ${avgSleepThis != null ? avgSleepThis.toFixed(1) + 'h' : 'no data'} this week vs ${avgSleepLast != null ? avgSleepLast.toFixed(1) + 'h' : 'no data'} last week (target ${sleepT.target}h)
-- Nutrition: logged ${nutritionKeysThis.length}/7 days, avg ${avgCalThis ? Math.round(avgCalThis) : '—'}kcal / ${avgProteinThis ? Math.round(avgProteinThis) : '—'}g protein (target ${macroTargets.calories}kcal / ${macroTargets.protein}g)
+- Avg recovery: ${avgRecoveryThis != null ? Math.round(avgRecoveryThis) + '%' : 'no data'} this week vs ${avgRecoveryLast != null ? Math.round(avgRecoveryLast) + '%' : 'no data'} last week${categories.sleep ? `
+- Avg sleep: ${avgSleepThis != null ? avgSleepThis.toFixed(1) + 'h' : 'no data'} this week vs ${avgSleepLast != null ? avgSleepLast.toFixed(1) + 'h' : 'no data'} last week (target ${sleepT.target}h)` : ''}${categories.nutrition ? `
+- Nutrition: logged ${nutritionKeysThis.length}/7 days, avg ${avgCalThis ? Math.round(avgCalThis) : '—'}kcal / ${avgProteinThis ? Math.round(avgProteinThis) : '—'}g protein (target ${macroTargets.calories}kcal / ${macroTargets.protein}g)` : ''}
 - Weight: ${weightStart && weightEnd ? `${weightStart}kg → ${weightEnd}kg` : 'not enough data'}
 - New strength PRs this week: ${prLifts.length ? prLifts.join(', ') : 'none'}
-
+${(!categories.sleep || !categories.nutrition) ? `\nThis user has turned off ${[!categories.sleep && 'sleep/recovery tracking', !categories.nutrition && 'nutrition tracking'].filter(Boolean).join(' and ')} — never mention, ask about, or reference ${[!categories.sleep && 'sleep or recovery', !categories.nutrition && 'nutrition, calories, or protein'].filter(Boolean).join(' or ')} anywhere in the output, including implicitly. Only reference data categories actually listed above.\n` : ''}
 Return ONLY valid JSON:
 {
   "headline": "HEADLINE IN CAPS — MAX 55 CHARS",
   "subheading": "One sharp sentence on how the week went overall.",
   "pullQuote": "One standalone, quotable sentence pulled from the week's most important thread — not a repeat of the headline or subheading.",
-  "bullets": { "numbers": [{"label": "Sessions", "value": "${thisWeekWorkouts.length}"}, {"label": "Volume", "value": "${thisVol}kg"}, {"label": "Avg Recovery", "value": "${avgRecoveryThis != null ? Math.round(avgRecoveryThis) + '%' : '—'}"}, {"label": "Avg Sleep", "value": "${avgSleepThis != null ? avgSleepThis.toFixed(1) + 'h' : '—'}"}] },
-  "v": "Overall verdict on the week — training consistency, recovery trend, nutrition adherence. 2-3 sentences, direct.",
-  "atlas": "1-2 sentences from Atlas on training volume/strength trend and ${prLifts.length ? 'the new PR(s)' : 'the absence of new PRs'} this week.",
-  "nutritionNote": ${nutritionKeysThis.length < 5 ? '"A single direct sentence noting the nutrition logging gap this week."' : 'null'}
+  "bullets": { "numbers": [{"label": "Sessions", "value": "${thisWeekWorkouts.length}"}, {"label": "Volume", "value": "${thisVol}kg"}, {"label": "Avg Recovery", "value": "${avgRecoveryThis != null ? Math.round(avgRecoveryThis) + '%' : '—'}"}${categories.sleep ? `, {"label": "Avg Sleep", "value": "${avgSleepThis != null ? avgSleepThis.toFixed(1) + 'h' : '—'}"}` : ''}] },
+  "v": "Overall verdict on the week — training consistency, recovery trend${categories.nutrition ? ', nutrition adherence' : ''}. 2-3 sentences, direct.",
+  "atlas": "1-2 sentences from Atlas on training volume/strength trend and ${prLifts.length ? 'the new PR(s)' : 'the absence of new PRs'} this week."${categories.nutrition ? `,
+  "nutritionNote": ${nutritionKeysThis.length < 5 ? '"A single direct sentence noting the nutrition logging gap this week."' : 'null'}` : ''}
 }`;
 
   const result = await callGeminiResilient({ messages: [{ role: 'user', content: prompt }], maxTokens: 550, jsonMode: true, temperature: 0.75 });
