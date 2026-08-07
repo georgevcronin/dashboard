@@ -983,6 +983,23 @@ const repsForPR = (kg, targetE1RM) => {
   }
   return null;
 };
+// Which fields each device's Health data actually supports differ enough
+// (Find Health Samples hard-errors, not empty, on a type the device never
+// writes) that one universal Shortcut can't cover everyone — see
+// .design/feature-brainstorm or chat history for the full field-by-field
+// breakdown this list was derived from. `url` is filled in per device as
+// each Shortcut variant is built; empty means "not published yet".
+const HEALTH_SHORTCUT_DEVICES = [
+  { key: 'aw3', label: 'Apple Watch Series 3', url: 'https://www.icloud.com/shortcuts/0ac09c122a924736acfbcb5efcf69344' },
+  { key: 'aw4-5-se12', label: 'Apple Watch Series 4–5 / SE (1st/2nd gen)', url: 'https://www.icloud.com/shortcuts/97c153fb788049f3affa45feafb95e87' },
+  { key: 'aw6-7', label: 'Apple Watch Series 6–7', url: 'https://www.icloud.com/shortcuts/b1fdd430f64645f19f136d98c6bc6c32' },
+  { key: 'awse3', label: 'Apple Watch SE 3', url: 'https://www.icloud.com/shortcuts/bc8ece69279843e4839624d74d5c8e6f' },
+  { key: 'aw8-11-ultra', label: 'Apple Watch Series 8–11 / Ultra (1–3)', url: 'https://www.icloud.com/shortcuts/7182780e1df1493cbc6b30dec162eeff' },
+  { key: 'whoop3', label: 'Whoop 3.0', url: 'https://www.icloud.com/shortcuts/c4278af9b31d465aa0f18e899eca1aee' },
+  { key: 'whoop4', label: 'Whoop 4.0', url: 'https://www.icloud.com/shortcuts/7b4e5624538d4c39ba5593357863e48d' },
+  { key: 'oura1-2', label: 'Oura Gen 1–2', url: 'https://www.icloud.com/shortcuts/86299aad30514c9186e663aa3843afcc' },
+  { key: 'oura3plus', label: 'Oura Gen 3 / Ring 4 / Ring 5', url: 'https://www.icloud.com/shortcuts/ce5569a95a87408c99972234d26ae129' },
+];
 const SET_TYPES = ['W','N','D'];
 const SET_LABELS = { W: 'Warm-up', N: 'Normal', D: 'Drop Set' };
 const REST_DEFAULT = 90;
@@ -1004,6 +1021,22 @@ const glycogenPct = (elapsedS, totalS) => {
 // instead of the list. v0.1 is the first tracked release, not literally the
 // app's first version — everything before this had no changelog at all.
 const CHANGELOG = [
+  {
+    version: '0.85',
+    date: '2026-08-07',
+    features: [
+      'Settings\' Apple Health setup guide now has a device picker (Apple Watch generation, Whoop, or Oura) that links straight to the Shortcut built for that device, instead of one Shortcut everyone has to hand-edit. Device-specific links are rolling out — picking one not yet published tells you so instead of a dead link.',
+      'The guide\'s "Sync Now" link now runs the exact Shortcut for your picked device (pressnewsletter-<device>) directly.',
+    ],
+  },
+  {
+    version: '0.83',
+    date: '2026-08-06',
+    features: [
+      'Apple Health setup guide now covers Blood Oxygen and Wrist Temperature per device (Apple Watch generations, Whoop, Oura) instead of one blanket "delete if unsupported" note — including the Oura gotcha where its temperature lands in Health as "Body Temperature", not "Wrist Temperature".',
+      'Added a "Sync Now" link next to the Apple Health setup guide (Onboarding and Settings) that runs your Shortcut directly via the shortcuts:// URL scheme, once it\'s named "Press Sync".',
+    ],
+  },
   {
     version: '0.82',
     date: '2026-08-06',
@@ -7020,12 +7053,22 @@ function Onboarding({ s, onComplete, onOpenImport }) {
                     <span>{syncUrl}</span>
                     <button onClick={e => { e.stopPropagation(); copyUrl(); }}>{urlCopied ? 'Copied!' : 'Copy'}</button>
                   </div>
+                  <div style={{ marginTop: 8 }}>
+                    Name your Shortcut <strong>Press Sync</strong> (rename it in the Shortcuts app if needed) and this link runs it directly, no need to open Shortcuts first: <a href="shortcuts://run-shortcut?name=Press%20Sync" style={{ color: 'var(--forest)', fontWeight: 700 }}>Sync Now →</a>
+                  </div>
                   <button onClick={() => setGuideAdvanced(v => !v)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, marginTop: 10, fontSize: 9, letterSpacing: '.08em', textTransform: 'uppercase', color: 'var(--dim)' }}>
                     {guideAdvanced ? '− Hide' : '+ Show'} manual build / sharing with others / unsupported sensors
                   </button>
                   {guideAdvanced && (
                     <div style={{ marginTop: 10 }}>
-                      <strong>No Blood Oxygen or Wrist Temperature on your Watch?</strong> Apple Watch SE has neither sensor, and Wrist Temperature needs Series 8+/Ultra — "Find Health Samples" errors on a type your device doesn't support (it doesn't just return empty), so just delete those two blocks from your own copy of the Shortcut. Everything else (HR, HRV, RHR, Steps, Sleep) works on every Watch and the iPhone alone.<br /><br />
+                      <strong>Blood Oxygen / Wrist Temperature — build one Shortcut variant per device, not one for everyone:</strong><br />
+                      • <strong>Apple Watch Series 4/5, SE (1st/2nd gen):</strong> neither sensor — delete both blocks.<br />
+                      • <strong>Series 6/7:</strong> Blood Oxygen only — delete the Wrist Temperature block.<br />
+                      • <strong>Series 8/9/10/11, Ultra (any), SE 3:</strong> both — keep as-is.<br />
+                      • <strong>Whoop 4.0:</strong> Blood Oxygen only (writes to the same "Blood Oxygen" Health type Apple Watch uses) — delete the Wrist Temperature block; Whoop never writes temperature to Apple Health, on any model. <strong>Whoop 3.0:</strong> neither — delete both.<br />
+                      • <strong>Oura Gen 1/2:</strong> temperature only, no Blood Oxygen sensor — delete the Blood Oxygen block, and change the Wrist Temperature block's Find Health Samples type to "Body Temperature" (Oura writes there, never to "Wrist Temperature" — different HealthKit types).<br />
+                      • <strong>Oura Gen 3 / Ring 4 / Ring 5:</strong> both — same Body Temperature swap as above, Blood Oxygen block works as-is (writes to the same "Blood Oxygen" type Apple Watch uses).<br /><br />
+                      "Find Health Samples" errors (not empty) on a type your device never writes, which is why this needs per-device variants rather than one universal Shortcut. Everything else (HR, HRV, RHR, Steps, Sleep) works on every Watch and the iPhone alone.<br /><br />
                       <strong>Sharing this with someone else?</strong> Add these steps to the top of the Shortcut so it asks for their URL once and remembers it automatically, instead of everyone needing to manually edit it:<br />
                       <strong>a.</strong> Add <strong>Get File</strong> (iCloud Drive → Shortcuts folder → <code>press-sync-url.txt</code>), with "Error if Not Found" turned off — this file won't exist the first time<br />
                       <strong>b.</strong> Add an <strong>If</strong> checking whether that result has any value<br />
@@ -7787,6 +7830,7 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
   const SHORTCUT_URL = `${API_BASE}/shortcut`;
   const [syncUrl, setSyncUrl] = useState(SHORTCUT_URL);
   const [guideAdvanced, setGuideAdvanced] = useState(false);
+  const [healthDevice, setHealthDevice] = useState('');
   const openHealthGuide = () => {
     setHealthGuideOpen(v => {
       const next = !v;
@@ -9123,21 +9167,63 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
             </div>
             {healthGuideOpen && (
               <div className="ob-guide">
-                <a href="https://www.icloud.com/shortcuts/f8fcfefdac47476081f8b92e8e03999c" target="_blank" rel="noopener noreferrer"
-                  style={{ display: 'block', marginBottom: 8, fontWeight: 700, color: 'var(--gold)' }}>
-                  Install the pre-built Shortcut →
-                </a>
+                <label style={{ display: 'block', fontSize: 9, letterSpacing: '.08em', textTransform: 'uppercase', color: 'var(--dim)', marginBottom: 4 }}>
+                  Your device
+                </label>
+                <select value={healthDevice} onChange={e => setHealthDevice(e.target.value)} style={{ ...inputStyle, marginBottom: 10 }}>
+                  <option value="">Select your watch, band, or ring…</option>
+                  <optgroup label="Apple Watch">
+                    {HEALTH_SHORTCUT_DEVICES.filter(d => d.key.startsWith('aw')).map(d => (
+                      <option key={d.key} value={d.key}>{d.label}</option>
+                    ))}
+                  </optgroup>
+                  <optgroup label="Whoop">
+                    {HEALTH_SHORTCUT_DEVICES.filter(d => d.key.startsWith('whoop')).map(d => (
+                      <option key={d.key} value={d.key}>{d.label}</option>
+                    ))}
+                  </optgroup>
+                  <optgroup label="Oura">
+                    {HEALTH_SHORTCUT_DEVICES.filter(d => d.key.startsWith('oura')).map(d => (
+                      <option key={d.key} value={d.key}>{d.label}</option>
+                    ))}
+                  </optgroup>
+                </select>
+                {healthDevice && (() => {
+                  const device = HEALTH_SHORTCUT_DEVICES.find(d => d.key === healthDevice);
+                  return device.url ? (
+                    <a href={device.url} target="_blank" rel="noopener noreferrer"
+                      style={{ display: 'block', marginBottom: 8, fontWeight: 700, color: 'var(--gold)' }}>
+                      Install the {device.label} Shortcut →
+                    </a>
+                  ) : (
+                    <div style={{ marginBottom: 8, fontSize: 11, color: 'var(--dim)' }}>
+                      The {device.label} Shortcut isn't published yet — check back soon.
+                    </div>
+                  );
+                })()}
                 Your personal sync link — after installing, open the Shortcut and make sure its URL matches this (replace it if it doesn't), so your data lands in your own account:
                 <div className="ob-copy-url" onClick={() => navigator.clipboard?.writeText(syncUrl).then(() => { setUrlCopied(true); setTimeout(() => setUrlCopied(false), 2000); })}>
                   <span>{syncUrl}</span>
                   <button>{urlCopied ? 'Copied!' : 'Copy'}</button>
                 </div>
+                {healthDevice && (
+                  <div style={{ marginTop: 8 }}>
+                    This link runs your Shortcut directly, no need to open Shortcuts first: <a href={`shortcuts://run-shortcut?name=${encodeURIComponent(`pressnewsletter-${healthDevice}`)}`} style={{ color: 'var(--forest)', fontWeight: 700 }}>Sync Now →</a>
+                  </div>
+                )}
                 <button onClick={() => setGuideAdvanced(v => !v)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, marginTop: 10, fontSize: 9, letterSpacing: '.08em', textTransform: 'uppercase', color: 'var(--dim)' }}>
                   {guideAdvanced ? '− Hide' : '+ Show'} manual build / sharing with others / unsupported sensors
                 </button>
                 {guideAdvanced && (
                   <div style={{ marginTop: 10 }}>
-                    <strong>No Blood Oxygen or Wrist Temperature on your Watch?</strong> Apple Watch SE has neither sensor, and Wrist Temperature needs Series 8+/Ultra — "Find Health Samples" errors on a type your device doesn't support (it doesn't just return empty), so just delete those two blocks from your own copy of the Shortcut. Everything else (HR, HRV, RHR, Steps, Sleep) works on every Watch and the iPhone alone.<br /><br />
+                    <strong>Blood Oxygen / Wrist Temperature — build one Shortcut variant per device, not one for everyone:</strong><br />
+                    • <strong>Apple Watch Series 4/5, SE (1st/2nd gen):</strong> neither sensor — delete both blocks.<br />
+                    • <strong>Series 6/7:</strong> Blood Oxygen only — delete the Wrist Temperature block.<br />
+                    • <strong>Series 8/9/10/11, Ultra (any), SE 3:</strong> both — keep as-is.<br />
+                    • <strong>Whoop 4.0:</strong> Blood Oxygen only (writes to the same "Blood Oxygen" Health type Apple Watch uses) — delete the Wrist Temperature block; Whoop never writes temperature to Apple Health, on any model. <strong>Whoop 3.0:</strong> neither — delete both.<br />
+                    • <strong>Oura Gen 1/2:</strong> temperature only, no Blood Oxygen sensor — delete the Blood Oxygen block, and change the Wrist Temperature block's Find Health Samples type to "Body Temperature" (Oura writes there, never to "Wrist Temperature" — different HealthKit types).<br />
+                    • <strong>Oura Gen 3 / Ring 4 / Ring 5:</strong> both — same Body Temperature swap as above, Blood Oxygen block works as-is (writes to the same "Blood Oxygen" type Apple Watch uses).<br /><br />
+                    "Find Health Samples" errors (not empty) on a type your device never writes, which is why this needs per-device variants rather than one universal Shortcut. Everything else (HR, HRV, RHR, Steps, Sleep) works on every Watch and the iPhone alone.<br /><br />
                     <strong>Sharing this with someone else?</strong> Add these steps to the top of the Shortcut so it asks for their URL once and remembers it automatically, instead of everyone needing to manually edit it:<br />
                     <strong>a.</strong> Add <strong>Get File</strong> (iCloud Drive → Shortcuts folder → <code>press-sync-url.txt</code>), with "Error if Not Found" turned off — this file won't exist the first time<br />
                     <strong>b.</strong> Add an <strong>If</strong> checking whether that result has any value<br />
