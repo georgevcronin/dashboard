@@ -8,4 +8,5 @@ export default {
     '^.+\\.(jsx?|mjs)$': 'babel-jest',
   },
   testMatch: ['**/test/**/*.test.jsx'],
+  testPathIgnorePatterns: ['/node_modules/', '/.claude/worktrees/'],
 };
