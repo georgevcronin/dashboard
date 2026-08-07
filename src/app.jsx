@@ -220,7 +220,7 @@ function Header({ s, onSignOut, onOpenSettings, socialBadgeCount, onSyncShortcut
   const n = s?.nutritionToday || {};
   const mt = s?.macroTargets || {};
   const steps = today.steps != null ? Math.round(today.steps * 1000) : null;
-  const exactCal = !!s?.profile?.exactCalories;
+  const exactCal = s?.profile?.exactCalories !== false;
 
   const items = [
     { sym: '$RCVRY',   val: today.recovery != null ? `${Math.round(today.recovery)}` : '—',   chg: null, up: true },
@@ -1037,6 +1037,8 @@ const CHANGELOG = [
     date: '2026-08-07',
     features: [
       'Settings\' Macro Targets section is now two separately-navigable TOC entries — Calorie Target and Macro Split — matching that they\'re two independent controls now (still saved together with one button).',
+      'Meal photo scan now has separate Take Photo / Upload Photo buttons — upload an already-taken photo instead of only shooting a new one',
+      'Exact Calories now defaults to on (was nearest-300 rounding) — Settings still lets you switch back',
     ],
   },
   {
@@ -9691,14 +9693,14 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
         <div className="settings-sec" id="sec-nutrition">
           <div className="settings-sh">Nutrition</div>
           <div className="prof-field">
-            <span className="prof-lbl">Exact Calories <span style={{ fontSize: 8, color: 'var(--dim)', textTransform: 'none' }}>(default: nearest 300)</span></span>
+            <span className="prof-lbl">Exact Calories <span style={{ fontSize: 8, color: 'var(--dim)', textTransform: 'none' }}>(default: exact)</span></span>
             <button className="prof-btn" onClick={() => {
-                const exactCalories = !s?.profile?.exactCalories;
+                const exactCalories = s?.profile?.exactCalories === false;
                 refresh({ ...s, profile: { ...s.profile, exactCalories } });
                 api('profile', { method: 'POST', body: JSON.stringify({ exactCalories }) });
               }}
-              style={s?.profile?.exactCalories ? { background: 'var(--ink)', color: 'var(--paper)', borderColor: 'var(--ink)' } : {}}>
-              {s?.profile?.exactCalories ? 'On' : 'Off'}
+              style={s?.profile?.exactCalories !== false ? { background: 'var(--ink)', color: 'var(--paper)', borderColor: 'var(--ink)' } : {}}>
+              {s?.profile?.exactCalories !== false ? 'On' : 'Off'}
             </button>
           </div>
         </div>
