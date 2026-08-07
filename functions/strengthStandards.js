@@ -609,4 +609,4 @@ function computeMuscleLevels(lifts, weightHistory, currentBodyweightKg, sex, fat
   return muscles;
 }
 
-module.exports = { computeMuscleLevels, computeBlendedMuscleLevel, classifyLift, estimate1RM, e1rm, e1rmTrendSlope, bodyweightNear, scoreForRatio, STANDARDS, TIERS };
+module.exports = { computeMuscleLevels, computeBlendedMuscleLevel, classifyLift, estimate1RM, e1rm, e1rmTrendSlope, bodyweightNear, scoreForRatio, STANDARDS, TIERS, TIER_BANDS };

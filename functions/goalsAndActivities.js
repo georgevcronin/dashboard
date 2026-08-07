@@ -8,7 +8,7 @@ const { DEFAULT_ATROPHY_RATE } = require('./adaptation');
 // independently 'primary'/'secondary'/'minor' — not a single primary +
 // single secondary slot (the old primaryActivity/secondaryActivity pair).
 const GOAL_TYPES = ['fatLoss', 'muscle', 'cardio', 'flexibility', 'sport'];
-const ACTIVITY_TYPES = ['strength', 'running', 'hybrid', 'team_sports', 'endurance', 'crossfit', 'other'];
+const ACTIVITY_TYPES = ['strength', 'running', 'cycling', 'swimming', 'sport', 'aerobic', 'other'];
 const PRIORITY_TIERS = ['primary', 'secondary', 'minor'];
 const PRIORITY_WEIGHT = { primary: 1, secondary: 0.5, minor: 0.25 };
 // Metrics available per concrete goal type — flexibility/sport only take
@@ -55,10 +55,10 @@ function validateActivities(activities) {
 const ACTIVITY_DEFAULTS = {
   strength: { lifting: { sessionsPerWeek: 4, avgSessionScore: 2000 } },
   running: { running: { sessionsPerWeek: 4, avgSessionDistance: 25 } },
-  hybrid: { lifting: { sessionsPerWeek: 3, avgSessionScore: 1800 }, running: { sessionsPerWeek: 3, avgSessionDistance: 20 } },
-  team_sports: { lifting: { sessionsPerWeek: 2, avgSessionScore: 1500 }, sports: { sessionsPerWeek: 2 } },
-  endurance: { running: { sessionsPerWeek: 5, avgSessionDistance: 30 } },
-  crossfit: { lifting: { sessionsPerWeek: 5, avgSessionScore: 2200 } },
+  cycling: { sports: { sessionsPerWeek: 3 } },
+  swimming: { sports: { sessionsPerWeek: 3 } },
+  sport: { sports: { sessionsPerWeek: 2 } },
+  aerobic: { sports: { sessionsPerWeek: 4 } },
   other: {},
 };
 

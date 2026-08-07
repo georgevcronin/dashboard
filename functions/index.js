@@ -85,11 +85,20 @@ const { projectGoal, formatGoalLine, bucketWorkingAttention, ffm, ffmi } = requi
 const { computeHybridFatigue } = require('./hybridFatigue');
 const { buildRunningRecommendation } = require('./runningRecommendation');
 const { computeRunningACWR } = require('./runningLoad');
-const { vdotTrend, resolveVO2max, vdotTrainingPaces } = require('./vo2max');
+const { vdotTrend, resolveVO2max, vdotTrainingPaces, estimateCyclingVO2maxFromRides } = require('./vo2max');
 const { weeklyEfficiencyTrend, detectSessionDistanceSpike, dailyLoadsFromRuns } = require('./runningLoad');
 const { parseVO2max } = require('./shortcutParsing');
 const { parseStravaActivity } = require('./stravaParsing');
 const { predict8WeekVO2Gain } = require('./runningPrediction');
+const { classifySportType } = require('./sportClassifier');
+const {
+  estimateFTP, cogganPowerZones, dailyLoadsFromPower, weeklyPowerEfficiencyTrend, weeklySpeedEfficiencyTrend,
+} = require('./cyclingPower');
+const { weeklySwimEfficiencyTrend } = require('./enduranceLoad');
+const { buildCyclingRecommendation, buildSwimmingRecommendation, buildGeneralRecommendation } = require('./enduranceRecommendation');
+const { computeCardioScore } = require('./cardioStandards');
+const { coupledAcwr } = require('./fatigue');
+const { estimateMaxHeartRate } = require('./runningPrescription');
 
 // ---------- Unified workout schema ----------
 // All workouts conform to this shape regardless of source. Validation happens
@@ -906,6 +915,29 @@ app.get("/summary", async (req, res) => {
       }
     }
   }
+  // Cardio Score (functions/cardioStandards.js) -- VO2max's equivalent of
+  // muscleLevels below. Not reusing currentVO2max above (its resolveVO2max
+  // call passes db.profile/a bare number where {value,dateMs}/a real
+  // calculatedVDOT belong, so it never actually resolves anything -- a
+  // pre-existing issue, not fixed here, out of scope for this change).
+  // Prefers running's VDOT if there's running data, else cycling's own
+  // FTP-based estimate, else the shared HR-ratio fallback -- same chain
+  // /run/recommendation, /cycling/recommendation and /swim/recommendation
+  // all use.
+  const cardioAge = db.profile.age ?? (db.profile.dob ? Math.round(computeAgeYears(db.profile.dob)) : null);
+  const cardioBodyMassKg = weights.at(-1)?.value ?? Object.values(db.weight).at(-1);
+  const cardioMaxHR = db.profile?.baselines?.maxHeartRate || (cardioAge ? estimateMaxHeartRate(cardioAge) : null);
+  const cardioRestingHR = db.profile?.baselines?.restingHeartRate;
+  const runningVdotForCardio = db.runs?.length ? vdotTrend(db.runs, 30) : null;
+  const cyclingRidesForCardio = (db.sports || []).filter(s => classifySportType(s.sportType) === 'cycling');
+  const cyclingVdotForCardio = !runningVdotForCardio && cyclingRidesForCardio.length && cardioBodyMassKg
+    ? estimateCyclingVO2maxFromRides(cyclingRidesForCardio, cardioBodyMassKg, cardioMaxHR) : null;
+  const cardioVO2max = resolveVO2max(
+    latestAppleWatchVO2max(days),
+    runningVdotForCardio || cyclingVdotForCardio,
+    cardioMaxHR && cardioRestingHR ? { maxHR: cardioMaxHR, restingHR: cardioRestingHR } : null,
+  );
+  const cardioScore = cardioVO2max?.vo2max ? computeCardioScore(cardioVO2max.vo2max, cardioAge, db.profile?.sex) : null;
   res.json({
     profile: db.profile, hydrationCurve, hydrationNow: hydrationCurve.at(-1) ?? null,
     liftVolume,
@@ -955,6 +987,7 @@ app.get("/summary", async (req, res) => {
     travelMode: db.profile?.travelMode || false,
     dataMaturity: computeDataMaturity(db.lifts),
     muscleLevels: computeMuscleLevels(db.lifts, db.weight, weights.at(-1)?.value ?? Object.values(db.weight).at(-1), db.profile?.sex, fatigueTimeline(db.lifts, summaryMusclePeaks)),
+    cardioScore,
     // FEATURES.md #23 — the real, measured rate (once there's a logged gap
     // to measure) always wins over the onboarding self-report; the seed
     // stored on the profile is only ever a fallback until then.
@@ -2224,6 +2257,156 @@ app.get("/run/recommendation", async (req, res) => {
     age: db.profile?.age,
     maxHeartRate: db.profile?.baselines?.maxHeartRate,
     restingHeartRate: db.profile?.baselines?.restingHeartRate,
+  });
+
+  res.json(rec);
+});
+
+// Latest Apple Watch VO2max reading within a recent-days window (from
+// lastN(db.metrics, n)), not just today's exact date the way
+// /run/recommendation's own inline check above does -- that only ever
+// matches a reading synced today, narrower than resolveVO2max's own 30-day
+// staleness allowance actually supports. Pre-existing there, not touched;
+// this is the more correct version for the new call sites below.
+function latestAppleWatchVO2max(recentDays) {
+  for (let i = recentDays.length - 1; i >= 0; i--) {
+    if (recentDays[i].vo2max != null) return { value: recentDays[i].vo2max, dateMs: new Date(recentDays[i].date).getTime() };
+  }
+  return null;
+}
+
+// #cyclingPower.js / #enduranceRecommendation.js: cycling's own daily
+// prescription, same shape /run/recommendation returns above. db.sports is
+// the shared, unsplit bucket every non-running Strava activity lands in --
+// filtered down to cycling-classified entries first.
+app.get("/cycling/recommendation", async (req, res) => {
+  const rides = (db.sports || []).filter(s => classifySportType(s.sportType) === 'cycling');
+  if (!rides.length) return res.json(null);
+
+  const recentDays = lastN(db.metrics, 30);
+  const todayMetrics = recentDays.at(-1) || {};
+  const baseRecoveryScore = computeDay(todayMetrics,
+    avg(recentDays.map(d => d.heart_rate_variability).filter(Boolean)),
+    avg(recentDays.map(d => d.resting_heart_rate).filter(Boolean)),
+    personalSleepTarget(recentDays).target,
+    avg(recentDays.map(d => d.wrist_temperature).filter(Boolean)),
+    avg(recentDays.map(d => d.heart_rate).filter(Boolean))
+  );
+  if (baseRecoveryScore === null || baseRecoveryScore === undefined) return res.json(null);
+
+  const age = db.profile.age ?? (db.profile.dob ? Math.round(computeAgeYears(db.profile.dob)) : null);
+  const maxHeartRate = db.profile?.baselines?.maxHeartRate || (age ? estimateMaxHeartRate(age) : null);
+  const restingHeartRate = db.profile?.baselines?.restingHeartRate;
+  const bodyMassKg = Object.values(db.weight).at(-1);
+
+  const ftpResult = estimateFTP(rides, maxHeartRate);
+  const todayStr = new Date().toISOString().split('T')[0];
+  const acwr = ftpResult
+    ? coupledAcwr(dailyLoadsFromPower(rides, ftpResult.ftp), todayStr)
+    : coupledAcwr(dailyLoadsFromRuns(rides, db.profile), todayStr); // TRIMP fallback, same generic load fn running uses
+  const lastEfficiency = ftpResult
+    ? weeklyPowerEfficiencyTrend(rides, new Date())
+    : weeklySpeedEfficiencyTrend(rides, new Date());
+  const lastRide = rides[rides.length - 1];
+  const lastSpikeDetection = lastRide ? detectSessionDistanceSpike(lastRide, rides, 1.10) : null;
+
+  const cyclingVdot = bodyMassKg ? estimateCyclingVO2maxFromRides(rides, bodyMassKg, maxHeartRate) : null;
+  const appleWatchVO2max = latestAppleWatchVO2max(recentDays);
+  const hrRatioInputs = maxHeartRate && restingHeartRate ? { maxHR: maxHeartRate, restingHR: restingHeartRate } : null;
+  const vo2maxResolution = resolveVO2max(appleWatchVO2max, cyclingVdot, hrRatioInputs);
+
+  const rec = buildCyclingRecommendation({
+    baseRecoveryScore, acwr, sessions: rides, profile: db.profile,
+    lastEfficiency, lastSpikeDetection, vo2maxResolution,
+    age, maxHeartRate, restingHeartRate, ftpResult,
+  });
+
+  res.json(rec);
+});
+
+// #enduranceRecommendation.js: swimming's daily prescription -- same shape,
+// HR-only throughout (no power/pace equivalent exists for swimming, see
+// ENDURANCE_SCIENCE.md).
+app.get("/swim/recommendation", async (req, res) => {
+  const swims = (db.sports || []).filter(s => classifySportType(s.sportType) === 'swimming');
+  if (!swims.length) return res.json(null);
+
+  const recentDays = lastN(db.metrics, 30);
+  const todayMetrics = recentDays.at(-1) || {};
+  const baseRecoveryScore = computeDay(todayMetrics,
+    avg(recentDays.map(d => d.heart_rate_variability).filter(Boolean)),
+    avg(recentDays.map(d => d.resting_heart_rate).filter(Boolean)),
+    personalSleepTarget(recentDays).target,
+    avg(recentDays.map(d => d.wrist_temperature).filter(Boolean)),
+    avg(recentDays.map(d => d.heart_rate).filter(Boolean))
+  );
+  if (baseRecoveryScore === null || baseRecoveryScore === undefined) return res.json(null);
+
+  const age = db.profile.age ?? (db.profile.dob ? Math.round(computeAgeYears(db.profile.dob)) : null);
+  const maxHeartRate = db.profile?.baselines?.maxHeartRate || (age ? estimateMaxHeartRate(age) : null);
+  const restingHeartRate = db.profile?.baselines?.restingHeartRate;
+
+  const todayStr = new Date().toISOString().split('T')[0];
+  const acwr = coupledAcwr(dailyLoadsFromRuns(swims, db.profile), todayStr); // TRIMP, sport-agnostic
+  const lastEfficiency = weeklySwimEfficiencyTrend(swims, new Date());
+  const lastSwim = swims[swims.length - 1];
+  const lastSpikeDetection = lastSwim ? detectSessionDistanceSpike(lastSwim, swims, 1.10) : null;
+
+  const appleWatchVO2max = latestAppleWatchVO2max(recentDays);
+  const hrRatioInputs = maxHeartRate && restingHeartRate ? { maxHR: maxHeartRate, restingHR: restingHeartRate } : null;
+  // No swimming-specific calculatedVDOT source exists (see
+  // ENDURANCE_SCIENCE.md) -- Apple Watch or the shared HR-ratio fallback only.
+  const vo2maxResolution = resolveVO2max(appleWatchVO2max, null, hrRatioInputs);
+
+  const rec = buildSwimmingRecommendation({
+    baseRecoveryScore, acwr, sessions: swims, profile: db.profile,
+    lastEfficiency, lastSpikeDetection, vo2maxResolution,
+    age, maxHeartRate, restingHeartRate,
+  });
+
+  res.json(rec);
+});
+
+// #enduranceRecommendation.js's buildGeneralRecommendation: Sport & Aerobic
+// (S14/S15) share this one computation, off db.sports's catch-all 'other'
+// bucket (football, rock-climbing, Pilates, anything not run/cycle/swim) --
+// Strava's sport_type can't distinguish those two activity choices in any
+// principled way, so there's no data-level split to serve two different
+// prescriptions from. HR-only throughout; no efficiency-trend metric either
+// (no universal speed/pace unit across this bucket -- a distance means
+// something for a hike, nothing for Pilates).
+app.get("/general/recommendation", async (req, res) => {
+  const sessions = (db.sports || []).filter(s => classifySportType(s.sportType) === 'other');
+  if (!sessions.length) return res.json(null);
+
+  const recentDays = lastN(db.metrics, 30);
+  const todayMetrics = recentDays.at(-1) || {};
+  const baseRecoveryScore = computeDay(todayMetrics,
+    avg(recentDays.map(d => d.heart_rate_variability).filter(Boolean)),
+    avg(recentDays.map(d => d.resting_heart_rate).filter(Boolean)),
+    personalSleepTarget(recentDays).target,
+    avg(recentDays.map(d => d.wrist_temperature).filter(Boolean)),
+    avg(recentDays.map(d => d.heart_rate).filter(Boolean))
+  );
+  if (baseRecoveryScore === null || baseRecoveryScore === undefined) return res.json(null);
+
+  const age = db.profile.age ?? (db.profile.dob ? Math.round(computeAgeYears(db.profile.dob)) : null);
+  const maxHeartRate = db.profile?.baselines?.maxHeartRate || (age ? estimateMaxHeartRate(age) : null);
+  const restingHeartRate = db.profile?.baselines?.restingHeartRate;
+
+  const todayStr = new Date().toISOString().split('T')[0];
+  const acwr = coupledAcwr(dailyLoadsFromRuns(sessions, db.profile), todayStr); // TRIMP, sport-agnostic
+  const lastSession = sessions[sessions.length - 1];
+  const lastSpikeDetection = lastSession ? detectSessionDistanceSpike(lastSession, sessions, 1.10) : null;
+
+  const appleWatchVO2max = latestAppleWatchVO2max(recentDays);
+  const hrRatioInputs = maxHeartRate && restingHeartRate ? { maxHR: maxHeartRate, restingHR: restingHeartRate } : null;
+  const vo2maxResolution = resolveVO2max(appleWatchVO2max, null, hrRatioInputs);
+
+  const rec = buildGeneralRecommendation({
+    baseRecoveryScore, acwr, sessions, profile: db.profile,
+    lastEfficiency: null, lastSpikeDetection, vo2maxResolution,
+    age, maxHeartRate, restingHeartRate,
   });
 
   res.json(rec);

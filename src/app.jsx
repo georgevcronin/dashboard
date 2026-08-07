@@ -1033,6 +1033,29 @@ const glycogenPct = (elapsedS, totalS) => {
 // app's first version — everything before this had no changelog at all.
 const CHANGELOG = [
   {
+    version: '0.98',
+    date: '2026-08-07',
+    features: [
+      'New Sport and Aerobic panels, alongside Cycling and Swimming — same daily readiness-based prescription, heart-rate zones and load tracking. Both share one computation off whatever Strava logs that isn\'t running/cycling/swimming (a five-a-side match, a hike, a Pilates class) since there\'s no principled way to tell those two activity choices apart from the raw data — picking both just gets you two panels reading the same session history.',
+    ],
+  },
+  {
+    version: '0.97',
+    date: '2026-08-07',
+    features: [
+      'New Cycling and Swimming panels — same daily readiness-based prescription treatment as Running, only appearing for an account that listed that activity. Cycling gets its own real physiology model off actual Strava power-meter data where available: FTP detection, Coggan power zones, TSS-based load, and a power-based VO₂max estimate — not just a heart-rate approximation of the running engine. Falls back to heart-rate zones/TRIMP load when no power meter is present. Swimming uses heart-rate zones (with a lower max-HR allowance than land sports) and pace-per-100m, honestly — there\'s no power or pace-test equivalent for swimming to build a stronger estimate from.',
+      'VO₂max now has a rough self-calculated fallback (from resting/max heart rate) for any account with neither a watch reading nor a pace/power test on record — Running, Cycling, and Swimming all benefit, not just accounts syncing to Apple Health.',
+      'New Cardio Score in Personal Records — VO₂max\'s equivalent of the per-muscle strength ranking already there: a single Beginner→Elite tier scored against published age/sex VO₂max standards.',
+    ],
+  },
+  {
+    version: '0.96',
+    date: '2026-08-07',
+    features: [
+      'Activities (Onboarding step 4 and Settings) replaced Hybrid/Team Sports/Endurance/CrossFit with Cycling/Swimming/Sport/Aerobic. The old four were just volume presets layered on the same Strength/Running numbers — confusing in a multi-select picker where a "hybrid" athlete already had Strength + Running as two separate entries. One choice per real weekly-target bucket (lifting/running/sports) now, no overlap.',
+    ],
+  },
+  {
     version: '0.95',
     date: '2026-08-07',
     features: [
@@ -4613,6 +4636,43 @@ function StrengthLevelPanel({ muscleLevels, hasSex }) {
   );
 }
 
+// Cardio Score — VO2max's equivalent of StrengthLevelPanel above, same row
+// pattern (tier color, macro-track/macro-fill progress toward the next
+// numbered checkpoint) for one score instead of a per-muscle list. Backend:
+// functions/cardioStandards.js's computeCardioScore, wired into /summary
+// alongside muscleLevels.
+function CardioScorePanel({ cardioScore, hasSex }) {
+  if (!hasSex) return (
+    <div className="fade" style={{ borderTop: '1px solid var(--rule)', paddingTop: 10, marginTop: 12 }}>
+      <div className="kicker" style={{ marginBottom: 4 }}>Cardio Score</div>
+      <div style={{ fontSize: 11, color: 'var(--dim)', fontStyle: 'italic' }}>Set your sex in Settings → Profile to unlock a cardio-fitness ranking.</div>
+    </div>
+  );
+
+  if (!cardioScore) return (
+    <div className="fade" style={{ borderTop: '1px solid var(--rule)', paddingTop: 10, marginTop: 12 }}>
+      <div className="kicker" style={{ marginBottom: 4 }}>Cardio Score</div>
+      <div style={{ fontSize: 11, color: 'var(--dim)', fontStyle: 'italic' }}>
+        No VO₂max data yet — sync a run, ride, or Apple Watch reading to unlock a cardio-fitness ranking against published age/sex standards, Beginner→Elite.
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="fade" style={{ borderTop: '1px solid var(--rule)', paddingTop: 10, marginTop: 12 }}>
+      <div className="kicker" style={{ marginBottom: 8 }}>Cardio Score</div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontFamily: "'JetBrains Mono',monospace", fontSize: 10, marginBottom: 3 }}>
+        <span style={{ color: 'var(--ink)' }}>VO₂max {Math.round(cardioScore.vo2max * 10) / 10}</span>
+        <span style={{ color: TIER_COLOR[cardioScore.tier] }}>{cardioScore.tier} · {cardioScore.score}{cardioScore.score <= 100 ? '/100' : ''}</span>
+      </div>
+      <div className="macro-track"><div className="macro-fill" style={{
+        width: `${cardioScore.bandCeiling == null ? 100 : Math.max(0, Math.min(100, (cardioScore.score - cardioScore.bandFloor) / (cardioScore.bandCeiling - cardioScore.bandFloor) * 100))}%`,
+        background: TIER_COLOR[cardioScore.tier],
+      }} /></div>
+    </div>
+  );
+}
+
 const GROUP_SESSION_KEY = 'press_group_session_id';
 
 // Small one-time dialog: start a new group session (get a code) or join an
@@ -6385,6 +6445,7 @@ function S7({ s }) {
       </div>
       <div className="fade" style={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>
         <StrengthLevelPanel muscleLevels={s?.muscleLevels} hasSex={!!s?.profile?.sex} />
+        <CardioScorePanel cardioScore={s?.cardioScore} hasSex={!!s?.profile?.sex} />
         <div style={{ marginTop: 12 }}>
           <input className="pr-search" placeholder="Filter exercise…" value={search} onChange={e => setSearch(e.target.value)} />
         </div>
@@ -6438,11 +6499,16 @@ const TRAINING_SPLITS = ['Full Body', 'Upper / Lower', 'Push / Pull / Legs', 'Ar
 // and payload shape, no separate copies.
 // FEATURES.md #24 -- 7 broad activities, same Primary/Secondary/Minor
 // priority picker as goals (replaces the old single primaryActivity/
-// secondaryActivity pair).
+// secondaryActivity pair). One entry per real weeklyTargets bucket
+// (lifting/running/sports -- see ACTIVITY_DEFAULTS, goalsAndActivities.js) --
+// no composites like the old Hybrid/CrossFit/Endurance/Team Sports, which
+// were just volume presets layered on the same 3 buckets and, being
+// multi-select with independent priority already, were redundant with just
+// picking the underlying activities directly.
 const ACTIVITY_DEFS = [
-  { key: 'strength', label: 'Strength' }, { key: 'running', label: 'Running' }, { key: 'hybrid', label: 'Hybrid' },
-  { key: 'team_sports', label: 'Team Sports' }, { key: 'endurance', label: 'Endurance' },
-  { key: 'crossfit', label: 'CrossFit' }, { key: 'other', label: 'Other' },
+  { key: 'strength', label: 'Strength' }, { key: 'running', label: 'Running' }, { key: 'cycling', label: 'Cycling' },
+  { key: 'swimming', label: 'Swimming' }, { key: 'sport', label: 'Sport' },
+  { key: 'aerobic', label: 'Aerobic' }, { key: 'other', label: 'Other' },
 ];
 // Macro Targets -- a different question from trainingGoals above (what you
 // eat, not what you train for). Settings-only (Onboarding step 3 dropped
@@ -7341,7 +7407,7 @@ function Onboarding({ s, onComplete, onOpenImport }) {
 // train today, and why" and so lead; sleep/nutrition/body/records are the
 // supporting record and follow. Only affects accounts that have never
 // reordered — a stored profile.panelOrder always wins.
-const DEFAULT_PANEL_ORDER = ['s1', 's3', 's5', 's2', 's4', 's6', 's7', 's8', 's9', 's10', 's11'];
+const DEFAULT_PANEL_ORDER = ['s1', 's3', 's5', 's2', 's4', 's6', 's7', 's8', 's9', 's10', 's11', 's12', 's13', 's14', 's15'];
 // A stored panelOrder always wins (see above), but it was captured at
 // whatever point the account last touched Settings → Dashboard Layout —
 // pre-dating panels added since then, which would otherwise never appear
@@ -7364,8 +7430,8 @@ const PANEL_WIDE = new Set(['s1', 's3', 's5']);
 // is never stored — an unset panel and an explicitly-standard one are the same
 // thing, so nothing has to be migrated when a panel is added.
 const PANEL_STATE_LABELS = { collapsed: 'Collapsed', standard: 'Standard', expanded: 'Wide' };
-const PANEL_LABELS = { s1: 'Dispatch', s2: 'Sleep', s3: 'Training', s4: 'Nutrition', s5: 'Recovery', s6: 'Body & Supplements', s7: 'Personal Records', s8: 'Goals', s9: 'Social', s10: 'Cycle', s11: 'Running' };
-const DOCK_LABELS = { s1: 'Dispatch', s2: 'Sleep', s3: 'Training', s4: 'Nutrition', s5: 'Recovery', s6: 'Body', s7: 'Records', s8: 'Goals', s9: 'Social', s10: 'Cycle', s11: 'Running' };
+const PANEL_LABELS = { s1: 'Dispatch', s2: 'Sleep', s3: 'Training', s4: 'Nutrition', s5: 'Recovery', s6: 'Body & Supplements', s7: 'Personal Records', s8: 'Goals', s9: 'Social', s10: 'Cycle', s11: 'Running', s12: 'Cycling', s13: 'Swimming', s14: 'Sport', s15: 'Aerobic' };
+const DOCK_LABELS = { s1: 'Dispatch', s2: 'Sleep', s3: 'Training', s4: 'Nutrition', s5: 'Recovery', s6: 'Body', s7: 'Records', s8: 'Goals', s9: 'Social', s10: 'Cycle', s11: 'Running', s12: 'Cycling', s13: 'Swimming', s14: 'Sport', s15: 'Aerobic' };
 // One-click desktop layout presets (order + panelStates together) — not a
 // new layout mechanism, just named combinations of the two settings above.
 // Review and Retrospective are mirror images of the same lead/supporting
@@ -7390,7 +7456,7 @@ const LAYOUT_PRESETS = [
   {
     id: 'review', label: 'Review',
     desc: 'Dispatch, Training and Recovery wide and first — today\'s decision, biggest.',
-    order: ['s1', 's3', 's5', 's2', 's4', 's6', 's7', 's8', 's9', 's10', 's11'],
+    order: ['s1', 's3', 's5', 's2', 's4', 's6', 's7', 's8', 's9', 's10', 's11', 's12', 's13', 's14', 's15'],
     states: { s1: 'expanded', s3: 'expanded', s5: 'expanded', s2: 'collapsed', s4: 'collapsed', s6: 'collapsed', s7: 'collapsed' },
     // Every column sums to 42. s8/s9 (unset -> 'standard', h=14) don't
     // divide evenly against everything else at their natural height, so s9
@@ -7424,7 +7490,7 @@ const LAYOUT_PRESETS = [
   {
     id: 'retrospective', label: 'Retrospective',
     desc: 'Sleep, Nutrition, Body and Records wide and first — the review, not the decision.',
-    order: ['s2', 's4', 's6', 's7', 's1', 's3', 's5', 's8', 's9', 's10', 's11'],
+    order: ['s2', 's4', 's6', 's7', 's1', 's3', 's5', 's8', 's9', 's10', 's11', 's12', 's13', 's14', 's15'],
     states: { s2: 'expanded', s4: 'expanded', s6: 'expanded', s7: 'expanded', s1: 'collapsed', s3: 'collapsed', s5: 'collapsed' },
     // Every column sums to 47. s9 is nudged to h=12 (unset -> 'standard'
     // h=14 otherwise) purely so the totals divide evenly here, same as
@@ -8130,7 +8196,13 @@ function S10({ s, refresh }) {
 // Running listed as an activity — see App()'s hasRunningActivity gate,
 // same "opt-in, not tracking-level" pattern s10's cycleTrackingEnabled uses.
 const RUN_SESSION_LABELS = { rest: 'Rest Day', recovery: 'Recovery Run', easy: 'Easy Run', steady: 'Steady Run', tempo: 'Tempo Run', interval: 'Interval Session', long: 'Long Run' };
-const VO2MAX_SOURCE_LABELS = { 'apple-watch': 'Apple Watch', 'daniels-vdot': 'Estimated from pace' };
+const VO2MAX_SOURCE_LABELS = {
+  'apple-watch': 'Apple Watch', 'daniels-vdot': 'Estimated from pace',
+  // Cycling/Swimming panels (S12/S13) below reuse this same lookup —
+  // running only ever produces the two keys above, so adding these is inert
+  // for S11.
+  'cycling-ftp': 'Estimated from FTP', 'hr-ratio': 'Estimated from HR ratio',
+};
 // RUNNING_SCIENCE.md #107 (Williams et al. 2017) thresholds — the same zones
 // buildRunningRecommendation's own cautions already check against, just
 // labelled here for display rather than only surfacing as a caution string.
@@ -8271,6 +8343,189 @@ function S11({ s, runRecommendation }) {
         )}
       </div>
     </section>
+  );
+}
+
+// Cycling & Swimming panels — same shape as S11 above, off
+// /cycling/recommendation and /swim/recommendation
+// (functions/enduranceRecommendation.js). A new shared component rather
+// than a refactor of S11: deliberately not touching Running's working,
+// shipped UI to add these two. See ENDURANCE_SCIENCE.md for what's reused
+// vs. new server-side. Only ever mounted for an account with
+// Cycling/Swimming listed as an activity — same hasCyclingActivity/
+// hasSwimmingActivity gate hasRunningActivity uses for S11.
+const CYCLING_SESSION_LABELS = { rest: 'Rest Day', recovery: 'Recovery Ride', easy: 'Endurance Ride', steady: 'Steady Ride', tempo: 'Tempo Ride', interval: 'Interval Session', long: 'Long Ride' };
+const SWIM_SESSION_LABELS = { rest: 'Rest Day', recovery: 'Recovery Swim', easy: 'Easy Swim', steady: 'Steady Swim', tempo: 'Tempo Swim', interval: 'Interval Session', long: 'Long Swim' };
+
+function EnduranceSportPanel({ id, kicker, sessionLabels, rec, noSessionsLabel, emptyDeck, emptyBody }) {
+  const mono = { fontFamily: "'JetBrains Mono',monospace" };
+  // runningAcwrZone's thresholds (Williams et al. 2017) are cross-sport, not
+  // running-specific — same reuse RUNNING_SCIENCE.md documents for the ACWR
+  // math itself.
+  const acwrZone = rec ? runningAcwrZone(rec.acwr) : null;
+  const readinessColor = rec ? (rec.readiness >= 60 ? 'var(--forest)' : rec.readiness >= 40 ? 'var(--gold)' : 'var(--red)') : 'var(--ink)';
+  const avgDisplay = rec?.avgSpeedDisplay || rec?.avgPaceDisplay || null;
+
+  return (
+    <section id={id} style={{ display: 'flex', flexDirection: 'column' }}>
+      <div className="fade panel-head" style={{ flexShrink: 0 }}>
+        <div className="kicker">{kicker}</div>
+        <div className="headline" style={{ fontSize: 'clamp(24px,6vw,44px)', lineHeight: '.96' }}>
+          {rec ? (sessionLabels[rec.sessionType] || kicker) : kicker}
+        </div>
+        <div className="deck">{rec ? rec.readinessLabel : emptyDeck}</div>
+      </div>
+      <div className="fade" style={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>
+        {!rec ? (
+          <div style={{ ...mono, fontSize: 11, color: 'var(--dim)', lineHeight: 1.6 }}>
+            {emptyBody}
+          </div>
+        ) : (
+          <>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 10 }}>
+              <span style={{ ...mono, fontSize: 10, color: 'var(--dim)' }}>Readiness</span>
+              <span style={{ ...mono, fontSize: 16, fontWeight: 700, color: readinessColor }}>{Math.round(rec.readiness)}%</span>
+            </div>
+
+            {rec.sessionType !== 'rest' && (
+              <div style={{ marginBottom: 10 }}>
+                <div style={{ ...mono, fontSize: 10, color: 'var(--dim)', marginBottom: 3 }}>Duration</div>
+                <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 15, fontWeight: 700 }}>
+                  {rec.duration.min}–{rec.duration.max} min <span style={{ ...mono, fontSize: 10, fontWeight: 400, color: 'var(--dim)' }}>(target {rec.duration.target})</span>
+                </div>
+                {!rec.workoutPrescription && rec.intensity && (
+                  <div style={{ ...mono, fontSize: 10, color: 'var(--dim)', marginTop: 3 }}>{rec.intensity}</div>
+                )}
+                {avgDisplay && (
+                  <div style={{ ...mono, fontSize: 10, color: 'var(--dim)', marginTop: 3 }}>Last logged: {avgDisplay}</div>
+                )}
+              </div>
+            )}
+
+            {rec.workoutPrescription && (
+              <div style={{ marginBottom: 10, borderTop: '1px solid var(--paper2)', paddingTop: 8 }}>
+                <div style={{ ...mono, fontSize: 10, color: 'var(--dim)', marginBottom: 3 }}>{rec.workoutPrescription.zoneName || rec.workoutPrescription.hrZone}</div>
+                <div style={{ ...mono, fontSize: 12, color: 'var(--ink)' }}>
+                  {rec.workoutPrescription.range || rec.workoutPrescription.hrRange}
+                </div>
+                <div style={{ fontFamily: 'Times New Roman,serif', fontSize: 11, fontStyle: 'italic', color: 'var(--dim)', marginTop: 3 }}>
+                  {rec.workoutPrescription.purpose}
+                </div>
+              </div>
+            )}
+
+            {rec.alternatives?.length > 0 && (
+              <div style={{ ...mono, fontSize: 9, color: 'var(--dim)', marginBottom: 10 }}>
+                Alternatives: {rec.alternatives.map(a => sessionLabels[a] || a).join(', ')}
+              </div>
+            )}
+
+            <div style={{ fontFamily: 'Times New Roman,serif', fontSize: 12, lineHeight: 1.6, color: 'var(--ink)', marginBottom: 10 }}>
+              {rec.reasoning}
+            </div>
+
+            {rec.cautions?.length > 0 && rec.cautions.map((c, i) => (
+              <div key={i} style={{ ...mono, fontSize: 10, color: 'var(--ember)', lineHeight: 1.6, marginBottom: 4 }}>⚠ {c}</div>
+            ))}
+
+            <div style={{ borderTop: '1px solid var(--rule)', paddingTop: 8, marginTop: 4 }}>
+              <div className="kicker" style={{ marginBottom: 6 }}>This Week</div>
+              <div style={{ ...mono, fontSize: 10, color: 'var(--dim)', display: 'flex', justifyContent: 'space-between', lineHeight: 1.8 }}>
+                <span>{noSessionsLabel}</span><span style={{ color: 'var(--ink)' }}>{rec.weekSessionCount}</span>
+              </div>
+              {acwrZone && (
+                <div style={{ ...mono, fontSize: 10, display: 'flex', justifyContent: 'space-between', lineHeight: 1.8 }}>
+                  <span style={{ color: 'var(--dim)' }}>Acute:Chronic load</span>
+                  <span style={{ color: acwrZone.color }}>{rec.acwr} — {acwrZone.label}</span>
+                </div>
+              )}
+              {rec.efficiencyTrend?.trend4wk != null && (
+                <div style={{ ...mono, fontSize: 10, display: 'flex', justifyContent: 'space-between', lineHeight: 1.8 }}>
+                  <span style={{ color: 'var(--dim)' }}>Efficiency (4wk)</span>
+                  <span style={{ color: rec.efficiencyTrend.trend4wk < -3 ? 'var(--ember)' : 'var(--ink)' }}>
+                    {rec.efficiencyTrend.trend4wk > 0 ? '+' : ''}{Math.round(rec.efficiencyTrend.trend4wk * 10) / 10}%
+                  </span>
+                </div>
+              )}
+            </div>
+
+            <Detail min="intermediate">
+              {rec.powerZones && (
+                <div style={{ borderTop: '1px solid var(--rule)', paddingTop: 8, marginTop: 10 }}>
+                  <div className="kicker" style={{ marginBottom: 6 }}>Power Zones{rec.ftp ? ` (FTP ${rec.ftp}W)` : ''}</div>
+                  {Object.values(rec.powerZones).map(z => (
+                    <div key={z.name} style={{ ...mono, fontSize: 9, color: 'var(--dim)', display: 'flex', justifyContent: 'space-between', lineHeight: 1.8 }}>
+                      <span>{z.name}</span><span style={{ color: 'var(--ink)' }}>{z.range}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {rec.hrZones && (
+                <div style={{ borderTop: '1px solid var(--rule)', paddingTop: 8, marginTop: 10 }}>
+                  <div className="kicker" style={{ marginBottom: 6 }}>Heart Rate Zones</div>
+                  {Object.values(rec.hrZones).map(z => (
+                    <div key={z.name} style={{ ...mono, fontSize: 9, color: 'var(--dim)', display: 'flex', justifyContent: 'space-between', lineHeight: 1.8 }}>
+                      <span>{z.name}</span><span style={{ color: 'var(--ink)' }}>{z.range}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </Detail>
+
+            {rec.vo2maxValue && (
+              <div style={{ borderTop: '1px solid var(--rule)', paddingTop: 8, marginTop: 10 }}>
+                <div className="kicker" style={{ marginBottom: 6 }}>VO₂max</div>
+                <div style={{ ...mono, fontSize: 10, display: 'flex', justifyContent: 'space-between', lineHeight: 1.8 }}>
+                  <span style={{ color: 'var(--dim)' }}>{VO2MAX_SOURCE_LABELS[rec.vo2maxSource] || 'Current'}</span>
+                  <span style={{ color: 'var(--ink)' }}>{Math.round(rec.vo2maxValue * 10) / 10}</span>
+                </div>
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function S12({ cyclingRecommendation }) {
+  return (
+    <EnduranceSportPanel id="s12" kicker="Cycling" sessionLabels={CYCLING_SESSION_LABELS}
+      rec={cyclingRecommendation} noSessionsLabel="Rides logged"
+      emptyDeck="No rides logged yet"
+      emptyBody="Sync a ride from Strava to get a daily readiness-based prescription here." />
+  );
+}
+function S13({ swimmingRecommendation }) {
+  return (
+    <EnduranceSportPanel id="s13" kicker="Swimming" sessionLabels={SWIM_SESSION_LABELS}
+      rec={swimmingRecommendation} noSessionsLabel="Swims logged"
+      emptyDeck="No swims logged yet"
+      emptyBody="Sync a swim from Strava to get a daily readiness-based prescription here." />
+  );
+}
+
+// Sport (S14) & Aerobic (S15) — same shared computation for both (see
+// buildGeneralRecommendation, functions/enduranceRecommendation.js):
+// Strava's sport_type can't distinguish these two activity choices in any
+// principled way, so both panels render off the exact same
+// generalRecommendation object, gated and labelled independently.
+const GENERAL_SESSION_LABELS = { rest: 'Rest Day', recovery: 'Recovery Session', easy: 'Light Session', steady: 'Steady Session', tempo: 'Tempo Session', interval: 'Interval Session', long: 'Long Session' };
+
+function S14({ generalRecommendation }) {
+  return (
+    <EnduranceSportPanel id="s14" kicker="Sport" sessionLabels={GENERAL_SESSION_LABELS}
+      rec={generalRecommendation} noSessionsLabel="Sessions logged"
+      emptyDeck="No sessions logged yet"
+      emptyBody="Sync a session from Strava to get a daily readiness-based prescription here." />
+  );
+}
+function S15({ generalRecommendation }) {
+  return (
+    <EnduranceSportPanel id="s15" kicker="Aerobic" sessionLabels={GENERAL_SESSION_LABELS}
+      rec={generalRecommendation} noSessionsLabel="Sessions logged"
+      emptyDeck="No sessions logged yet"
+      emptyBody="Sync a session from Strava to get a daily readiness-based prescription here." />
   );
 }
 
@@ -11421,6 +11676,49 @@ function App() {
     return () => { cancelled = true; };
   }, [hasRunningActivity, s?.today?.recovery, s?.workouts?.length]);
 
+  // Same pattern as hasRunningActivity/runRecommendation above, for
+  // /cycling/recommendation and /swim/recommendation
+  // (functions/enduranceRecommendation.js) — S12/S13 render behind the same
+  // gate below.
+  const hasCyclingActivity = (s?.profile?.activities || []).some(a => a.type === 'cycling');
+  const [cyclingRecommendation, setCyclingRecommendation] = useState(null);
+  useEffect(() => {
+    if (!s || !hasCyclingActivity) { setCyclingRecommendation(null); return; }
+    let cancelled = false;
+    api('cycling/recommendation')
+      .then(data => { if (!cancelled) setCyclingRecommendation(data); })
+      .catch(() => { if (!cancelled) setCyclingRecommendation(null); });
+    return () => { cancelled = true; };
+  }, [hasCyclingActivity, s?.today?.recovery, s?.workouts?.length]);
+
+  const hasSwimmingActivity = (s?.profile?.activities || []).some(a => a.type === 'swimming');
+  const [swimmingRecommendation, setSwimmingRecommendation] = useState(null);
+  useEffect(() => {
+    if (!s || !hasSwimmingActivity) { setSwimmingRecommendation(null); return; }
+    let cancelled = false;
+    api('swim/recommendation')
+      .then(data => { if (!cancelled) setSwimmingRecommendation(data); })
+      .catch(() => { if (!cancelled) setSwimmingRecommendation(null); });
+    return () => { cancelled = true; };
+  }, [hasSwimmingActivity, s?.today?.recovery, s?.workouts?.length]);
+
+  // Sport (S14) and Aerobic (S15) share one fetch/one recommendation object
+  // — both pull from the same catch-all 'other' db.sports bucket
+  // (functions/sportClassifier.js), so there's nothing sport-specific to
+  // fetch twice. Each panel still gates independently on its own activity
+  // flag, same as every other endurance panel.
+  const hasSportActivity = (s?.profile?.activities || []).some(a => a.type === 'sport');
+  const hasAerobicActivity = (s?.profile?.activities || []).some(a => a.type === 'aerobic');
+  const [generalRecommendation, setGeneralRecommendation] = useState(null);
+  useEffect(() => {
+    if (!s || !(hasSportActivity || hasAerobicActivity)) { setGeneralRecommendation(null); return; }
+    let cancelled = false;
+    api('general/recommendation')
+      .then(data => { if (!cancelled) setGeneralRecommendation(data); })
+      .catch(() => { if (!cancelled) setGeneralRecommendation(null); });
+    return () => { cancelled = true; };
+  }, [hasSportActivity, hasAerobicActivity, s?.today?.recovery, s?.workouts?.length]);
+
   const expertise = normalizeExpertise(s?.profile?.expertiseLevel);
   const panelStates = s?.profile?.panelStates || {};
   // Optimistic: the panel resizes on click rather than after the round trip,
@@ -11735,13 +12033,17 @@ function App() {
   // order/hide preference — a "workout" tracking level shouldn't show Sleep
   // just because it isn't in hiddenPanels. s10 (Cycle) is gated the same
   // way, on the opt-in profile toggle instead of tracking level. s11
-  // (Running) is gated on hasRunningActivity (computed above, alongside the
-  // /run/recommendation fetch it also drives) instead — Running has no
+  // (Running)/s12 (Cycling)/s13 (Swimming)/s14 (Sport)/s15 (Aerobic) are
+  // gated on hasRunningActivity/hasCyclingActivity/hasSwimmingActivity/
+  // hasSportActivity/hasAerobicActivity (computed above, alongside the
+  // recommendation fetches they drive) instead — none of the five has a
   // separate opt-in toggle, just whether it's one of the athlete's listed
   // activities (Onboarding step 4 / Settings).
   const sectionIds = panelOrder.filter(id =>
     !hiddenPanelSet.has(id) && (id !== 's2' || showSleep) && (id !== 's4' || showFuel)
     && (id !== 's10' || s?.profile?.cycleTrackingEnabled) && (id !== 's11' || hasRunningActivity)
+    && (id !== 's12' || hasCyclingActivity) && (id !== 's13' || hasSwimmingActivity)
+    && (id !== 's14' || hasSportActivity) && (id !== 's15' || hasAerobicActivity)
   );
   // Same "fall back to the first section" rule the dock buttons already used
   // (activeSection can be null on first render, or point at a section that
@@ -11826,6 +12128,10 @@ function App() {
     s9: <S9 key="s9" s={s} followBadge={followBadge} reloadFollowBadge={loadFollowRequests} />,
     s10: <S10 key="s10" s={s} refresh={refresh} />,
     s11: <S11 key="s11" s={s} runRecommendation={runRecommendation} />,
+    s12: <S12 key="s12" cyclingRecommendation={cyclingRecommendation} />,
+    s13: <S13 key="s13" swimmingRecommendation={swimmingRecommendation} />,
+    s14: <S14 key="s14" generalRecommendation={generalRecommendation} />,
+    s15: <S15 key="s15" generalRecommendation={generalRecommendation} />,
   };
   // Default grid size for an item that has no saved x/y/w/h yet — mirrors the
   // old CSS span logic (PANEL_WIDE + expanded state) so a fresh account's
