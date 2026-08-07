@@ -297,6 +297,13 @@ function rawSessionSplit(trainingDaysPerWeek, activities) {
   const liftRaw = Math.round(trainingDaysPerWeek * liftWeight / totalWeight);
   return { liftRaw, cardioRaw: trainingDaysPerWeek - liftRaw };
 }
+// A concrete Lose Fat goal (functions/goalsAndActivities.js's GOAL_TYPES)
+// guarantees at least this much cardio regardless of the activities-derived
+// split — an activities list weighted entirely toward lifting doesn't
+// reflect a fat-loss goal the athlete has actually set. Only raises the
+// floor; the existing CNS>80 fatigue trim below still applies on top of it,
+// same as any other week.
+const FATLOSS_CARDIO_FLOOR = 2;
 
 // How many genuine lifting sessions this week's systemic fatigue can
 // absorb — a target to hit whenever suits, not a count of locked slots.
@@ -312,8 +319,8 @@ function planLiftSessionsTarget(weekCNS, weekMetabolic, availableBucketCount, tr
 // Cardio doesn't compete for the same per-muscle fatigue buckets lifting
 // does, but it's still CNS-taxing (HIIT especially), so heavy CNS fatigue
 // trims it too.
-function planCardioSessionsTarget(weekCNS, trainingDaysPerWeek = 4, activities = []) {
-  const base = rawSessionSplit(trainingDaysPerWeek, activities).cardioRaw;
+function planCardioSessionsTarget(weekCNS, trainingDaysPerWeek = 4, activities = [], minSessions = 0) {
+  const base = Math.max(rawSessionSplit(trainingDaysPerWeek, activities).cardioRaw, minSessions);
   return weekCNS > 80 ? Math.max(0, base - 1) : base;
 }
 
@@ -355,13 +362,14 @@ function focusGroups(preferredSplit) {
 // session. trainingDaysPerWeek (profile setting, defaults to 4) is the
 // weekly session budget; activities (profile.activities, priority-tier
 // weighted) decides how much of it is lifting vs. conditioning — see
-// rawSessionSplit above. muscleLastTrainedDays is optional
-// (functions/fatigue.js's computeMuscleLastTrainedDays) — passing it keeps
-// the displayed "freshness" chips consistent with the same atrophy-risk
-// prioritization that /plan/session-exercises's full-body auto-pick actually
-// uses, rather than the display showing plain fatigue-freshness while
-// session generation weighs staleness too.
-function generateWeeklyGuidance({ currentFatigue, weekMetabolic, weekCNS, offlineMuscles, dataMature, trainingDaysPerWeek = 4, activities = [], muscleLastTrainedDays = null, preferredSplit = 'Full Body', muscleFocus = {} }) {
+// rawSessionSplit above. fatLossGoalActive raises the cardio half to
+// FATLOSS_CARDIO_FLOOR regardless of that split. muscleLastTrainedDays is
+// optional (functions/fatigue.js's computeMuscleLastTrainedDays) — passing
+// it keeps the displayed "freshness" chips consistent with the same
+// atrophy-risk prioritization that /plan/session-exercises's full-body
+// auto-pick actually uses, rather than the display showing plain fatigue-
+// freshness while session generation weighs staleness too.
+function generateWeeklyGuidance({ currentFatigue, weekMetabolic, weekCNS, offlineMuscles, dataMature, trainingDaysPerWeek = 4, activities = [], muscleLastTrainedDays = null, preferredSplit = 'Full Body', muscleFocus = {}, fatLossGoalActive = false }) {
   const priority = computeMusclePriority(currentFatigue || {}, offlineMuscles || [], muscleLastTrainedDays, muscleFocus);
   const groups = focusGroups(preferredSplit);
 
@@ -374,7 +382,7 @@ function generateWeeklyGuidance({ currentFatigue, weekMetabolic, weekCNS, offlin
     .sort((a, b) => b.score - a.score);
 
   const liftSessionsTarget = planLiftSessionsTarget(weekCNS, weekMetabolic, buckets.length, trainingDaysPerWeek, activities);
-  const cardioSessionsTarget = planCardioSessionsTarget(weekCNS, trainingDaysPerWeek, activities);
+  const cardioSessionsTarget = planCardioSessionsTarget(weekCNS, trainingDaysPerWeek, activities, fatLossGoalActive ? FATLOSS_CARDIO_FLOOR : 0);
   const activeNames = new Set(buckets.map(b => b.name));
   const restingMuscleGroups = Object.keys(groups).filter(n => !activeNames.has(n));
 

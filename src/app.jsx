@@ -1033,6 +1033,27 @@ const glycogenPct = (elapsedS, totalS) => {
 // app's first version — everything before this had no changelog at all.
 const CHANGELOG = [
   {
+    version: '1.06',
+    date: '2026-08-08',
+    features: [
+      'A day quick-marked busy from the Plan Ahead panel now also shows up in Settings → Plan Ahead — Holidays & Travel, with its own Remove button — previously it was only visible/clearable from the panel itself.',
+    ],
+  },
+  {
+    version: '1.05',
+    date: '2026-08-08',
+    features: [
+      'Onboarding\'s Welcome screen now shows how to save Press to your home screen (Share → Add to Home Screen on iOS, the Chrome menu on Android), with instructions matched to your device — hidden automatically once you\'ve already installed it.',
+    ],
+  },
+  {
+    version: '1.04',
+    date: '2026-08-07',
+    features: [
+      'A "Lose Fat" goal now actually changes your plan: the weekly guidance guarantees at least 2 cardio sessions regardless of your Training Priority setting, and the Cut macro auto-calculation sizes your calorie deficit to hit your goal\'s target by its target date (based on your real estimated maintenance calories) instead of a flat guess — falls back to a flat 15% deficit if the goal has no concrete target/date.',
+    ],
+  },
+  {
     version: '1.03',
     date: '2026-08-07',
     features: [
@@ -6767,6 +6788,20 @@ function macroGramsFromSplit(split, calories) {
   };
 }
 
+// null once already running standalone (installed) — no point telling
+// someone to add to their home screen when they launched it from there.
+// iPadOS 13+ reports as 'MacIntel' with no touch-point signal beyond
+// maxTouchPoints, so that combination is the standard iPad tell.
+function homeScreenGuide() {
+  const ua = navigator.userAgent || '';
+  const isStandalone = window.matchMedia?.('(display-mode: standalone)').matches || navigator.standalone === true;
+  if (isStandalone) return null;
+  const isIOS = /iPad|iPhone|iPod/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  if (isIOS) return { label: 'iPhone / iPad', steps: 'Tap the Share icon in Safari’s toolbar, then choose "Add to Home Screen".' };
+  if (/Android/.test(ua)) return { label: 'Android', steps: 'Tap the ⋮ menu in Chrome, then choose "Install app" (or "Add to Home screen").' };
+  return { label: 'Desktop', steps: 'Look for an install icon in your browser’s address bar, or open the browser menu and choose "Install Press".' };
+}
+
 // Onboarding is reopened, not just opened once — "Restart Setup" in
 // Settings (SettingsOverlay's onRestartSetup) mounts this same component
 // again on an account that already has real data. Every field below reads
@@ -6775,6 +6810,7 @@ function macroGramsFromSplit(split, calories) {
 // brand-new account (s.profile is empty) sees exactly the same blank form
 // as before — this only changes behaviour when there's something to prefill.
 function Onboarding({ s, onComplete, onOpenImport }) {
+  const [hsGuide] = useState(homeScreenGuide);
   const TOTAL = 10;
   const [step, setStep] = useState(0);
   const [saving, setSaving] = useState(false);
@@ -7020,6 +7056,12 @@ function Onboarding({ s, onComplete, onOpenImport }) {
                 </div>
               ))}
             </div>
+            {hsGuide && (
+              <div className="ob-guide" style={{ marginBottom: 32 }}>
+                <strong>Save Press as an app ({hsGuide.label})</strong><br />
+                {hsGuide.steps} It'll open full-screen from your home screen, just like a native app.
+              </div>
+            )}
             <button className="ob-next" style={{ width: '100%', padding: '14px 0' }} onClick={() => setStep(1)}>Get Started</button>
           </>
         )}
@@ -10167,6 +10209,28 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
           <div style={{ fontSize: 11, color: 'var(--dim)', marginBottom: 10, lineHeight: 1.5 }}>
             One-off date ranges the calendar should treat differently — a holiday, a trip with only a hotel gym, a week off entirely.
           </div>
+          {(s?.profile?.busyDates || []).length > 0 && (
+            <div style={{ marginBottom: 12 }}>
+              <div style={{ fontSize: 8, letterSpacing: '.16em', textTransform: 'uppercase', color: 'var(--dim)', marginBottom: 6 }}>
+                Busy Days <span style={{ textTransform: 'none' }}>(quick-marked from Plan Ahead)</span>
+              </div>
+              {[...s.profile.busyDates].sort().map(d => (
+                <div key={d} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, padding: '6px 0', borderBottom: '1px solid var(--rule)' }}>
+                  <div style={{ fontSize: 10, color: 'var(--ink)' }}>
+                    {d}<span style={{ color: 'var(--dim)', marginLeft: 6 }}>Marked busy</span>
+                  </div>
+                  <button className="prof-btn" style={{ fontSize: 9, padding: '4px 8px' }}
+                    onClick={async () => {
+                      const updated = s.profile.busyDates.filter(x => x !== d);
+                      await api('profile', { method: 'POST', body: JSON.stringify({ busyDates: updated }) });
+                      refresh({ ...s, profile: { ...s.profile, busyDates: updated } });
+                    }}>
+                    Remove
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
           {windowsLoading ? (
             <div style={{ fontSize: 10, color: 'var(--dim)' }}>Loading…</div>
           ) : (

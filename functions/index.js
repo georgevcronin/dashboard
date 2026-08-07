@@ -30,7 +30,7 @@ const { computeStimulusContributions, estimateAtrophyRate } = require('./adaptat
 const { sessionLoadScore, sessionLoadDelta } = require('./sessionLoad');
 const { computeTrend, deloadSuggestion } = require('./performanceTrend');
 const { validateGoals, validateActivities, applyActivityDefaults, seedReturningAthleteAtrophy } = require('./goalsAndActivities');
-const { estimateMaintenanceCalories, applyDeficitLimit } = require('./nutritionLimits');
+const { estimateMaintenanceCalories, applyDeficitLimit, calorieTargetForFatLossGoal } = require('./nutritionLimits');
 const { findNearbyGyms, normalizeExerciseKey, GYM_NEARBY_RADIUS_M } = require('./gyms');
 const { buildUnifiedTimeline } = require('./analyticsEngine');
 const { computePatternFatigue } = require('./movementPatterns');
@@ -1258,13 +1258,13 @@ app.post("/macro-auto", async (req, res) => {
   const goal = req.body.goal || "recomp"; db.profile.macroGoal = goal;
   const mult = { cut: 22, recomp: 26, bulk: 30 }, protMult = { cut: 2.2, recomp: 2.0, bulk: 1.8 };
   let cals = Math.round(bw * (mult[goal] || 26)), protein = Math.round(bw * (protMult[goal] || 2.0));
-  // Lose Fat only: the flat bodyweight x22 target above is always exactly a
-  // 15.4% deficit off the bodyweight x26 'recomp' proxy, for every user --
-  // checking it against that same proxy could never fire a limit. Checked
-  // against a real per-person TDEE estimate instead (functions/
-  // nutritionLimits.js), so a genuinely active person whose real
-  // maintenance sits well above bodyweight x26 gets a target that reflects
-  // that, not just the flat multiplier.
+  // Lose Fat only: replaces the flat bodyweight x22 guess above with a real
+  // per-person TDEE estimate (functions/nutritionLimits.js), sized against
+  // the athlete's own concrete fatLoss goal + targetDate when one exists
+  // (calorieTargetForFatLossGoal), falling back to a flat 15% deficit off
+  // that same real maintenance otherwise. applyDeficitLimit still clamps
+  // either result — a goal-driven deficit can ask for more than the 30%
+  // hard limit just as easily as a flat guess can.
   let deficitCheck = null;
   if (goal === "cut") {
     const age = db.profile.age ?? (db.profile.dob ? Math.round(computeAgeYears(db.profile.dob)) : null);
@@ -1273,9 +1273,19 @@ app.post("/macro-auto", async (req, res) => {
       trainingDaysPerWeek: db.profile.trainingDaysPerWeek,
     });
     if (maintenance) {
-      const limited = applyDeficitLimit(cals, maintenance);
+      const fatLossGoal = (db.profile.goals || []).find(g => g.type === 'fatLoss');
+      const bodyFatDates = Object.keys(db.metrics || {}).filter(k => db.metrics[k].body_fat_percentage != null).sort();
+      const currentBodyFatPct = bodyFatDates.length ? db.metrics[bodyFatDates.at(-1)].body_fat_percentage : null;
+      const sized = calorieTargetForFatLossGoal({
+        maintenanceCalories: maintenance, currentWeightKg: bw, currentBodyFatPct,
+        goal: fatLossGoal, todayISO: day(),
+      });
+      const limited = applyDeficitLimit(sized.calories, maintenance);
       cals = limited.calories;
-      deficitCheck = { maintenanceCalories: maintenance, deficitPct: limited.deficitPct, status: limited.status, message: limited.message };
+      deficitCheck = {
+        maintenanceCalories: maintenance, deficitPct: limited.deficitPct, status: limited.status, message: limited.message,
+        source: sized.source, ...(sized.source === 'goal-timeframe' ? { daysRemaining: sized.daysRemaining, weightToLoseKg: sized.weightToLoseKg } : {}),
+      };
     }
   }
   const fat = Math.round(bw * 1), carbs = Math.round(Math.max(0, (cals - fat * 9 - protein * 4) / 4));
@@ -2125,6 +2135,9 @@ function weeklyGuidanceInputs() {
     dataMature: maturityWeek.hasEnoughData,
     trainingDaysPerWeek: db.profile?.trainingDaysPerWeek || 4,
     activities: db.profile?.activities || [],
+    // A Lose Fat goal guarantees a cardio floor regardless of the
+    // activities-derived split — see weeklyPlanner.js's FATLOSS_CARDIO_FLOOR.
+    fatLossGoalActive: (db.profile?.goals || []).some(g => g.type === 'fatLoss'),
     muscleLastTrainedDays: computeMuscleLastTrainedDays(db.lifts),
     // Same "explicit choice always wins, auto-detect only fills in a
     // default" rule as /plan/session-exercises' own preferredSplit

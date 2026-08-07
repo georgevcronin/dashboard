@@ -76,7 +76,56 @@ function applyDeficitLimit(calories, maintenanceCalories) {
   return { calories, status: 'ok', deficitPct, message: null };
 }
 
+const FLAT_FALLBACK_DEFICIT_PCT = 15;
+const KCAL_PER_KG_FAT = 7700;
+
+// Converts a Lose Fat goal's target into a target bodyweight, so a
+// %-metric goal can size a deficit the same way a weight-metric one does.
+// 'bodyFat' rides on a lean-mass-constant assumption: derives current fat
+// mass from the latest weight + body-fat reading, holds lean mass fixed,
+// and solves for the bodyweight at the target %. Softer ground than a
+// direct weight target (stacked on an already-estimated body-fat reading),
+// but it's the only way to size a %-based goal against a deficit at all.
+function impliedTargetWeightKg(goal, currentWeightKg, currentBodyFatPct) {
+  if (goal.metric === 'weight') return goal.target;
+  if (goal.metric === 'bodyFat') {
+    // currentBodyFatPct > 0 rather than >= 0 -- also rejects null/undefined,
+    // since null >= 0 is true in JS (null coerces to 0).
+    if (!(currentWeightKg > 0) || !(currentBodyFatPct > 0) || !(goal.target < 100)) return null;
+    const leanMassKg = currentWeightKg * (1 - currentBodyFatPct / 100);
+    return leanMassKg / (1 - goal.target / 100);
+  }
+  return null;
+}
+
+// Sizes a Lose Fat calorie target off the athlete's own goal + timeframe
+// instead of a flat guess: (weight to lose x 7700kcal/kg fat) / days
+// remaining gives the daily deficit that gets there on schedule. Falls back
+// to a flat 15% deficit off real maintenance whenever "on schedule" isn't
+// computable — no concrete goal, no target date, the date's already past,
+// no current weight/body-fat reading to size the gap from, or the athlete
+// is already at/past target. applyDeficitLimit() still clamps the result
+// afterwards either way, same safety net regardless of source.
+function calorieTargetForFatLossGoal({ maintenanceCalories, currentWeightKg, currentBodyFatPct, goal, todayISO }) {
+  const flat = { calories: Math.round(maintenanceCalories * (1 - FLAT_FALLBACK_DEFICIT_PCT / 100)), source: 'flat-fallback' };
+  if (!goal || !goal.concrete || !goal.targetDate) return flat;
+
+  const targetWeightKg = impliedTargetWeightKg(goal, currentWeightKg, currentBodyFatPct);
+  const daysRemaining = Math.round((new Date(goal.targetDate + 'T00:00:00Z') - new Date(todayISO + 'T00:00:00Z')) / 86400000);
+  const weightToLoseKg = targetWeightKg != null && currentWeightKg > 0 ? currentWeightKg - targetWeightKg : null;
+  if (daysRemaining <= 0 || !(weightToLoseKg > 0)) return flat;
+
+  const dailyDeficit = (weightToLoseKg * KCAL_PER_KG_FAT) / daysRemaining;
+  return {
+    calories: Math.round(maintenanceCalories - dailyDeficit),
+    source: 'goal-timeframe',
+    daysRemaining,
+    weightToLoseKg: Math.round(weightToLoseKg * 10) / 10,
+  };
+}
+
 module.exports = {
-  HARD_LIMIT_DEFICIT_PCT, WARNING_DEFICIT_PCT,
+  HARD_LIMIT_DEFICIT_PCT, WARNING_DEFICIT_PCT, FLAT_FALLBACK_DEFICIT_PCT, KCAL_PER_KG_FAT,
   estimateBMR, activityMultiplierFor, estimateMaintenanceCalories, applyDeficitLimit,
+  impliedTargetWeightKg, calorieTargetForFatLossGoal,
 };

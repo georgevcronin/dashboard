@@ -1,8 +1,9 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const {
-  HARD_LIMIT_DEFICIT_PCT, WARNING_DEFICIT_PCT,
+  HARD_LIMIT_DEFICIT_PCT, WARNING_DEFICIT_PCT, FLAT_FALLBACK_DEFICIT_PCT, KCAL_PER_KG_FAT,
   estimateBMR, activityMultiplierFor, estimateMaintenanceCalories, applyDeficitLimit,
+  impliedTargetWeightKg, calorieTargetForFatLossGoal,
 } = require('../functions/nutritionLimits');
 
 test('estimateBMR returns null without enough profile data', () => {
@@ -87,4 +88,54 @@ test('applyDeficitLimit is a no-op without a maintenance estimate to check again
   const result = applyDeficitLimit(1000, null);
   assert.equal(result.status, 'ok');
   assert.equal(result.calories, 1000);
+});
+
+test('impliedTargetWeightKg passes a weight-metric goal target straight through', () => {
+  assert.equal(impliedTargetWeightKg({ metric: 'weight', target: 75 }, 85, null), 75);
+});
+
+test('impliedTargetWeightKg derives a target bodyweight from a bodyFat-metric goal via lean-mass-constant', () => {
+  // 90kg @ 25% bf -> 67.5kg lean mass. Solving for 15% bf at the same lean
+  // mass: 67.5 / 0.85 = 79.41kg.
+  const target = impliedTargetWeightKg({ metric: 'bodyFat', target: 15 }, 90, 25);
+  assert.ok(Math.abs(target - 79.41) < 0.01, `expected ~79.41, got ${target}`);
+});
+
+test('impliedTargetWeightKg returns null for a bodyFat goal missing a current body-fat reading', () => {
+  assert.equal(impliedTargetWeightKg({ metric: 'bodyFat', target: 15 }, 90, null), null);
+});
+
+test('calorieTargetForFatLossGoal falls back to a flat 15% deficit off maintenance without a concrete goal', () => {
+  const result = calorieTargetForFatLossGoal({ maintenanceCalories: 2500, currentWeightKg: 90, currentBodyFatPct: null, goal: null, todayISO: '2026-08-07' });
+  assert.equal(result.source, 'flat-fallback');
+  assert.equal(result.calories, Math.round(2500 * (1 - FLAT_FALLBACK_DEFICIT_PCT / 100)));
+});
+
+test('calorieTargetForFatLossGoal falls back to flat 15% when the target date has already passed', () => {
+  const goal = { concrete: true, metric: 'weight', target: 80, targetDate: '2026-01-01' };
+  const result = calorieTargetForFatLossGoal({ maintenanceCalories: 2500, currentWeightKg: 90, currentBodyFatPct: null, goal, todayISO: '2026-08-07' });
+  assert.equal(result.source, 'flat-fallback');
+});
+
+test('calorieTargetForFatLossGoal falls back to flat 15% when already at or past the target weight', () => {
+  const goal = { concrete: true, metric: 'weight', target: 90, targetDate: '2026-12-01' };
+  const result = calorieTargetForFatLossGoal({ maintenanceCalories: 2500, currentWeightKg: 88, currentBodyFatPct: null, goal, todayISO: '2026-08-07' });
+  assert.equal(result.source, 'flat-fallback');
+});
+
+test('calorieTargetForFatLossGoal sizes the deficit to hit a concrete weight goal by its target date', () => {
+  // 10kg to lose over 100 days: 10 * 7700 / 100 = 770kcal/day deficit.
+  const goal = { concrete: true, metric: 'weight', target: 80, targetDate: '2026-11-15' };
+  const result = calorieTargetForFatLossGoal({ maintenanceCalories: 2800, currentWeightKg: 90, currentBodyFatPct: null, goal, todayISO: '2026-08-07' });
+  assert.equal(result.source, 'goal-timeframe');
+  assert.equal(result.daysRemaining, 100);
+  assert.equal(result.weightToLoseKg, 10);
+  assert.equal(result.calories, Math.round(2800 - (10 * KCAL_PER_KG_FAT) / 100));
+});
+
+test('calorieTargetForFatLossGoal sizes a bodyFat-metric goal via the lean-mass-constant conversion', () => {
+  const goal = { concrete: true, metric: 'bodyFat', target: 15, targetDate: '2026-11-15' };
+  const result = calorieTargetForFatLossGoal({ maintenanceCalories: 2800, currentWeightKg: 90, currentBodyFatPct: 25, goal, todayISO: '2026-08-07' });
+  assert.equal(result.source, 'goal-timeframe');
+  assert.ok(result.weightToLoseKg > 0);
 });

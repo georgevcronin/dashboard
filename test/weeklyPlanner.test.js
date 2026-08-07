@@ -224,6 +224,26 @@ test('planCardioSessionsTarget is highest when activities weight toward cardio',
   assert.equal(planCardioSessionsTarget(0, 1, []), 0);
 });
 
+test('planCardioSessionsTarget raises an all-lift week to the fat-loss floor, but does not lower an already-higher cardio-weighted week', () => {
+  const liftHeavy = [{ type: 'strength', priority: 'primary' }];
+  const cardioHeavy = [{ type: 'strength', priority: 'minor' }, { type: 'running', priority: 'primary' }];
+  assert.equal(planCardioSessionsTarget(0, 4, liftHeavy, 2), 2);
+  assert.equal(planCardioSessionsTarget(0, 6, cardioHeavy, 2), planCardioSessionsTarget(0, 6, cardioHeavy));
+});
+
+test('planCardioSessionsTarget still applies the high-CNS trim on top of the fat-loss floor', () => {
+  const liftHeavy = [{ type: 'strength', priority: 'primary' }];
+  assert.equal(planCardioSessionsTarget(90, 4, liftHeavy, 2), 1);
+});
+
+test('generateWeeklyGuidance guarantees a cardio floor when a fatLoss goal is active, even for an all-lift activities list', () => {
+  const guidance = generateWeeklyGuidance({
+    currentFatigue: {}, weekMetabolic: 0, weekCNS: 0, offlineMuscles: [], dataMature: true,
+    activities: [{ type: 'strength', priority: 'primary' }], fatLossGoalActive: true,
+  });
+  assert.ok(guidance.cardioSessionsTarget >= 2, `expected a cardio floor, got ${guidance.cardioSessionsTarget}`);
+});
+
 test('generateWeeklyGuidance zeroes out lift sessions when every muscle bucket is offline', () => {
   const allMuscles = Object.values(MUSCLE_GROUPS).flat();
   const guidance = generateWeeklyGuidance({
