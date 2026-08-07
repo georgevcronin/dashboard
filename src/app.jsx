@@ -1033,6 +1033,13 @@ const glycogenPct = (elapsedS, totalS) => {
 // app's first version — everything before this had no changelog at all.
 const CHANGELOG = [
   {
+    version: '1.07',
+    date: '2026-08-08',
+    features: [
+      'Weekly guidance\'s lift/cardio session targets are no longer driven by a "Training Priority" strength/cardio/sport toggle — that setting is removed from Settings. They\'re now derived from your Training Days / Week plus your Activities\' priority tiers, so the split actually reflects what you said you train for.',
+    ],
+  },
+  {
     version: '1.06',
     date: '2026-08-08',
     features: [
