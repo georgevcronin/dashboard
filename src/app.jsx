@@ -55,7 +55,7 @@ const { computeStructuralFatigue, computeMetabolicFatigue, computeCNSFatigue, cn
 const { computePatternFatigue } = movementPatternsPkg;
 const { progressionFor, suggestedWorkingSetCount, suggestedRirSequence, isLowRepPattern, LOW_REP_THRESHOLD } = sessionPlannerPkg;
 const { e1rm: calcE1RM } = strengthStandardsPkg;
-const { rankExercises, DEFAULT_RATING: DEFAULT_EXERCISE_RATING } = exercisePreferenceRankingPkg;
+const { rankExercises, DEFAULT_RATING: DEFAULT_EXERCISE_RATING, detectComparisonCandidates } = exercisePreferenceRankingPkg;
 const { defaultMachineBrands } = machineBrandsPkg;
 const { MACHINE_MODELS } = machineModelsPkg;
 const { normalize: normalizeExerciseKeyPkg } = resistanceCurvesPkg;
@@ -1052,6 +1052,13 @@ const glycogenPct = (elapsedS, totalS) => {
 // instead of the list. v0.1 is the first tracked release, not literally the
 // app's first version — everything before this had no changelog at all.
 const CHANGELOG = [
+  {
+    version: '1.24',
+    date: '2026-08-08',
+    features: [
+      'Added "Rate Exercises" to All-Time Bests — the same "which do you prefer?" comparison prompt that shows up after a workout is now also available on demand, paired from your full training history instead of only the session you just finished.',
+    ],
+  },
   {
     version: '1.23',
     date: '2026-08-08',
@@ -6783,6 +6790,23 @@ function S5({ s, recommendation, refresh }) {
 // S6 lives in src/sections/S6.jsx
 function S7({ s }) {
   const [search, setSearch] = useState('');
+  const [ratingOpen, setRatingOpen] = useState(false);
+  const [comparisonIndex, setComparisonIndex] = useState(0);
+  // Same pairing rule the finish-workout prompt uses (one candidate per
+  // shared primary muscle) — run against the whole history on both sides
+  // instead of "this session vs. before," since there's no just-finished
+  // session here to anchor it to.
+  const comparisonCandidates = useMemo(() => detectComparisonCandidates(s?.lifts || [], s?.lifts || []), [s?.lifts]);
+  const answerComparison = winner => {
+    const cand = comparisonCandidates[comparisonIndex];
+    api('preferences/compare', { method: 'POST', body: JSON.stringify({ a: cand.a, b: cand.b, winner }) }).catch(() => {});
+    setComparisonIndex(i => i + 1);
+  };
+  const skipComparison = () => {
+    const cand = comparisonCandidates[comparisonIndex];
+    api('preferences/compare', { method: 'POST', body: JSON.stringify({ a: cand.a, b: cand.b }) }).catch(() => {});
+    setComparisonIndex(i => i + 1);
+  };
   const { prs, e1rmHistory } = useMemo(() => {
     const byEx = {};
     const history = {};
@@ -6833,6 +6857,32 @@ function S7({ s }) {
         <CardioScorePanel cardioScore={s?.cardioScore} hasSex={!!s?.profile?.sex} />
         <div style={{ marginTop: 12 }}>
           <input className="pr-search" placeholder="Filter exercise…" value={search} onChange={e => setSearch(e.target.value)} />
+        </div>
+        <div style={{ borderTop: '1px solid var(--rule)', marginTop: 12, paddingTop: 10 }}>
+          <button className="tool-btn" aria-expanded={ratingOpen} aria-controls="rate-exercises" onClick={() => setRatingOpen(v => !v)}>
+            Rate Exercises
+          </button>
+          {ratingOpen && (
+            <div id="rate-exercises" style={{ marginTop: 8 }}>
+              {comparisonIndex < comparisonCandidates.length ? (() => {
+                const cand = comparisonCandidates[comparisonIndex];
+                return (
+                  <div>
+                    <div className="kicker" style={{ marginBottom: 8 }}>Which do you prefer?</div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                      <button className="ol-btn ol-btn-solid" style={{ textAlign: 'left' }} onClick={() => answerComparison(cand.a)}>{cand.a}</button>
+                      <button className="ol-btn ol-btn-solid" style={{ textAlign: 'left' }} onClick={() => answerComparison(cand.b)}>{cand.b}</button>
+                      <button className="ol-btn ol-btn-ghost" style={{ fontSize: 8, alignSelf: 'flex-start' }} onClick={skipComparison}>Skip</button>
+                    </div>
+                  </div>
+                );
+              })() : (
+                <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 11, color: 'var(--dim)', fontStyle: 'italic' }}>
+                  No pairs left to compare right now — log a few more exercises sharing a muscle to unlock more.
+                </div>
+              )}
+            </div>
+          )}
         </div>
         {!prs.length && (
           <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 11, color: 'var(--dim)', fontStyle: 'italic', padding: '24px 0' }}>No records yet — log some lifts.</div>
