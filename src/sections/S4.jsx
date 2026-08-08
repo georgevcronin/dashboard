@@ -3,6 +3,8 @@ import { api, pct, roundCal, todayLocalStr } from '../shared.js';
 import { AreaChart } from '../charts.jsx';
 import muscleTaxonomyPkg from '../../functions/muscleTaxonomy.js';
 const { ALL_MUSCLES } = muscleTaxonomyPkg;
+import micronutrientsPkg from '../../functions/micronutrients.js';
+const { pctRDA, labelFor } = micronutrientsPkg;
 
 // ── S4: FUEL ─────────────────────────────────────────────────────────────────
 export function S4({ s, refresh }) {
@@ -47,6 +49,17 @@ export function S4({ s, refresh }) {
   // scans, which read one fixed per-serving value off the label itself).
   const [portionOptions, setPortionOptions] = useState(null);
   const [selectedPortionIdx, setSelectedPortionIdx] = useState(1);
+  // #7: micronutrients alongside the macro fields above — real OpenFoodFacts
+  // data from a barcode scan (micronutrientsEstimated: false), or a Gemini
+  // guess from a photo/description/label (true), surfaced with a visible
+  // caveat wherever shown rather than presented at the same confidence as
+  // measured data. baseMicronutrients100 is the per-100g reference for the
+  // grams-scaling flow (barcode, or a flat label-photo result); portion-based
+  // AI estimates carry their own micronutrients per portion already (no
+  // scaling needed — see applyPortionOption).
+  const [micronutrients, setMicronutrients] = useState(null);
+  const [micronutrientsEstimated, setMicronutrientsEstimated] = useState(false);
+  const baseMicronutrients100 = useRef(null);
 
   // Tab + barcode state
   const [foodTab, setFoodTab] = useState('log');
@@ -74,11 +87,19 @@ export function S4({ s, refresh }) {
   const camRafRef = useRef(null);
   const baseNutrition = useRef({ calories: 0, protein: 0, carbs: 0, fat: 0 });
 
+  const scaleMicros = (base, mult) => {
+    if (!base) return null;
+    const scaled = {};
+    for (const [k, v] of Object.entries(base)) if (typeof v === 'number') scaled[k] = Math.round(v * mult * 100) / 100;
+    return Object.keys(scaled).length ? scaled : null;
+  };
+
   const applyPortion = (mult, base) => {
     setCalories(base.calories ? String(Math.round(base.calories * mult)) : '');
     setProtein(base.protein ? String(Math.round(base.protein * mult)) : '');
     setCarbs(base.carbs ? String(Math.round(base.carbs * mult)) : '');
     setFat(base.fat ? String(Math.round(base.fat * mult)) : '');
+    setMicronutrients(scaleMicros(baseMicronutrients100.current, mult));
   };
 
   const applyGrams = (g, base100) => {
@@ -87,6 +108,7 @@ export function S4({ s, refresh }) {
     setProtein(base100.protein ? String(Math.round(base100.protein * m * 10) / 10) : '');
     setCarbs(base100.carbs ? String(Math.round(base100.carbs * m * 10) / 10) : '');
     setFat(base100.fat ? String(Math.round(base100.fat * m * 10) / 10) : '');
+    setMicronutrients(scaleMicros(baseMicronutrients100.current, m));
   };
 
   const applyPortionOption = (opt) => {
@@ -94,6 +116,7 @@ export function S4({ s, refresh }) {
     setProtein(String(opt.protein || 0));
     setCarbs(String(opt.carbs || 0));
     setFat(String(opt.fat || 0));
+    setMicronutrients(opt.micronutrients && Object.keys(opt.micronutrients).length ? opt.micronutrients : null);
   };
 
   // Meal photo / text description now return three sized estimates
@@ -103,6 +126,10 @@ export function S4({ s, refresh }) {
   // one real per-serving value, no size to guess), so that falls back to
   // the pre-existing single-estimate + multiplier flow.
   const applyAnalysis = (data) => {
+    // #7: every /nutrition/analyze path is a model estimate, never measured
+    // data — flagged unconditionally here regardless of which sub-path (meal
+    // photo, text description, label photo) produced it.
+    setMicronutrientsEstimated(true);
     if (Array.isArray(data.portions) && data.portions.length) {
       const mid = Math.floor((data.portions.length - 1) / 2);
       setPortionOptions(data.portions);
@@ -113,6 +140,7 @@ export function S4({ s, refresh }) {
       setPortionOptions(null);
       const base = { calories: data.calories || 0, protein: data.protein || 0, carbs: data.carbs || 0, fat: data.fat || 0 };
       baseNutrition.current = base;
+      baseMicronutrients100.current = data.micronutrients || null;
       setPortion(1);
       applyPortion(1, base);
     }
@@ -128,6 +156,12 @@ export function S4({ s, refresh }) {
     setFat(String(food.fat || ''));
     setDescription(food.description || '');
     baseNutrition.current = { calories: food.calories || 0, protein: food.protein || 0, carbs: food.carbs || 0, fat: food.fat || 0 };
+    // Real data from a barcode scan (OpenFoodFacts) unless the caller
+    // explicitly says otherwise (a "recent foods" reuse of a previously
+    // AI-estimated entry carries its own micronutrientsEstimated forward).
+    baseMicronutrients100.current = food.micronutrients || null;
+    setMicronutrients(food.micronutrients && Object.keys(food.micronutrients).length ? food.micronutrients : null);
+    setMicronutrientsEstimated(!!food.micronutrientsEstimated);
     setAnalysed(true);
     setPortion(1);
     setGramBased(false);
@@ -268,14 +302,23 @@ export function S4({ s, refresh }) {
   const logMeal = async () => {
     if (!calories && !protein) return;
     setLogging(true);
-    const { entry, nutritionToday } = await postMeal({ label, protein: +protein || 0, carbs: +carbs || 0, fat: +fat || 0, calories: +calories || 0, time: mealTime, ...(description.trim() ? { description: description.trim() } : {}) });
+    const { entry, nutritionToday } = await postMeal({
+      label, protein: +protein || 0, carbs: +carbs || 0, fat: +fat || 0, calories: +calories || 0, time: mealTime,
+      ...(description.trim() ? { description: description.trim() } : {}),
+      ...(micronutrients ? { micronutrients, micronutrientsEstimated } : {}),
+    });
     setLabel(''); setProtein(''); setCarbs(''); setFat(''); setCalories(''); setDescription(''); setAnalysed(false); setMealTime(nowHHMM()); setPortionOptions(null);
+    setMicronutrients(null); setMicronutrientsEstimated(false); baseMicronutrients100.current = null;
     setLogging(false);
     refresh({ ...s, nutritionToday, nutritionLog: [...(s?.nutritionLog || []), entry] });
   };
 
   const logFood = async (food) => {
-    const { entry, nutritionToday } = await postMeal({ label: food.name || food.label, protein: food.protein || 0, carbs: food.carbs || 0, fat: food.fat || 0, calories: food.calories || 0, ...(food.description ? { description: food.description } : {}) });
+    const { entry, nutritionToday } = await postMeal({
+      label: food.name || food.label, protein: food.protein || 0, carbs: food.carbs || 0, fat: food.fat || 0, calories: food.calories || 0,
+      ...(food.description ? { description: food.description } : {}),
+      ...(food.micronutrients && Object.keys(food.micronutrients).length ? { micronutrients: food.micronutrients, micronutrientsEstimated: !!food.micronutrientsEstimated } : {}),
+    });
     refresh({ ...s, nutritionToday, nutritionLog: [...(s?.nutritionLog || []), entry] });
   };
 
@@ -399,6 +442,32 @@ export function S4({ s, refresh }) {
           </div>
         </div>
       </div>
+
+      {/* #7: today's micronutrient totals, rolled up from whichever logged
+          entries carried them (barcode scans, AI estimates, or a mix — see
+          POST /nutrition's micronutrientsEstimated accumulation). Raw values
+          + RDA-relative percent per PRODUCT.md, deliberately not a score or
+          badge. Absent entirely on a day with nothing micronutrient-bearing
+          logged, rather than a block of fabricated zeros. */}
+      {n.micronutrients && Object.keys(n.micronutrients).length > 0 && (
+        <div className="fade" style={{ flexShrink: 0, marginTop: 2 }}>
+          <div className="macro-lbl" style={{ marginBottom: 4 }}>
+            <span>MICRONUTRIENTS · TODAY{n.micronutrientsEstimated ? ' — PARTLY OR FULLY ESTIMATED' : ''}</span>
+          </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '3px 12px' }}>
+            {Object.entries(n.micronutrients).map(([key, val]) => {
+              const info = labelFor(key);
+              if (!info) return null;
+              const rda = pctRDA(key, val);
+              return (
+                <span key={key} style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--ink)' }}>
+                  {info.label} {val}{info.unit}{rda != null && <span style={{ color: 'var(--dim)' }}> ({rda}%)</span>}
+                </span>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {s?.hydrationCurve?.length > 1 && (
         <div className="fade" style={{ flexShrink: 0, marginTop: 2 }}>
@@ -581,6 +650,30 @@ export function S4({ s, refresh }) {
               {analysed && (
                 <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)', fontStyle: 'italic', marginTop: 4 }}>
                   {gramBased ? 'Per 100g values — adjust grams above' : 'AI estimate — verify against actual amount'}
+                </div>
+              )}
+              {/* #7: micronutrients on the current entry, before it's logged.
+                  Real data (barcode) reads plainly; an AI estimate carries an
+                  explicit "may not be accurate" note per direct instruction —
+                  shown at the same confidence level as the macros above it,
+                  not hidden away, but honestly labelled. */}
+              {micronutrients && Object.keys(micronutrients).length > 0 && (
+                <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px solid var(--rule)' }}>
+                  <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, letterSpacing: '.08em', color: 'var(--dim)', marginBottom: 4 }}>
+                    MICRONUTRIENTS{micronutrientsEstimated ? ' — ESTIMATED, MAY NOT BE ACCURATE' : ''}
+                  </div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 12px' }}>
+                    {Object.entries(micronutrients).map(([key, val]) => {
+                      const info = labelFor(key);
+                      if (!info) return null;
+                      const rda = pctRDA(key, val);
+                      return (
+                        <span key={key} style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--ink)' }}>
+                          {info.label} {val}{info.unit}{rda != null && <span style={{ color: 'var(--dim)' }}> ({rda}% RDA)</span>}
+                        </span>
+                      );
+                    })}
+                  </div>
                 </div>
               )}
               {/* Save as template */}
