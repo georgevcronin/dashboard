@@ -18,7 +18,7 @@ Anything that assumes single-owner behaviour (`PRESS_OWNER_UID`, the request-sco
 - `npm test` after any `functions/*.js` change — extract pure logic into its own module (pattern: `analytics.js`, `recoveryPersonalization.js`) and add a test file in `test/` rather than growing `index.js`.
 - `main` deploys on every push with no staging environment — treat it as production. Don't push to `main` without being asked.
 - No PRs — when asked to ship, commit directly to `main`. A PR sitting unmerged is why changes stop showing up in the app.
-- After shipping something worth calling out (a fix or feature a user would actually notice — not internal refactors), add an entry to `CHANGELOG` in `src/app.jsx` (near the top, alongside `SET_TYPES`): bump the version, today's date, one bullet per notable change. Shown at the top of Settings, newest first.
+- After shipping something worth calling out (a fix or feature a user would actually notice — not internal refactors), add a bullet to the **current top entry** of `CHANGELOG` in `src/app.jsx` (near `SET_TYPES`) — do not bump the version number. All changes land under `1.0` for now; bumping per-shipment previously produced same-day `1.0`/`1.1`/`1.2` clutter that had to be condensed back into one entry, so stay on `1.0` until George explicitly says to cut a new version. Update that entry's `date` to today's if it's changed. Shown at the top of Settings, newest first.
 
 ## Code style
 - No comments unless the WHY is genuinely non-obvious (matches the pattern already in this codebase — see the muscle-taxonomy and request-scoped-state notes in `ARCHITECTURE.md` for what "non-obvious" looks like here).
