@@ -866,7 +866,7 @@ app.get("/summary", async (req, res) => {
   res.json({
     profile: db.profile, hydrationCurve, hydrationNow: hydrationCurve.at(-1) ?? null,
     liftVolume,
-    today: { recovery, hrv: today.heart_rate_variability === '' ? null : today.heart_rate_variability ?? null, rhr: today.resting_heart_rate === '' ? null : today.resting_heart_rate ?? null, sleepH: today.sleep_hours ?? null, sleepEff: today.sleep_eff ?? null, steps: today.step_count ?? null, wristTemp: today.wrist_temperature ?? null, hr: today.heart_rate ?? null, spo2: today.blood_oxygen ?? null, wakeTimeMs: today.wake_time_ms ?? null },
+    today: { recovery, hrv: Number.isFinite(today.heart_rate_variability) ? today.heart_rate_variability : null, rhr: Number.isFinite(today.resting_heart_rate) ? today.resting_heart_rate : null, sleepH: today.sleep_hours ?? null, sleepEff: today.sleep_eff ?? null, steps: today.step_count ?? null, wristTemp: today.wrist_temperature ?? null, hr: today.heart_rate ?? null, spo2: today.blood_oxygen ?? null, wakeTimeMs: today.wake_time_ms ?? null },
     sleepTarget: sleep.target, sleepTargetLearned: sleep.learned,
     sleepDebtH: Math.round(sleepDebtH * 10) / 10,
     sleepScore, sleepScoreTrend,
