@@ -1055,6 +1055,13 @@ const glycogenPct = (elapsedS, totalS) => {
 // app's first version — everything before this had no changelog at all.
 const CHANGELOG = [
   {
+    version: '1.29',
+    date: '2026-08-08',
+    features: [
+      "Fixed brand-new accounts hitting a server error on the very first onboarding screen (name/date of birth) and never getting any further. The weekly plan Press generates automatically on first load couldn't be saved for an account with zero logged workouts yet, which blocked every new signup — existing accounts were never affected.",
+    ],
+  },
+  {
     version: '1.28',
     date: '2026-08-08',
     features: [

@@ -11,7 +11,10 @@ test('alcoholStats sums the last 7 days and isolates last night separately', () 
 
 test('computeDataMaturity reports "experiments" phase with no history', () => {
   assert.equal(computeDataMaturity([]).phase, 'experiments');
-  assert.ok(!computeDataMaturity([]).hasEnoughData);
+  // Strict === false, not just falsy -- a missing key reads as `undefined`,
+  // which is falsy too but crashes Firestore's .set() once this flows into
+  // db.weeklyPlan (see analytics.js's comment on this early return).
+  assert.equal(computeDataMaturity([]).hasEnoughData, false);
 });
 
 test('computeDataMaturity merges differently-cased logs of the same exercise for pattern detection', () => {

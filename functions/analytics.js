@@ -16,7 +16,15 @@ function alcoholStats(alcoholLog) {
 }
 
 function computeDataMaturity(lifts) {
-  if (!lifts || lifts.length === 0) return { phase: 'experiments', weeksCovered: 0, sessionsCount: 0, hasPatterns: false, exercisesWithPatterns: 0 };
+  // hasEnoughData must be a real boolean here, not an omitted key -- this
+  // return shape has to match the full-data return below exactly. It ends
+  // up in db.weeklyPlan (index.js's weeklyGuidanceInputs -> generateWeeklyGuidance),
+  // which gets written straight to Firestore; an omitted key reads back as
+  // `undefined` through `.hasEnoughData`, and Firestore's Admin SDK throws on
+  // any undefined field value. Every brand-new account hits this exact path
+  // on its first-ever /summary call (zero lifts, db.weeklyPlan still null),
+  // so this alone 500'd /summary for every new signup until first workout logged.
+  if (!lifts || lifts.length === 0) return { phase: 'experiments', weeksCovered: 0, sessionsCount: 0, hasPatterns: false, hasEnoughData: false, exercisesWithPatterns: 0 };
 
   const sorted = [...lifts].sort((a, b) => a.date.localeCompare(b.date));
   const firstDate = new Date(sorted[0].date);
