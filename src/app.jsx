@@ -1067,6 +1067,7 @@ const CHANGELOG = [
       'Swim/bike fatigue now feeds the same unified fatigue ceiling lifting and running already share, and micronutrient tracking (barcode-scanned or AI-estimated) was added alongside calories/macros.',
       'Added an Evidence tab to the Wiki (real citations behind Press\'s own models) and Rate Exercises to All-Time Bests (an on-demand version of the post-workout comparison prompt).',
       'Today\'s Limiting Factor no longer reports muscles you\'ve deliberately set to Avoid, error messages show the actual failure reason instead of a generic one, and several walkthrough/mobile-layout bugs were fixed.',
+      'Fixed brand-new accounts hitting a server error on the very first onboarding screen and never getting any further — the weekly plan Press generates automatically on first load couldn\'t be saved for an account with zero logged workouts yet, blocking every new signup while existing accounts were unaffected.',
     ],
   },
   {
