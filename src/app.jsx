@@ -1053,6 +1053,13 @@ const glycogenPct = (elapsedS, totalS) => {
 // app's first version — everything before this had no changelog at all.
 const CHANGELOG = [
   {
+    version: '1.21',
+    date: '2026-08-08',
+    features: [
+      'Fixed the app failing to load entirely (blank screen on every device) — a leftover effect from an abandoned swim/bike recommendation card referenced two state setters that were never declared, throwing on every load. The working replacement (Today\'s Ride/Swim panels) was unaffected; this only removes dead code left behind when it was superseded.',
+    ],
+  },
+  {
     version: '1.20',
     date: '2026-08-08',
     features: [
@@ -12596,21 +12603,6 @@ function App() {
       .catch(() => { if (!cancelled) setGeneralRecommendation(null); });
     return () => { cancelled = true; };
   }, [hasSportActivity, hasAerobicActivity, s?.today?.recovery, s?.workouts?.length]);
-
-  // #17: swim/bike prescription, same pattern as #95's run prescription
-  // above — the endpoint returns null for an account with no sessions of
-  // that type, so no separate existence check needed here either.
-  useEffect(() => {
-    if (!s) { setBikeRecommendation(null); setSwimRecommendation(null); return; }
-    let cancelled = false;
-    api('cardio/recommendation?type=bike')
-      .then(data => { if (!cancelled) setBikeRecommendation(data); })
-      .catch(() => { if (!cancelled) setBikeRecommendation(null); });
-    api('cardio/recommendation?type=swim')
-      .then(data => { if (!cancelled) setSwimRecommendation(data); })
-      .catch(() => { if (!cancelled) setSwimRecommendation(null); });
-    return () => { cancelled = true; };
-  }, [!!s]);
 
   // #12: fitness/fatigue/form trend. Same fetch-after-summary pattern; only
   // re-fires on session load like the run recommendation above (db.lifts
