@@ -214,6 +214,7 @@ function buildSessionVariants({ inputs, baseExercises, currentFatigue = {}, meta
         lifts: opts.lifts,
         favoriteExercises: opts.favoriteExercises,
         preferStable: opts.preferStable,
+        deprioritisedMuscles: opts.deprioritisedMuscles,
         ...(backboneCount != null ? { count: backboneCount } : {}),
       }).map(e => (e.isAngleFamily ? { name: e.name, angle: e.angle } : { name: e.name }))
       : inputs.backboneExerciseNames;

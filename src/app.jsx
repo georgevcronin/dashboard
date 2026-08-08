@@ -1058,6 +1058,7 @@ const CHANGELOG = [
     version: '1.0',
     date: '2026-08-08',
     features: [
+      "Muscle Focus's priority levels were renamed Priority/Maintain/Lower → High/Medium/Low (Avoid unchanged); High now weighs noticeably more heavily in what gets picked as freshest, and Low tightened from \"picked less often\" to \"never the reason an exercise is chosen\" — it can still pick up real stimulus as a secondary muscle riding along on an exercise chosen for something else, just never a dedicated one of its own.",
       'Training gained a Load score (0-100, how hard a session was against your own recent average) and a Form line (a 30-day CTL/ATL/TSB-style fitness/fatigue trend with a lighter-week suggestion if it stays deeply negative) — Workout History later got Load on every past session too.',
       'Plan Ahead went through several fixes in quick succession: a trailing-7-day cap so a mid-week start can\'t chain two weeks into a run with zero rest, per-day duration overrides, quick "Mark Busy" from the panel itself, and — twice — a pacing fix so sessions space out across the week (~7/target days apart) instead of front-loading, including a week-boundary edge case where the pacing gap reset every Monday.',
       'Fixed Recovery Forecast, Today\'s Limiting Factor, and Weekly Volume Pace being silently broken for every account — all three depended on a weekly plan that nothing in the app actually triggered. "Fatigue" was renamed to "Recent Load" throughout.',
@@ -3908,20 +3909,24 @@ function diagramFilterForScore(score) {
 // this only changes what this one panel shows, since 'abductors' as a
 // muscle is really gluteus medius/TFL work (see Abductor Machine's own
 // exerciseDb.js note) and that's a clearer label for a ranked score.
-// How much programming emphasis a muscle gets. The stored values stay 'focus'
-// and 'ignore' so no existing profile needs migrating — only the labels and the
-// middle option are new.
+// How much programming emphasis a muscle gets. The stored values stay
+// 'focus'/'normal'/'deprioritise'/'ignore' — only the display labels changed
+// (High/Medium/Low/Avoid, all read as levels of one "Priority" setting) so no
+// existing profile needs migrating.
 //
-// The important pair is Lower vs Avoid, which used to be one setting called
-// "ignore". Lower keeps the muscle fully modelled — it still accumulates
+// The important pair is Low vs Avoid, which used to be one setting called
+// "ignore". Low keeps the muscle fully modelled — it still accumulates
 // fatigue from compounds, still recovers, still shows in Recovery — and only
-// reduces how often it's picked for direct work. Avoid removes it from
-// selection outright, which is what you want for an injury or a medical
-// restriction and not what you want for "I don't care much about calves".
+// changes which EXERCISES it can be trained with: nothing gets picked or
+// dedicated specifically to cover it, but it can still pick up real,
+// secondary-muscle stimulus riding along on an exercise chosen for a
+// different (non-Low) muscle. Avoid removes it from selection outright, which
+// is what you want for an injury or a medical restriction and not what you
+// want for "I don't care much about calves".
 const MUSCLE_FOCUS_OPTIONS = [
-  { value: 'focus', label: 'Priority' },
-  { value: 'normal', label: 'Maintain' },
-  { value: 'deprioritise', label: 'Lower' },
+  { value: 'focus', label: 'High' },
+  { value: 'normal', label: 'Medium' },
+  { value: 'deprioritise', label: 'Low' },
   { value: 'ignore', label: 'Avoid' },
 ];
 
@@ -3989,11 +3994,11 @@ const muscleGroupValue = (group, muscleFocus) => {
 // widely-recognised single "hip flexor" exercise the way there is for every
 // other group, so folding it into a neighbouring region (glutes? abs?)
 // would misrepresent it rather than simplify it. Defaults it to Avoid
-// instead of the usual Maintain while it's hidden, since a value the
+// instead of the usual Medium while it's hidden, since a value the
 // interface never surfaces shouldn't silently opt someone into whatever
 // hip-flexor accessory the planner happens to reach for. Only fills in the
-// gap when unset -- an explicit Priority/Lower/Avoid choice made with niche
-// muscles on is never overwritten. (Maintain isn't distinguishable from
+// gap when unset -- an explicit High/Low/Avoid choice made with niche
+// muscles on is never overwritten. (Medium isn't distinguishable from
 // unset here, same as every other muscle -- picking it clears the key
 // rather than storing 'normal' -- so it re-defaults to Avoid on the next
 // save while niche muscles are off, same as if it had never been touched.)
@@ -6941,7 +6946,7 @@ function Onboarding({ s, onComplete, onOpenImport }) {
           <>
             <div className="ob-h">Muscle focus</div>
             <div className="ob-deck">
-              Priority gives a muscle extra weight when picking what's freshest to train. Lower does the opposite without dropping it — still fully modelled and fatigue-tracked, just chosen less often. Avoid excludes it from selection entirely, same as an injury — reserve it for muscles you shouldn't be training right now. Everything defaults to Maintain; only set what you actually want to change.
+              Priority: High gives a muscle extra weight when picking what's freshest to train. Low does the opposite without dropping it — still fully modelled and fatigue-tracked, and it can still pick up real stimulus as a secondary muscle on exercises chosen for something else, but nothing gets picked or dedicated specifically to train it. Avoid excludes it from selection entirely, same as an injury — reserve it for muscles you shouldn't be training right now. Everything defaults to Medium; only set what you actually want to change.
             </div>
             <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14, cursor: 'pointer' }}>
               <input type="checkbox" checked={showNicheMuscles} onChange={e => setShowNicheMuscles(e.target.checked)}
@@ -9483,7 +9488,7 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
             })()}
           </div>
           <div className="prof-field">
-            <span className="prof-lbl">Muscle Focus <span style={{ fontSize: 8, color: 'var(--dim)', textTransform: 'none' }}>(Priority/Lower/Avoid per muscle)</span></span>
+            <span className="prof-lbl">Muscle Focus <span style={{ fontSize: 8, color: 'var(--dim)', textTransform: 'none' }}>(Priority: High/Medium/Low, or Avoid, per muscle)</span></span>
             <button className="prof-btn" onClick={() => setShowMuscleFocus(v => !v)} style={{ marginBottom: showMuscleFocus ? 8 : 0 }}>
               {showMuscleFocus ? 'Hide' : 'Show'} muscle list
             </button>

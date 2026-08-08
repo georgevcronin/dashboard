@@ -151,7 +151,14 @@ function lastAccessoryPick(lifts, targetMuscles, excludeNames) {
 // rotation list from lastAccessoryPick — excluded unless doing so would
 // leave zero candidates (a muscle with exactly one viable exercise shouldn't
 // get artificially starved just to satisfy rotation).
-function pickAccessories(targetMuscles, alreadySelected, excludeNames, avoidMuscles, { travelMode, avoidEquipment = [], avoidNames = [], count, isolationOnly = false, lifts, favoriteExercises = [], avoidMusclesSecondary = [], preferStable = false, equipmentAvailable = null }) {
+function pickAccessories(targetMuscles, alreadySelected, excludeNames, avoidMuscles, { travelMode, avoidEquipment = [], avoidNames = [], count, isolationOnly = false, lifts, favoriteExercises = [], avoidMusclesSecondary = [], preferStable = false, equipmentAvailable = null, deprioritisedMuscles = [] }) {
+  // Same reasoning as pickBackboneExercises' identical line (weeklyPlanner.js):
+  // a Low muscle should never be the reason an accessory gets picked, only an
+  // incidental rider on one picked for a real target. Dropping it from the
+  // target list here means it can never show up in remainingMuscles below (so
+  // nothing here goes looking for it specifically) and never contributes to a
+  // candidate's coverage score.
+  targetMuscles = targetMuscles.filter(m => !deprioritisedMuscles.includes(m));
   const coveredMuscles = new Set(alreadySelected.flatMap(e => e.primary));
   const remainingMuscles = targetMuscles.filter(m => !coveredMuscles.has(m));
   // Same-function guard: skip anything sharing both pattern and an
@@ -505,8 +512,20 @@ function setsFor(prog, workingSetCount, { failureSolo = false, higherRirPair = f
 // new-lifter fatigue budget. trainingMonths is null for an athlete who
 // hasn't self-reported training experience, in which case the new-lifter
 // budget is skipped entirely rather than assumed.
-function generateSessionExercises({ type, targetMuscles, backboneExerciseNames, lifts, travelMode, avoidMuscles = [], avoidMusclesSecondary = [], offlineMuscles = [], cnsFatigue = 0, metabolicFatigue = 0, trainingMonths = null, skipAccessories = false, accessoryCountOverride = null, isolationOnly = false, favoriteExercises = [], sessionExcludeNames = new Set(), warmupScheme = null, maxDurationMin = null, preferStable = false, lowCnsMode = false, equipmentAvailable = null }) {
+function generateSessionExercises({ type, targetMuscles, backboneExerciseNames, lifts, travelMode, avoidMuscles = [], avoidMusclesSecondary = [], offlineMuscles = [], cnsFatigue = 0, metabolicFatigue = 0, trainingMonths = null, skipAccessories = false, accessoryCountOverride = null, isolationOnly = false, favoriteExercises = [], sessionExcludeNames = new Set(), warmupScheme = null, maxDurationMin = null, preferStable = false, lowCnsMode = false, equipmentAvailable = null, deprioritisedMuscles = [] }) {
   if (type !== 'lift' || !targetMuscles?.length) return [];
+
+  // From here on, targetMuscles means "creditable" targets only — a Low
+  // muscle (muscleFocus 'deprioritise') is dropped so nothing below (accessory
+  // coverage scoring, the widen-for-variety step's needsDedicated check, the
+  // post-widen cleanup) treats it as a reason to pick or keep an exercise. It
+  // is never excluded from the session outright this way — an explicitly
+  // supplied backboneExerciseNames entry that happens to touch it stays, and
+  // it can still land real secondary-muscle stimulus riding along on
+  // whatever gets picked for a real target. Only "what should we go pick FOR"
+  // changes, mirroring pickBackboneExercises' identical filter in
+  // weeklyPlanner.js.
+  targetMuscles = targetMuscles.filter(m => !deprioritisedMuscles.includes(m));
 
   const excludeMuscles = [...new Set([...avoidMuscles, ...offlineMuscles])];
   // Looser bar for secondary involvement (SECONDARY_FATIGUE_CEILING in
@@ -567,7 +586,7 @@ function generateSessionExercises({ type, targetMuscles, backboneExerciseNames, 
   const lastPick = accessoryCount > 0 ? lastAccessoryPick(lifts, targetMuscles, excludeNames) : null;
   const accessories = accessoryCount > 0 ? pickAccessories(targetMuscles, backboneEntries, excludeNames, excludeMuscles, {
     travelMode, avoidEquipment, avoidNames: lastPick ? [lastPick] : [], count: accessoryCount, isolationOnly, lifts, favoriteExercises,
-    avoidMusclesSecondary: excludeMusclesSecondary, preferStable, equipmentAvailable,
+    avoidMusclesSecondary: excludeMusclesSecondary, preferStable, equipmentAvailable, deprioritisedMuscles,
   }) : [];
 
   // Which exercises actually drive the session, taken from the selection that

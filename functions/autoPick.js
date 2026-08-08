@@ -7,7 +7,7 @@
 // parameter, nothing here reads `db` or the wall clock directly, so a
 // caller can feed it today's real numbers or a time-shifted future day's.
 const { SPLIT_GROUPS, rankMusclesByFreshness, typicalSessionMuscleCount, mostOverdueGroup, neglectedMuscles } = require('./splitPlanner');
-const { computeMusclePriority, pickBackboneExercises } = require('./weeklyPlanner');
+const { computeMusclePriority, pickBackboneExercises, deprioritisedMusclesFrom } = require('./weeklyPlanner');
 const { generateSessionExercises, capSessionDuration, fillSessionToDuration, fatigueCeilingFor, estimateSessionDurationMin } = require('./sessionPlanner');
 
 function autoPickFullBodySession({
@@ -24,6 +24,12 @@ function autoPickFullBodySession({
   preferredBucket = null,
 }) {
   const priority = computeMusclePriority(currentFatigue, offlineMuscles, muscleLastTrainedDays, muscleFocus);
+  // Derived here (not threaded in as its own param) so both callers of this
+  // function -- functions/index.js's full-body auto-pick and
+  // calendarSolver.js's Plan Ahead, which already pass muscleFocus through
+  // for computeMusclePriority above -- get the secondary-only exclusion for
+  // Low muscles for free, with no separate wiring needed at either call site.
+  const deprioritisedMuscles = deprioritisedMusclesFrom(muscleFocus);
 
   let musclePicks, splitBucket = null, bucketConflict = null;
   if (preferredSplit === 'Full Body' || !SPLIT_GROUPS[preferredSplit]) {
@@ -54,7 +60,7 @@ function autoPickFullBodySession({
     ? compoundIsolationPreference === 'isolation'
     : autoIsolationLeaning;
   const backboneCount = isolationLeaning ? 0 : Math.max(2, Math.ceil(musclePicks.length / 2));
-  const backbone = pickBackboneExercises(musclePicks, { travelMode, lifts, favoriteExercises, count: backboneCount, preferStable, equipmentAvailable });
+  const backbone = pickBackboneExercises(musclePicks, { travelMode, lifts, favoriteExercises, count: backboneCount, preferStable, equipmentAvailable, deprioritisedMuscles });
   const coveredMuscles = new Set(backbone.flatMap(e => e.primary));
   const uncoveredCount = musclePicks.filter(m => !coveredMuscles.has(m)).length;
 
@@ -62,7 +68,7 @@ function autoPickFullBodySession({
     type: 'lift', targetMuscles: musclePicks, backboneExerciseNames: backbone.map(e => e.name), lifts, travelMode,
     avoidMuscles, avoidMusclesSecondary, offlineMuscles, cnsFatigue, metabolicFatigue, trainingMonths, favoriteExercises,
     accessoryCountOverride: uncoveredCount, isolationOnly: isolationLeaning, warmupScheme,
-    maxDurationMin, preferStable, equipmentAvailable,
+    maxDurationMin, preferStable, equipmentAvailable, deprioritisedMuscles,
   }), currentFatigue, maxDurationMin), maxDurationMin, fatigueCeilingFor(metabolicFatigue));
 
   return {

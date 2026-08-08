@@ -100,7 +100,16 @@ function weightedCoverage(e, targetMuscles) {
   return e.primary.reduce((sum, m) => targetMuscles.includes(m) ? sum + (profile[m] || 0) / peak : sum, 0);
 }
 
-function pickBackboneExercises(targetMuscles, { travelMode, lifts, favoriteExercises = [], count = 2, excludeNames = new Set(), preferStable = false, equipmentAvailable = null } = {}) {
+function pickBackboneExercises(targetMuscles, { travelMode, lifts, favoriteExercises = [], count = 2, excludeNames = new Set(), preferStable = false, equipmentAvailable = null, deprioritisedMuscles = [] } = {}) {
+  // A muscle marked Low (muscleFocus 'deprioritise') never gets a backbone
+  // exercise dedicated to it specifically — dropping it from the target list
+  // here means the pool filter and weightedCoverage scoring below both stop
+  // treating it as a reason to pick something. It can still ride along as an
+  // incidental primary/secondary muscle on whatever gets picked for a real
+  // (non-deprioritised) target, exactly as before — this only removes it as
+  // a REASON to pick something, it does not exclude any exercise outright
+  // (that is offlineMuscles' job, via generateSessionExercises' later filter).
+  targetMuscles = targetMuscles.filter(m => !deprioritisedMuscles.includes(m));
   const logged = loggedExerciseNames(lifts);
   const favorites = new Set(favoriteExercises.map(n => (n || '').toLowerCase()));
   // Bodyweight exercises excluded from normal selection — see
@@ -212,7 +221,12 @@ function stalenessBoost(daysSinceLastTrained) {
 // exclusion below, a flat bonus can't undo it). "Ignore" is not handled
 // here at all — it's folded into offlineMuscles by the caller (same hard
 // exclusion as an injury), not a priority adjustment.
-const FOCUS_MUSCLE_BONUS = 25;
+//
+// Raised from 25 to more decisively favor a muscle marked High (UI label;
+// stored value stays 'focus') — at 25 a merely-fresh non-priority muscle
+// could still outrank one the athlete explicitly asked for, which made the
+// setting read more like a light nudge than a stated priority.
+const FOCUS_MUSCLE_BONUS = 40;
 
 // The mirror of FOCUS_MUSCLE_BONUS, and deliberately the same magnitude:
 // "deprioritise" should push a muscle down exactly as hard as "priority" lifts
@@ -225,7 +239,25 @@ const FOCUS_MUSCLE_BONUS = 25;
 // still accumulates fatigue from squats and running and still has to recover.
 // Deprioritise keeps every bit of that physiology and only reduces how often
 // the muscle is chosen for direct work.
-const DEPRIORITISE_PENALTY = 25;
+//
+// This penalty only ever affects which MUSCLE gets picked as a target — the
+// ranking computed below. Whether a specific EXERCISE then gets picked or
+// credited for that muscle is a separate, later question: see this file's
+// deprioritisedMusclesFrom + pickBackboneExercises' deprioritisedMuscles
+// param, and sessionPlanner.js's identical param on pickAccessories/
+// generateSessionExercises. A deprioritised muscle never gets an exercise
+// dedicated to it specifically there — only picked up as an incidental
+// secondary rider on one chosen for a real (non-deprioritised) target.
+const DEPRIORITISE_PENALTY = 40;
+
+// Single source of truth for which muscles muscleFocus's 'deprioritise'
+// (Low) value names — every caller that needs the list (autoPick.js,
+// functions/index.js) derives it from here rather than re-writing the same
+// Object.entries/filter, so the exercise-selection exclusion below and the
+// ranking penalty above can never drift on what counts as deprioritised.
+function deprioritisedMusclesFrom(muscleFocus) {
+  return Object.entries(muscleFocus || {}).filter(([, v]) => v === 'deprioritise').map(([m]) => m);
+}
 
 // Per-muscle priority: -1 means "do not load right now" (injured, ignored,
 // or already at/over the fatigue ceiling); otherwise higher = fresher/more-
@@ -410,7 +442,7 @@ function generateWeeklyGuidance({ currentFatigue, weekMetabolic, weekCNS, offlin
 
 module.exports = {
   generateWeeklyGuidance, pickBackboneExercises, weightedCoverage, computeMusclePriority, scoreBucket, planLiftSessionsTarget, planCardioSessionsTarget,
-  stalenessBoost, MUSCLE_GROUPS, FATIGUE_CEILING, SECONDARY_FATIGUE_CEILING, FOCUS_MUSCLE_BONUS, DEPRIORITISE_PENALTY,
+  stalenessBoost, MUSCLE_GROUPS, FATIGUE_CEILING, SECONDARY_FATIGUE_CEILING, FOCUS_MUSCLE_BONUS, DEPRIORITISE_PENALTY, deprioritisedMusclesFrom,
   // Exported for recommendation.js: a bucket in muscleFocus only carries the
   // muscles that were *available*, so explaining why one is missing needs the
   // full membership this resolves.

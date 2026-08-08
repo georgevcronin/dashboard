@@ -12,7 +12,7 @@
 
 const {
   stalenessBoost, focusGroups,
-  FATIGUE_CEILING, FOCUS_MUSCLE_BONUS,
+  FATIGUE_CEILING, FOCUS_MUSCLE_BONUS, DEPRIORITISE_PENALTY,
 } = require('./weeklyPlanner');
 
 // Two buckets closer than this are, for practical purposes, the same
@@ -71,6 +71,12 @@ function explainMusclePriority(muscle, {
   }
   if (muscleFocus[muscle] === 'focus') {
     terms.push({ key: 'focus', label: 'Your priority', value: FOCUS_MUSCLE_BONUS });
+  } else if (muscleFocus[muscle] === 'deprioritise') {
+    // Mirrors computeMusclePriority's focusAdjust branch exactly (weeklyPlanner.js)
+    // — omitting this term was a real gap: a deprioritised muscle's explained
+    // terms used to sum to more than the engine's actual score, silently
+    // breaking the invariant this file exists to hold (see header).
+    terms.push({ key: 'deprioritise', label: 'Marked lower priority', value: -DEPRIORITISE_PENALTY });
   }
 
   return {
@@ -211,6 +217,7 @@ function buildRecommendation({ guidance, loggedSessionCount = 0, ...inputs } = {
   if (lead) {
     const overdue = lead.terms.find(t => t.key === 'staleness');
     const focused = lead.terms.find(t => t.key === 'focus');
+    const deprioritised = lead.terms.find(t => t.key === 'deprioritise');
     reasoning.push({
       code: 'top-driver',
       text: overdue
@@ -221,7 +228,8 @@ function buildRecommendation({ guidance, loggedSessionCount = 0, ...inputs } = {
           // Saying "overdue" here would invent a history that doesn't exist.
           : `${lead.muscle} is recovered and has no training on record, so it's treated as long overdue.`)
         : `${lead.muscle} is the most recovered muscle available.`,
-      ...(focused ? { note: 'Ranked up because you marked it a priority.' } : {}),
+      ...(focused ? { note: 'Ranked up because you marked it a priority.' }
+        : deprioritised ? { note: "Still the top pick even after being marked lower priority." } : {}),
     });
   }
   if (detail.limiters.length) {

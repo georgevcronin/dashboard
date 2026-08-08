@@ -172,6 +172,71 @@ test('avoidMuscles (primary list) does not exclude on a secondary-only overlap',
   assert.ok(out.some(e => e.name === 'Weighted Pull-Up'), 'avoidMuscles should only ever match primary muscles, not secondary');
 });
 
+// ---------------------------------------------------------------------------
+// deprioritisedMuscles ("Low"). Distinct from avoidMuscles/offlineMuscles
+// above: a Low muscle is never the REASON an exercise gets picked or kept,
+// but nothing here excludes an exercise outright for merely touching one —
+// that stays avoidMuscles/offlineMuscles' job, exercised above.
+// ---------------------------------------------------------------------------
+
+test('deprioritisedMuscles does not remove an already-chosen backbone exercise, unlike offlineMuscles', () => {
+  const out = generateSessionExercises({
+    type: 'lift', targetMuscles: ['chest', 'triceps', 'front-delt'],
+    backboneExerciseNames: ['Barbell Bench Press'], lifts: [], deprioritisedMuscles: ['front-delt'],
+  });
+  assert.ok(out.some(e => e.name === 'Barbell Bench Press'),
+    "a deprioritised muscle riding along on an explicitly-chosen backbone pick should not get it dropped -- that is offlineMuscles' job, not deprioritise's");
+});
+
+test('accessory selection never dedicates a pick to a deprioritised muscle when it is the only target', () => {
+  const withoutDeprioritise = generateSessionExercises({
+    type: 'lift', targetMuscles: ['front-delt'],
+    backboneExerciseNames: [], lifts: [], accessoryCountOverride: 2,
+  });
+  assert.ok(withoutDeprioritise.length > 0, 'sanity check: front-delt has real accessory candidates available');
+
+  const out = generateSessionExercises({
+    type: 'lift', targetMuscles: ['front-delt'],
+    backboneExerciseNames: [], lifts: [], accessoryCountOverride: 2, deprioritisedMuscles: ['front-delt'],
+  });
+  assert.deepEqual(out, [], 'nothing should be picked specifically to cover a deprioritised muscle');
+});
+
+test('a deprioritised muscle left uncovered by the backbone does not get a dedicated accessory of its own', () => {
+  // Cable Tricep Pushdown (Rope): primary ['triceps'], secondary [] -- covers
+  // triceps only, leaving front-delt genuinely uncovered by the backbone.
+  const base = {
+    type: 'lift', targetMuscles: ['triceps', 'front-delt'],
+    backboneExerciseNames: ['Cable Tricep Pushdown (Rope)'], lifts: [], accessoryCountOverride: 1,
+  };
+  const withoutDeprioritise = generateSessionExercises(base);
+  const accessory = withoutDeprioritise.find(e => e.name !== 'Cable Tricep Pushdown (Rope)');
+  assert.ok(accessory, 'sanity check: a real accessory pick exists for the still-uncovered muscle');
+  assert.ok(EXERCISE_DB.find(e => e.name === accessory.name).primary.includes('front-delt'),
+    'sanity check: without deprioritise, front-delt (the only still-uncovered target) should get a dedicated pick');
+
+  const out = generateSessionExercises({ ...base, deprioritisedMuscles: ['front-delt'] });
+  for (const ex of out) {
+    if (ex.name === 'Cable Tricep Pushdown (Rope)') continue;
+    const entry = EXERCISE_DB.find(e => e.name === ex.name);
+    assert.ok(!entry.primary.includes('front-delt'), `${ex.name} has front-delt as primary -- should never be picked specifically for a deprioritised muscle`);
+  }
+});
+
+test('the widen-for-variety step never dedicates a whole extra exercise to a deprioritised muscle', () => {
+  const base = {
+    type: 'lift', targetMuscles: ['chest', 'triceps', 'front-delt', 'mid-delt'],
+    backboneExerciseNames: ['Barbell Bench Press'], lifts: [], maxDurationMin: 90,
+  };
+  const withoutDeprioritise = generateSessionExercises(base);
+  assert.ok(withoutDeprioritise.some(ex => EXERCISE_DB.find(e => e.name === ex.name)?.primary[0] === 'mid-delt'),
+    'sanity check: mid-delt has no dedicated pick in the backbone, so the widen step should add one');
+
+  const out = generateSessionExercises({ ...base, deprioritisedMuscles: ['mid-delt'] });
+  assert.ok(!out.some(ex => EXERCISE_DB.find(e => e.name === ex.name)?.primary[0] === 'mid-delt'),
+    'the widen step should never dedicate an exercise to a deprioritised muscle');
+});
+
 test('new-lifter fatigue budget: under 3 months, a single working set alternates true-failure vs. two-set patterns', () => {
   const outSession0 = generateSessionExercises({
     type: 'lift', targetMuscles: ['chest', 'triceps', 'front-delt'],

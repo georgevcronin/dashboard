@@ -7,7 +7,7 @@ const {
 } = require('../functions/recommendation');
 const {
   computeMusclePriority, generateWeeklyGuidance, stalenessBoost,
-  FATIGUE_CEILING, FOCUS_MUSCLE_BONUS,
+  FATIGUE_CEILING, FOCUS_MUSCLE_BONUS, DEPRIORITISE_PENALTY,
 } = require('../functions/weeklyPlanner');
 
 // ---------------------------------------------------------------------------
@@ -19,7 +19,11 @@ const {
 test('explained terms sum to exactly what computeMusclePriority scored', () => {
   const currentFatigue = { chest: 12, lats: 40, quads: 0, biceps: 33 };
   const muscleLastTrainedDays = { chest: 10, lats: 2, quads: 30, biceps: 16 };
-  const muscleFocus = { chest: 'focus' };
+  // Covers both adjustment branches (focus AND deprioritise), not just
+  // focus -- explainMusclePriority used to omit a term entirely for
+  // 'deprioritise', which would have made this exact loop fail below had
+  // biceps been included before that gap was closed.
+  const muscleFocus = { chest: 'focus', biceps: 'deprioritise' };
   const inputs = { currentFatigue, offlineMuscles: [], muscleLastTrainedDays, muscleFocus };
 
   const engine = computeMusclePriority(currentFatigue, [], muscleLastTrainedDays, muscleFocus);
@@ -67,6 +71,18 @@ test('the focus bonus is reported as its own named term, not folded into recover
   const focusTerm = withFocus.terms.find(t => t.key === 'focus');
   assert.equal(focusTerm.value, FOCUS_MUSCLE_BONUS);
   assert.equal(withFocus.priority - without.priority, FOCUS_MUSCLE_BONUS);
+});
+
+// Mirrors the focus-bonus test above. This term was missing entirely until
+// now — explainMusclePriority summed to more than computeMusclePriority
+// actually scored for any deprioritised muscle, silently breaking the one
+// invariant this module exists to hold (see header).
+test('the deprioritise penalty is reported as its own named term, not silently dropped from the sum', () => {
+  const withDeprioritise = explainMusclePriority('chest', { currentFatigue: { chest: 20 }, muscleFocus: { chest: 'deprioritise' } });
+  const without = explainMusclePriority('chest', { currentFatigue: { chest: 20 } });
+  const term = withDeprioritise.terms.find(t => t.key === 'deprioritise');
+  assert.equal(term.value, -DEPRIORITISE_PENALTY);
+  assert.equal(without.priority - withDeprioritise.priority, DEPRIORITISE_PENALTY);
 });
 
 // computeMusclePriority skips the staleness term entirely when the caller has

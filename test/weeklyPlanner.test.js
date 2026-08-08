@@ -4,6 +4,7 @@ const {
   computeMusclePriority, scoreBucket, generateWeeklyGuidance,
   pickBackboneExercises, weightedCoverage, planLiftSessionsTarget, planCardioSessionsTarget,
   stalenessBoost, MUSCLE_GROUPS, FATIGUE_CEILING, FOCUS_MUSCLE_BONUS, DEPRIORITISE_PENALTY,
+  deprioritisedMusclesFrom,
 } = require('../functions/weeklyPlanner');
 const { EXERCISE_DB } = require('../functions/exerciseDb');
 
@@ -428,4 +429,42 @@ test('an unrecognised muscleFocus value is treated as normal, not as a penalty',
   const normal = computeMusclePriority(fatigue, [], null, {});
   const odd = computeMusclePriority(fatigue, [], null, { chest: 'whatever' });
   assert.equal(odd.chest, normal.chest);
+});
+
+test('deprioritisedMusclesFrom pulls out exactly the muscles set to "deprioritise", nothing else', () => {
+  const muscleFocus = { chest: 'deprioritise', quads: 'focus', triceps: 'ignore', biceps: 'deprioritise' };
+  assert.deepEqual(deprioritisedMusclesFrom(muscleFocus).sort(), ['biceps', 'chest']);
+  assert.deepEqual(deprioritisedMusclesFrom({}), []);
+  assert.deepEqual(deprioritisedMusclesFrom(undefined), [], 'should not throw on a missing muscleFocus');
+});
+
+// ---------------------------------------------------------------------------
+// deprioritisedMuscles on pickBackboneExercises: Low must never be the
+// REASON an exercise gets picked, distinct from (and layered on top of) the
+// ranking penalty above. It does not exclude an exercise outright — that
+// remains offlineMuscles' job downstream in sessionPlanner.js.
+// ---------------------------------------------------------------------------
+
+test('pickBackboneExercises never picks anything when the only target muscle is deprioritised', () => {
+  const withoutDeprioritise = pickBackboneExercises(['front-delt'], { count: 2 });
+  assert.ok(withoutDeprioritise.length > 0, 'sanity check: front-delt has real backbone candidates available');
+
+  const picks = pickBackboneExercises(['front-delt'], { count: 2, deprioritisedMuscles: ['front-delt'] });
+  assert.deepEqual(picks, [], 'nothing should be picked specifically to cover a deprioritised muscle');
+});
+
+test('pickBackboneExercises still picks a real chest/triceps compound even when a deprioritised muscle rides along', () => {
+  // chest+triceps alone still justify one backbone pick here, same as the
+  // "does not pad to count with a second compound" test above — marking
+  // front-delt (also in the winning candidate's primary array, for some
+  // candidates) deprioritised must not empty out or block this pick. It CAN
+  // shift which specific compound wins, though: once front-delt stops
+  // contributing to any candidate's coverage score, a candidate whose entire
+  // primary array is chest+triceps (front-delt only secondary) can now
+  // out-score one that lists front-delt as a third primary muscle — that's
+  // the "never the reason it's picked" contract working as intended, not a
+  // violation of it.
+  const picks = pickBackboneExercises(['chest', 'triceps', 'front-delt'], { count: 2, deprioritisedMuscles: ['front-delt'] });
+  assert.equal(picks.length, 1);
+  assert.ok(['chest', 'triceps'].every(m => picks[0].primary.includes(m)), `expected a compound covering chest+triceps, got ${picks[0].name}`);
 });

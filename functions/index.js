@@ -5,7 +5,7 @@ const express = require("express");
 const webpush = require("web-push");
 const { EXERCISE_DB, EXERCISE_MAP } = require('./exerciseDb');
 const { isCompoundExercise, findExercise } = require('./muscleTaxonomy');
-const { generateWeeklyGuidance, pickBackboneExercises, computeMusclePriority, scoreBucket, MUSCLE_GROUPS, FATIGUE_CEILING, SECONDARY_FATIGUE_CEILING, focusGroups } = require('./weeklyPlanner');
+const { generateWeeklyGuidance, pickBackboneExercises, computeMusclePriority, scoreBucket, MUSCLE_GROUPS, FATIGUE_CEILING, SECONDARY_FATIGUE_CEILING, focusGroups, deprioritisedMusclesFrom } = require('./weeklyPlanner');
 const { buildRecommendation } = require('./recommendation');
 const { todaysLimitingFactor } = require('./limitingFactor');
 const { buildRecoveryForecast } = require('./recoveryForecast');
@@ -1868,6 +1868,7 @@ app.post('/plan/session-variants', async (req, res) => {
       metabolicFatigue: ctx.metabolicFatigue, trainingMonths: ctx.trainingMonths,
       favoriteExercises: ctx.favoriteExercises, warmupScheme: ctx.warmupScheme,
       preferStable: ctx.preferStable, maxDurationMin: maxDurationMin ?? null,
+      deprioritisedMuscles: deprioritisedMusclesFrom(ctx.muscleFocus),
     },
     baseExercises,
     currentFatigue: ctx.currentFatigue,
@@ -1932,6 +1933,12 @@ app.post("/plan/session-exercises", async (req, res) => {
     offlineMuscles, muscleFocus, travelMode, trainingMonths, favoriteExercises,
     preferStable: stableLeaning,
   } = sessionPlanContext();
+  // Muscles marked Low — never the reason an exercise gets picked below, but
+  // not excluded outright either. See weeklyPlanner.js's deprioritisedMusclesFrom
+  // header for why this is derived once from muscleFocus rather than its own
+  // stored field. autoPickFullBodySession (the branch just below) derives its
+  // own copy internally since it already receives muscleFocus directly.
+  const deprioritisedMuscles = deprioritisedMusclesFrom(muscleFocus);
 
   if (type === 'lift' && !targetMuscles?.length && !reqBucket) {
     const muscleLastTrainedDays = computeMuscleLastTrainedDays(lifts);
@@ -1986,14 +1993,14 @@ app.post("/plan/session-exercises", async (req, res) => {
     // JSON if the client later re-sends this same array verbatim (e.g.
     // starting the workout) — generateSessionExercises's normalization
     // handles either shape either way.
-    backboneExercises = pickBackboneExercises(targetMuscles, { travelMode, lifts, favoriteExercises, preferStable: stableLeaning })
+    backboneExercises = pickBackboneExercises(targetMuscles, { travelMode, lifts, favoriteExercises, preferStable: stableLeaning, deprioritisedMuscles })
       .map(e => e.isAngleFamily ? { name: e.name, angle: e.angle } : { name: e.name });
   }
 
   const exercises = fillSessionToDuration(capSessionDuration(generateSessionExercises({
     type, targetMuscles, backboneExerciseNames: backboneExercises, lifts, travelMode,
     avoidMuscles, avoidMusclesSecondary, offlineMuscles, cnsFatigue, metabolicFatigue, trainingMonths, favoriteExercises,
-    warmupScheme: db.profile?.warmupScheme, maxDurationMin, preferStable: stableLeaning,
+    warmupScheme: db.profile?.warmupScheme, maxDurationMin, preferStable: stableLeaning, deprioritisedMuscles,
   }), currentFatigue, maxDurationMin), maxDurationMin, fatigueCeilingFor(metabolicFatigue));
   res.json({ exercises, targetMuscles: targetMuscles || [], backboneExercises: backboneExercises || [], bucket, estimatedDurationMin: estimateSessionDurationMin(exercises), currentFatigue, fatigueCeiling: fatigueCeilingFor(metabolicFatigue), limitingFactor: sessionLimitingFactor(exercises, { currentFatigue, cnsFatigue, metabolicFatigue, offlineMuscles }) });
 });
