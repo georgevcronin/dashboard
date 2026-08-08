@@ -34,7 +34,7 @@ const { cardioFatigueByMuscle } = require('./cardio');
 const { extractMicronutrients } = require('./micronutrients');
 const { sendReport } = require('./mailer');
 const { validateGoals, validateActivities, applyActivityDefaults, seedReturningAthleteAtrophy } = require('./goalsAndActivities');
-const { estimateMaintenanceCalories, applyDeficitLimit, calorieTargetForFatLossGoal } = require('./nutritionLimits');
+const { computeAutoMacroTargets } = require('./nutritionLimits');
 const { findNearbyGyms, normalizeExerciseKey, GYM_NEARBY_RADIUS_M } = require('./gyms');
 const { buildUnifiedTimeline } = require('./analyticsEngine');
 const { computePatternFatigue } = require('./movementPatterns');
@@ -863,6 +863,7 @@ app.get("/summary", async (req, res) => {
     ? { current: currentSessionLoad, ...sessionLoadDelta(currentSessionLoad, trailingSessionLoads) }
     : null;
   await ensureWeeklyPlan();
+  const macroDeficitCheck = await ensureAutoMacroTargets(weights.at(-1)?.value ?? Object.values(db.weight).at(-1) ?? 75);
   res.json({
     profile: db.profile, hydrationCurve, hydrationNow: hydrationCurve.at(-1) ?? null,
     liftVolume,
@@ -897,7 +898,8 @@ app.get("/summary", async (req, res) => {
     bodyFatToday: (db.metrics[day()] || {}).body_fat_percentage || null,
     bodyFat30: Object.keys(db.metrics).sort().slice(-30).filter(k => db.metrics[k].body_fat_percentage != null).map(k => ({ date: k, pct: db.metrics[k].body_fat_percentage })),
     macroTargets: db.profile.macroTargets || { calories: 2400, protein: 160, carbs: 250, fat: 75 },
-    macroMode: db.profile.macroMode || "manual", macroGoal: db.profile.macroGoal || "recomp",
+    macroMode: db.profile.macroMode || "auto", macroGoal: db.profile.macroGoal || "recomp",
+    macroDeficitCheck,
     lastSync: db.lastSyncAt ? (() => { const d = new Date(db.lastSyncAt); return d.toLocaleDateString("en-GB", { day:"numeric", month:"short" }) + " " + d.toLocaleTimeString("en-GB", { hour:"2-digit", minute:"2-digit" }); })() : (days.at(-1)?.date || null),
     stravaConnected: !!db.strava?.refresh_token,
     soreness: (db.soreness || []).filter(e => Date.now() - e.ts < 5 * 24 * 3600000),
@@ -1209,44 +1211,22 @@ app.post("/macro-targets", async (req, res) => {
   for (const m of ["calories", "protein", "carbs", "fat"]) if (req.body[m] != null) db.profile.macroTargets[m] = +req.body[m];
   db.profile.macroMode = "manual"; await save(); res.json(db.profile.macroTargets);
 });
+// Explicit "switch to Auto" / "recalculate now" action from Settings, and
+// still callable with an explicit cut/recomp/bulk goal for anything that
+// predates goal-inference. Shares its math with ensureAutoMacroTargets
+// below (functions/nutritionLimits.js's computeAutoMacroTargets) so a
+// button-press and a live /summary refresh never disagree.
 app.post("/macro-auto", async (req, res) => {
   const bw = Object.values(db.weight).at(-1) || 75;
-  const goal = req.body.goal || "recomp"; db.profile.macroGoal = goal;
-  const mult = { cut: 22, recomp: 26, bulk: 30 }, protMult = { cut: 2.2, recomp: 2.0, bulk: 1.8 };
-  let cals = Math.round(bw * (mult[goal] || 26)), protein = Math.round(bw * (protMult[goal] || 2.0));
-  // Lose Fat only: replaces the flat bodyweight x22 guess above with a real
-  // per-person TDEE estimate (functions/nutritionLimits.js), sized against
-  // the athlete's own concrete fatLoss goal + targetDate when one exists
-  // (calorieTargetForFatLossGoal), falling back to a flat 15% deficit off
-  // that same real maintenance otherwise. applyDeficitLimit still clamps
-  // either result — a goal-driven deficit can ask for more than the 30%
-  // hard limit just as easily as a flat guess can.
-  let deficitCheck = null;
-  if (goal === "cut") {
-    const age = db.profile.age ?? (db.profile.dob ? Math.round(computeAgeYears(db.profile.dob)) : null);
-    const maintenance = estimateMaintenanceCalories({
-      sex: db.profile.sex, weightKg: bw, heightCm: db.profile.heightCm, age,
-      trainingDaysPerWeek: db.profile.trainingDaysPerWeek,
-    });
-    if (maintenance) {
-      const fatLossGoal = (db.profile.goals || []).find(g => g.type === 'fatLoss');
-      const bodyFatDates = Object.keys(db.metrics || {}).filter(k => db.metrics[k].body_fat_percentage != null).sort();
-      const currentBodyFatPct = bodyFatDates.length ? db.metrics[bodyFatDates.at(-1)].body_fat_percentage : null;
-      const sized = calorieTargetForFatLossGoal({
-        maintenanceCalories: maintenance, currentWeightKg: bw, currentBodyFatPct,
-        goal: fatLossGoal, todayISO: day(),
-      });
-      const limited = applyDeficitLimit(sized.calories, maintenance);
-      cals = limited.calories;
-      deficitCheck = {
-        maintenanceCalories: maintenance, deficitPct: limited.deficitPct, status: limited.status, message: limited.message,
-        source: sized.source, ...(sized.source === 'goal-timeframe' ? { daysRemaining: sized.daysRemaining, weightToLoseKg: sized.weightToLoseKg } : {}),
-      };
-    }
-  }
-  const fat = Math.round(bw * 1), carbs = Math.round(Math.max(0, (cals - fat * 9 - protein * 4) / 4));
-  db.profile.macroTargets = { calories: cals, protein, carbs, fat }; db.profile.macroMode = "auto";
-  await save(); res.json({ goal, targets: db.profile.macroTargets, ...(deficitCheck ? { deficitCheck } : {}) });
+  const age = db.profile.age ?? (db.profile.dob ? Math.round(computeAgeYears(db.profile.dob)) : null);
+  const { targets, goal, deficitCheck } = computeAutoMacroTargets({
+    goal: req.body.goal, sex: db.profile.sex, weightKg: bw, heightCm: db.profile.heightCm, age,
+    trainingDaysPerWeek: db.profile.trainingDaysPerWeek, currentBodyFatPct: latestBodyFatPct(),
+    goals: db.profile.goals, todayISO: day(),
+  });
+  db.profile.macroTargets = targets; db.profile.macroGoal = goal; db.profile.macroMode = "auto";
+  await save();
+  res.json({ goal, targets, ...(deficitCheck ? { deficitCheck } : {}) });
 });
 app.post("/thought", async (req, res) => { db.thoughts.push({ date: day(), text: req.body.text }); await save(); res.json({ ok: true }); });
 
@@ -2131,6 +2111,37 @@ async function ensureWeeklyPlan() {
     db.weeklyPlan = { ...computeWeeklyGuidance(), generatedAt: new Date().toISOString() };
     await save();
   }
+}
+
+function latestBodyFatPct() {
+  const dates = Object.keys(db.metrics || {}).filter(k => db.metrics[k].body_fat_percentage != null).sort();
+  return dates.length ? db.metrics[dates.at(-1)].body_fat_percentage : null;
+}
+
+// "Auto" calorie mode (default — see userDoc.js DEFAULTS) means the number
+// tracks current weight/body-fat/goal the same way weeklyPlan above tracks
+// live fatigue: recomputed on every /summary load rather than only when
+// POST /macro-auto is explicitly hit, so logging a new weight or changing
+// your Lose Fat goal actually moves the target without a separate action.
+// Unlike weeklyPlan's expensive guidance engine this is cheap pure
+// arithmetic on data /summary already loaded, so it's safe to recompute
+// unconditionally rather than lazy-filling once — only writes back
+// (db.profile.macroTargets/macroGoal already updated in memory either way,
+// so the response is always live) when the result actually changed, so an
+// unchanged day doesn't cost a Firestore write on every dashboard load.
+// Manual mode is untouched: this only ever runs when macroMode is 'auto'.
+async function ensureAutoMacroTargets(bw) {
+  if ((db.profile.macroMode || "auto") !== "auto") return null;
+  const age = db.profile.age ?? (db.profile.dob ? Math.round(computeAgeYears(db.profile.dob)) : null);
+  const { targets, goal, deficitCheck } = computeAutoMacroTargets({
+    sex: db.profile.sex, weightKg: bw, heightCm: db.profile.heightCm, age,
+    trainingDaysPerWeek: db.profile.trainingDaysPerWeek, currentBodyFatPct: latestBodyFatPct(),
+    goals: db.profile.goals, todayISO: day(),
+  });
+  const changed = goal !== db.profile.macroGoal || JSON.stringify(targets) !== JSON.stringify(db.profile.macroTargets);
+  db.profile.macroTargets = targets; db.profile.macroGoal = goal;
+  if (changed) await save();
+  return deficitCheck;
 }
 
 // Why the guidance says what it says: reasoning, the alternatives that lost,

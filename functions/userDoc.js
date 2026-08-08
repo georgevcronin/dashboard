@@ -25,7 +25,7 @@ const DEFAULTS = () => ({
   // /cycle/:id routes, same convention as injuries above.
   cycle: [],
   profile: { name: null, heightCm: null, sex: null, waterTarget: 7,
-    macroTargets: { calories: 2400, protein: 160, carbs: 250, fat: 75 }, macroMode: "manual",
+    macroTargets: { calories: 2400, protein: 160, carbs: 250, fat: 75 }, macroMode: "auto",
     // Each entry: { type, priority: 'primary'|'secondary'|'minor', concrete,
     // metric?, target?, targetDate?, exercise?, benchmarkLabel? }. Replaces
     // the old single primaryActivity/secondaryActivity pair (see below) with

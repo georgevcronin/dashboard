@@ -1055,6 +1055,13 @@ const glycogenPct = (elapsedS, totalS) => {
 // app's first version — everything before this had no changelog at all.
 const CHANGELOG = [
   {
+    version: '1.2',
+    date: '2026-08-08',
+    features: [
+      'Calorie Target now defaults to Auto: calculated from your weight, training days, and — if you have one — your Lose Fat goal\'s target and date, recalculating itself every time you open the dashboard rather than sitting at a fixed number. Switch to Manual anytime in Settings to set your own calories and macro split instead.',
+    ],
+  },
+  {
     version: '1.1',
     date: '2026-08-08',
     features: [
@@ -8629,17 +8636,28 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
     setSavingActivities(false);
   };
 
-  // ── Macro Targets — a calorie stepper (the only thing that sets the
-  // total; nothing here derives it from bodyweight anymore) plus a
-  // protein/carbs/fat split, always editable via the sliders below.
-  // MACRO_SPLIT_PRESETS just fills the sliders with a named ratio — same as
-  // dragging them by hand, doesn't touch macroCals. Everything commits
-  // together via /macro-targets on Save (already existed server-side with
-  // no frontend calling it).
+  // ── Macro Targets — Auto (default) computes the calorie total
+  // server-side from bodyweight/training days/Lose Fat goal and stays
+  // live: ensureAutoMacroTargets (functions/index.js) recomputes it on
+  // every /summary load, so s.profile.macroTargets is already current
+  // whenever macroMode is 'auto' — nothing to fetch or poll here. Manual
+  // is the pre-existing calorie stepper + protein/carbs/fat split, a local
+  // draft committed together via /macro-targets on Save. MACRO_SPLIT_PRESETS
+  // just fills the split sliders with a named ratio — same as dragging them
+  // by hand, doesn't touch macroCals.
+  const [macroMode, setMacroMode] = useState(s?.profile?.macroMode || 'auto');
+  const [switchingAuto, setSwitchingAuto] = useState(false);
+  const liveAutoCals = s?.profile?.macroTargets?.calories || 2400;
   const [macroCals, setMacroCals] = useState(s?.profile?.macroTargets?.calories || 2400);
   const [macroSplit, setMacroSplit] = useState(() => macroSplitFromTargets(s?.profile?.macroTargets));
   const [savingMacros, setSavingMacros] = useState(false);
   const macroGrams = macroGramsFromSplit(macroSplit, macroCals);
+  // Auto mode's split display reads s.profile.macroTargets directly (live,
+  // recomputed server-side every load) instead of the macroSplit/macroGrams
+  // draft state above, which only Manual edits — keeps the bars honest
+  // without needing to keep local state in sync with a value it doesn't own.
+  const displaySplit = macroMode === 'auto' ? macroSplitFromTargets(s?.profile?.macroTargets) : macroSplit;
+  const displayGrams = macroMode === 'auto' ? { protein: 0, carbs: 0, fat: 0, ...s?.profile?.macroTargets } : macroGrams;
   const applySplitPreset = (preset) => {
     setMacroSplit(preset.split);
     // Human-readable label, best-effort — Atlas's post-session prompt
@@ -8648,11 +8666,39 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
     // blocking the slider fill on.
     api('profile', { method: 'POST', body: JSON.stringify({ goal: preset.label }) }).then(profile => refresh({ ...s, profile })).catch(() => {});
   };
+  // Recomputes and persists immediately (no free parameters to draft first,
+  // unlike Manual below) — also doubles as a manual "recalculate now" when
+  // already in Auto, e.g. right after logging a new weight.
+  const switchToAuto = async () => {
+    setSwitchingAuto(true);
+    const result = await api('macro-auto', { method: 'POST', body: JSON.stringify({}) });
+    setSwitchingAuto(false);
+    setMacroMode('auto');
+    setMacroSplit(macroSplitFromTargets(result.targets));
+    refresh({
+      ...s, macroTargets: result.targets, macroMode: 'auto', macroGoal: result.goal, macroDeficitCheck: result.deficitCheck || null,
+      profile: { ...s.profile, macroTargets: result.targets, macroMode: 'auto', macroGoal: result.goal },
+    });
+  };
+  // Local draft only, same as goalsDraft/activitiesDraft above — nothing
+  // persists (and Auto stays in effect server-side) until Save Macro
+  // Targets below actually hits /macro-targets. Seeds the draft from
+  // today's live Auto number rather than whatever macroCals happened to be
+  // at mount, so the stepper starts from a current, sensible value.
+  const enterManualMode = () => {
+    setMacroCals(liveAutoCals);
+    setMacroSplit(macroSplitFromTargets(s?.profile?.macroTargets));
+    setMacroMode('manual');
+  };
   const saveMacros = async () => {
     setSavingMacros(true);
     const targets = await api('macro-targets', { method: 'POST', body: JSON.stringify({ calories: macroCals, ...macroGrams }) });
     setSavingMacros(false);
-    refresh({ ...s, macroTargets: targets, macroMode: 'manual' });
+    setMacroMode('manual');
+    refresh({
+      ...s, macroTargets: targets, macroMode: 'manual', macroDeficitCheck: null,
+      profile: { ...s.profile, macroTargets: targets, macroMode: 'manual' },
+    });
   };
 
   // returningBreakWeeks: only meaningful alongside experienceLevel
@@ -8995,29 +9041,60 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
         {/* ── CALORIE TARGET ── */}
         <div className="settings-sec" id="sec-calorie-target">
           <div className="settings-sh">Calorie Target</div>
-          <div className="ob-stepper" style={{ margin: '8px 0 4px' }}>
-            <button className="ob-stepper-btn" onClick={() => setMacroCals(v => Math.max(1200, v - 50))}>−</button>
-            <div className="ob-stepper-val">{macroCals}<span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 12, color: 'var(--dim)', fontWeight: 400 }}> kcal</span></div>
-            <button className="ob-stepper-btn" onClick={() => setMacroCals(v => Math.min(5000, v + 50))}>+</button>
+          <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
+            <button className="prof-btn" onClick={switchToAuto} disabled={switchingAuto}
+              style={macroMode === 'auto' ? { background: 'var(--ink)', color: 'var(--paper)', borderColor: 'var(--ink)' } : undefined}>
+              {switchingAuto ? 'Calculating…' : 'Auto'}
+            </button>
+            <button className="prof-btn" onClick={enterManualMode} disabled={macroMode === 'manual'}
+              style={macroMode === 'manual' ? { background: 'var(--ink)', color: 'var(--paper)', borderColor: 'var(--ink)' } : undefined}>
+              Manual
+            </button>
           </div>
-          <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, color: 'var(--dim)' }}>Saved together with the macro split below.</div>
+          {macroMode === 'auto' ? (
+            <>
+              <div className="ob-stepper-val" style={{ margin: '8px 0 4px' }}>
+                {liveAutoCals}<span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 12, color: 'var(--dim)', fontWeight: 400 }}> kcal</span>
+              </div>
+              <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, color: 'var(--dim)' }}>
+                Recalculated from your weight and training days{(s?.profile?.goals || []).some(g => g.type === 'fatLoss') ? ', sized to your Lose Fat goal' : ''} each time your dashboard loads. Switch to Manual to set your own number.
+              </div>
+              {s?.macroDeficitCheck?.message && (
+                <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, marginTop: 6, color: s.macroDeficitCheck.status === 'hard-limit' ? 'var(--red)' : 'var(--ember)' }}>
+                  {s.macroDeficitCheck.message}
+                </div>
+              )}
+            </>
+          ) : (
+            <>
+              <div className="ob-stepper" style={{ margin: '8px 0 4px' }}>
+                <button className="ob-stepper-btn" onClick={() => setMacroCals(v => Math.max(1200, v - 50))}>−</button>
+                <div className="ob-stepper-val">{macroCals}<span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 12, color: 'var(--dim)', fontWeight: 400 }}> kcal</span></div>
+                <button className="ob-stepper-btn" onClick={() => setMacroCals(v => Math.min(5000, v + 50))}>+</button>
+              </div>
+              <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, color: 'var(--dim)' }}>Saved together with the macro split below.</div>
+            </>
+          )}
         </div>
 
         {/* ── MACRO SPLIT ── */}
         <div className="settings-sec" id="sec-macro-split">
           <div className="settings-sh">Macro Split <span style={{ fontWeight: 400, textTransform: 'none', fontSize: 9, color: 'var(--dim)' }}>(protein/carb/fat, at the calorie target above)</span></div>
 
-          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
-            {MACRO_SPLIT_PRESETS.map(p => (
-              <button key={p.key} className="prof-btn" onClick={() => applySplitPreset(p)}>{p.label}</button>
-            ))}
-          </div>
+          {macroMode === 'manual' && (
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
+              {MACRO_SPLIT_PRESETS.map(p => (
+                <button key={p.key} className="prof-btn" onClick={() => applySplitPreset(p)}>{p.label}</button>
+              ))}
+            </div>
+          )}
 
-          {/* Segmented split bar — protein/carbs/fat proportional widths, same colors S4's macro rows already use. */}
+          {/* Segmented split bar — protein/carbs/fat proportional widths, same colors S4's macro rows already use.
+              Auto shows the live server-computed split read-only (displaySplit/displayGrams); Manual drags the draft below. */}
           <div style={{ display: 'flex', height: 10, width: '100%', overflow: 'hidden', border: '1px solid var(--rule)' }}>
-            <div style={{ width: `${macroSplit.protein}%`, background: 'var(--navy)' }} />
-            <div style={{ width: `${macroSplit.carbs}%`, background: 'var(--forest)' }} />
-            <div style={{ width: `${macroSplit.fat}%`, background: 'var(--ember)' }} />
+            <div style={{ width: `${displaySplit.protein}%`, background: 'var(--navy)' }} />
+            <div style={{ width: `${displaySplit.carbs}%`, background: 'var(--forest)' }} />
+            <div style={{ width: `${displaySplit.fat}%`, background: 'var(--ember)' }} />
           </div>
 
           {[
@@ -9028,19 +9105,25 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
             <div key={key} className="prof-field">
               <span className="prof-lbl" style={{ color }}>{label}</span>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <input type="range" min={0} max={100} step={1} value={macroSplit[key]}
-                  onChange={e => setMacroSplit(sp => adjustMacroSplit(sp, key, +e.target.value))}
-                  style={{ flex: 1, accentColor: color }} />
-                <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, color: 'var(--ink)', minWidth: 84, textAlign: 'right' }}>
-                  {macroSplit[key]}% · {macroGrams[key]}g
+                {macroMode === 'manual' && (
+                  <input type="range" min={0} max={100} step={1} value={macroSplit[key]}
+                    onChange={e => setMacroSplit(sp => adjustMacroSplit(sp, key, +e.target.value))}
+                    style={{ flex: 1, accentColor: color }} />
+                )}
+                <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, color: 'var(--ink)', minWidth: 84, textAlign: 'right', marginLeft: macroMode === 'auto' ? 'auto' : 0 }}>
+                  {displaySplit[key]}% · {displayGrams[key]}g
                 </span>
               </div>
             </div>
           ))}
-          <button className="prof-btn solid" style={{ padding: '7px 20px', marginTop: 4 }}
-            onClick={saveMacros} disabled={savingMacros}>
-            {savingMacros ? 'Saving…' : 'Save Macro Targets'}
-          </button>
+          {macroMode === 'manual' ? (
+            <button className="prof-btn solid" style={{ padding: '7px 20px', marginTop: 4 }}
+              onClick={saveMacros} disabled={savingMacros}>
+              {savingMacros ? 'Saving…' : 'Save Macro Targets'}
+            </button>
+          ) : (
+            <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, color: 'var(--dim)', marginTop: 4 }}>Switch to Manual above to set your own split.</div>
+          )}
         </div>
 
         {/* ── TRAINING PREFERENCES ── */}
