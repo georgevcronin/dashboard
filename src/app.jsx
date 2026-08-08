@@ -1055,6 +1055,13 @@ const glycogenPct = (elapsedS, totalS) => {
 // app's first version — everything before this had no changelog at all.
 const CHANGELOG = [
   {
+    version: '1.28',
+    date: '2026-08-08',
+    features: [
+      'Fixed Plan Ahead still front-loading sessions right after last commit\'s spacing fix: the pacing gap was tracked per calendar week and reset at every Monday boundary, so the first day of a new week was never paced against a session from the day before (e.g. Sunday) — sessions could still chain three-in-a-row across the week seam before the rest of the week went empty. Pacing now tracks the last trained day across week boundaries instead of resetting.',
+    ],
+  },
+  {
     version: '1.27',
     date: '2026-08-08',
     features: [

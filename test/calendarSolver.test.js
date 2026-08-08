@@ -208,6 +208,30 @@ test('a window crossing a Monday boundary cannot chain two weeks worth of sessio
   assert.ok(sessionDays.length < 7, `expected at least one rest day across the boundary, got ${sessionDays.length}/7 session days`);
 });
 
+test('sessions do not chain three-in-a-row across a Monday week boundary (front-loading regression)', () => {
+  // Same shape as the user-reported bug: the window opens on a Saturday, so
+  // the visible slice of week 1 is just Sat+Sun, then week 2 starts Monday.
+  // The per-week "last session" tracker used to reset to null at every
+  // Monday boundary, so the first candidate day of a new week was never
+  // paced against anything — even a session logged the day before, on the
+  // previous week's Sunday. That chained Sat+Sun+Mon into three session
+  // days with zero rest between them, which then maxed out the trailing-7
+  // cap and left the rest of the window empty: front-loaded, not spaced.
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const saturdayOffset = (6 - today.getDay() + 7) % 7;
+  const saturday = new Date(today.getTime() + saturdayOffset * 86_400_000);
+  const result = solveCalendarWindow({
+    lifts: [], recoveryHours: RECOVERY_H, days: 7, weeklySessionTarget: 3,
+    startMs: saturday.getTime(), preferredSplit: 'Upper / Lower',
+  });
+  let run = 0, maxRun = 0;
+  for (const d of result.days) {
+    run = d.type === 'session' ? run + 1 : 0;
+    maxRun = Math.max(maxRun, run);
+  }
+  assert.ok(maxRun <= 2, `expected no run of 3+ consecutive session days, got a run of ${maxRun}`);
+});
+
 test('day-of-week split anchor is honored when the anchored bucket has something fresh', () => {
   // Fresh account (no history) with Push/Pull/Legs — every bucket is fresh,
   // so an anchor for today's weekday should always be honored.
