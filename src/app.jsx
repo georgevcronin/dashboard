@@ -7055,6 +7055,9 @@ function Onboarding({ s, onComplete, onOpenImport }) {
                       This link runs your Shortcut directly, no need to open Shortcuts first: <a href={`shortcuts://run-shortcut?name=${encodeURIComponent(`pressnewsletter-${healthDevice}`)}`} style={{ color: 'var(--forest)', fontWeight: 700 }}>Sync Now →</a>
                     </div>
                   )}
+                  <div style={{ marginTop: 8, fontSize: 11, color: 'var(--dim)' }}>
+                    Health asks permission for each data type on first run — tap <strong>Turn On All</strong> at the top instead of toggling one by one. Missed one? Health app → Sharing → Apps and Services → Shortcuts → Turn On All grants everything at once (covers every Shortcut on your phone, not just this one).
+                  </div>
                   <button onClick={() => setGuideAdvanced(v => !v)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, marginTop: 10, fontSize: 9, letterSpacing: '.08em', textTransform: 'uppercase', color: 'var(--dim)' }}>
                     {guideAdvanced ? '− Hide' : '+ Show'} manual build / sharing with others / unsupported sensors
                   </button>
@@ -10109,6 +10112,9 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
                     This link runs your Shortcut directly, no need to open Shortcuts first: <a href={`shortcuts://run-shortcut?name=${encodeURIComponent(`pressnewsletter-${healthDevice}`)}`} style={{ color: 'var(--forest)', fontWeight: 700 }}>Sync Now →</a>
                   </div>
                 )}
+                <div style={{ marginTop: 8, fontSize: 11, color: 'var(--dim)' }}>
+                  Health asks permission for each data type on first run — tap <strong>Turn On All</strong> at the top instead of toggling one by one. Missed one? Health app → Sharing → Apps and Services → Shortcuts → Turn On All grants everything at once (covers every Shortcut on your phone, not just this one).
+                </div>
                 <button onClick={() => setGuideAdvanced(v => !v)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, marginTop: 10, fontSize: 9, letterSpacing: '.08em', textTransform: 'uppercase', color: 'var(--dim)' }}>
                   {guideAdvanced ? '− Hide' : '+ Show'} manual build / sharing with others / unsupported sensors
                 </button>
