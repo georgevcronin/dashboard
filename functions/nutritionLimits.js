@@ -124,8 +124,53 @@ function calorieTargetForFatLossGoal({ maintenanceCalories, currentWeightKg, cur
   };
 }
 
+// cut/recomp/bulk is /macro-auto's older diet-goal vocabulary -- there's no
+// UI to pick one directly (MASTER_IMPLEMENTATION_PLAN.md Phase 6 notes it as
+// "a separate, older field, left untouched"), so Auto mode infers it from
+// the one signal Press already collects: a fatLoss training goal means
+// 'cut', anything else stays 'recomp' -- never inferred as 'bulk', same
+// conservative default a caller-omitted goal already fell back to.
+function inferDietGoal(goals) {
+  return (goals || []).some(g => g.type === 'fatLoss') ? 'cut' : 'recomp';
+}
+
+const FLAT_CALORIE_MULT = { cut: 22, recomp: 26, bulk: 30 };
+const FLAT_PROTEIN_MULT = { cut: 2.2, recomp: 2.0, bulk: 1.8 };
+
+// The full Auto calorie-target calculation, shared by POST /macro-auto
+// (explicit recalculate / switch-to-auto) and /summary's ensureAutoMacroTargets
+// (live refresh on every dashboard load) -- one implementation so "Auto"
+// means the same math whichever path triggered it. `goal` is optional and
+// only meaningful for the older cut/recomp/bulk callers (e.g. a direct
+// /macro-auto request) -- omit it to have it inferred from `goals`.
+function computeAutoMacroTargets({ goal, sex, weightKg, heightCm, age, trainingDaysPerWeek, currentBodyFatPct, goals, todayISO }) {
+  const bw = weightKg > 0 ? weightKg : 75;
+  const resolvedGoal = goal || inferDietGoal(goals);
+  let calories = Math.round(bw * (FLAT_CALORIE_MULT[resolvedGoal] || FLAT_CALORIE_MULT.recomp));
+  const protein = Math.round(bw * (FLAT_PROTEIN_MULT[resolvedGoal] || FLAT_PROTEIN_MULT.recomp));
+
+  let deficitCheck = null;
+  if (resolvedGoal === 'cut') {
+    const maintenanceCalories = estimateMaintenanceCalories({ sex, weightKg: bw, heightCm, age, trainingDaysPerWeek });
+    if (maintenanceCalories) {
+      const fatLossGoal = (goals || []).find(g => g.type === 'fatLoss');
+      const sized = calorieTargetForFatLossGoal({ maintenanceCalories, currentWeightKg: bw, currentBodyFatPct, goal: fatLossGoal, todayISO });
+      const limited = applyDeficitLimit(sized.calories, maintenanceCalories);
+      calories = limited.calories;
+      deficitCheck = {
+        maintenanceCalories, deficitPct: limited.deficitPct, status: limited.status, message: limited.message,
+        source: sized.source, ...(sized.source === 'goal-timeframe' ? { daysRemaining: sized.daysRemaining, weightToLoseKg: sized.weightToLoseKg } : {}),
+      };
+    }
+  }
+
+  const fat = Math.round(bw * 1);
+  const carbs = Math.round(Math.max(0, (calories - fat * 9 - protein * 4) / 4));
+  return { targets: { calories, protein, carbs, fat }, goal: resolvedGoal, deficitCheck };
+}
+
 module.exports = {
   HARD_LIMIT_DEFICIT_PCT, WARNING_DEFICIT_PCT, FLAT_FALLBACK_DEFICIT_PCT, KCAL_PER_KG_FAT,
   estimateBMR, activityMultiplierFor, estimateMaintenanceCalories, applyDeficitLimit,
-  impliedTargetWeightKg, calorieTargetForFatLossGoal,
+  impliedTargetWeightKg, calorieTargetForFatLossGoal, inferDietGoal, computeAutoMacroTargets,
 };
