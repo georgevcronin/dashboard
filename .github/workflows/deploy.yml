@@ -32,7 +32,6 @@ jobs:
         working-directory: functions
       - run: echo "GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}" >> functions/.env
       - run: echo "GEMINI_API_KEY_FALLBACK=${{ secrets.GEMINI_API_KEY_FALLBACK }}" >> functions/.env
-      - run: echo "HEVY_API_KEY=${{ secrets.HEVY_API_KEY }}" >> functions/.env
       - run: echo "STRAVA_CLIENT_ID=${{ secrets.STRAVA_CLIENT_ID }}" >> functions/.env
       - run: echo "STRAVA_CLIENT_SECRET=${{ secrets.STRAVA_CLIENT_SECRET }}" >> functions/.env
       - run: echo "PRESS_OWNER_UID=uqJcOkpVXGYLjngCWCi0LvmSv8q1" >> functions/.env
@@ -51,7 +50,7 @@ jobs:
         working-directory: functions
         run: |
           missing=""
-          for key in GEMINI_API_KEY HEVY_API_KEY PRESS_OWNER_UID; do
+          for key in GEMINI_API_KEY PRESS_OWNER_UID; do
             value=$(grep "^${key}=" .env | cut -d= -f2-)
             if [ -z "$value" ]; then missing="$missing $key"; fi
           done

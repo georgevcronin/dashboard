@@ -184,19 +184,10 @@ function day(d) {
 }
 const avg = (a) => (a.length ? a.reduce((x, y) => x + y, 0) / a.length : null);
 
-// '' (not "today") for missing/invalid input — distinct from day()'s
-// "defaults to now" contract, needed by ingestWorkout to detect "no
-// timestamp present at all" rather than silently dating it today.
-function utcToAppLocalDateStr(isoString) {
-  if (!isoString) return '';
-  if (isNaN(new Date(isoString).getTime())) return '';
-  return day(isoString);
-}
-
-// ---------- Open webhook routes (iOS Health, Hevy, Strava OAuth) ----------
+// ---------- Open webhook routes (iOS Health, Strava OAuth) ----------
 // These are called by external services and can't carry a Firebase token.
 // They resolve the owner uid via PRESS_OWNER_UID env var, with legacy fallback.
-const OPEN_PATHS = ['/health', '/shortcut', '/hevy/webhook', '/strava/auth', '/strava/callback', '/setup'];
+const OPEN_PATHS = ['/health', '/shortcut', '/strava/auth', '/strava/callback', '/setup'];
 
 async function loadForUid(uid) {
   db = await loadForUser(uid);
@@ -524,23 +515,8 @@ app.post("/shortcut", async (req, res) => {
   res.json({ ok: true, date: k });
 });
 
-// ---------- Hevy helpers ----------
-function hevyKey() {
-  return process.env.HEVY_API_KEY || functions.config().hevy?.key;
-}
-
-// Maps Hevy's set_type onto the app's own W/N/D vocabulary (SET_TYPES in
-// src/app.jsx). 'failure' has no dedicated slot here, so it's treated as a
-// normal working set like anything else that isn't explicitly a warmup or a
-// dropset — the app tracks effort via RIR/RPE, not a separate failure type.
-function hevySetType(setType) {
-  if (setType === 'warmup') return 'W';
-  if (setType === 'dropset') return 'D';
-  return 'N';
-}
-
-// Source-agnostic: called from every import path (Hevy webhook/backfill, CSV
-// import, parsed-session import) so an exercise name that doesn't resolve to
+// Source-agnostic: called from every import path (CSV import, parsed-session
+// import) so an exercise name that doesn't resolve to
 // a real EXERCISE_DB entry (via findExercise, which now also checks
 // exerciseNameAliases.js) gets saved as a local custom exercise instead of
 // just silently existing as an orphan string in db.lifts forever — the same
@@ -554,130 +530,6 @@ function registerUnknownExercisesAsCustom(names) {
     if (!db.customExercises.find(ce => ce.name === name)) db.customExercises.push({ name });
   }
 }
-
-async function ingestWorkout(w) {
-  const wDate = utcToAppLocalDateStr(w.start_time || w.created_at);
-  if (!wDate) return 0;
-
-  const startMs = w.start_time ? new Date(w.start_time).getTime() : 0;
-  const endMs = w.end_time ? new Date(w.end_time).getTime() : 0;
-  const duration = startMs && endMs ? Math.round((endMs - startMs) / 60000) : null;
-  const wTitle = (w.title || "gym").toLowerCase();
-  const now = new Date().toISOString();
-
-  const newEntries = [];
-  for (const ex of (w.exercises || [])) {
-    const name = (ex.title || ex.name || "").toLowerCase();
-    if (!name) continue;
-    for (const set of (ex.sets || [])) {
-      const kg = set.weight_kg ?? (set.weight_lbs ? set.weight_lbs / 2.20462 : 0);
-      const reps = set.reps || 0;
-      const isDupe = db.lifts.find(l => l.date === wDate && l.exercise === name && Math.abs((l.kg || 0) - kg) < 0.1 && l.reps === reps);
-      if (!isDupe && (kg > 0 || reps > 0)) {
-        const entry = { date: wDate, exercise: name, kg: Math.round(kg * 100) / 100, reps, source: "hevy" };
-        // Hevy knows when the session actually started; keeping it means an
-        // imported evening workout doesn't read as 18 hours older than it was.
-        const hevyStart = importedStartStamp(w.start_time);
-        if (hevyStart) entry.start = hevyStart;
-        const type = hevySetType(set.set_type);
-        if (type !== 'N') entry.type = type;
-        if (set.rpe != null) entry.rir = Math.max(0, Math.round((10 - set.rpe) * 10) / 10);
-        newEntries.push(entry);
-      }
-    }
-  }
-  if (newEntries.length) {
-    registerUnknownExercisesAsCustom(newEntries.map(e => e.exercise));
-    await appendLifts(liftsDocRef, newEntries);
-    db.lifts.push(...newEntries);
-  }
-
-  if (newEntries.length) {
-    const mergeIdx = findOrMergeWorkout(db.workouts, wDate, 'hevy');
-    const existing = db.workouts[mergeIdx];
-    const workoutRecord = createWorkoutRecord({
-      date: wDate,
-      name: wTitle,
-      source: 'hevy',
-      sourceId: String(w.id || ''),
-      duration: duration || (existing?.duration || null),
-      sets: (existing?.sets || 0) + newEntries.length,
-      createdAt: existing?.createdAt || (w.start_time || w.created_at),
-      updatedAt: now,
-    });
-    if (mergeIdx >= 0) db.workouts[mergeIdx] = workoutRecord;
-    else db.workouts.push(workoutRecord);
-  }
-  return newEntries.length;
-}
-
-// ---------- Hevy webhook ----------
-app.post("/hevy/key", async (req, res) => {
-  const { key } = req.body;
-  if (!key) return res.status(400).json({ error: 'key required' });
-  db.profile = { ...(db.profile || {}), hevyApiKey: key };
-  await save();
-  res.json({ ok: true });
-});
-
-app.post("/hevy/webhook", async (req, res) => {
-  // Awaited rather than fire-and-forget: this is a 1st-gen Cloud Function,
-  // where the platform can freeze or recycle the instance immediately once
-  // the response is sent, with no guarantee that work still in flight at
-  // that point completes. Responding before the fetch+ingest+save chain
-  // even started meant Hevy saw a 200 and considered the webhook delivered
-  // while the actual save could be silently killed mid-flight — the workout
-  // never lands, and nothing downstream (fatigue, PRs, history) ever
-  // reflects it, indistinguishable from the sync having done nothing at
-  // all. Same fix already applied to /shortcut and /strava/callback; the
-  // 300s function timeout gives plenty of room for a single Hevy API call.
-  const workoutId = req.body.workoutId;
-  const key = hevyKey();
-  if (!workoutId || !key) return res.sendStatus(200);
-  try {
-    const r = await fetch("https://api.hevyapp.com/v1/workouts/" + workoutId, {
-      headers: { "api-key": key, "accept": "application/json" }
-    });
-    if (!r.ok) { console.log("[hevy] fetch failed:", r.status); return res.sendStatus(200); }
-    const w = await r.json();
-    const added = await ingestWorkout(w);
-    if (added) await save();
-  } catch (e) { console.log("[hevy] webhook failed:", e.message); }
-  res.sendStatus(200);
-});
-
-// ---------- Hevy backfill ----------
-app.post("/hevy/backfill", async (req, res) => {
-  const key = hevyKey();
-  if (!key) return res.status(400).json({ error: "HEVY_API_KEY not configured" });
-  const PAGE_SIZE = 10;
-  let page = 1, totalAdded = 0, totalWorkouts = 0;
-  try {
-    while (true) {
-      const r = await fetch(`https://api.hevyapp.com/v1/workouts?page=${page}&pageSize=${PAGE_SIZE}`, {
-        headers: { "api-key": key, "accept": "application/json" }
-      });
-      if (!r.ok) { console.log("[hevy] backfill page", page, "failed:", r.status); break; }
-      const data = await r.json();
-      const workouts = data.workouts || [];
-      if (!workouts.length) break;
-      for (const w of workouts) totalAdded += await ingestWorkout(w);
-      totalWorkouts += workouts.length;
-      if (workouts.length < PAGE_SIZE) break;
-      page++;
-    }
-    if (totalAdded) {
-      // FEATURES.md #142: see /import/hevy's identical seeding call — no-op
-      // once ratings already exist.
-      db.profile.exerciseRatings = seedRatingsFromImport(db.profile.exerciseRatings || {}, db.lifts, Date.now());
-      await save();
-    }
-    res.json({ ok: true, workouts: totalWorkouts, added: totalAdded });
-  } catch (e) {
-    console.log("[hevy] backfill failed:", e.message);
-    res.status(500).json({ error: e.message });
-  }
-});
 
 app.post("/import", async (req, res) => {
   const { lifts = [], weights = {}, workouts = [] } = req.body;
@@ -2170,8 +2022,8 @@ app.post("/import/hevy", async (req, res) => {
   // Per-set dedup, not whole-session skip: an already-imported session can
   // still be missing sets a later re-import has (e.g. a CSV re-export after
   // the warmup-set-drop bug was fixed) — matching the same per-set dedup
-  // ingestWorkout already does for the API path, rather than discarding the
-  // whole session because *a* workout record for that date/name exists.
+  // pattern used for CSV-based re-imports generally, rather than discarding
+  // the whole session because *a* workout record for that date/name exists.
   // Checks newLiftEntries too so two sessions in the same batch can't both
   // add the same "missing" set.
   const isDupeLift = (date, exercise, kg, reps) =>

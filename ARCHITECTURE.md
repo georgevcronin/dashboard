@@ -8,7 +8,7 @@ Technical orientation for a developer new to this codebase. For product/design i
 - **Backend**: a single Express app (`functions/index.js`) deployed as one 1st-generation Firebase Cloud Function (`exports.api`), fronting all `/api/*` routes.
 - **Data**: Firestore, one document per user, loaded wholesale into an in-memory `db` object at the start of each request and written back wholesale on every mutation (`save()`). See "Request-scoped state" below — this is a deliberate simplification, not an oversight.
 - **Auth**: Firebase Auth (Google sign-in), verified per-request in Express middleware.
-- **External integrations**: Apple Health (via an iOS Shortcut posting to `/shortcut`), Hevy (webhook + backfill + CSV import), Strava (OAuth + periodic sync), Gemini (LLM-generated briefings/newscasts/weekly reviews/mentor chat).
+- **External integrations**: Apple Health (via an iOS Shortcut posting to `/shortcut`), Hevy (CSV import), Strava (OAuth + periodic sync), Gemini (LLM-generated briefings/newscasts/weekly reviews/mentor chat).
 - **Tests**: `node --test` (Node's built-in test runner, zero extra dependencies). Run with `npm test`.
 
 ## Directory structure

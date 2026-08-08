@@ -20,7 +20,7 @@ Seven main sections (bottom-nav dock), plus Settings and an always-available men
 
 1. **Dispatch** (`S1`) — the daily entry point. Morning briefing, afternoon/night newscasts, and a weekly digest, all Gemini-generated in the app's own editorial voices. Surfaces the day's headline stat, a quick "thought" capture, and links into the other sections.
 2. **Sleep** (`S2`) — sleep score (with deep/REM/light stage breakdown), trends, and recovery-relevant sleep metrics pulled from Apple Health.
-3. **Training** (`S3`) — the core workout logger: start/log a session, exercise picker (212+ exercise database with weighted EMG-based muscle-fatigue attribution), the "Build Press/Row" angle-based exercise builder, live Session Stimulus readout per muscle, workout history, and Hevy import/sync.
+3. **Training** (`S3`) — the core workout logger: start/log a session, exercise picker (212+ exercise database with weighted EMG-based muscle-fatigue attribution), the "Build Press/Row" angle-based exercise builder, live Session Stimulus readout per muscle, workout history, and Hevy CSV import.
 4. **Nutrition** (`S4`) — meal logging (including photo-scan entries), macro targets (manual or auto-calculated from a goal), water tracking, recent-foods, CSV export.
 5. **Recovery** (`S5`) — structural/CNS/metabolic fatigue readouts per muscle, injury taper, weekly training guidance (advisory, not a locked schedule), staleness/"days since trained" tracking, and Today's Limiting Factor. (ACWR is computed inside `fatigue.js` and feeds the fatigue model, but is not surfaced in the interface — it was listed here for a while as though it were.)
 6. **Body** (`S6`) — bodyweight, body-fat, body measurements (neck/chest/waist/hips/limbs), supplement log.
@@ -29,7 +29,7 @@ Seven main sections (bottom-nav dock), plus Settings and an always-available men
 Plus:
 - **Mentor chat ("V")** — Gemini-backed conversational coach with its own persisted memory, referencing live recovery/training/nutrition/thought data.
 - **Settings** — grouped into seven collapsible categories (Profile & Training, Dashboard Layout, Targets & Nutrition, Connected Data, Tools, Account, What's New/Changelog). Includes onboarding wizard (re-runnable via "Restart Setup"), plate calculator, and per-account data controls.
-- **Integrations**: Apple Health (iOS Shortcut → `/shortcut`), Hevy (webhook live-sync + backfill + CSV import), Strava (OAuth + periodic sync), Gemini (all AI-generated copy — briefings, newscasts, weekly reviews, mentor chat).
+- **Integrations**: Apple Health (iOS Shortcut → `/shortcut`), Hevy (CSV import), Strava (OAuth + periodic sync), Gemini (all AI-generated copy — briefings, newscasts, weekly reviews, mentor chat).
 
 This list changes often — the `CHANGELOG` array at the top of `src/app.jsx` (shown in Settings → What's New) is the authoritative, dated record of what's shipped; this section is a snapshot, not a spec.
 

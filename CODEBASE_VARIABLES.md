@@ -188,7 +188,7 @@ SECONDARY_FATIGUE_CEILING = 600 (max CNS fatigue)
 ```javascript
 const firestore = admin.firestore()
 const APP_TIMEZONE = 'Europe/London'
-const OPEN_PATHS = ['/health', '/shortcut', '/hevy/webhook', '/strava/auth', ...]
+const OPEN_PATHS = ['/health', '/shortcut', '/strava/auth', ...]
 const ALLOWED_ORIGINS = ["https://pressnewsletter.web.app", ...]
 
 // Request-scoped (per-request, safe in Cloud Functions 1st gen)

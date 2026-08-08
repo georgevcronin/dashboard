@@ -4402,11 +4402,9 @@ function parseHevyCSV(text) {
     if (!map[key].exercises[exName]) map[key].exercises[exName] = [];
     const kg = parseFloat(row['weight_kg'] ?? row['Weight (kg)'] ?? row['Weight']) || 0;
     const reps = parseInt(row['reps'] || row['Reps']) || 0;
-    // Hevy's export uses the same set_type vocabulary as its API
-    // (warmup/normal/failure/dropset) — mapped onto the app's W/N/D here so
-    // warmup sets are remembered as warmup sets, not indistinguishable from
-    // working sets (see hevySetType in functions/index.js for the same
-    // mapping on the API import path).
+    // Hevy's CSV export uses set_type values warmup/normal/failure/dropset —
+    // mapped onto the app's W/N/D here so warmup sets are remembered as
+    // warmup sets, not indistinguishable from working sets.
     const rawType = (row['set_type'] || row['Set Type'] || '').toLowerCase();
     const type = rawType === 'warmup' ? 'W' : rawType === 'dropset' ? 'D' : 'N';
     if (kg > 0 || reps > 0) map[key].exercises[exName].push({ kg, reps, type });
@@ -7201,18 +7199,12 @@ function Onboarding({ s, onComplete, onOpenImport }) {
     return next;
   });
 
-  // Step 8 — Connect Services. stravaStarted/hevyKeySaved start from the
-  // real connection state on a repeat setup (s.stravaConnected/
-  // profile.hevyApiKey) rather than blank — otherwise "Restart Setup" on an
-  // account that connected both months ago showed neither as done anywhere
-  // in this step, and Step 9's summary read them as never connected at all.
-  // hevyKeyVal stays blank regardless — the saved key itself is a secret,
-  // never worth re-populating into a plain text input just to prove it's set.
+  // Step 8 — Connect Services. stravaStarted starts from the real connection
+  // state on a repeat setup (s.stravaConnected) rather than blank —
+  // otherwise "Restart Setup" on an account that connected months ago showed
+  // it as never done in this step, and Step 9's summary agreed.
   const [stravaStarted, setStravaStarted] = useState(() => !!s?.stravaConnected);
   const [healthGuideOpen, setHealthGuideOpen] = useState(false);
-  const [hevyKeyVal, setHevyKeyVal] = useState('');
-  const [hevyKeyMode, setHevyKeyMode] = useState(null);
-  const [hevyKeySaved, setHevyKeySaved] = useState(() => !!s?.profile?.hevyApiKey);
   const [urlCopied, setUrlCopied] = useState(false);
   const SHORTCUT_URL = `${API_BASE}/shortcut`;
   // Personal sync URL — each account gets its own token so its data lands
@@ -7825,29 +7817,10 @@ function Onboarding({ s, onComplete, onOpenImport }) {
                 </div>
               </div>
               <div className="ob-hevy-modes">
-                <button className={`ob-svc-btn${hevyKeyMode === 'csv' ? ' done' : ''}`}
-                  onClick={() => { onOpenImport(); }}>
+                <button className="ob-svc-btn" onClick={() => { onOpenImport(); }}>
                   Import CSV
                 </button>
-                <button className={`ob-svc-btn${(hevyKeyMode === 'api' || hevyKeySaved) ? ' done' : ''}`}
-                  onClick={() => setHevyKeyMode(m => m === 'api' ? null : 'api')}>
-                  {hevyKeyMode === 'api' ? 'Hide' : hevyKeySaved ? 'Key Saved' : 'API Key'}
-                </button>
               </div>
-              {hevyKeyMode === 'api' && (
-                <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-                  <input style={{ ...inputStyle, flex: 1, width: 'auto', fontSize: 12, fontFamily: 'JetBrains Mono,monospace' }}
-                    placeholder="Hevy API key…" value={hevyKeyVal} onChange={e => setHevyKeyVal(e.target.value)} />
-                  <button className="ob-svc-btn" style={hevyKeySaved ? { background: 'var(--forest)', borderColor: 'var(--forest)', color: 'var(--paper)' } : {}}
-                    onClick={async () => {
-                      if (!hevyKeyVal.trim()) return;
-                      await api('hevy/key', { method: 'POST', body: JSON.stringify({ key: hevyKeyVal.trim() }) }).catch(() => {});
-                      setHevyKeySaved(true);
-                    }}>
-                    {hevyKeySaved ? 'Saved' : 'Save'}
-                  </button>
-                </div>
-              )}
             </div>
 
             <div className="ob-nav">
@@ -7874,7 +7847,6 @@ function Onboarding({ s, onComplete, onOpenImport }) {
                 [!!(split || favorites.length), split ? `${split}${favorites.length ? ` · ${favorites.length} favorite${favorites.length === 1 ? '' : 's'}` : ''}` : 'Training background skipped'],
                 [stravaStarted, 'Strava'],
                 [healthGuideOpen, 'Apple Health setup viewed'],
-                [hevyKeySaved, 'Hevy API key saved'],
               ].map(([done, lbl], i) => (
                 <div key={i} className="ob-summary-row">
                   <div className={`ob-summary-check${done ? '' : ' empty'}`} />
@@ -9108,9 +9080,6 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
   // Same "show the real connection state, not blank" fix as Onboarding's
   // Step 8 — Settings mounts fresh every time it's opened too.
   const [stravaStarted, setStravaStarted] = useState(() => !!s?.stravaConnected);
-  const [hevyKeyMode, setHevyKeyMode] = useState(null);
-  const [hevyKeyVal, setHevyKeyVal] = useState('');
-  const [hevyKeySaved, setHevyKeySaved] = useState(() => !!s?.profile?.hevyApiKey);
   const [equipmentAvailable, setEquipmentAvailable] = useState(s?.profile?.equipmentAvailable || ['barbell', 'dumbbell', 'machine', 'cable']);
   const [savingEquipment, setSavingEquipment] = useState(false);
   // Plan Ahead calendar constraints (calendarSolver.js) — durable
@@ -10834,22 +10803,7 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
             </div>
             <div className="ob-hevy-modes">
               <button className="ob-svc-btn" onClick={() => { onOpenImport(); onClose(); }}>Import CSV</button>
-              <button className={`ob-svc-btn${(hevyKeyMode === 'api' || hevyKeySaved) ? ' done' : ''}`}
-                onClick={() => setHevyKeyMode(m => m === 'api' ? null : 'api')}>{hevyKeyMode === 'api' ? 'Hide' : hevyKeySaved ? 'Key Saved' : 'API Key'}</button>
             </div>
-            {hevyKeyMode === 'api' && (
-              <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-                <input style={{ ...inputStyle, flex: 1, width: 'auto', fontSize: 12, fontFamily: 'JetBrains Mono,monospace' }}
-                  placeholder="Hevy API key…" value={hevyKeyVal} onChange={e => setHevyKeyVal(e.target.value)} />
-                <button className="ob-svc-btn"
-                  style={hevyKeySaved ? { background: 'var(--forest)', borderColor: 'var(--forest)', color: 'var(--paper)' } : {}}
-                  onClick={async () => {
-                    if (!hevyKeyVal.trim()) return;
-                    await api('hevy/key', { method: 'POST', body: JSON.stringify({ key: hevyKeyVal.trim() }) }).catch(() => {});
-                    setHevyKeySaved(true);
-                  }}>{hevyKeySaved ? 'Saved' : 'Save'}</button>
-              </div>
-            )}
           </div>
         </div>
 
