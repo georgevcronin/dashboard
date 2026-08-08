@@ -105,6 +105,7 @@ const { buildCyclingRecommendation, buildSwimmingRecommendation, buildGeneralRec
 const { computeCardioScore } = require('./cardioStandards');
 const { coupledAcwr } = require('./fatigue');
 const { estimateMaxHeartRate } = require('./runningPrescription');
+const { buildManualActivity } = require('./manualActivity');
 
 // ---------- Unified workout schema ----------
 // All workouts conform to this shape regardless of source. Validation happens
@@ -112,7 +113,7 @@ const { estimateMaxHeartRate } = require('./runningPrescription');
 function createWorkoutRecord({ date, name, source, sourceId = null, duration = null, kcal = null, sets = 0, createdAt = null, updatedAt = null, gymId = null, groupWith = null }) {
   if (!date || typeof date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error('workout.date must be YYYY-MM-DD');
   if (!name || typeof name !== 'string' || !name.trim()) throw new Error('workout.name required and non-empty');
-  if (!source || !['app', 'hevy', 'strava', 'shortcut'].includes(source)) throw new Error('workout.source must be app|hevy|strava|shortcut');
+  if (!source || !['app', 'hevy', 'strava', 'shortcut', 'manual'].includes(source)) throw new Error('workout.source must be app|hevy|strava|shortcut|manual');
   if (duration != null && (typeof duration !== 'number' || duration < 0)) throw new Error('workout.duration must be non-negative number');
   if (kcal != null && (typeof kcal !== 'number' || kcal < 0)) throw new Error('workout.kcal must be non-negative number');
   if (typeof sets !== 'number' || sets < 0) throw new Error('workout.sets must be non-negative number');
@@ -717,6 +718,27 @@ app.post("/strava/sync", async (req, res) => {
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
+});
+
+// ---------- Manual cardio/sport logging ----------
+// The hand-typed counterpart to ingestActivity above — see
+// manualActivity.js's header for why this exists. Lands in the exact same
+// db.runs/db.sports/db.workouts shape a Strava sync would produce, so S11-15
+// and the running/cardio recommendation engines need no changes to read it.
+app.post('/cardio/log', async (req, res) => {
+  const result = buildManualActivity(req.body || {}, day());
+  if (result.error) return res.status(400).json({ error: result.error });
+  const { bucket, record, workoutName } = result;
+  db[bucket] = db[bucket] || [];
+  db[bucket].push(record);
+  db.workouts = db.workouts || [];
+  const now = new Date().toISOString();
+  db.workouts.push(createWorkoutRecord({
+    date: record.date, name: workoutName, source: 'manual',
+    duration: record.durationMin, sets: 0, createdAt: now, updatedAt: now,
+  }));
+  await save();
+  res.json({ ok: true });
 });
 
 // ---------- Derived vitality (same adaptive logic) ----------
@@ -1373,6 +1395,18 @@ app.post("/profile", async (req, res) => {
         /^\d{4}-\d{2}-\d{2}$/.test(d) && Number.isInteger(mins) && mins >= 10 && mins <= 240);
     if (!valid) {
       return res.status(400).json({ error: 'dayDurationOverrides must be an object of YYYY-MM-DD -> minutes (10-240)' });
+    }
+  }
+  // Forward-looking plan marker, quick-set from the Plan Ahead panel — a day
+  // tagged here tells the solver a cardio/sport session is already the plan,
+  // so it skips auto-picking a lift session; see calendarSolver.js's
+  // plannedActivities.
+  if (body.plannedActivities) {
+    const valid = typeof body.plannedActivities === 'object' && !Array.isArray(body.plannedActivities)
+      && Object.entries(body.plannedActivities).every(([d, type]) =>
+        /^\d{4}-\d{2}-\d{2}$/.test(d) && ['cardio', 'sport'].includes(type));
+    if (!valid) {
+      return res.status(400).json({ error: 'plannedActivities must be an object of YYYY-MM-DD -> "cardio"|"sport"' });
     }
   }
 
@@ -2500,6 +2534,7 @@ app.get('/plan/calendar', async (req, res) => {
     calendarWindows: db.calendarWindows || [],
     busyDates: db.profile?.busyDates || [],
     dayDurationOverrides: db.profile?.dayDurationOverrides || {},
+    plannedActivities: db.profile?.plannedActivities || {},
     unavailableDaysOfWeek: db.profile?.unavailableDaysOfWeek || [],
     availableDaysOfWeek: db.profile?.availableDaysOfWeek || [],
     splitDayAnchors: db.profile?.splitDayAnchors || {},
@@ -2944,6 +2979,15 @@ app.delete('/workout/:date', async (req, res) => {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return res.status(400).json({ error: 'date must be YYYY-MM-DD' });
   db.workouts = (db.workouts || []).filter(w => w.date !== date);
   db.lifts = (db.lifts || []).filter(l => l.date !== date);
+  // Only ever the manual-entry counterpart, never Strava's — a synced run's
+  // db.workouts summary row is scoped source:'strava' and already excluded
+  // by the filter above, but its db.runs/db.sports structured record has no
+  // equivalent per-date cleanup today (a pre-existing gap, not one this
+  // route should start closing for data it didn't create). Manual entries
+  // are the one case this route fully owns end to end, so it can safely
+  // guarantee they don't outlive the workout row that represented them.
+  db.runs = (db.runs || []).filter(r => !(r.date === date && r.source === 'manual'));
+  db.sports = (db.sports || []).filter(sp => !(sp.date === date && sp.source === 'manual'));
   await removeLiftsAndAppend(liftsDocRef, l => l.date === date, []);
   await save();
   res.json({ ok: true });

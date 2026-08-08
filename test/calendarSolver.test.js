@@ -278,3 +278,52 @@ test('a legacy single-integer split anchor (pre-multi-day accounts) is still hon
     assert.strictEqual(day0.bucket, 'legs');
   }
 });
+
+test('plannedActivities: a date marked cardio short-circuits the lift auto-pick', () => {
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const dstr = today.toISOString().slice(0, 10);
+  const result = solveCalendarWindow({
+    ...baseParams(), days: 1, plannedActivities: { [dstr]: 'cardio' },
+  });
+  assert.strictEqual(result.days[0].type, 'planned');
+  assert.strictEqual(result.days[0].activityType, 'cardio');
+  assert.strictEqual(result.days[0].reason, 'Cardio session planned');
+  assert.strictEqual(result.days[0].readiness, 'green');
+  assert.strictEqual(result.days[0].exercises, undefined);
+});
+
+test('plannedActivities: a date marked sport is reported distinctly from cardio', () => {
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const dstr = today.toISOString().slice(0, 10);
+  const result = solveCalendarWindow({
+    ...baseParams(), days: 1, plannedActivities: { [dstr]: 'sport' },
+  });
+  assert.strictEqual(result.days[0].type, 'planned');
+  assert.strictEqual(result.days[0].activityType, 'sport');
+  assert.strictEqual(result.days[0].reason, 'Sport session planned');
+});
+
+test('plannedActivities: only the marked date is affected, not the whole window', () => {
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const tomorrow = new Date(today.getTime() + 86_400_000);
+  const result = solveCalendarWindow({
+    ...baseParams(), days: 2, plannedActivities: { [tomorrow.toISOString().slice(0, 10)]: 'cardio' },
+  });
+  assert.notStrictEqual(result.days[0].type, 'planned');
+  assert.strictEqual(result.days[1].type, 'planned');
+});
+
+test('plannedActivities: a busy date still wins over a planned one on the same day', () => {
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const dstr = today.toISOString().slice(0, 10);
+  const result = solveCalendarWindow({
+    ...baseParams(), days: 1, busyDates: [dstr], plannedActivities: { [dstr]: 'sport' },
+  });
+  assert.strictEqual(result.days[0].type, 'rest');
+  assert.strictEqual(result.days[0].reason, 'Marked busy');
+});
+
+test('plannedActivities: does not affect a window when unset (backward compatible)', () => {
+  const result = solveCalendarWindow(baseParams());
+  result.days.forEach(d => assert.notStrictEqual(d.type, 'planned'));
+});

@@ -1055,6 +1055,14 @@ const glycogenPct = (elapsedS, totalS) => {
 // app's first version — everything before this had no changelog at all.
 const CHANGELOG = [
   {
+    version: '1.2',
+    date: '2026-08-08',
+    features: [
+      'Plan Ahead can now mark a day Cardio or Sport instead of only Mark Busy — the forward calendar skips guessing a lift session for that day and shows it as planned instead.',
+      'Added manual logging for runs, rides, swims, and other sport sessions (Running/Cycling/Swimming/Sport/Aerobic each gained a "+ Log" button) — previously the only way any of those got into Press at all was a Strava sync.',
+    ],
+  },
+  {
     version: '1.1',
     date: '2026-08-08',
     features: [
@@ -4246,6 +4254,97 @@ function GymPickerModal({ activeGym, lastCoordsRef, onClose, onSelect, onClear }
   );
 }
 
+// Manual cardio/sport logging (POST /cardio/log, functions/manualActivity.js)
+// — until now db.runs/db.sports only ever got populated by Strava sync, so
+// S11-S15 had no path at all for an athlete without a synced device, or an
+// activity Strava never saw (a five-a-side game, a pool swim with no watch).
+// Opened pre-selected to whichever panel it was triggered from (defaultType)
+// but freely switchable — same onboard-overlay shape as GroupSessionStartModal/
+// GymPickerModal above.
+const LOG_ACTIVITY_TYPES = [
+  { value: 'run', label: 'Run' },
+  { value: 'ride', label: 'Ride' },
+  { value: 'swim', label: 'Swim' },
+  { value: 'sport', label: 'Sport' },
+  { value: 'other', label: 'Other' },
+];
+
+function LogActivityModal({ defaultType, onClose, onLogged }) {
+  const [activityType, setActivityType] = useState(defaultType || 'run');
+  const [date, setDate] = useState(todayLocalStr());
+  const [durationMin, setDurationMin] = useState('');
+  const [distanceKm, setDistanceKm] = useState('');
+  const [avgHeartRate, setAvgHeartRate] = useState('');
+  const [name, setName] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+
+  const submit = async () => {
+    if (!durationMin || +durationMin <= 0) { setError('Duration is required.'); return; }
+    setBusy(true); setError('');
+    try {
+      const r = await api('cardio/log', {
+        method: 'POST',
+        body: JSON.stringify({
+          activityType, date, durationMin: +durationMin,
+          distanceKm: distanceKm !== '' ? +distanceKm : null,
+          avgHeartRate: avgHeartRate !== '' ? +avgHeartRate : null,
+          name: name.trim() || null,
+        }),
+      });
+      if (r.error) { setError(r.error); setBusy(false); return; }
+      onLogged();
+    } catch {
+      setError('Could not log that session — try again.');
+      setBusy(false);
+    }
+  };
+
+  const inputStyle = { width: '100%', border: 'none', borderBottom: '2px solid var(--ink)', padding: '8px 0', background: 'transparent', fontFamily: 'Times New Roman,serif', fontSize: 16, outline: 'none', color: 'var(--ink)', boxSizing: 'border-box' };
+
+  return (
+    <div className="onboard-overlay" style={{ zIndex: 9998 }}>
+      <div className="ob-wrap">
+        <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--dim)', fontFamily: "'JetBrains Mono',monospace", fontSize: 9, letterSpacing: '.12em', textTransform: 'uppercase', padding: 0, marginBottom: 20 }}>← Back</button>
+        <div className="ob-h">Log a Session</div>
+        <div className="ob-deck">For anything Strava never saw — a five-a-side game, a pool swim, a run with no watch.</div>
+
+        <label className="ob-label">Type</label>
+        <select value={activityType} onChange={e => setActivityType(e.target.value)} style={{ ...inputStyle, marginBottom: 14 }}>
+          {LOG_ACTIVITY_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+        </select>
+
+        <label className="ob-label">Date</label>
+        <input type="date" value={date} max={todayLocalStr()} onChange={e => setDate(e.target.value)} style={{ ...inputStyle, marginBottom: 14 }} />
+
+        <label className="ob-label">Duration (minutes)</label>
+        <input type="number" inputMode="numeric" min="1" max="720" value={durationMin} placeholder="45"
+          onChange={e => setDurationMin(e.target.value)} style={{ ...inputStyle, marginBottom: 14 }} />
+
+        <label className="ob-label">Distance (km) — optional</label>
+        <input type="number" inputMode="decimal" min="0" step="0.1" value={distanceKm}
+          onChange={e => setDistanceKm(e.target.value)} style={{ ...inputStyle, marginBottom: 14 }} />
+
+        <label className="ob-label">Avg Heart Rate — optional</label>
+        <input type="number" inputMode="numeric" min="30" max="240" value={avgHeartRate}
+          onChange={e => setAvgHeartRate(e.target.value)} style={{ ...inputStyle, marginBottom: 14 }} />
+
+        {(activityType === 'sport' || activityType === 'other') && (
+          <>
+            <label className="ob-label">Name — optional</label>
+            <input value={name} placeholder="Five-a-side" onChange={e => setName(e.target.value)} style={{ ...inputStyle, marginBottom: 14 }} />
+          </>
+        )}
+
+        <button className="ob-next" style={{ width: '100%', padding: '14px 0', marginTop: 10 }} onClick={submit} disabled={busy || !durationMin}>
+          {busy ? 'Logging…' : 'Log Session'}
+        </button>
+        {error && <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--red)', marginTop: 14 }}>{error}</div>}
+      </div>
+    </div>
+  );
+}
+
 // Why today's guidance picked what it picked. Every figure comes from the
 // /plan/recommendation payload (functions/recommendation.js), which re-derives
 // the planner's own terms — nothing here computes or rounds a second opinion.
@@ -4470,22 +4569,30 @@ function CalendarGrid({ days, expandedDate, onSelect, busyDates = [] }) {
         const dateObj = localDateFromYMD(d.date);
         const isOpen = expandedDate === d.date;
         const isBusy = busyDates.includes(d.date);
+        // Busy (an explicit "can't train") always wins the tile's styling —
+        // calendarSolver.js gives it the same precedence server-side, so a
+        // date can never actually carry both, but the busyDates prop here is
+        // a client-side overlay independent of d.type (see toggleBusy below),
+        // so this stays defensive rather than assuming they can't disagree.
+        const isPlanned = !isBusy && d.type === 'planned';
+        const accent = isBusy ? 'var(--gold)' : isPlanned ? 'var(--navy)' : null;
+        const label = isBusy ? 'Busy' : isPlanned ? (d.activityType === 'cardio' ? 'Cardio' : 'Sport') : d.type === 'rest' ? 'Rest' : (d.bucket || 'Full Body');
         return (
           <button key={d.date} onClick={() => onSelect(isOpen ? null : d.date)}
             aria-expanded={isOpen}
             style={{
               display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2, padding: '6px 2px',
-              minHeight: 44, cursor: 'pointer', background: isBusy ? 'rgba(255, 165, 0, 0.1)' : 'none', minWidth: 0, overflowWrap: 'anywhere',
-              border: `1px solid ${isOpen ? 'var(--ink)' : isBusy ? 'var(--gold)' : 'var(--rule)'}`,
-              borderBottom: `3px solid ${isBusy ? 'var(--gold)' : READINESS_COLOR[d.readiness] || 'var(--rule)'}`,
+              minHeight: 44, cursor: 'pointer', background: isBusy ? 'rgba(255, 165, 0, 0.1)' : isPlanned ? 'rgba(26, 47, 84, 0.12)' : 'none', minWidth: 0, overflowWrap: 'anywhere',
+              border: `1px solid ${isOpen ? 'var(--ink)' : accent || 'var(--rule)'}`,
+              borderBottom: `3px solid ${accent || READINESS_COLOR[d.readiness] || 'var(--rule)'}`,
               fontFamily: "'JetBrains Mono',monospace",
             }}>
             <span style={{ fontSize: 8, color: 'var(--dim)', textTransform: 'uppercase' }}>
               {dateObj.toLocaleDateString('en-GB', { weekday: 'short' })}
             </span>
             <span style={{ fontSize: 10, color: 'var(--ink)' }}>{dateObj.getDate()}</span>
-            <span style={{ fontSize: 7, color: isBusy ? 'var(--gold)' : 'var(--dim)', textTransform: 'capitalize', textAlign: 'center', lineHeight: 1.2 }}>
-              {isBusy ? 'Busy' : d.type === 'rest' ? 'Rest' : (d.bucket || 'Full Body')}
+            <span style={{ fontSize: 7, color: accent || 'var(--dim)', textTransform: 'capitalize', textAlign: 'center', lineHeight: 1.2 }}>
+              {label}
             </span>
           </button>
         );
@@ -4562,6 +4669,7 @@ function S3({ s, recommendation, performanceTrend, onStartWorkout, onImport, onH
 
   const [targetPlannerOpen, setTargetPlannerOpen] = useState(false);
   const [togglingBusy, setTogglingBusy] = useState(false);
+  const [togglingPlanned, setTogglingPlanned] = useState(false);
   const [savingDayDuration, setSavingDayDuration] = useState(false);
   // The same structural fatigue reading the Recovery panel shows — both the
   // target planner and (formerly) the sandbox rank against current state, so
@@ -4786,19 +4894,65 @@ function S3({ s, recommendation, performanceTrend, onStartWorkout, onImport, onH
           if (!day) return null;
           const isToday = day.date === calendar.days[0]?.date;
           const isBusy = (s?.profile?.busyDates || []).includes(expandedDate);
+          const plannedActivities = s?.profile?.plannedActivities || {};
+          const plannedType = plannedActivities[expandedDate] || null;
 
+          // Busy and a planned cardio/sport day are mutually exclusive —
+          // setting one always clears the other for this date, in the same
+          // save, so the tile/detail view never has to reconcile disagreeing
+          // state. Both also bump calendarRefreshNonce: unlike a pure display
+          // overlay, each one changes what the solver would return for this
+          // date (skips the lift auto-pick entirely — see calendarSolver.js),
+          // so the detail view below needs the refetch to stop showing
+          // whatever it solved before the change.
           const toggleBusy = async () => {
             setTogglingBusy(true);
-            const updated = isBusy
+            const updatedBusy = isBusy
               ? (s.profile.busyDates || []).filter(d => d !== expandedDate)
               : [...(s.profile.busyDates || []), expandedDate];
+            const updatedPlanned = { ...plannedActivities };
+            if (!isBusy) delete updatedPlanned[expandedDate];
             try {
-              await api('profile', { method: 'POST', body: JSON.stringify({ busyDates: updated }) });
-              refresh({ ...s, profile: { ...s.profile, busyDates: updated } });
+              await api('profile', { method: 'POST', body: JSON.stringify({ busyDates: updatedBusy, plannedActivities: updatedPlanned }) });
+              refresh({ ...s, profile: { ...s.profile, busyDates: updatedBusy, plannedActivities: updatedPlanned } });
+              setCalendarRefreshNonce(n => n + 1);
             } finally {
               setTogglingBusy(false);
             }
           };
+
+          const setPlanned = async (type) => {
+            setTogglingPlanned(true);
+            const updatedPlanned = { ...plannedActivities };
+            if (plannedType === type) delete updatedPlanned[expandedDate]; else updatedPlanned[expandedDate] = type;
+            const updatedBusy = (s.profile.busyDates || []).filter(d => d !== expandedDate);
+            try {
+              await api('profile', { method: 'POST', body: JSON.stringify({ busyDates: updatedBusy, plannedActivities: updatedPlanned }) });
+              refresh({ ...s, profile: { ...s.profile, busyDates: updatedBusy, plannedActivities: updatedPlanned } });
+              setCalendarRefreshNonce(n => n + 1);
+            } finally {
+              setTogglingPlanned(false);
+            }
+          };
+
+          // Shared across every branch below (rest/planned message, and both
+          // the today and future full-session views) so a plan can be set
+          // regardless of what the solver currently shows for this date —
+          // including a day it solved as rest, e.g. weekly target already
+          // reached. Same tool-btn/plain styling Mark Busy already used solo.
+          const planQuickActions = (
+            <>
+              <button type="button" className={`tool-btn plain${isBusy ? ' solid' : ''}`} disabled={togglingBusy} onClick={toggleBusy} style={{ color: isBusy ? 'var(--gold)' : 'inherit' }}>
+                {isBusy ? 'Busy' : 'Mark Busy'}
+              </button>
+              <button type="button" className={`tool-btn plain${plannedType === 'cardio' ? ' solid' : ''}`} disabled={togglingPlanned} onClick={() => setPlanned('cardio')} style={{ color: plannedType === 'cardio' ? 'var(--navy)' : 'inherit' }}>
+                {plannedType === 'cardio' ? 'Cardio Planned' : 'Plan Cardio'}
+              </button>
+              <button type="button" className={`tool-btn plain${plannedType === 'sport' ? ' solid' : ''}`} disabled={togglingPlanned} onClick={() => setPlanned('sport')} style={{ color: plannedType === 'sport' ? 'var(--navy)' : 'inherit' }}>
+                {plannedType === 'sport' ? 'Sport Planned' : 'Plan Sport'}
+              </button>
+            </>
+          );
 
           const dayDurationOverride = (s?.profile?.dayDurationOverrides || {})[expandedDate] ?? null;
 
@@ -4815,10 +4969,15 @@ function S3({ s, recommendation, performanceTrend, onStartWorkout, onImport, onH
             }
           };
 
-          if (day.type === 'rest') {
+          if (day.type === 'rest' || day.type === 'planned') {
             return (
-              <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, color: 'var(--dim)', fontStyle: 'italic', padding: '4px 0 8px' }}>
-                {day.reason || 'Rest day'}
+              <div>
+                <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, color: day.type === 'planned' ? 'var(--navy)' : 'var(--dim)', fontStyle: 'italic', padding: '4px 0 8px' }}>
+                  {day.reason || 'Rest day'}
+                </div>
+                <div className="session-tools" style={{ marginTop: 0 }}>
+                  {planQuickActions}
+                </div>
               </div>
             );
           }
@@ -4960,9 +5119,7 @@ function S3({ s, recommendation, performanceTrend, onStartWorkout, onImport, onH
                   <button className="tool-btn plain" disabled={!day.exercises.length} onClick={addSessionToCalendar}>
                     Add to Calendar
                   </button>
-                  <button className={`tool-btn plain${isBusy ? ' solid' : ''}`} disabled={togglingBusy} onClick={toggleBusy} style={{ color: isBusy ? 'var(--gold)' : 'inherit' }}>
-                    {isBusy ? 'Busy' : 'Mark Busy'}
-                  </button>
+                  {planQuickActions}
                 </div>
               </div>
 
@@ -5010,10 +5167,8 @@ function S3({ s, recommendation, performanceTrend, onStartWorkout, onImport, onH
           )}
 
           {!isToday && (
-            <div style={{ paddingTop: 10, borderTop: '1px solid var(--rule)', display: 'flex', gap: 8 }}>
-              <button className={`tool-btn plain${isBusy ? ' solid' : ''}`} disabled={togglingBusy} onClick={toggleBusy} style={{ color: isBusy ? 'var(--gold)' : 'inherit', flex: 1 }}>
-                {isBusy ? 'Busy' : 'Mark Busy'}
-              </button>
+            <div className="session-tools" style={{ marginTop: 0 }}>
+              {planQuickActions}
             </div>
           )}
           </div>
@@ -7790,7 +7945,7 @@ function runningAcwrZone(acwr) {
   if (acwr < 0.8) return { label: 'Detraining', color: 'var(--dim)' };
   return { label: 'Safe range', color: 'var(--forest)' };
 }
-function S11({ s, runRecommendation }) {
+function S11({ s, runRecommendation, onLogActivity }) {
   const mono = { fontFamily: "'JetBrains Mono',monospace" };
   const rec = runRecommendation;
   const prediction = s?.runningPrediction || null;
@@ -7800,7 +7955,10 @@ function S11({ s, runRecommendation }) {
   return (
     <section id="s11" style={{ display: 'flex', flexDirection: 'column' }}>
       <div className="fade panel-head" style={{ flexShrink: 0 }} data-tour="s11-headline">
-        <div className="kicker">Running</div>
+        <div className="kicker" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+          <span>Running</span>
+          <button type="button" className="prof-btn" style={{ fontSize: 8, padding: '3px 8px' }} onClick={() => onLogActivity('run')}>+ Log</button>
+        </div>
         <div className="headline" style={{ fontSize: 'clamp(24px,6vw,44px)', lineHeight: '.96' }}>
           {rec ? (RUN_SESSION_LABELS[rec.sessionType] || 'Today’s Run') : 'Running'}
         </div>
@@ -7809,7 +7967,7 @@ function S11({ s, runRecommendation }) {
       <div className="fade" style={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>
         {!rec ? (
           <div style={{ ...mono, fontSize: 11, color: 'var(--dim)', lineHeight: 1.6 }}>
-            Sync a run from Strava or Apple Health to get a daily readiness-based prescription here.
+            Log a run manually, or sync from Strava or Apple Health, to get a daily readiness-based prescription here.
           </div>
         ) : (
           <>
@@ -7934,7 +8092,7 @@ function S11({ s, runRecommendation }) {
 const CYCLING_SESSION_LABELS = { rest: 'Rest Day', recovery: 'Recovery Ride', easy: 'Endurance Ride', steady: 'Steady Ride', tempo: 'Tempo Ride', interval: 'Interval Session', long: 'Long Ride' };
 const SWIM_SESSION_LABELS = { rest: 'Rest Day', recovery: 'Recovery Swim', easy: 'Easy Swim', steady: 'Steady Swim', tempo: 'Tempo Swim', interval: 'Interval Session', long: 'Long Swim' };
 
-function EnduranceSportPanel({ id, kicker, sessionLabels, rec, noSessionsLabel, emptyDeck, emptyBody }) {
+function EnduranceSportPanel({ id, kicker, sessionLabels, rec, noSessionsLabel, emptyDeck, emptyBody, onLogActivity, logType }) {
   const mono = { fontFamily: "'JetBrains Mono',monospace" };
   // runningAcwrZone's thresholds (Williams et al. 2017) are cross-sport, not
   // running-specific — same reuse RUNNING_SCIENCE.md documents for the ACWR
@@ -7946,7 +8104,10 @@ function EnduranceSportPanel({ id, kicker, sessionLabels, rec, noSessionsLabel, 
   return (
     <section id={id} style={{ display: 'flex', flexDirection: 'column' }}>
       <div className="fade panel-head" style={{ flexShrink: 0 }}>
-        <div className="kicker">{kicker}</div>
+        <div className="kicker" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+          <span>{kicker}</span>
+          <button type="button" className="prof-btn" style={{ fontSize: 8, padding: '3px 8px' }} onClick={() => onLogActivity(logType)}>+ Log</button>
+        </div>
         <div className="headline" style={{ fontSize: 'clamp(24px,6vw,44px)', lineHeight: '.96' }}>
           {rec ? (sessionLabels[rec.sessionType] || kicker) : kicker}
         </div>
@@ -8065,20 +8226,20 @@ function EnduranceSportPanel({ id, kicker, sessionLabels, rec, noSessionsLabel, 
   );
 }
 
-function S12({ cyclingRecommendation }) {
+function S12({ cyclingRecommendation, onLogActivity }) {
   return (
     <EnduranceSportPanel id="s12" kicker="Cycling" sessionLabels={CYCLING_SESSION_LABELS}
       rec={cyclingRecommendation} noSessionsLabel="Rides logged"
-      emptyDeck="No rides logged yet"
-      emptyBody="Sync a ride from Strava to get a daily readiness-based prescription here." />
+      emptyDeck="No rides logged yet" onLogActivity={onLogActivity} logType="ride"
+      emptyBody="Log a ride manually, or sync from Strava, to get a daily readiness-based prescription here." />
   );
 }
-function S13({ swimmingRecommendation }) {
+function S13({ swimmingRecommendation, onLogActivity }) {
   return (
     <EnduranceSportPanel id="s13" kicker="Swimming" sessionLabels={SWIM_SESSION_LABELS}
       rec={swimmingRecommendation} noSessionsLabel="Swims logged"
-      emptyDeck="No swims logged yet"
-      emptyBody="Sync a swim from Strava to get a daily readiness-based prescription here." />
+      emptyDeck="No swims logged yet" onLogActivity={onLogActivity} logType="swim"
+      emptyBody="Log a swim manually, or sync from Strava, to get a daily readiness-based prescription here." />
   );
 }
 
@@ -8089,20 +8250,20 @@ function S13({ swimmingRecommendation }) {
 // generalRecommendation object, gated and labelled independently.
 const GENERAL_SESSION_LABELS = { rest: 'Rest Day', recovery: 'Recovery Session', easy: 'Light Session', steady: 'Steady Session', tempo: 'Tempo Session', interval: 'Interval Session', long: 'Long Session' };
 
-function S14({ generalRecommendation }) {
+function S14({ generalRecommendation, onLogActivity }) {
   return (
     <EnduranceSportPanel id="s14" kicker="Sport" sessionLabels={GENERAL_SESSION_LABELS}
       rec={generalRecommendation} noSessionsLabel="Sessions logged"
-      emptyDeck="No sessions logged yet"
-      emptyBody="Sync a session from Strava to get a daily readiness-based prescription here." />
+      emptyDeck="No sessions logged yet" onLogActivity={onLogActivity} logType="sport"
+      emptyBody="Log a session manually, or sync from Strava, to get a daily readiness-based prescription here." />
   );
 }
-function S15({ generalRecommendation }) {
+function S15({ generalRecommendation, onLogActivity }) {
   return (
     <EnduranceSportPanel id="s15" kicker="Aerobic" sessionLabels={GENERAL_SESSION_LABELS}
       rec={generalRecommendation} noSessionsLabel="Sessions logged"
-      emptyDeck="No sessions logged yet"
-      emptyBody="Sync a session from Strava to get a daily readiness-based prescription here." />
+      emptyDeck="No sessions logged yet" onLogActivity={onLogActivity} logType="other"
+      emptyBody="Log a session manually, or sync from Strava, to get a daily readiness-based prescription here." />
   );
 }
 
@@ -11503,6 +11664,9 @@ function App() {
   const loggerOpen = loggerPlanDay !== undefined;
   const [showImport, setShowImport] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
+  // null = closed; else the activityType (run/ride/swim/sport/other)
+  // LogActivityModal opens pre-selected to — see S11-S15's "+ Log" buttons.
+  const [logActivityType, setLogActivityType] = useState(null);
   const [chatOpen, setChatOpen] = useState(false);
   const [onboarded, setOnboarded] = useState(() => !!localStorage.getItem('press_onboarded'));
   const [briefing, setBriefing] = useState(null);
@@ -12327,11 +12491,11 @@ function App() {
     s8: <S8 key="s8" s={s} refresh={refresh} />,
     s9: <S9 key="s9" s={s} followBadge={followBadge} reloadFollowBadge={loadFollowRequests} />,
     s10: <S10 key="s10" s={s} refresh={refresh} />,
-    s11: <S11 key="s11" s={s} runRecommendation={runRecommendation} />,
-    s12: <S12 key="s12" cyclingRecommendation={cyclingRecommendation} />,
-    s13: <S13 key="s13" swimmingRecommendation={swimmingRecommendation} />,
-    s14: <S14 key="s14" generalRecommendation={generalRecommendation} />,
-    s15: <S15 key="s15" generalRecommendation={generalRecommendation} />,
+    s11: <S11 key="s11" s={s} runRecommendation={runRecommendation} onLogActivity={setLogActivityType} />,
+    s12: <S12 key="s12" cyclingRecommendation={cyclingRecommendation} onLogActivity={setLogActivityType} />,
+    s13: <S13 key="s13" swimmingRecommendation={swimmingRecommendation} onLogActivity={setLogActivityType} />,
+    s14: <S14 key="s14" generalRecommendation={generalRecommendation} onLogActivity={setLogActivityType} />,
+    s15: <S15 key="s15" generalRecommendation={generalRecommendation} onLogActivity={setLogActivityType} />,
   };
   // Default grid size for an item that has no saved x/y/w/h yet — mirrors the
   // old CSS span logic (PANEL_WIDE + expanded state) so a fresh account's
@@ -12468,6 +12632,10 @@ function App() {
       )}
       {showImport && <HevyImport onClose={() => setShowImport(false)} refresh={setS} />}
       {showHistory && <WorkoutHistory s={s} onClose={() => setShowHistory(false)} refresh={setS} />}
+      {logActivityType && (
+        <LogActivityModal defaultType={logActivityType} onClose={() => setLogActivityType(null)}
+          onLogged={() => { setLogActivityType(null); refresh(); }} />
+      )}
     </ExpertiseContext.Provider>
   );
 }

@@ -28,7 +28,8 @@
 // program — the calendar is recomputed fresh from real fatigue on every
 // request, same as /plan/recommendation already does for a single day. Only
 // durable *preferences* (calendarWindows, unavailableDaysOfWeek,
-// availableDaysOfWeek, splitDayAnchors, weeklySessionTarget) are ever stored.
+// availableDaysOfWeek, splitDayAnchors, weeklySessionTarget, busyDates,
+// dayDurationOverrides, plannedActivities) are ever stored.
 const {
   computeStructuralFatigue, computeMetabolicFatigue, computeCNSFatigue,
   musclePeaksFromLifts, applyInjuryTaper, computeMuscleLastTrainedDays,
@@ -105,6 +106,17 @@ function solveCalendarWindow({
   // Plan Ahead panel ("only have 30 min Thursday"). Falls back to the global
   // maxDurationMin (profile.maxSessionDurationMin) for any date not listed.
   dayDurationOverrides = {},
+  // Forward-looking plan marker — { 'YYYY-MM-DD': 'cardio' | 'sport' },
+  // quick-set from the Plan Ahead panel same as dayDurationOverrides above.
+  // Tells this day's iteration there's already a plan that isn't a lift
+  // session, so it skips autoPickFullBodySession entirely rather than
+  // stacking a guessed lift day on top of one the athlete already decided.
+  // Deliberately NOT folded into weekSessionCount/lastSessionDate/pacing —
+  // those specifically track *lift* session cadence (generateWeeklyGuidance's
+  // liftSessionsTarget), and a cardio/sport day isn't one; see FEATURES.md
+  // #79-94 for the (separate, not-built-here) cross-modal allocation this
+  // would need to really integrate with. "No new fatigue math" still holds.
+  plannedActivities = {},
   // Manual override for "how many lift sessions this week" — when null, each
   // Monday-aligned week auto-computes its own target the same way
   // generateWeeklyGuidance already does for the (now-retired) advisory block,
@@ -142,6 +154,20 @@ function solveCalendarWindow({
 
     if (constraint?.level === 'rest') {
       out.push({ date: ymd(date), type: 'rest', reason: constraint.reason || 'Marked unavailable', readiness: 'red' });
+      continue;
+    }
+
+    // Checked after busy/holiday/blackout (above) but before any lift-
+    // session bookkeeping (below) — an explicit "I can't train" still wins
+    // over a stale plan, but a plan otherwise pre-empts the lift auto-pick
+    // outright, same early-continue shape constraint?.level==='rest' uses.
+    const plannedType = (plannedActivities || {})[ymd(date)] || null;
+    if (plannedType) {
+      out.push({
+        date: ymd(date), type: 'planned', activityType: plannedType,
+        reason: plannedType === 'cardio' ? 'Cardio session planned' : 'Sport session planned',
+        readiness: 'green',
+      });
       continue;
     }
 
