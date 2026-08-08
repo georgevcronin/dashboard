@@ -12552,7 +12552,21 @@ function App() {
     const shortcutName = s?.profile?.healthDevice ? `pressnewsletter-${s.profile.healthDevice}` : 'pressnewsletter';
     window.location.href = `shortcuts://run-shortcut?name=${encodeURIComponent(shortcutName)}`;
     setSyncingShortcut(true);
-    setTimeout(() => { loadSummary(); setSyncingShortcut(false); }, 5000);
+    let done = false;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      document.removeEventListener('visibilitychange', onVisible);
+      loadSummary();
+      setSyncingShortcut(false);
+      setTimeout(loadSummary, 20000);
+    };
+    const onVisible = () => { if (document.visibilityState === 'visible') finish(); };
+    document.addEventListener('visibilitychange', onVisible);
+    // Safety net if the shortcuts:// deep link silently fails to open (e.g.
+    // not iOS) and visibilitychange never fires — otherwise the button would
+    // stay stuck on "Syncing…" forever.
+    setTimeout(finish, 60000);
   };
 
   const loadSummary = () => api('summary', { throwOnError: true })
