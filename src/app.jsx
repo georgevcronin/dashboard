@@ -1053,6 +1053,13 @@ const glycogenPct = (elapsedS, totalS) => {
 // app's first version — everything before this had no changelog at all.
 const CHANGELOG = [
   {
+    version: '1.22',
+    date: '2026-08-08',
+    features: [
+      'Fixed the interactive walkthrough being able to reappear for a panel you\'d already seen — the save that marks a section\'s tour as "seen forever" fired right as the tour opened with no retry, so a network hiccup at that exact moment silently lost the write and re-armed it for your next visit. It now retries automatically before giving up.',
+    ],
+  },
+  {
     version: '1.21',
     date: '2026-08-08',
     features: [
@@ -12833,9 +12840,25 @@ function App() {
   const walkthroughActiveRef = useRef(null);
   const walkthroughQueueRef = useRef([]);
   const walkthroughFiredRef = useRef(new Set());
-  const markWalkthroughSeen = sectionId => {
-    api('profile', { method: 'POST', body: JSON.stringify({ walkthroughSeen: sectionId }) })
-      .then(profile => { if (profile && !profile.error) setS(prev => prev ? { ...prev, profile } : prev); });
+  // Fire-and-forget, but not fire-and-forget-if-it-fails: this is the only
+  // write that makes a section's tour "seen forever" durable, and it fires
+  // right as the tour opens — the worst possible moment for a network blip,
+  // since nothing else about viewing the tour will ever prompt a retry. A
+  // lost write here silently re-arms that section for the user's next visit
+  // (same class of bug as Onboarding's save-failure fix above; see that
+  // changelog entry). throwOnError turns both a network failure and a non-2xx
+  // response into the same catchable path.
+  const markWalkthroughSeen = async sectionId => {
+    for (let tries = 3; tries > 0; tries--) {
+      try {
+        const profile = await api('profile', { method: 'POST', body: JSON.stringify({ walkthroughSeen: sectionId }), throwOnError: true });
+        setS(prev => prev ? { ...prev, profile } : prev);
+        return;
+      } catch (err) {
+        if (tries === 1) console.error(`Failed to persist walkthrough seen-state for ${sectionId}`, err);
+        else await new Promise(r => setTimeout(r, 2000));
+      }
+    }
   };
   // `forced` distinguishes a genuine forced start (Replay Walkthrough,
   // re-arming a section while you're sitting on a different one) from a
