@@ -1055,6 +1055,13 @@ const glycogenPct = (elapsedS, totalS) => {
 // app's first version — everything before this had no changelog at all.
 const CHANGELOG = [
   {
+    version: '1.26',
+    date: '2026-08-08',
+    features: [
+      'Plan Ahead no longer front-loads a week\'s sessions into the first few days with everything after treated as rest — sessions are now spaced evenly across the week (e.g. a 4x/week target lands Mon/Wed/Fri/Sun instead of Mon-Thu), only packing sessions closer together when there isn\'t enough of the week left to hit the target otherwise.',
+    ],
+  },
+  {
     version: '1.25',
     date: '2026-08-08',
     features: [

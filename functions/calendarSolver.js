@@ -120,7 +120,7 @@ function solveCalendarWindow({
 
   let history = [...lifts];
   const out = [];
-  let weekMondayStr = null, weekTarget = null, weekSessionCount = 0;
+  let weekMondayStr = null, weekTarget = null, weekSessionCount = 0, weekLastSessionDate = null;
 
   for (let i = 0; i < days; i++) {
     const date = new Date(start.getTime() + i * DAY_MS);
@@ -137,9 +137,11 @@ function solveCalendarWindow({
       // Seed with real sessions already logged this week before the window
       // starts (e.g. window starts mid-week) — 0 for any week that starts
       // at/after the window itself, since there's no real history there yet.
-      weekSessionCount = new Set(
-        (lifts || []).filter(l => l.date >= dayMondayStr && l.date < startStr).map(l => l.date)
-      ).size;
+      const priorDatesThisWeek = (lifts || []).filter(l => l.date >= dayMondayStr && l.date < startStr).map(l => l.date);
+      weekSessionCount = new Set(priorDatesThisWeek).size;
+      weekLastSessionDate = priorDatesThisWeek.length
+        ? new Date(Math.max(...priorDatesThisWeek.map(d => new Date(d).getTime())))
+        : null;
       weekTarget = null;
     }
 
@@ -197,6 +199,25 @@ function solveCalendarWindow({
       continue;
     }
 
+    // Even pacing: without this, every fresh day gets booked greedily, so
+    // the week's sessions front-load into a Mon-Thu block and every rest day
+    // gets pushed to the weekend. Space sessions ~(7 / weekTarget) days
+    // apart instead — skip today only while enough of the week remains to
+    // still hit weekTarget at that slower pace; once it can't
+    // (sessionsNeeded >= daysRemainingInWeek), pacing yields to catch-up
+    // training, same as the trailing-7 cap above already yields for it.
+    const dowIndex = (date.getDay() + 6) % 7; // 0=Monday .. 6=Sunday
+    const daysRemainingInWeek = 7 - dowIndex;
+    const sessionsNeeded = weekTarget - weekSessionCount;
+    if (weekLastSessionDate && weekTarget > 0 && sessionsNeeded < daysRemainingInWeek) {
+      const minGapDays = Math.round(7 / weekTarget);
+      const gapDays = Math.round((date.getTime() - weekLastSessionDate.getTime()) / DAY_MS);
+      if (gapDays < minGapDays) {
+        out.push({ date: ymd(date), type: 'rest', reason: 'Pacing sessions across the week', readiness: 'green' });
+        continue;
+      }
+    }
+
     const dayTravelMode = constraint?.level === 'bodyweight' || travelMode;
     const dayEquipment = constraint?.level === 'restricted' ? constraint.equipment : equipmentAvailable;
 
@@ -238,6 +259,7 @@ function solveCalendarWindow({
       simulated: sim,
     });
     weekSessionCount++;
+    weekLastSessionDate = date;
 
     // Real future timestamps this time (unshifted) — the next iteration
     // re-derives its own shift relative to its own target day, so history
