@@ -1055,6 +1055,13 @@ const glycogenPct = (elapsedS, totalS) => {
 // app's first version — everything before this had no changelog at all.
 const CHANGELOG = [
   {
+    version: '1.2',
+    date: '2026-08-08',
+    features: [
+      'Added workout templates — save any workout\'s exercise list (Freestyle or a recommended session, mid-workout or finished) under a name from the logger, then start straight from it later via Today\'s new Templates option, no rebuilding the list from scratch.',
+    ],
+  },
+  {
     version: '1.1',
     date: '2026-08-08',
     features: [
@@ -2200,6 +2207,11 @@ function WorkoutLogger({ planDay, lifts, customExercises, experienceLevel, cycle
   const [activeGroupTab, setActiveGroupTab] = useState(null); // null = "me"
   const [groupBusy, setGroupBusy] = useState(false);
   const [finishingGroup, setFinishingGroup] = useState(false);
+  // Save-as-template (FEATURES.md #75) — freezes the current exercises list
+  // (whatever's been assembled so far, logged or not) under a name for a
+  // later one-tap start from S3's Templates panel.
+  const [templateName, setTemplateName] = useState('');
+  const [savingTemplate, setSavingTemplate] = useState(false);
   const inputRef = useRef();
 
   const allExercises = useMemo(() => {
@@ -2257,7 +2269,20 @@ function WorkoutLogger({ planDay, lifts, customExercises, experienceLevel, cycle
       // session vs. what's supporting it. Carried through rather than
       // re-derived so the label can't disagree with the plan.
       ...(ex.role ? { role: ex.role } : {}),
-      ...(ex.family ? { pattern: ex.pattern, equipment: ex.equipment, angle: ex.angle, emgWeights: emgForAngle(ex.pattern, ex.angle) } : {}),
+      // A saved template (POST /workout/template) freezes a live session's
+      // exercises verbatim, which already carry emgWeights directly (set by
+      // addExercise/PressRowBuilder, no `family` flag involved) rather than
+      // the family+angle pair generateSessionExercises produces -- fall back
+      // to the frozen value instead of recomputing from a pattern/angle that
+      // may not even be set, so a template built from an angle-family
+      // exercise (e.g. Cable Fly @ 30°) keeps its precise crediting on
+      // reload instead of silently losing it.
+      ...(ex.family ? { pattern: ex.pattern, equipment: ex.equipment, angle: ex.angle, emgWeights: emgForAngle(ex.pattern, ex.angle) }
+        : ex.emgWeights ? { pattern: ex.pattern, equipment: ex.equipment, angle: ex.angle, emgWeights: ex.emgWeights } : {}),
+      // Machine/model brand tag — only ever set on a template (a plain
+      // recommended day never carries one; the athlete picks fresh via the
+      // dropdown below), so restoring it here doesn't change that path at all.
+      ...(ex.machine ? { machine: ex.machine } : {}), ...(ex.model ? { model: ex.model } : {}),
     });
 
     if (planDay.preloadedExercises?.length) {
@@ -2428,6 +2453,28 @@ function WorkoutLogger({ planDay, lifts, customExercises, experienceLevel, cycle
   const removeExercise = i => {
     setExercises(p => p.filter((_, j) => j !== i));
     setExpandedEx(prev => prev == null ? prev : prev === i ? null : prev > i ? prev - 1 : prev);
+  };
+
+  // Strips the per-set done/rpe fields (session-specific, meaningless for a
+  // reusable template) but keeps kg/reps as a starting suggestion — same
+  // role they already play when a recommended day preloads a session, see
+  // the calendar's Start Session button. Name/pattern/equipment/angle/
+  // emgWeights/machine/model carry through as-is; toExercise above is what
+  // rehydrates this back into a live session's shape on the way back in.
+  const saveAsTemplate = async () => {
+    const nm = templateName.trim();
+    if (!nm || !exercises.length) return;
+    setSavingTemplate(true);
+    const templateExercises = exercises.map(ex => ({
+      name: ex.name, targetReps: ex.targetReps,
+      sets: ex.sets.map(s => ({ type: s.type, kg: s.kg, reps: s.reps })),
+      ...(ex.role ? { role: ex.role } : {}),
+      ...(ex.pattern ? { pattern: ex.pattern, equipment: ex.equipment, angle: ex.angle, emgWeights: ex.emgWeights } : {}),
+      ...(ex.machine ? { machine: ex.machine } : {}), ...(ex.model ? { model: ex.model } : {}),
+    }));
+    await api('workout/template', { method: 'POST', body: JSON.stringify({ name: nm, exercises: templateExercises }) }).catch(() => {});
+    setTemplateName('');
+    setSavingTemplate(false);
   };
 
   const addSet = i => setExercises(p => p.map((ex, j) => j !== i ? ex : {
@@ -2923,6 +2970,23 @@ function WorkoutLogger({ planDay, lifts, customExercises, experienceLevel, cycle
               </div>
             );
           })()}
+          {/* Save as template (FEATURES.md #75) — the exercise list is still
+              live in state post-Finish (cleared only on unmount/onClose), so
+              the most natural moment to decide "repeat this" — right after
+              seeing the whole session laid out — still has it on hand. */}
+          {exercises.length > 0 && (
+            <div style={{ borderTop: '2px solid var(--ink)', paddingTop: 14 }}>
+              <div className="kicker" style={{ marginBottom: 8 }}>Save As Template</div>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <input className="ex-input" placeholder="Template name…"
+                  value={templateName} onChange={e => setTemplateName(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && saveAsTemplate()} />
+                <button className="ol-btn ol-btn-ghost" onClick={saveAsTemplate} disabled={!templateName.trim() || savingTemplate}>
+                  {savingTemplate ? '…' : 'Save'}
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -3324,6 +3388,20 @@ function WorkoutLogger({ planDay, lifts, customExercises, experienceLevel, cycle
           {/* Exercise search */}
           {renderExerciseAdd(addExercise)}
           <PlateCalculator />
+
+          {/* Save as template (FEATURES.md #75) — the exercise list only,
+              independent of Finish: available as soon as there's something
+              to save, not gated on having logged a single set. */}
+          {exercises.length > 0 && (
+            <div style={{ display: 'flex', gap: 8, marginTop: 16, alignItems: 'center' }}>
+              <input className="ex-input" placeholder="Save as template…"
+                value={templateName} onChange={e => setTemplateName(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && saveAsTemplate()} />
+              <button className="ol-btn ol-btn-ghost" onClick={saveAsTemplate} disabled={!templateName.trim() || savingTemplate}>
+                {savingTemplate ? '…' : 'Save'}
+              </button>
+            </div>
+          )}
         </div>
       )}
 
@@ -4629,6 +4707,32 @@ function S3({ s, recommendation, performanceTrend, onStartWorkout, onImport, onH
     return () => { cancelled = true; };
   }, [variantsOpen, today0?.date, today0?.exercises?.length]);
 
+  // Saved workout templates (FEATURES.md #75) — named exercise lists saved
+  // from WorkoutLogger (see its saveAsTemplate), one-tap-started from here
+  // the same way a recommended day's exercises are. Loaded lazily on first
+  // open rather than on every S3 mount, same reasoning as the meal-template
+  // Templates tab in S4.
+  const [templates, setTemplates] = useState([]);
+  const [templatesOpen, setTemplatesOpen] = useState(false);
+  const [templatesLoaded, setTemplatesLoaded] = useState(false);
+  const [templatesLoading, setTemplatesLoading] = useState(false);
+  const loadTemplates = async () => {
+    if (templatesLoaded) return;
+    setTemplatesLoading(true);
+    const d = await api('workout/templates').catch(() => ({ templates: [] }));
+    setTemplates(d.templates || []);
+    setTemplatesLoaded(true);
+    setTemplatesLoading(false);
+  };
+  const deleteTemplate = async (name) => {
+    await api(`workout/template/${encodeURIComponent(name)}`, { method: 'DELETE' }).catch(() => {});
+    setTemplates(t => t.filter(x => x.name !== name));
+  };
+  const startFromTemplate = (t) => onStartWorkout({
+    sessions: [{ type: 'lift', title: t.name, targetMuscles: [], backboneExercises: t.exercises.map(e => e.name) }],
+    preloadedExercises: t.exercises,
+  });
+
   // Exports today's calendar session as a .ics the athlete can open in
   // whatever calendar they use. Scheduled for the next full hour today, which
   // is a placeholder they can drag — the app has no idea when they train, and
@@ -4946,6 +5050,14 @@ function S3({ s, recommendation, performanceTrend, onStartWorkout, onImport, onH
                   onClick={() => setVariantsOpen(o => !o)}>
                   Other Ways
                 </button>
+                {/* Not gated on day.exercises.length like Other Ways above —
+                    a saved template is a valid way to start even on a rest
+                    day (same reasoning Freestyle already gets). */}
+                <button className="tool-btn"
+                  aria-expanded={templatesOpen} aria-controls="session-templates"
+                  onClick={() => { setTemplatesOpen(o => !o); if (!templatesOpen) loadTemplates(); }}>
+                  Templates
+                </button>
                 {/* Intermediate-and-up: built on the fatigue numbers, which
                     Beginner doesn't show at all. */}
                 <Detail min="intermediate">
@@ -5002,6 +5114,33 @@ function S3({ s, recommendation, performanceTrend, onStartWorkout, onImport, onH
                       })}>
                         Start This
                       </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {templatesOpen && (
+                <div id="session-templates" className="variants">
+                  {templatesLoading && <div className="variants-status">Loading templates…</div>}
+                  {!templatesLoading && templatesLoaded && templates.length === 0 && (
+                    <div className="variants-status">
+                      No templates yet — from any workout's exercise list, save it as a template for a one-tap start next time.
+                    </div>
+                  )}
+                  {!templatesLoading && templates.map(t => (
+                    <div key={t.name} className="variant">
+                      <div className="variant-head">
+                        <span className="variant-label">{t.name}</span>
+                        <span className="variant-stat">{t.exercises.length} exercise{t.exercises.length !== 1 ? 's' : ''}</span>
+                      </div>
+                      <div className="variant-exercises">{t.exercises.map(e => e.name).join(' · ')}</div>
+                      <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                        <button className="action-btn" onClick={() => startFromTemplate(t)}>Start</button>
+                        <button onClick={() => deleteTemplate(t.name)}
+                          style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, letterSpacing: '.1em', textTransform: 'uppercase', marginTop: 10, padding: '4px 8px', border: '1px solid var(--rule)', background: 'none', color: 'var(--dim)', cursor: 'pointer', minHeight: 44 }}>
+                          Delete
+                        </button>
+                      </div>
                     </div>
                   ))}
                 </div>

@@ -2997,6 +2997,33 @@ app.put('/workout/:date', async (req, res) => {
   res.json({ ok: true, setsLogged: newLiftEntries.length });
 });
 
+// ---------- Workout templates (FEATURES.md #75 — one-tap session starts) ----------
+// A named, reusable exercise selection saved from WorkoutLogger's live
+// `exercises` state (src/app.jsx's saveAsTemplate) and consumed the same way
+// as a recommended day: passed back in as onStartWorkout's preloadedExercises.
+// Mirrors the /food/template(s) pattern above.
+app.get('/workout/templates', async (req, res) => {
+  res.json({ templates: db.workoutTemplates || [] });
+});
+
+app.post('/workout/template', async (req, res) => {
+  const { name, exercises } = req.body;
+  if (!name || !exercises?.length) return res.status(400).json({ error: 'name and exercises required' });
+  db.workoutTemplates = db.workoutTemplates || [];
+  const template = { name, exercises, updatedAt: new Date().toISOString() };
+  const existing = db.workoutTemplates.findIndex(t => t.name === name);
+  if (existing >= 0) db.workoutTemplates[existing] = template;
+  else db.workoutTemplates.push(template);
+  await save();
+  res.json({ ok: true });
+});
+
+app.delete('/workout/template/:name', async (req, res) => {
+  db.workoutTemplates = (db.workoutTemplates || []).filter(t => t.name !== req.params.name);
+  await save();
+  res.json({ ok: true });
+});
+
 // ---------- Group workout sessions ----------
 // See .design/feature-brainstorm/GROUP_WORKOUT.md for the full design.
 // liveSessions/{sessionId} + an entries/ subcollection — deliberately a

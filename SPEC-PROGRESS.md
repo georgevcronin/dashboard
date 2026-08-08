@@ -14,11 +14,11 @@ missing so the call can be checked.
 
 **Suite: 779 tests** (`node --test`), all passing.
 
-**35 built · 38 partial · 61 not touched**
+**36 built · 37 partial · 61 not touched**
 
 ---
 
-## Built (35)
+## Built (36)
 
 | # | Feature | Where |
 |---|---|---|
@@ -53,6 +53,7 @@ missing so the call can be checked.
 | 71 | Standalone tracker mode | `trackingLevel` |
 | 73 | Manual builder + feedback | `PressRowBuilder`, `WorkoutLogger`, Freestyle |
 | 74 | Passive learning | fatigue/adaptation/capability update from logs regardless of mode |
+| 75 | Session templates | `/workout/template(s)`, S3's Templates panel — save any session's exercise list, one-tap start it later |
 | 78 | Mode migration | `trackingLevel` is a profile field; no data loss by construction |
 | 116 | Lightweight tracker | same mechanism as 71 |
 | 118 | Unified athlete model | single Firestore doc, `userDoc.js` DEFAULTS, request-scoped `db` |
@@ -62,7 +63,7 @@ missing so the call can be checked.
 (`movementPatterns.js`, `GET /movement-patterns`, 6 tests) but nothing renders
 it, so it is counted under Partial below.
 
-## Partial (38)
+## Partial (37)
 
 | # | Feature | What's missing |
 |---|---|---|
@@ -96,7 +97,6 @@ it, so it is counted under Partial below.
 | 69 | Milestone detection | PRs yes; work-capacity and recovery-kinetics milestones no |
 | 70 | Digital twin dashboard | Scientist-level Recovery panel; not a full state inspector |
 | 72 | Recommendation intensity | Two levels (`workout`/`full`); spec wants three |
-| 75 | Session templates | Auto-Pick and Freestyle; no one-tap split templates |
 | 81 | Shared fatigue engine | `sharedFatigueEngine.js` exists with tests but is unwired — see Open defects #5 |
 | 115 | Guidance persona | Detail level adjustable; tone fixed by `TRAINING_ETHOS` |
 | 117 | Mode escalation | Works, across two levels only |
