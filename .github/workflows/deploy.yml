@@ -36,12 +36,17 @@ jobs:
       - run: echo "STRAVA_CLIENT_ID=${{ secrets.STRAVA_CLIENT_ID }}" >> functions/.env
       - run: echo "STRAVA_CLIENT_SECRET=${{ secrets.STRAVA_CLIENT_SECRET }}" >> functions/.env
       - run: echo "PRESS_OWNER_UID=uqJcOkpVXGYLjngCWCi0LvmSv8q1" >> functions/.env
+      - run: echo "GMAIL_APP_PASSWORD=${{ secrets.GMAIL_APP_PASSWORD }}" >> functions/.env
 
       # A blank secret (e.g. GEMINI_API_KEY resolving to "") isn't a workflow
       # failure by itself — the deploy step above still exits 0, so this run
       # would show green and nobody finds out until a user notices the
       # mentor/briefings have gone quiet. GEMINI_API_KEY_FALLBACK is
       # deliberately excluded — it's an optional second key (see gemini.js).
+      # GMAIL_APP_PASSWORD is deliberately excluded too, until it actually
+      # exists as a repo secret — see mailer.js, which no-ops without it
+      # rather than crashing, precisely so this validation step doesn't have
+      # to hard-fail every deploy in the meantime.
       - name: Validate required secrets resolved to a real value
         working-directory: functions
         run: |

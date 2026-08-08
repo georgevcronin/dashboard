@@ -1053,10 +1053,18 @@ const glycogenPct = (elapsedS, totalS) => {
 // app's first version — everything before this had no changelog at all.
 const CHANGELOG = [
   {
-    version: '1.22',
+    version: '1.23',
     date: '2026-08-08',
     features: [
       'Fixed the interactive walkthrough being able to reappear for a panel you\'d already seen — the save that marks a section\'s tour as "seen forever" fired right as the tour opened with no retry, so a network hiccup at that exact moment silently lost the write and re-armed it for your next visit. It now retries automatically before giving up.',
+    ],
+  },
+  {
+    version: '1.22',
+    date: '2026-08-08',
+    features: [
+      'If Press ever fails to load — hangs or crashes, on any device — there\'s now a "Report This" button that emails the error straight to us, instead of just a blank screen with no way to tell anyone.',
+      'Added a "Report Bug" link at the top of Settings, and a "Contact Us" link at the bottom, both reaching the same inbox.',
     ],
   },
   {
@@ -8953,6 +8961,25 @@ function S15({ generalRecommendation }) {
 }
 
 function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenWiki, setBriefing, onRestartSetup, onReplayWalkthrough, followBadge, reloadFollowBadge, onOpenGridEdit, onOpenAdmin }) {
+  const [showBugReport, setShowBugReport] = useState(false);
+  const [bugText, setBugText] = useState('');
+  const [bugSending, setBugSending] = useState(false);
+  const [bugSent, setBugSent] = useState(false);
+  const [bugError, setBugError] = useState('');
+  const sendBugReport = async () => {
+    setBugSending(true); setBugError('');
+    try {
+      await api('report', {
+        method: 'POST',
+        throwOnError: true,
+        body: JSON.stringify({ type: 'bug', message: bugText.trim(), url: location.href, userAgent: navigator.userAgent, appVersion: CHANGELOG[0].version }),
+      });
+      setBugText(''); setBugSending(false); setBugSent(true);
+      setTimeout(() => { setBugSent(false); setShowBugReport(false); }, 1800);
+    } catch (e) {
+      setBugSending(false); setBugError(e.message || "Couldn't send — please email pressnewsletterapp@gmail.com directly.");
+    }
+  };
   const [nameVal, setNameVal] = useState(s?.profile?.name || '');
   const [nameSaving, setNameSaving] = useState(false);
   const [nameSaved, setNameSaved] = useState(false);
@@ -9585,8 +9612,29 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
     <div className="settings-overlay" id="settings">
       <div className="settings-hdr" data-tour="settings-header">
         <div className="settings-hdr-title">Settings</div>
-        <button className="settings-close" onClick={onClose}>Close ×</button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+          <button className="settings-close" onClick={() => { setShowBugReport(v => !v); setBugError(''); }}>Report Bug</button>
+          <button className="settings-close" onClick={onClose}>Close ×</button>
+        </div>
       </div>
+      {showBugReport && (
+        <div style={{ background: 'var(--paper2)', borderBottom: '2px solid var(--ink)', padding: '14px 20px', flexShrink: 0 }}>
+          <textarea
+            autoFocus
+            value={bugText}
+            onChange={e => setBugText(e.target.value)}
+            placeholder="What went wrong?"
+            style={{ width: '100%', minHeight: 60, boxSizing: 'border-box', fontFamily: "'Times New Roman',serif", fontSize: 13, padding: 8, border: '1px solid var(--rule)', background: 'var(--paper)', color: 'var(--ink)', resize: 'vertical' }}
+          />
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 8 }}>
+            <button className="prof-btn" disabled={!bugText.trim() || bugSending} onClick={sendBugReport}>
+              {bugSending ? 'Sending…' : 'Send'}
+            </button>
+            {bugSent && <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, color: 'var(--dim)' }}>Sent — thank you.</span>}
+            {bugError && <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, color: 'var(--red)' }}>{bugError}</span>}
+          </div>
+        </div>
+      )}
       <div className="settings-layout">
         <nav className="settings-toc" aria-label="Settings sections" data-tour="settings-toc">
           {tocGroups.map(grp => (
@@ -10911,6 +10959,7 @@ function SettingsOverlay({ s, onClose, refresh, onSignOut, onOpenImport, onOpenW
           <div style={{ display: 'flex', gap: 14, justifyContent: 'center', marginTop: 14, fontFamily: "'JetBrains Mono',monospace", fontSize: 9, letterSpacing: '.06em' }}>
             <a href="/privacy.html" target="_blank" rel="noopener" style={{ color: 'var(--dim)' }}>Privacy Policy</a>
             <a href="/terms.html" target="_blank" rel="noopener" style={{ color: 'var(--dim)' }}>Terms of Service</a>
+            <a href="mailto:pressnewsletterapp@gmail.com" style={{ color: 'var(--dim)' }}>Contact Us</a>
           </div>
         </div>
         </div>
@@ -11777,7 +11826,10 @@ function BriefingOverlay({ briefing, onClose }) {
 // ── APP ──────────────────────────────────────────────────────────────────────
 function LoadingScreen() {
   return (
-    <div style={{ minHeight: '100svh', background: 'var(--paper)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+    // data-press-loading: read by public/index.html's load watchdog — if
+    // this is still on screen 5s after page load, the app is stuck (auth or
+    // /summary never resolved), not just slow.
+    <div data-press-loading="1" style={{ minHeight: '100svh', background: 'var(--paper)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
       <div style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 11, letterSpacing: '.14em', textTransform: 'uppercase', color: 'var(--dim)' }}>Loading…</div>
     </div>
   );
@@ -13256,4 +13308,53 @@ function App() {
   );
 }
 
-createRoot(document.getElementById('root')).render(<App />);
+// General crash safety net for anything that throws after the initial load
+// succeeded — the initial-load case itself (hang or crash) is covered by
+// public/index.html's independent watchdog, which also catches the app
+// never having started at all. This one only needs to handle React errors,
+// so it renders its own fallback immediately rather than waiting on a timer.
+class ErrorBoundary extends React.Component {
+  constructor(props) { super(props); this.state = { error: null, componentStack: '', sending: false, sent: false, sendError: '' }; }
+  static getDerivedStateFromError(error) { return { error }; }
+  componentDidCatch(error, info) {
+    console.error('Press crashed:', error, info);
+    this.setState({ componentStack: info?.componentStack || '' });
+  }
+  report = async () => {
+    this.setState({ sending: true, sendError: '' });
+    try {
+      await api('report', {
+        method: 'POST',
+        throwOnError: true,
+        body: JSON.stringify({
+          type: 'crash',
+          error: `${this.state.error?.stack || this.state.error}\n${this.state.componentStack}`,
+          url: location.href, userAgent: navigator.userAgent, appVersion: CHANGELOG[0].version,
+        }),
+      });
+      this.setState({ sent: true, sending: false });
+    } catch (e) {
+      this.setState({ sending: false, sendError: e.message || "Couldn't send — please email pressnewsletterapp@gmail.com directly." });
+    }
+  };
+  render() {
+    if (!this.state.error) return this.props.children;
+    return (
+      <div style={{ minHeight: '100svh', background: 'var(--paper)', color: 'var(--ink)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 14, padding: 24, textAlign: 'center' }}>
+        <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 20, fontWeight: 700 }}>Something went wrong.</div>
+        <div style={{ fontFamily: "'Times New Roman',serif", fontSize: 14, maxWidth: 320, lineHeight: 1.5, color: 'var(--dim)' }}>
+          Press hit an error and couldn't continue. Reloading usually fixes it.
+        </div>
+        <div style={{ display: 'flex', gap: 10 }}>
+          <button className="prof-btn" onClick={() => location.reload()}>Reload</button>
+          <button className="prof-btn" onClick={this.report} disabled={this.state.sending || this.state.sent}>
+            {this.state.sent ? '✓ Reported' : this.state.sending ? 'Sending…' : 'Report Crash'}
+          </button>
+        </div>
+        {this.state.sendError && <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, color: 'var(--red)' }}>{this.state.sendError}</div>}
+      </div>
+    );
+  }
+}
+
+createRoot(document.getElementById('root')).render(<ErrorBoundary><App /></ErrorBoundary>);

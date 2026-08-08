@@ -32,6 +32,7 @@ const { computeTrend, deloadSuggestion } = require('./performanceTrend');
 const { validateTrackingCategories, resolveTrackingCategories } = require('./trackingCategories');
 const { cardioFatigueByMuscle } = require('./cardio');
 const { extractMicronutrients } = require('./micronutrients');
+const { sendReport } = require('./mailer');
 const { validateGoals, validateActivities, applyActivityDefaults, seedReturningAthleteAtrophy } = require('./goalsAndActivities');
 const { estimateMaintenanceCalories, applyDeficitLimit, calorieTargetForFatLossGoal } = require('./nutritionLimits');
 const { findNearbyGyms, normalizeExerciseKey, GYM_NEARBY_RADIUS_M } = require('./gyms');
@@ -224,6 +225,13 @@ async function loadOwner() {
 // ---------- Auth middleware ----------
 app.use(async (req, res, next) => {
   if (req.method === 'OPTIONS') return next();
+  // Crash/bug/contact reports (below) touch no account data at all, so they
+  // skip both the token requirement and the db/loadOwner() load entirely —
+  // deliberately not folded into OPEN_PATHS, which routes a request into a
+  // specific *account* (sync token or the legacy owner); this route has no
+  // account to route into and a crash report must still work when the app
+  // never got as far as signing anyone in.
+  if (req.path === '/report') return next();
   if (OPEN_PATHS.some(p => req.path === p || req.path.startsWith(p + '/'))) {
     // ?token=... routes an open webhook to a specific user's own account —
     // see /sync-token below. Without one, these fall back to the single
@@ -263,6 +271,37 @@ const ADMIN_EMAIL = 'georgevcronin@gmail.com';
 app.use('/admin', (req, res, next) => {
   if (req.email !== ADMIN_EMAIL) return res.status(403).json({ error: 'not authorized' });
   next();
+});
+
+// ---------- Crash / bug reports ----------
+// Contact Us (Settings) is a plain mailto: link, not this route — it's an
+// open-ended message in the user's own words, nothing to structure into a
+// diagnostic payload. Deliberately open here (see the auth-middleware skip
+// above) — a crash report must still work when the app never got as far as
+// signing anyone in. Best-effort identifies the sender from a Bearer token
+// if one was sent anyway (Report Bug's call always carries one, since it's
+// only reachable from a signed-in session), but never requires one.
+// ponytail: no per-IP rate-limit on this unauthenticated endpoint — add one
+// if it's ever abused; length caps below just stop one request being huge.
+app.post('/report', async (req, res) => {
+  const { type, message, error, url, userAgent, appVersion } = req.body || {};
+  if (!['crash', 'bug'].includes(type)) return res.status(400).json({ error: 'invalid report type' });
+  let userEmail = null;
+  const header = req.headers.authorization;
+  if (header?.startsWith('Bearer ')) {
+    try { userEmail = (await admin.auth().verifyIdToken(header.slice(7))).email || null; } catch {}
+  }
+  const clip = (s, n) => (typeof s === 'string' ? s.slice(0, n) : s);
+  try {
+    await sendReport({
+      type, userEmail,
+      message: clip(message, 2000), error: clip(error, 4000),
+      url: clip(url, 500), userAgent: clip(userAgent, 500), appVersion: clip(appVersion, 20),
+    });
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 // ---------- Identity ----------
