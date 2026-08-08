@@ -1055,6 +1055,13 @@ const glycogenPct = (elapsedS, totalS) => {
 // app's first version — everything before this had no changelog at all.
 const CHANGELOG = [
   {
+    version: '1.1',
+    date: '2026-08-08',
+    features: [
+      "The very first load after signing in now gets one silent automatic retry before showing an error — most \"the page won't load\" reports were a transient blip (a cold server, a moment where the sign-in token wasn't quite ready yet) that a manual page refresh already fixed, so Press now just does that retry itself first instead of making you do it.",
+    ],
+  },
+  {
     version: '1.0',
     date: '2026-08-08',
     features: [
@@ -11515,6 +11522,10 @@ function App() {
   const [showTimeline, setShowTimeline] = useState(false);
   const [showAdmin, setShowAdmin] = useState(false);
   const [summaryError, setSummaryError] = useState('');
+  // Guards the one silent auto-retry below — true once this failure streak
+  // has already used its free retry, reset back to false on any success so
+  // a later, unrelated failure gets its own retry rather than going stale.
+  const summaryRetriedRef = useRef(false);
   const [bubblePos, setBubblePos] = useState(() => {
     try {
       const saved = JSON.parse(localStorage.getItem('press_pj_bubble_pos'));
@@ -11644,6 +11655,7 @@ function App() {
     .then(data => {
       setS(data);
       setSummaryError('');
+      summaryRetriedRef.current = false;
       // Backend-driven, not just localStorage: onboarded state previously
       // relied entirely on press_onboarded in this browser's localStorage,
       // so a real, fully-set-up account showed Onboarding again from
@@ -11655,7 +11667,24 @@ function App() {
         setOnboarded(true);
       }
     })
-    .catch(e => setSummaryError(`Failed to load: ${e.message}`));
+    .catch(e => {
+      // Most real-world failures here are a transient blip right after
+      // sign-in (a cold Cloud Function, a token not quite ready yet) that a
+      // manual page refresh already fixed for users — so give it one silent
+      // retry before ever showing the error banner, same 2s backoff already
+      // used for markWalkthroughSeen's retry below. summaryError stays ''
+      // and s stays null through this, so the loading screen (s === null &&
+      // !summaryError, above) simply keeps showing rather than flashing an
+      // error the retry is about to erase. Only a second, post-retry failure
+      // — or a failed manual Retry click, once the banner is already up —
+      // actually surfaces summaryError.
+      if (!summaryRetriedRef.current) {
+        summaryRetriedRef.current = true;
+        setTimeout(loadSummary, 2000);
+        return;
+      }
+      setSummaryError(`Failed to load: ${e.message}`);
+    });
 
   const fetchNewscast = async (period) => {
     if (loadingPeriod) return;
