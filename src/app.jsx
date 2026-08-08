@@ -1055,6 +1055,13 @@ const glycogenPct = (elapsedS, totalS) => {
 // app's first version — everything before this had no changelog at all.
 const CHANGELOG = [
   {
+    version: '1.2',
+    date: '2026-08-08',
+    features: [
+      "Onboarding's Apple Health setup guide now matches the one in Settings — pick your device (Apple Watch generation, Whoop, or Oura) up front and get its own pre-built Shortcut and one-tap Sync Now link during setup, instead of the old one-size-fits-all Shortcut.",
+    ],
+  },
+  {
     version: '1.1',
     date: '2026-08-08',
     features: [
@@ -6305,6 +6312,11 @@ function Onboarding({ s, onComplete, onOpenImport }) {
   const [stravaStarted, setStravaStarted] = useState(() => !!s?.stravaConnected);
   const [healthGuideOpen, setHealthGuideOpen] = useState(false);
   const [urlCopied, setUrlCopied] = useState(false);
+  const [healthDevice, setHealthDevice] = useState(() => s?.profile?.healthDevice || '');
+  const saveHealthDevice = (key) => {
+    setHealthDevice(key);
+    api('profile', { method: 'POST', body: JSON.stringify({ healthDevice: key }) }).catch(() => {});
+  };
   const SHORTCUT_URL = `${API_BASE}/shortcut`;
   // Personal sync URL — each account gets its own token so its data lands
   // in its own account rather than everyone sharing the owner's URL (which
@@ -6861,18 +6873,50 @@ function Onboarding({ s, onComplete, onOpenImport }) {
               </div>
               {healthGuideOpen && (
                 <div className="ob-guide">
-                  <a href="https://www.icloud.com/shortcuts/f8fcfefdac47476081f8b92e8e03999c" target="_blank" rel="noopener noreferrer"
-                    style={{ display: 'block', marginBottom: 8, fontWeight: 700, color: 'var(--gold)' }}>
-                    Install the pre-built Shortcut →
-                  </a>
+                  <label style={{ display: 'block', fontSize: 9, letterSpacing: '.08em', textTransform: 'uppercase', color: 'var(--dim)', marginBottom: 4 }}>
+                    Your device
+                  </label>
+                  <select value={healthDevice} onChange={e => saveHealthDevice(e.target.value)} style={{ ...inputStyle, marginBottom: 10 }}>
+                    <option value="">Select your watch, band, or ring…</option>
+                    <optgroup label="Apple Watch">
+                      {HEALTH_SHORTCUT_DEVICES.filter(d => d.key.startsWith('aw')).map(d => (
+                        <option key={d.key} value={d.key}>{d.label}</option>
+                      ))}
+                    </optgroup>
+                    <optgroup label="Whoop">
+                      {HEALTH_SHORTCUT_DEVICES.filter(d => d.key.startsWith('whoop')).map(d => (
+                        <option key={d.key} value={d.key}>{d.label}</option>
+                      ))}
+                    </optgroup>
+                    <optgroup label="Oura">
+                      {HEALTH_SHORTCUT_DEVICES.filter(d => d.key.startsWith('oura')).map(d => (
+                        <option key={d.key} value={d.key}>{d.label}</option>
+                      ))}
+                    </optgroup>
+                  </select>
+                  {healthDevice && (() => {
+                    const device = HEALTH_SHORTCUT_DEVICES.find(d => d.key === healthDevice);
+                    return device.url ? (
+                      <a href={device.url} target="_blank" rel="noopener noreferrer"
+                        style={{ display: 'block', marginBottom: 8, fontWeight: 700, color: 'var(--gold)' }}>
+                        Install the {device.label} Shortcut →
+                      </a>
+                    ) : (
+                      <div style={{ marginBottom: 8, fontSize: 11, color: 'var(--dim)' }}>
+                        The {device.label} Shortcut isn't published yet — check back soon.
+                      </div>
+                    );
+                  })()}
                   Your personal sync link — after installing, open the Shortcut and make sure its URL matches this (replace it if it doesn't), so your data lands in your own account:
                   <div className="ob-copy-url" onClick={copyUrl}>
                     <span>{syncUrl}</span>
                     <button onClick={e => { e.stopPropagation(); copyUrl(); }}>{urlCopied ? 'Copied!' : 'Copy'}</button>
                   </div>
-                  <div style={{ marginTop: 8 }}>
-                    Name your Shortcut <strong>Press Sync</strong> (rename it in the Shortcuts app if needed) and this link runs it directly, no need to open Shortcuts first: <a href="shortcuts://run-shortcut?name=Press%20Sync" style={{ color: 'var(--forest)', fontWeight: 700 }}>Sync Now →</a>
-                  </div>
+                  {healthDevice && (
+                    <div style={{ marginTop: 8 }}>
+                      This link runs your Shortcut directly, no need to open Shortcuts first: <a href={`shortcuts://run-shortcut?name=${encodeURIComponent(`pressnewsletter-${healthDevice}`)}`} style={{ color: 'var(--forest)', fontWeight: 700 }}>Sync Now →</a>
+                    </div>
+                  )}
                   <button onClick={() => setGuideAdvanced(v => !v)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, marginTop: 10, fontSize: 9, letterSpacing: '.08em', textTransform: 'uppercase', color: 'var(--dim)' }}>
                     {guideAdvanced ? '− Hide' : '+ Show'} manual build / sharing with others / unsupported sensors
                   </button>
