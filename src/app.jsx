@@ -1055,1045 +1055,129 @@ const glycogenPct = (elapsedS, totalS) => {
 // app's first version — everything before this had no changelog at all.
 const CHANGELOG = [
   {
-    version: '1.28',
+    version: '1.0',
     date: '2026-08-08',
     features: [
-      'Fixed Plan Ahead still front-loading sessions right after last commit\'s spacing fix: the pacing gap was tracked per calendar week and reset at every Monday boundary, so the first day of a new week was never paced against a session from the day before (e.g. Sunday) — sessions could still chain three-in-a-row across the week seam before the rest of the week went empty. Pacing now tracks the last trained day across week boundaries instead of resetting.',
-    ],
-  },
-  {
-    version: '1.27',
-    date: '2026-08-08',
-    features: [
-      "Today's Limiting Factor no longer reports muscles you've set to Avoid in Muscle Priorities — that's a standing preference, not something today's session is fighting against, and it was permanently outranking every real, day-to-day constraint (CNS fatigue, sleep, soreness) the panel exists to surface.",
-    ],
-  },
-  {
-    version: '1.26',
-    date: '2026-08-08',
-    features: [
-      'Plan Ahead no longer front-loads a week\'s sessions into the first few days with everything after treated as rest — sessions are now spaced evenly across the week (e.g. a 4x/week target lands Mon/Wed/Fri/Sun instead of Mon-Thu), only packing sessions closer together when there isn\'t enough of the week left to hit the target otherwise.',
-    ],
-  },
-  {
-    version: '1.25',
-    date: '2026-08-08',
-    features: [
-      'Workout History now shows each past session\'s Load score (how hard it was, 0-100) next to its duration, instead of that number only ever being visible for your most recent session on Training.',
-    ],
-  },
-  {
-    version: '1.24',
-    date: '2026-08-08',
-    features: [
-      'Added "Rate Exercises" to All-Time Bests — the same "which do you prefer?" comparison prompt that shows up after a workout is now also available on demand, paired from your full training history instead of only the session you just finished.',
-    ],
-  },
-  {
-    version: '1.23',
-    date: '2026-08-08',
-    features: [
-      'Fixed the interactive walkthrough being able to reappear for a panel you\'d already seen — the save that marks a section\'s tour as "seen forever" fired right as the tour opened with no retry, so a network hiccup at that exact moment silently lost the write and re-armed it for your next visit. It now retries automatically before giving up.',
-    ],
-  },
-  {
-    version: '1.22',
-    date: '2026-08-08',
-    features: [
-      'If Press ever fails to load — hangs or crashes, on any device — there\'s now a "Report This" button that emails the error straight to us, instead of just a blank screen with no way to tell anyone.',
-      'Added a "Report Bug" link at the top of Settings, and a "Contact Us" link at the bottom, both reaching the same inbox.',
-    ],
-  },
-  {
-    version: '1.21',
-    date: '2026-08-08',
-    features: [
-      'Fixed the app failing to load entirely (blank screen on every device) — a leftover effect from an abandoned swim/bike recommendation card referenced two state setters that were never declared, throwing on every load. The working replacement (Today\'s Ride/Swim panels) was unaffected; this only removes dead code left behind when it was superseded.',
-    ],
-  },
-  {
-    version: '1.20',
-    date: '2026-08-08',
-    features: [
-      'Nutrition now tracks micronutrients (fiber, sodium, potassium, calcium, iron, vitamins, and more) alongside calories/protein/carbs/fat — from a barcode scan (real data), and now also from meal photos, label photos, and text descriptions (an AI estimate, clearly marked "may not be accurate" wherever it shows, never presented with the same confidence as a scan).',
-      'Shown as raw values plus a percent-of-daily-reference figure, both on the entry you\'re about to log and as a running total for the day — no score, no badge, matching how everything else here avoids gamifying your data.',
-    ],
-  },
-  {
-    version: '1.19',
-    date: '2026-08-08',
-    features: [
-      'Added an "Evidence" tab to the Wiki — real citations behind the algorithms Press actually uses (adaptation curves, running load/injury-risk models, VO₂max estimation, EMG-based exercise splits, and more), pulled from sources already in the codebase, not written up new. Where something is a named practitioner heuristic rather than a published study, it says so.',
-    ],
-  },
-  {
-    version: '1.18',
-    date: '2026-08-08',
-    features: [
-      'Swimming and biking now feed their own fatigue contribution into the same unified ceiling lifting and running already share, instead of being invisible to it — no re-syncing needed, this reads from Strava activity data already being received.',
-      'Fixed a bug where the running recommendation (Today\'s Run, Training) never actually loaded for an account with real logged runs, due to an incorrect import.',
-    ],
-  },
-  {
-    version: '1.17',
-    date: '2026-08-08',
-    features: [
-      'If fat loss is one of your goals, your running recommendation now weights toward steady Zone 2 aerobic work (60-70% HR reserve) rather than mixing in as much interval/tempo intensity — Zone 2 is the effort level most associated with fat oxidation as fuel, and the reasoning says so rather than just picking it silently.',
-    ],
-  },
-  {
-    version: '1.16',
-    date: '2026-08-08',
-    features: [
-      'Morning briefings, the mid-day/evening updates, and the weekly review no longer mention or nag about sleep or nutrition data if you\'ve turned those categories off in Settings — previously they\'d flag "not logged" and prompt you to log food or sleep you never asked to track, every day.',
-    ],
-  },
-  {
-    version: '1.15',
-    date: '2026-08-08',
-    features: [
-      'Tracking Level (onboarding step 5 and Settings) is now two independent checkboxes — Recovery and Nutrition — instead of a fixed three-preset choice. Training is always on. You can now pick combinations the old presets couldn\'t express, like Training + Nutrition without Recovery.',
-    ],
-  },
-  {
-    version: '1.14',
-    date: '2026-08-08',
-    features: [
-      'Fixed the interactive walkthrough repeatedly showing for Sleep and every panel after it on mobile — swiping (not tapping) between sections could fire a section\'s tour for wherever the drag was passing through mid-gesture, before it was actually the one on screen, sometimes leaving it unable to show correctly on a later, genuine visit either.',
-    ],
-  },
-  {
-    version: '1.13',
-    date: '2026-08-08',
-    features: [
-      'Goal-editor text fields (exercise name, benchmark, target) no longer invite the browser\'s autofill/strong-password suggestions — they were unmarked free-text inputs, which some mobile browsers guess are login or contact fields and overlay with irrelevant autofill UI.',
-    ],
-  },
-  {
-    version: '1.12',
-    date: '2026-08-08',
-    features: [
-      'Timeline entries for sleep now show "7h 18m" instead of the raw decimal hour count (e.g. "7.3h" or, worse, "8.116666666666667h").',
-      'Fixed the Recovery panel\'s Recovery/Resting HR readout exploding into a vertical stack of single characters on mobile — the "Avg Recent Load" tile next to it was hogging space it didn\'t need instead of sharing the row.',
-      'Fixed the interactive walkthrough sometimes leaving the page stuck scrolled down afterward with no way back up on mobile — its step-target scrollIntoView() calls could set a hidden, unrecoverable scroll offset on the section carousel itself.',
-    ],
-  },
-  {
-    version: '1.11',
-    date: '2026-08-08',
-    features: [
-      'Fixed the "Month" stat on Training wrapping its "sessions" label mid-word (e.g. "ses" / "sions" on two lines) when the Load tile pushed it into a narrower column.',
-    ],
-  },
-  {
-    version: '1.10',
-    date: '2026-08-08',
-    features: [
-      'Muscle Focus (Onboarding step 7 and Settings) now defaults to a simplified 14-region list — e.g. one "Traps" pick instead of separately setting traps/lower-traps/mid-traps, Obliques folded into Abs, Gluteus Medius folded into Glutes, Erectors relabelled Lower Back. Hip Flexors has no row at all in this view and defaults to Avoid while hidden, since there\'s no single recognisable hip-flexor exercise to fold it into. A "Show scientific muscle names" checkbox reveals the full granular breakdown (Latissimus Dorsi, Trapezius, Erector Spinae, etc.) for anyone who wants it; nothing about what\'s actually stored or how the planner reads it changes either way.',
-    ],
-  },
-  {
-    version: '1.09',
-    date: '2026-08-08',
-    features: [
-      'Fixed generated workouts occasionally piling extra sets onto every exercise at once: the working-set experiment (which cycles 2/3/4 sets per exercise over time to probe volume tolerance) now caps how many exercises in a single session can actually land on the higher end — at most 2, prioritized toward whichever trained muscle\'s recent strength trend is most stalled. A repeating exercise template previously could sync all its exercises onto "4 sets" the same session; now the rest stay at their normal 2.',
-    ],
-  },
-  {
-    version: '1.08',
-    date: '2026-08-08',
-    features: [
-      'Error messages across the app (setup, mentor chat, profile/username saves, newscasts, comparisons, feed) now show the actual failure reason instead of a generic "Connection error — try again."',
-    ],
-  },
-  {
-    version: '1.07',
-    date: '2026-08-08',
-    features: [
-      'Weekly guidance\'s lift/cardio session targets are no longer driven by a "Training Priority" strength/cardio/sport toggle — that setting is removed from Settings. They\'re now derived from your Training Days / Week plus your Activities\' priority tiers, so the split actually reflects what you said you train for.',
-    ],
-  },
-  {
-    version: '1.06',
-    date: '2026-08-08',
-    features: [
-      'A day quick-marked busy from the Plan Ahead panel now also shows up in Settings → Plan Ahead — Holidays & Travel, with its own Remove button — previously it was only visible/clearable from the panel itself.',
-    ],
-  },
-  {
-    version: '1.05',
-    date: '2026-08-08',
-    features: [
-      'Onboarding\'s Welcome screen now shows how to save Press to your home screen (Share → Add to Home Screen on iOS, the Chrome menu on Android), with instructions matched to your device — hidden automatically once you\'ve already installed it.',
-    ],
-  },
-  {
-    version: '1.04',
-    date: '2026-08-07',
-    features: [
-      'A "Lose Fat" goal now actually changes your plan: the weekly guidance guarantees at least 2 cardio sessions regardless of your Training Priority setting, and the Cut macro auto-calculation sizes your calorie deficit to hit your goal\'s target by its target date (based on your real estimated maintenance calories) instead of a flat guess — falls back to a flat 15% deficit if the goal has no concrete target/date.',
-    ],
-  },
-  {
-    version: '1.03',
-    date: '2026-08-07',
-    features: [
-      'Recovery Forecast (the per-muscle "ready again in ___" panel), Today\'s Limiting Factor, and the Weekly Volume Pace widget were silently broken for every account — all three depended on a weekly plan that only ever got created by an action nothing in the app actually triggered. Now generates automatically the first time it\'s needed.',
-      '"Fatigue" renamed to "Recent Load" throughout Dispatch, Recovery, and Training — same number, clearer that it\'s measured against your own recent peak, not some absolute scale.',
-      'Deload suggestions (Training → performance trend) could never actually fire — they required a fully unbroken 10-day stretch of poor recovery, and a single normal rest day reset the count to zero regardless of how bad the preceding stretch was. Now looks at a 14-day rolling average instead, so it can actually catch sustained overreaching.',
-    ],
-  },
-  {
-    version: '1.02',
-    date: '2026-08-07',
-    features: [
-      'Plan Ahead panel: tap a day and pick a session length (30/45/60/90 min) just for that date, overriding the global max-duration default — useful for a day you know is going to be tight.',
-    ],
-  },
-  {
-    version: '1.01',
-    date: '2026-08-07',
-    features: [
-      'Fixed a Plan Ahead bug where a window starting mid-week could chain two weeks\' worth of sessions into a run with zero rest days (e.g. every day showing a Full Body session) — the weekly session cap now also applies on a rolling trailing-7-day basis, not just per Monday-aligned week.',
-      'Split-Day Anchors (Settings → Plan Ahead) now accept more than one day per bucket — e.g. Legs on both Monday and Thursday, instead of a single fixed day.',
-      'Plan Ahead panel: tap a day, then "Mark Busy" to flag a one-off holiday or busy day directly from the calendar — the solver now rests that day, same as a Settings holiday window.',
-    ],
-  },
-  {
-    version: '1.00',
-    date: '2026-08-07',
-    features: [
-      'Training now shows a "Load" number alongside Duration/Output/Month — a single 0-100 score for how hard your last session was, framed against your own recent average rather than an absolute scale.',
-      'Added a "Form" line with a 30-day trend sparkline below that: a fitness/fatigue balance computed the way TrainingPeaks\' CTL/ATL/TSB model works, applied to the new Load number. If form stays deeply negative for 10+ straight days, it now says so and suggests a lighter week — a suggestion only, nothing gets changed in your plan automatically.',
-      'The finish-workout screen now flags it when a muscle crosses into a new strength tier (e.g. Novice 2 → Novice 3) during that session — a "Rank Up" block above Atlas\' summary, one line per muscle with the tier it climbed from and to.',
-    ],
-  },
-  {
-    version: '0.99',
-    date: '2026-08-07',
-    features: [
-      'The interactive walkthrough (previously Dispatch/Training/Recovery only) now covers every panel — Sleep, Nutrition, Body, Records, Goals, Social, Cycle, and Running — plus Settings itself, which spotlights its section index and Identity group the first time you open it. Same rules as before: shows once per surface, ever, skippable at any point, and "Replay Walkthrough" in Settings → Account resets and re-triggers all of them.',
-      'Fixed the walkthrough losing track of its target on mobile: a forced restart (Replay Walkthrough) now swipes the phone carousel to the right section first instead of measuring a panel that\'s scrolled off to the side, and every step now scrolls itself into view on both mobile and desktop if a tall panel had put it below the fold.',
-    ],
-  },
-  {
-    version: '0.98',
-    date: '2026-08-07',
-    features: [
-      'New Sport and Aerobic panels, alongside Cycling and Swimming — same daily readiness-based prescription, heart-rate zones and load tracking. Both share one computation off whatever Strava logs that isn\'t running/cycling/swimming (a five-a-side match, a hike, a Pilates class) since there\'s no principled way to tell those two activity choices apart from the raw data — picking both just gets you two panels reading the same session history.',
-    ],
-  },
-  {
-    version: '0.97',
-    date: '2026-08-07',
-    features: [
-      'New Cycling and Swimming panels — same daily readiness-based prescription treatment as Running, only appearing for an account that listed that activity. Cycling gets its own real physiology model off actual Strava power-meter data where available: FTP detection, Coggan power zones, TSS-based load, and a power-based VO₂max estimate — not just a heart-rate approximation of the running engine. Falls back to heart-rate zones/TRIMP load when no power meter is present. Swimming uses heart-rate zones (with a lower max-HR allowance than land sports) and pace-per-100m, honestly — there\'s no power or pace-test equivalent for swimming to build a stronger estimate from.',
-      'VO₂max now has a rough self-calculated fallback (from resting/max heart rate) for any account with neither a watch reading nor a pace/power test on record — Running, Cycling, and Swimming all benefit, not just accounts syncing to Apple Health.',
-      'New Cardio Score in Personal Records — VO₂max\'s equivalent of the per-muscle strength ranking already there: a single Beginner→Elite tier scored against published age/sex VO₂max standards.',
-    ],
-  },
-  {
-    version: '0.96',
-    date: '2026-08-07',
-    features: [
-      'Activities (Onboarding step 4 and Settings) replaced Hybrid/Team Sports/Endurance/CrossFit with Cycling/Swimming/Sport/Aerobic. The old four were just volume presets layered on the same Strength/Running numbers — confusing in a multi-select picker where a "hybrid" athlete already had Strength + Running as two separate entries. One choice per real weekly-target bucket (lifting/running/sports) now, no overlap.',
-    ],
-  },
-  {
-    version: '0.95',
-    date: '2026-08-07',
-    features: [
-      'Cycle panel can now log a past period (pick a start and end date directly, instead of only "starting now") — same heaviness pick and calibration step as ending a period live, so history from before you started tracking can feed the recovery calibration too.',
-      '"Log Period Start"/"End Period" replaced with Set Period Start Date/Set Period End Date — pick the actual day instead of only "right now", so a late log doesn\'t skew the calibration.',
-      'New bubble tracker shows the current day of an open period at a glance, extended out to your own average logged period length.',
-      'Cycle history is now a monthly calendar — logged periods marked solid, one predicted next-period window marked as an outline (still just the same average-cycle-length math, not a fertility model). Tap a logged day to see, edit, or remove that period.',
-    ],
-  },
-  {
-    version: '0.94',
-    date: '2026-08-07',
-    features: [
-      'Strength Level ranking gets adductors back (removed by an earlier explicit request, since reversed) and, new, rhomboids and mid-traps — both were unrankable before since every real exercise that trains them shares the load with lats or rear-delt. They now score from an EMG-weighted blend of Seated Cable Row and Barbell Row (Overhand/Pendlay), weighted by each exercise\'s real published activation % for that muscle, using the same sourced strengthlevel.com bodyweight tables as every other ranked muscle. Lower-traps stays unranked — no real exercise credits it as more than an incidental stabilizer.',
-    ],
-  },
-  {
-    version: '0.93',
-    date: '2026-08-07',
-    features: [
-      'Settings\' Macro Targets section is now two separately-navigable TOC entries — Calorie Target and Macro Split — matching that they\'re two independent controls now (still saved together with one button).',
-      'Meal photo scan now has separate Take Photo / Upload Photo buttons — upload an already-taken photo instead of only shooting a new one',
-      'Exact Calories now defaults to on (was nearest-300 rounding) — Settings still lets you switch back',
-    ],
-  },
-  {
-    version: '0.92',
-    date: '2026-08-07',
-    features: [
-      'Macro Targets\' presets are now High Carb / Low Carb / High Protein instead of Cut/Maintain/Bulk — each just fills in a split ratio, same as dragging the sliders by hand. Calorie Target is its own explicit stepper now, separate from the split entirely, so picking a split preset never changes your calorie total.',
-    ],
-  },
-  {
-    version: '0.91',
-    date: '2026-08-07',
-    features: [
-      'Settings\' Diet Goal picker is now Macro Targets — three presets (Cut/Maintain/Bulk, collapsed down from four labels that secretly computed only three different results) plus a new Custom option to redistribute the macro split (protein/carbs/fat) at your current calorie target, without changing the total.',
-    ],
-  },
-  {
-    version: '0.90',
-    date: '2026-08-07',
-    features: [
-      'New Running panel — daily run readiness, session prescription, pace/HR zones and an 8-week VO₂max forecast, all previously computed server-side with nothing showing it. Only appears for an account with Running listed as an activity.',
-      'Onboarding\'s Daily Targets step no longer asks for a diet goal (Lose Fat/Build Muscle/Maintain/Athletic Performance) — that lives in Settings instead. The step now also recommends a water target from your weight, activity level, and climate, still fully editable — the same calculator now lives in Settings\' Targets section too.',
-    ],
-  },
-  {
-    version: '0.89',
-    date: '2026-08-07',
-    features: [
-      'Reverted the "return to Press automatically" behaviour on both Sync buttons (0.87) — the shortcuts://x-callback-url wrapper it relied on made the Shortcut itself fail to run for at least one real device, worse than the UX gap it was fixing. Both buttons are back to the plain shortcuts:// link that was confirmed working.',
-    ],
-  },
-  {
-    version: '0.88',
-    date: '2026-08-07',
-    features: [
-      'The mobile header\'s Sync button now runs your own device\'s Shortcut (once picked in Settings\' Apple Health guide) instead of the old generic name every device shared — same fix as Settings\' guide link, now everywhere Sync appears.',
-    ],
-  },
-  {
-    version: '0.87',
-    date: '2026-08-07',
-    features: [
-      'Both Sync buttons (Settings\' per-device guide and the mobile header) now bring you straight back to Press once the Shortcut finishes, instead of leaving you sitting in the Shortcuts app — via x-success on the shortcuts:// callback.',
-    ],
-  },
-  {
-    version: '0.86',
-    date: '2026-08-07',
-    features: [
-      'Settings\' Apple Health setup guide now has a device picker (Apple Watch generation, Whoop, or Oura) that links straight to the Shortcut built for that device, instead of one Shortcut everyone has to hand-edit. Device-specific links are rolling out — picking one not yet published tells you so instead of a dead link.',
-      'The guide\'s own "Sync Now" link runs the exact Shortcut for your picked device (pressnewsletter-<device>) directly, alongside the app\'s existing generic Sync button.',
-    ],
-  },
-  {
-    version: '0.85',
-    date: '2026-08-07',
-    features: [
-      'Apple Health setup guide now covers Blood Oxygen and Wrist Temperature per device (Apple Watch generations, Whoop, Oura) instead of one blanket "delete if unsupported" note — including the Oura gotcha where its temperature lands in Health as "Body Temperature", not "Wrist Temperature".',
-    ],
-  },
-  {
-    version: '0.84',
-    date: '2026-08-07',
-    features: [
-      'Added a Sync button, top-right corner on mobile only, next to Settings: launches your Apple Health Shortcut directly from the app and refreshes the dashboard a few seconds later so new data shows up without switching apps yourself.',
-    ],
-  },
-  {
-    version: '0.83',
-    date: '2026-08-06',
-    features: [
-      'Cycle-Aware Recovery (opt-in, Settings → Profile & Training): manually log when a period starts and ends, pick a starting estimate for how much it affects training capacity, and Press quietly extends recovery time during menstruation and shortens it again around the midpoint — plus a small RIR nudge on freestyle-logged sets. That estimate isn\'t static: it refines itself over time from how training actually went during each logged period, gently, one cycle at a time. A new Cycle panel holds the log and history; nothing changes until you turn it on and log at least one period.',
-    ],
-  },
-  {
-    version: '0.82',
-    date: '2026-08-06',
-    features: [
-      'The Goals panel itself now has an Edit button — add, drop, re-rank, or re-target a training goal directly from the panel, the same fields as Onboarding and Settings\' Training Goals editor, no detour required.',
-      'Fixed the right-hand section-nav dots on desktop: the freeform drag/resize grid can put several sections on screen at once in different columns, and the dots were toggling every one of them active independently instead of tracking a single "you are here" — only the most-visible section\'s dot lights up now.',
-    ],
-  },
-  {
-    version: '0.81',
-    date: '2026-08-06',
-    features: [
-      '"Restart Setup" (Settings → Account) now prefills every step from your existing data — name, body stats, training goals, activities, diet goal, targets, training background, muscle focus, even whether Strava\'s already connected — instead of handing you a blank form to redo from scratch. A genuinely new account still starts blank; this only changes what a repeat run of setup looks like.',
-    ],
-  },
-  {
-    version: '0.80',
-    date: '2026-08-06',
-    features: [
-      'Lose Fat now has real deficit limits. Your fat-loss calorie target is checked against an estimated maintenance calorie figure (from bodyweight, height, age, sex, and training frequency) — over a 20% deficit shows a warning, over 30% is a hard limit and gets capped there automatically, since sustained deficits past that aren\'t attainable. Shown in both Onboarding and Settings\' Diet Goal picker.',
-    ],
-  },
-  {
-    version: '0.79',
-    date: '2026-08-06',
-    features: [
-      'Settings is now a wiki-style page instead of a stack of accordions: a left table of contents lists every group and section and jumps straight to it, while the body stays one continuous document you can still just scroll through by hand — nothing collapses or hides content anymore. The TOC tracks your position as you scroll and highlights the section you\'re currently reading. On phone, the sidebar becomes a horizontal scrollable strip of section names pinned above the content.',
-    ],
-  },
-  {
-    version: '0.78',
-    date: '2026-08-06',
-    features: [
-      'Settings → Profile & Training overhauled: the old "Profile" section — 25+ unrelated fields in one flat list — is now nine focused sub-sections (Identity, Training Goals, Activities, Diet Goal, Tracking Level, Training Preferences, Training Background, Appearance, Personal Journalist Memory) in roughly the same order as Onboarding.',
-      'Training Goals and Activities — set once during Onboarding with no way back to them — now have real editors in Settings, matching the same picker Onboarding uses. The Goals panel\'s "add some from Settings" pointer now actually leads somewhere.',
-      'Diet Goal in Settings now matches Onboarding\'s wording exactly (Lose Fat / Build Muscle / Maintain / Athletic Performance) and actually saves your goal, not just the derived macro mode — previously it showed different labels (cut/recomp/bulk) and never wrote the field the Personal Journalist reads your goal from, so that context stayed frozen at whatever Onboarding set, forever.',
-      'Settings\' Experience Level was missing the third Onboarding option, "Returning after a break," and its accompanying break-length question — both now present, so switching to it here seeds a starting atrophy estimate the same way Onboarding does.',
-    ],
-  },
-  {
-    version: '0.77',
-    date: '2026-08-06',
-    features: [
-      'Fixed the dashboard headline clipping into the ticker bar on desktop — the grid was using padding to clear the fixed header, which absolutely-positioned panels ignore; switched to margin so it actually pushes them down.',
-    ],
-  },
-  {
-    version: '0.76',
-    date: '2026-08-05',
-    features: [
-      'Fixed the dashboard and Settings scrolling sideways on narrow phone screens — several grids (stat readouts, soreness picker, onboarding goal cards, the weekly calendar strip, briefing stats) could get pushed wider than the screen by a single long number, muscle name, or split label instead of wrapping.',
-      'Added Social, a new front-page section: follow requests and username search — previously only in Settings → Social, which still works too — plus muscle comparison, now reachable directly from the front page instead of only after opening a profile via Settings.',
-      'New activity feed on that section shows recent sessions from people you follow, one line each (who, what, when — no likes or streaks). It\'s a separate opt-in from "workout sessions visible to followers" and stays off by default even if that one is already on — turn it on in Settings → Social → Visibility to include your own sessions in it.',
-      'Mobile section navigation is now swipeable: drag left or right to move to the next or previous section (Dispatch, Sleep, Training, Nutrition, Recovery, Body, Records, Goals), with a smooth slide between them. The dock still jumps straight to any section by tapping — both stay in sync, and the slide becomes an instant jump if you have reduced motion turned on.',
-      'Onboarding cleanup. The Diet & Daily Targets step no longer blocks Continue until you pick a primary diet goal — it was the only onboarding step that couldn\'t be skipped, contradicting every other step\'s "leave it blank, fill it in later" behaviour. Its heading was also renamed from the generic "Your Goals" (too easily confused with the training-goals step right before it) to "Diet & Daily Targets", with copy that says outright it\'s a separate question from what you\'re training for.',
-      'The Training Background step no longer asks a brand-new lifter for their "usual" split, working sets, and rep range — those presuppose a habit that doesn\'t exist yet. They\'re now behind a "set one anyway" toggle for anyone who picked "New to training", and still asked directly for everyone else.',
-      'Fixed a couple of small copy bugs found in the same pass: Connect Services referred to a "Profile page" that doesn\'t exist in the app (now says Settings, matching everywhere else); the Hevy API Key button showed the same label whether it was open or closed instead of toggling to "Hide"; the completion screen\'s sleep/water/training-days summary line was tied to whether a diet goal had been picked even though those targets always save with sensible defaults regardless.',
-      'Added an interactive walkthrough: Dispatch, Training, and Recovery now spotlight their controls with a short explanation the first time you actually visit each section — never again automatically after that. Skippable at any point (an explicit Skip control, a close button, or Escape), fully keyboard-operable, and honours reduced-motion (no animated spotlight movement — it just appears). "Replay Walkthrough" in Settings → Account resets and re-triggers it if you want to see it again.',
-    ],
-  },
-  {
-    version: '0.75',
-    date: '2026-08-05',
-    features: [
-      'The Weekly Review is now a structured brief, not just a Gemini narrative. New fixed sections above the write-up: Goal Check (progress toward every concrete training goal you\'ve set, including a "at this rate you\'ll hit it by ___" projection from your last 4 weeks of data), What\'s Working / Needs Attention (this week vs last week across sessions, volume, recovery, sleep, nutrition logging, and PRs), and Fatigue Trend (your 14-day recovery trend plus what\'s driving it — most-fatigued muscles, CNS and metabolic load).',
-    ],
-  },
-  {
-    version: '0.74',
-    date: '2026-08-05',
-    features: [
-      'Favorite exercises are now a real ranked order, not just a list. Finish a workout that shares a primary muscle with something you\'ve logged before, and you\'ll sometimes see a quick "which do you prefer?" prompt — answer it or skip it, it\'s never blocking. Skipped comparisons (and exercises you haven\'t been asked about yet) still nudge the ranking a little from how often you actually train each one and whether your numbers are climbing on it, so the order reflects real training, not just what got typed into a box once.',
-      'Settings → Profile & Training\'s favorites list now shows that ranked order (Scientist mode also shows the underlying rating and comparison count) instead of an unordered pile — adding/removing favorites still works exactly as before underneath.',
-      'A first bulk history import now seeds the ranking from that history\'s own frequency, so it starts somewhere sensible instead of blank.',
-    ],
-  },
-  {
-    version: '0.73',
-    date: '2026-08-05',
-    features: [
-      'Added Plan Ahead: a 7/30-day forward calendar (Home → toggle Week/Month) that solves each day\'s actual recommended session from real fatigue, not just a readiness colour. Tap a day to see it; today\'s day still starts your session, logs freestyle, or opens Other Ways/Train A Muscle exactly as before. Replaces the old "This Week\'s Guidance" advisory block.',
-      'The calendar is fully optimal to your goal by default. Settings → Profile & Training now has constraints to layer on top: recurring days off, an allow-list of training days, one-off holiday/travel windows (rest, bodyweight-only, or restricted-equipment), a weekly session-count target (auto or manual), and a soft day-of-week split anchor (e.g. "Legs on Friday") — honored when fresh, otherwise the calendar falls back and shows the conflict rather than forcing a fatigued muscle through.',
-      'Removed the "What If?" sandbox tool — superseded by the calendar, which now previews a session\'s actual effect before you commit to it.',
-    ],
-  },
-  {
-    version: '0.72',
-    date: '2026-08-05',
-    features: [
-      'Replaced the desktop dashboard\'s auto-packed panel grid with a freeform drag-and-resize one: turn on "Rearrange Panels" (Settings → Dashboard Layout) and drag any panel or micro-widget to reposition it, or drag a corner to resize — everything else auto-compacts around it so there\'s never empty space. Positions save automatically and are remembered separately per column count.',
-      'Added a Columns setting (Settings → Dashboard Layout): Auto tracks your window width (1-4 columns), or pick a fixed count so panels resize in pixels instead of the column count changing as you resize the window.',
-      'The three layout presets (Review, Dense, Retrospective) now also reset the freeform grid to a fresh auto-packed layout in the new order, and include the Goals panel (previously missing from Review/Retrospective\'s order).',
-    ],
-  },
-  {
-    version: '0.71',
-    date: '2026-08-04',
-    features: [
-      'Onboarding\'s Goals step is now a real multi-goal picker: pick any of Lose Fat, Gain Muscle/Strength, Improve Cardiovascular Health, Improve Flexibility, or Improve in a Sport, rank each Primary/Secondary/Minor, and optionally set a concrete target and date (bodyweight, body-fat %, a specific lift, Fat-Free Mass, FFMI, resting heart rate, a benchmark time, or VO₂max) — or leave it open-ended. A new Goals panel shows current-vs-target for anything trackable, and a plain trend or tag for the rest.',
-      'Added an Activities step to onboarding — pick from Strength, Running, Hybrid, Team Sports, Endurance, CrossFit, or Other, each ranked Primary/Secondary/Minor, replacing the old single primary/secondary activity pair. Weekly session and volume defaults now blend across every activity you pick, weighted by rank, instead of only ever reading one "primary" activity.',
-      'Sleep, water, and training-days targets on the Daily Targets step now start from a suggestion based on your training goals (still fully editable) instead of a flat 8h/7 glasses/4 days for everyone.',
-      'Added a third onboarding experience option, "Returning after a break" — asks how long the break was and seeds a conservative starting-point estimate for detraining, automatically replaced by a measured one the moment there\'s real logged history (or an imported one) with an actual gap in it.',
-    ],
-  },
-  {
-    version: '0.70',
-    date: '2026-08-04',
-    features: [
-      'Dashboard panels now span a real default width on wide screens instead of every panel being one fixed column — Dispatch and Recovery carry more content, so they default to two columns wide once there\'s room (1380px+), three at the widest tier (1800px+). The zero-gap packing this dashboard has always used is unchanged; wide panels just pack into it.',
-      'Added 9 small "micro-widget" cards that fill whatever gaps are left over: Hydration Ring, Resting Heart Rate, Training Streak, Steps, an AI Coaching Insight line, Optimal Training Window, Today\'s Muscle Focus, 7-day Body Weight Delta, and Weekly Volume Pace. All optional — Settings → Dashboard Layout → Micro-Widgets to reorder or hide them. Desktop only.',
-      'Optimal Training Window is grounded in your actual wake time (from synced Apple Health sleep data), not a generic clock time — peak physical performance tracks the circadian core-temperature rhythm, roughly 10-12h after waking. Shows a message instead of a guess if sleep data isn\'t synced yet.',
-      'Added one-click desktop layout presets in Settings → Dashboard Layout: Review (Dispatch/Training/Recovery wide and first), Dense (every panel collapsed to its headline — the most panels visible at once), and Retrospective (Sleep/Nutrition/Body/Records wide and first). Training now also gets the wide-panel treatment Dispatch and Recovery already had.',
-    ],
-  },
-  {
-    version: '0.69',
-    date: '2026-08-04',
-    features: [
-      'The adaptation model (Recovery → Adaptation tab) now runs two overlapping recovery phases instead of one — a fast, smaller inflammatory-resolution response peaking around 12 hours, and a slower, larger tissue-remodeling response peaking around 48 hours, combining to a true peak around 45 hours instead of exactly 48. The projected-peak numbers and the chart\'s peak marker move with it.',
-      'Secondary-muscle credit in the adaptation model is no longer a flat half-credit for every assisting muscle on every exercise — where EMG data exists for the exercise, it now credits each assisting muscle by how hard it actually works relative to the prime mover. A Chest Dip, for instance, genuinely hits triceps harder than chest, which a flat rule couldn\'t reflect either way.',
-      'ACWR (the acute:chronic workload ratio behind part of the Metabolic fatigue score) now uses an exponentially-weighted running average instead of a 7-day-sum vs. 28-day-average window — a lift no longer disappears from your "acute" load the instant it turns 8 days old, which used to produce a same-size overnight jump with no physiological basis.',
-      'Backbone exercise selection now weights real EMG data over primary-muscle array position where that data exists, fixing the same "over-broad exercise wins for touching more muscles, not training any of them particularly well" bias its predecessor was built to catch — just with real numbers behind it instead of a proxy.',
-    ],
-  },
-  {
-    version: '0.68',
-    date: '2026-08-04',
-    features: [
-      'Movement pattern fatigue now has somewhere to live. Recovery gained a Patterns tab (Sport Scientist level, alongside Types and Adaptation) showing residual fatigue by pressing/hinging/rowing/squatting/etc., not just by muscle — the tracking shipped in 0.67 with nothing rendering it; now it does.',
-      'Added a Timeline: a teaser under Dispatch opens a full chronological view of workouts, lifts, sleep, injuries, soreness logs and thoughts, newest first.',
-      'The CNS-sparing exercise swap (the one that trades a barbell compound for a machine/cable alternative when CNS fatigue is high) now ranks candidates by actual EMG stimulus similarity where the data exists, instead of just counting how many primary-muscle names two exercises happen to share.',
-      'The Recovery fatigue heatmap now carries a hoverable, screen-reader-readable label per muscle ("Quads: 62% (moderate)") alongside its colour fill, so the fatigue band no longer depends on being able to tell gold from ember by hue alone.',
-      'Fixed stale copy on the Muscle Focus control (onboarding and Settings): it still described the old Focus/Ignore/Normal options after they were renamed to Priority/Maintain/Lower/Avoid, and never mentioned Lower at all.',
-    ],
-  },
-  {
-    version: '0.67',
-    date: '2026-08-03',
-    features: [
-      'Recovery Forecast no longer under-reports how long a hammered muscle takes to come back. Fatigue is shown as a percentage of your own peak load and displayed capped at 100, but the real figure can go well past that — three ab exercises in one session can put abs at more than double their peak. The forecast was counting down from the capped 100 rather than the real number, so a muscle at 250% and one at 110% were both told to be ready at the same hour, and the earlier of the two was wrong. It now decays from the true figure. Muscles you have genuinely buried will report longer waits than before; that is the correction, not a change to the model. The percentage still displays capped and still carries its * to say so.',
-      'Movement patterns are now tracked alongside muscles. Press records volume and residual fatigue by what you did — pressing, hinging, rowing, squatting — not only by which muscles it loaded. Muscle fatigue tells you the chest is cooked; pattern fatigue tells you horizontal pressing is cooked, which is the thing that decides whether swapping dumbbell bench for barbell bench actually buys you anything. Nothing displays it yet.',
-    ],
-  },
-  {
-    version: '0.66',
-    date: '2026-08-02',
-    features: [
-      'Train A Muscle now covers the whole body. It was only ever sweeping the seven movement families that have an angle slider, so it silently offered no quads, abs, obliques, calves, traps, forearms, adductors, abductors, hip-flexors or rotator-cuff \u2014 most of the lower body and all of the core. The data was never missing; the exercise database has covered squats, leg presses and the rest all along, and the search just never looked there. It now ranks fixed exercises alongside angle configurations using the same score, so 28 muscles are selectable instead of 17. A fixed exercise names itself rather than reporting an angle it does not have.',
-      'Tidied the Training panel\'s button row. It had grown to eight identical boxes mixing three different kinds of control — ones that start a session and leave the screen, ones that just expand a panel below, and utilities — so nothing indicated which was the thing to press. Start Session, Freestyle and Group Session stay as buttons; Other Ways, What If and Train A Muscle become text toggles under a rule, marked + when closed and − when open. They no longer relabel themselves to "Hide …", which was making the whole row jump about every time you opened one. Add to Calendar, Refresh Guidance and Auto-Pick Freshest sit together at the right as utilities. Nothing was removed and nothing behaves differently.',
-      'Fixed: Add to Calendar has never worked. It threw an error the moment you pressed it, on every browser, since the day it shipped — the line-folding step used a facility that exists on the server but not in a browser, so no .ics file was ever produced. The whole backend test suite passed throughout, because those tests run on the server where that facility does exist. Now uses a method available in both, and produces byte-identical output. A new check fails the build if any server-only facility reaches the browser bundle again.',
-    ],
-  },
-  {
-    version: '0.65',
-    date: '2026-08-02',
-    features: [
-      'New What If button next to Other Ways (Intermediate and above). Switch exercises off, add or drop sets, and see what today\'s session would actually do to you before committing — fatigue per muscle before and after, which muscles it pushes over the ceiling and therefore out of tomorrow\'s selection, and how much longer everything takes to come back. It is not a prediction: the candidate session is turned into the same lift rows the logger would write, appended to a copy of your history, and the same fatigue functions the Recovery panel already shows are re-run over it. So these are the numbers you will actually see tomorrow, and you can check them. There is no predicted strength or stimulus change, because Press has still never compared a prediction of that kind against an outcome.',
-      'New Train A Muscle button: pick one or more muscles and get the movement and angle that hit them hardest given what you have already spent. Ranked on real activation against your current fatigue, so a position that would normally win can lose to a slightly weaker one whose synergists are fresh — and when that happens it says which movement it ranked above and why. The fatigue weighting is a training preference rather than a measurement, and is labelled as one.',
-      'The Build Press/Row angle picker gains two more sliders where the data supports them: elbow flare and grip rotation. Each reads its own EMG table and is shown separately rather than being folded into the angle, because nothing measured them in combination. Grip rotation disappears entirely on fixed-handle machines, which do not offer a choice, and a slider that barely moves your target muscle says so instead of pointing at a setting that changes nothing.',
-      'The muscle bars under the sliders can now show a second bar: the fatigue that position would actually cost each muscle, alongside how hard it works it. They are kept as two bars in two units on purpose — a muscle can be worked hard and cost little, or barely worked and be expensive because it is nearly spent, and that is the trade-off worth seeing.',
-      'Today\'s Limiting Factor now explains itself at whichever detail level you are on, rather than showing the same sentence to everyone, and Training re-ranks it against the session actually generated — spent lats matter before a pull session and not before a leg session. The factor, its severity and its ranking are identical at every detail level; only the wording changes.',
-    ],
-  },
-  {
-    version: '0.64',
-    date: '2026-08-02',
-    features: [
-      'New Other Ways button next to Add to Calendar. It rebuilds today\'s session three more times under one changed constraint each — a 30-minute version, a machine-and-cable version that spares the nervous system, and a bodyweight-only version — and states what each one costs. Every trade-off is a measured difference between two sessions that were actually generated: minutes, working sets, and which muscles lose their dedicated exercise. There are no predicted-stimulus percentages, because Press has never checked a prediction against an outcome. Alternatives that come out identical to the recommended session are dropped rather than offered as a choice that changes nothing, so an empty result means today genuinely has one sensible shape. Starting an alternative uses its own exercise list, so a short session stays short rather than being refilled by the Max Length slider.',
-      'Fixed: opening Press in a background browser tab could leave the desktop panels overlapping each other until the window was resized. Repacking was queued on an animation frame, which a hidden tab never runs, and switching to the tab did not trigger a new one.',
-      'New What\'s Driving Recovery block in the Recovery panel (Intermediate and above). The recovery score has always been a weighted sum of six things — heart rate variability, sleep, resting heart rate, wrist temperature, blood oxygen and heart rate — and this now shows what each one actually contributed, in points of the final score, ranked by how much it is costing you rather than by how heavily it is weighted. A factor with no reading today is drawn hatched and labelled: the score substitutes a default for a missing sensor, and showing that as a measurement would credit points to data that was never collected. Worth knowing what it revealed: heart rate variability at your own baseline earns half of the 40 points it can contribute, and full marks need about 1.5x baseline, so it will usually rank first. That is how the score has always worked; nothing about it was changed here.',
-    ],
-  },
-  {
-    version: '0.63',
-    date: '2026-08-01',
-    features: [
-      'The desktop dashboard now packs its panels like a masonry grid instead of balanced newspaper columns. Previously every column was forced to one shared height and a panel could not be split, so any panel too tall for the space left in its column jumped to the next one and left a large empty block behind it — most visibly under Recovery on a four-column screen. Panels now drop into whichever column is shortest, so there is no gap between stacked panels at any width.',
-      'Dashboard panels can be collapsed to just their headline with the − control in the top-right corner, and set to Collapsed, Standard or Wide (double-width) per panel in Settings → Dashboard Layout. Collapsing the long ones — All-Time Bests in particular — is what reclaims the leftover space at the foot of the shorter columns. Both are desktop-only; the phone dock already shows one section at a time.',
-      'Workouts now record the time they happened, not just the date. Fatigue is calculated from when the work was actually done, so an evening session no longer reads as though it happened at midnight — which was understating same-day fatigue by roughly 15-25 points and quietly making a second session that day look more advisable than it was. This flows through everything downstream: structural and CNS decay, days-since-trained, and the recovery forecast. Applies to new sessions and to future Hevy imports, which carry their own real start times; existing history keeps its old date-only anchoring rather than being rewritten with guesses. A session logged for a past date is deliberately left un-stamped, since "now" would be actively wrong for it, and the in-app timer is ignored past six hours so a session left running overnight can not place the work before you woke up.',
-      'New Add to Calendar button next to Start Session. Exports the session currently on screen as a standard .ics file — the exercise list with its set scheme, plus the reasoning behind the pick — which opens straight into Apple Calendar and imports into Google or Outlook. It schedules for the next full hour today as a placeholder you can drag: the app has no idea when you actually train, and inferring a time from your history would be inventing a preference you never stated. Re-exporting the same day and muscle group updates the same event rather than stacking duplicates.',
-      'Muscle priorities gained a fourth setting. "Ignore" was doing two incompatible jobs, so it is now Lower and Avoid. Lower keeps the muscle fully modelled — it still accumulates fatigue from compounds, still recovers, still appears in Recovery — and only reduces how often it is picked for direct work. Avoid removes it from selection outright, which is right for an injury or a medical restriction and wrong for "I do not care much about calves". The other two are relabelled Priority and Maintain. Nothing was migrated: anything you had set to Ignore is still Avoid, so if you meant "just deprioritise this", move it to Lower.',
-      'New Recovery Forecast (Recovery panel, Intermediate and above): when each muscle drops back below the training ceiling, and when CNS fatigue clears enough for heavy barbell compounds again. It is an exact inversion of the decay the app already runs rather than a new model, so it is as good as that model and no better — it says so, along with the two things that limit it: it assumes you do not train again, and a muscle pinned at the 100 cap may be well above it, making its figure a floor rather than an estimate.',
-      'The Build Press/Row/… angle picker is now a slider instead of 13 buttons. Sweeping it updates a live muscle-activation readout underneath, so you can compare positions before committing rather than picking blind and backing out. Optionally pick a target muscle first: the slider then marks that muscle\'s best angle, and the confirm step tells you how far your choice sits from it — stated as an EMG activation difference against that muscle\'s own peak, which is what the data supports, not a predicted strength or growth difference. It never stops you choosing any angle. The bars are drawn against each muscle\'s own peak activation and deliberately don\'t total 100%, because these are per-muscle activation levels rather than shares of the exercise.',
-      'Dispatch now leads with Today\'s Limiting Factor — the single biggest thing constraining today\'s session, whether that\'s CNS fatigue, a muscle over the fatigue ceiling, an injury flag, metabolic fatigue, recovery markers below baseline or short sleep. Each one names what it is, what the app is actually doing about it (swapping barbell compounds for machines, capping the week at 2 sessions, capping working sets at 2 per exercise) and what clears it. Nothing is reported unless it has genuinely crossed a threshold the planner acts on, so an empty state means exactly that: nothing is holding you back today.',
-      'Generated sessions now mark which exercise drives the session. The backbone lift is tagged Primary and everything else Secondary or Isolation, taken from the planner\'s own selection rather than guessed from the name. At Beginner only the main lift is tagged, since that\'s the part you can act on.',
-      'The default home-screen order is now recommendation-first — Dispatch, Training, Recovery, then sleep, nutrition, body and records. Only affects accounts that have never reordered their panels; a saved order still wins.',
-      'The weekly guidance now explains itself. A "Why This" block under the muscle-group chips gives the reason the top group was picked, which groups lost and by how much, and how confident the pick is. Tapping a group other than the recommended one shows what that choice actually trades — which muscles you\'d train instead, and which of them can\'t be loaded today because they\'re over the fatigue ceiling or flagged as injured. It never blocks the choice. Detail Level controls the depth: a single sentence at Beginner, the full reasoning at Intermediate, and the term-by-term score arithmetic (recovered + overdue + priority bonus) at Sport Scientist. Confidence is reported as a level with named causes rather than a percentage — Press has never checked a prediction against an outcome, so a number would be invented.',
-      'New Detail Level setting (Settings → Profile & Training): Beginner, Intermediate or Sport Scientist. It changes only how much of the model is shown — the planner, fatigue maths and exercise selection are untouched, so today\'s recommendation is identical whichever you pick. Beginner states recovery in words (Fresh/Recovering/Limited/Fatigued) with a sentence explaining the pick, and hides the Ranking, Types and Adaptation tabs; Intermediate restores the percentages and ranking; Sport Scientist adds the structural/metabolic/CNS split and adaptation estimates. Existing accounts default to Sport Scientist, so nothing is hidden unless you choose to hide it. Soreness and Injuries stay visible at every level — that\'s data going in, not analysis coming out.',
-    ],
-  },
-  {
-    version: '0.62',
-    date: '2026-07-30',
-    features: [
-      'Build Press/Row/Fly/... now also builds Leg Curl (0°=lying/prone through 180°=seated, hip position shifting stretch on the biarticular hamstrings) and Hyperextension. Hyperextension is a deliberate exception to the usual 0-180° picker — only 2 real device types exist for this movement (a 45° bench and a 90° Roman chair), so it\'s a 2-button choice instead of a fabricated continuous range, with the angle keyed directly to the real pad angle.',
-    ],
-  },
-  {
-    version: '0.61',
-    date: '2026-07-30',
-    features: [
-      'Build Press/Row/Fly now also builds Curl and Extension: pick a pattern, equipment, and an EMG-backed angle (curl: 0°=incline curl through 180°=preacher curl, shifting emphasis between biceps and brachialis; extension: 0°=pushdown/lying through 180°=overhead, shifting emphasis toward the long head of triceps and adding real shoulder demand). Extension also shows an informational long/lateral/medial triceps-head breakdown for the chosen angle — same idea as fly\'s chest split, purely informational, your tracked \'triceps\' number stays one comparable value everywhere else. Auto-generated sessions can recommend these too, same as Press/Row/Fly.',
-    ],
-  },
-  {
-    version: '0.60',
-    date: '2026-07-30',
-    features: [
-      'Press/Row/Fly built via Build Press/Row/Fly now share one exercise identity per pattern+equipment (e.g. every "Cable Fly" you build, at any angle, is one tracked exercise with one logged history) instead of a separate identity per angle — angle is a per-set attribute now, shown next to each logged set and factored precisely into fatigue crediting and weight-suggestion math for that exact angle, same as before. Brand rides along on the exercise\'s machine/brand field instead of the name.',
-      'Auto-generated sessions can now recommend one of these angle-built exercises directly (e.g. "Cable Fly @ 165° (recommended)") when it\'s genuinely the best way to hit a target muscle — shown in the session preview and, once added to a workout, pre-loaded with the correct angle and weighted muscle profile already attached.',
-    ],
-  },
-  {
-    version: '0.59',
-    date: '2026-07-30',
-    features: [
-      'Build Press/Row now also builds Fly: pick Fly, equipment (dumbbell/cable/machine — no barbell fly), and an EMG-backed angle (0° = a high-to-low cable fly finishing near your hips, through 90° = flat/mid fly, to 180° = a low-to-high fly finishing raised near overhead), and it becomes its own tracked exercise like any Press/Row builder result. Also shows an informational lower/mid/upper pec breakdown for the chosen angle — same idea as the existing per-exercise chest split, but on fly\'s own arm-to-torso-angle axis rather than bench incline, and purely informational: your tracked \'chest\' number stays one comparable value everywhere else.',
-    ],
-  },
-  {
-    version: '0.58',
-    date: '2026-07-29',
-    features: [
-      'Added gym equipment presets: starting a workout now silently checks your location against a shared directory of gyms and offers "At [Gym] · change" if it finds one nearby, or "+ Set Gym" to search/add one yourself. With a gym active, the Machine/Brand dropdown shows that gym\'s known brands first (under "In your gym"), and a new Model field lets you tag the exact named machine (e.g. "Life Fitness — Insignia Series Leg Press") — researched against real manufacturer product lines for 29 brands. Whatever you pick while a gym is active saves back to it automatically, so the next person (or you, next visit) sees it prefilled.',
-    ],
-  },
-  {
-    version: '0.57',
-    date: '2026-07-29',
-    features: [
-      'Group Session no longer opens as a separate page — it\'s now a small tab strip right in the normal workout logger. "You" is just your regular logging screen, unchanged; tapping someone else\'s name (or the new Refresh link) pulls the latest and shows their sets inline, still editable, using the exact same exercise search/browser as solo logging when adding something for the whole group. Also fixed: exercises with a weight/reps typed in (not yet checked off) now actually reach the shared session — previously only checked-off sets did.',
-    ],
-  },
-  {
-    version: '0.56',
-    date: '2026-07-28',
-    features: [
-      'Added Group Session (Training tab): start one to get a 4-character join code, or join with someone else\'s — up to 4 people, each logging their own sets while seeing everyone else\'s. Any exercise already logged in your current workout merges in the moment you connect. Sets can be edited or deleted by anyone in the session while it\'s active; a participant\'s data locks and disappears from the others\' view the moment they finish or leave. Finishing tags the saved workout with who else was in it. A stalled participant (an hour with no activity) gets auto-finished so the session doesn\'t hang open indefinitely.',
-    ],
-  },
-  {
-    version: '0.55',
-    date: '2026-07-28',
-    features: [
-      'Added a Compare feature to profiles you mutually follow (both accounts need the comparison visibility toggle on, in Settings): a per-muscle strength-score comparison and a training-stimulus comparison over a 7/14/30-day window, each shown as two side-by-side body diagrams plus a table.',
-    ],
-  },
-  {
-    version: '0.54',
-    date: '2026-07-28',
-    features: [
-      'Added a Social section in Settings: search for other accounts by username, send/accept follow requests (a badge on the Settings button shows pending requests and any that were just accepted), and a profile view for people you find — minimal for accounts you don\'t follow yet, workout sessions visible once they accept your follow request and have that category toggled on. New per-category visibility toggles (workout sessions on by default, strength/stimulus comparison off by default) control what a follower can see.',
-    ],
-  },
-  {
-    version: '0.53',
-    date: '2026-07-28',
-    features: [
-      'Every account now needs a username — a mandatory (but pre-filled, low-friction) step on first login, and retroactively for existing accounts too. Separate from a freeform display name, of which only the first name is ever shown to anyone else. Both are editable later from Settings; username changes are limited to once a month, display name has no limit.',
-    ],
-  },
-  {
-    version: '0.52',
-    date: '2026-07-28',
-    features: [
-      'Shrugs now have curated weighted EMG fatigue profiles — a dedicated scapular-elevation dataset covering upper traps, mid-traps, rhomboids, and forearm/grip demand across the full range of motion. 207 of 211 exercises now curated; Tibialis Raise (Wall Sit) is the only one left on flat credit, since no dorsiflexion EMG literature exists to curate it from.',
-    ],
-  },
-  {
-    version: '0.51',
-    date: '2026-07-28',
-    features: [
-      'Removed Farmer\'s Carry, Suitcase Carry, Goblet Carry, and Tibialis Raise (ATG Sled Push) from the exercise list — no EMG literature covers isometric loaded-carry bracing or sled-push dorsiflexion, so they had no honest path to weighted fatigue crediting.',
-    ],
-  },
-  {
-    version: '0.50',
-    date: '2026-07-28',
-    features: [
-      'Added Kelso Shrug (Low/Mid/High Pulley) as new exercises — bent-over, straight-arm scapular retraction, targeting mid-traps/rhomboids rather than a vertical shrug\'s upper-trap elevation. Curated EMG fatigue weighting from the same pull-angle data as the rest of the row family, so the mid-traps/rhomboid-vs-lat/rear-delt ratio genuinely shifts across the three pulley heights.',
-    ],
-  },
-  {
-    version: '0.49',
-    date: '2026-07-28',
-    features: [
-      'Curated EMG fatigue profiles now cover chest flys, pullovers, face pulls, upright rows, hammer curls, and close-grip/diamond triceps-emphasis presses too (201 of 212 exercises now curated) — each honestly flagged in code for exactly what it does and doesn\'t capture versus the ideal data. Loaded carries, shrugs, and tibialis raises are the only 8 left on flat crediting, since no literature axis exists for those mechanisms at all.',
-    ],
-  },
-  {
-    version: '0.48',
-    date: '2026-07-28',
-    features: [
-      'Weighted EMG fatigue attribution now also covers bench/overhead press variants (flat, incline, decline) and the rest of the row family (bent-over, T-bar, cable, machine, wide-grip) — 183 of 212 exercises now have a curated profile instead of flat credit. Exercises with no honest single-axis fit (chest flys, pullovers, shrugs, loaded carries, close-grip/diamond triceps-emphasis presses, hammer curls, face pulls, tibialis raises, leg raises) are deliberately left uncurated rather than forced onto data that would misrepresent them.',
-    ],
-  },
-  {
-    version: '0.47',
-    date: '2026-07-28',
-    features: [
-      'Weighted EMG fatigue attribution now covers 140+ exercises across squats, hinges, lunges, curls, extensions, hip abduction/adduction, calves, core anti-extension/anti-rotation, rotator cuff, lateral raises, pulldowns/pull-ups, dips, and more — not just Build Press/Row exercises. Each credits the muscles it actually trains at literature-backed percentages instead of flat full credit, so fatigue and "days since trained" better reflect a lift\'s real emphasis (e.g. a Leg Press crediting quads less than a Zercher Squat, or a pulldown crediting lats below rear-delt/rhomboids per the source data).',
-      'Your own hand-mapped press/row angles (from Build Press/Row\'s angle picker) now also drive fatigue attribution when logged under an existing exercise name, not just the target-weight suggestion.',
-    ],
-  },
-  {
-    version: '0.46',
-    date: '2026-07-28',
-    features: [
-      'Fixed weighted EMG fatigue for a Build Press/Row exercise only working the session it was created — every later time it was logged via search, its muscle profile silently failed to reattach and fell back to zero fatigue attribution.',
-      'Press/row exercises now show a grip-rotation form cue alongside the elbow-flare one (e.g. "Use a supinated grip to fully engage Biceps") — and flags it when the two cues are in real anatomical tension, since a pronated or supinated grip restricts how far you can comfortably flare your elbows.',
-    ],
-  },
-  {
-    version: '0.45',
-    date: '2026-07-28',
-    features: [
-      'Chest exercises now show a lower/mid/upper pec split (e.g. "Lower 38% · Mid 42% · Upper 20%") in the session preview and while logging — literature-grounded per bench angle, shown for all 27 chest exercises already in the database. Informational only: fatigue and stimulus outside a workout still track a single chest number, unchanged and fully comparable to every other muscle.',
-    ],
-  },
-  {
-    version: '0.44',
-    date: '2026-07-28',
-    features: [
-      'Added a "Build Press/Row" exercise builder to the workout logger — pick Press or Row, equipment, an EMG-backed angle, and (for cable/machine) a brand, and it becomes its own tracked exercise with a real per-muscle weighted fatigue/stimulus profile instead of the flat primary/secondary every other exercise gets.',
-      'New angles now get a suggested first-set target weight, cross-calibrated from your real history on other angle-mapped press/row exercises via a per-muscle strength regression — with a full breakdown of which muscle contributed how much, and clearly flagged as a rough estimate when a contributing muscle has no supporting history yet.',
-    ],
-  },
-  {
-    version: '0.43',
-    date: '2026-07-27',
-    features: [
-      'Added "Restart Setup" in Settings → Account, to redo the Onboarding wizard on demand without affecting an already-set-up account\'s normal behavior of never showing it automatically.',
-      'Settings\' 15 sections are now grouped into 7 collapsible categories (Profile & Training, Dashboard Layout, Targets & Nutrition, Connected Data, Tools, Account, What\'s New) instead of one long undifferentiated scroll — only Profile & Training is open by default.',
-    ],
-  },
-  {
-    version: '0.42',
-    date: '2026-07-27',
-    features: [
-      'Fixed invisible text in Dark Mode — Settings\' close ×, the Morning Briefing edition label, and a trained-day\'s label in the weekly strip were all hardcoded to a light color meant for a dark header background, which goes light in Dark Mode (--ink and --paper swap), making the text disappear against itself.',
-    ],
-  },
-  {
-    version: '0.41',
-    date: '2026-07-27',
-    features: [
-      'Settings → Profile → Name now has an explicit Save button with saving/success/error states, instead of only saving silently on blur — a failed save previously looked identical to a successful one.',
-    ],
-  },
-  {
-    version: '0.40',
-    date: '2026-07-27',
-    features: [
-      'Adaptation tab\'s atrophy-rate calibration no longer needs 2+ training gaps to offer a personal estimate — a single real 14-90 day gap now works too, labeled "(low confidence)" since a lone data point is noisier than a median across several.',
-    ],
-  },
-  {
-    version: '0.39',
-    date: '2026-07-27',
-    features: [
-      'Fixed the Muscle Fatigue headline\'s "Train X Today" — it was naming the 2nd-most-fatigued muscle, which is backwards advice (recommending to load what\'s already loaded). Now pulls the actual top pick from the same weekly guidance the Training section shows.',
-    ],
-  },
-  {
-    version: '0.38',
-    date: '2026-07-27',
-    features: [
-      'On phone-width screens, replaced the single long vertical scroll through every section with a bottom dock — tap Dispatch/Sleep/Training/Nutrition/Recovery/Body/Records to jump straight to it. Desktop/tablet layout is unchanged.',
-    ],
-  },
-  {
-    version: '0.37',
-    date: '2026-07-27',
-    features: [
-      "Fixed Onboarding silently swallowing save failures — a genuine error (bad connection, timeout, whatever) looked identical to success, walking you through all 7 steps to \"You're set up\" with nothing actually saved. Now stops on the failed step with a visible error and a Retry.",
-    ],
-  },
-  {
-    version: '0.36',
-    date: '2026-07-27',
-    features: [
-      "Fixed Onboarding showing again from scratch on a new browser/device for an already-set-up account — completion was only ever tracked in that browser's local storage, with no check against the real account data.",
-    ],
-  },
-  {
-    version: '0.35',
-    date: '2026-07-25',
-    features: [
-      'Settings now lets you change everything Onboarding originally collected — date of birth, height, experience level, typical split, usual sets/reps, favorite exercises, and Muscle Focus — all pre-filled with your current values instead of onboarding being the only chance to set them.',
-    ],
-  },
-  {
-    version: '0.34',
-    date: '2026-07-25',
-    features: [
-      "Fixed the session Max Length slider only applying after clicking Refresh Guidance — dragging it now updates the exercise list and estimated length instantly, no round-trip.",
-    ],
-  },
-  {
-    version: '0.33',
-    date: '2026-07-25',
-    features: [
-      "Added a way to cross off a logged meal (removes it and unwinds it from the day's totals, not just a visual hide) and a History tab showing the last 7 days of logged meals.",
-    ],
-  },
-  {
-    version: '0.32',
-    date: '2026-07-25',
-    features: [
-      "Fixed meal name and description on photo/text-scanned meals being copies of each other — the name was literally just the description's first 40 characters. Gemini now returns a real short name and a genuinely separate description.",
-    ],
-  },
-  {
-    version: '0.31',
-    date: '2026-07-25',
-    features: [
-      'Fixed the Small/Medium/Large portion buttons overlapping their own labels — they were still sized for the old short "×1.5" style buttons.',
-    ],
-  },
-  {
-    version: '0.30',
-    date: '2026-07-24',
-    features: [
-      'Added a Muscle Focus step to onboarding — mark any muscle Focus (extra priority when picking what to train) or Ignore (excluded from fatigue tracking and never picked as a target) instead of the app treating everything equally.',
-    ],
-  },
-  {
-    version: '0.29',
-    date: '2026-07-24',
-    features: [
-      'Auto-generated sessions now show an estimated length, and a Max Length slider lets you cap it — over the cap, exercises for whichever muscles are already most recently trained get dropped first, keeping the ones your freshest muscles still need.',
-    ],
-  },
-  {
-    version: '0.28',
-    date: '2026-07-24',
-    features: [
-      'Personal Journalist now has persistent memory — it saves durable facts about you (training preferences, injuries, goals) across conversations instead of starting fresh every chat. Editable in Settings.',
-      'Fixed Personal Journalist sometimes timing out and showing "Connection error" on a reply that was actually still coming — the app was giving up sooner than the reply could legitimately take',
-      'Trimmed the health-metrics data Personal Journalist reads to the last 14 days instead of your entire history, keeping every chat message fast regardless of how long you\'ve used the app',
-    ],
-  },
-  {
-    version: '0.27',
-    date: '2026-07-24',
-    features: [
-      'Fixed the mid-day/evening/weekly report buttons all showing "Generating…" together when only one was clicked',
-      'Weekly Review now only appears Monday–Wednesday, before it becomes stale news',
-      'Fixed steps sometimes including stray samples from the previous day, inflating the daily total',
-      'Fixed a text-described meal (no photo) being mislabeled "Per 100g values" — it\'s a whole-portion AI estimate like a photo scan, not a per-100g reference, so the grams calculator no longer misapplies to it',
-      'You can now set/edit the time on a logged meal, both when logging it and afterwards in today\'s log',
-      'Fixed camera barcode scans always reporting "Product not found" — the scan result was being read from the wrong field',
-      'Meal photos and text-described meals now offer Small/Medium/Large portion estimates from Gemini up front, instead of one guess you had to correct yourself with a x0.5/1.5/2 multiplier',
-      'Sleep target now shown as "Xh Ym" instead of a decimal hour count, and moved out of the stretched sleep-summary paragraph into its own line',
-      'Settings moved to the top-left of the header, out of the Profile section',
-    ],
-  },
-  {
-    version: '0.26',
-    date: '2026-07-24',
-    features: [
-      'Re-importing a Hevy CSV now merges in any sets missing from an already-imported session (e.g. warm-ups a fixed export now includes) instead of skipping the whole session because it was seen before.',
-    ],
-  },
-  {
-    version: '0.25',
-    date: '2026-07-24',
-    features: [
-      "Fixed Hevy warm-up sets being silently dropped during import instead of saved — they're now imported and tagged as warm-ups (not lumped in as working sets), so \"Import Hevy\" and the API backfill both bring in your full set history.",
-      'Adding an exercise now autofills the actual previous structure (warm-up sets included) instead of always flattening history into plain working sets.',
-    ],
-  },
-  {
-    version: '0.24',
-    date: '2026-07-24',
-    features: [
-      'Added a Compound / Isolation preference slider in Settings — overrides the auto-detected accessory-exercise leaning in full-body auto-generated sessions instead of it always being inferred from your last 90 days.',
-    ],
-  },
-  {
-    version: '0.23',
-    date: '2026-07-24',
-    features: [
-      'Fixed "Freshest Right Now" (Full Body) auto-generating bloated sessions (20+ exercises, including near-duplicate isolation work like 5 different curl variants in one session) — it now picks compound lifts that cover multiple fresh muscles at once and only adds an accessory for muscles genuinely left uncovered, instead of forcing two exercises per muscle.',
-    ],
-  },
-  {
-    version: '0.22',
-    date: '2026-07-21',
-    features: [
-      'App now loads instantly from cache on reopen instead of re-downloading everything from scratch every time — the service worker was doing nothing but push notifications before',
-      'Fixed the dashboard home screen doing one redundant computation on every load (internal — no visible change, just faster)',
-    ],
-  },
-  {
-    version: '0.21',
-    date: '2026-07-20',
-    features: [
-      'Removed Press/Row/Fly as pattern categories in "Browse by Muscle" — nearly every exercise was one of these, making the middle step pointless busywork. Those exercises now show up directly at the muscle-group level instead.',
-    ],
-  },
-  {
-    version: '0.20',
-    date: '2026-07-20',
-    features: [
-      'Full-body auto-generated sessions no longer pick from a fixed Push/Pull/Legs/Core bucket — every muscle is now ranked by freshness directly, sized off your own real session history, so a session can lean push- or pull-heavy on a given day if that\'s genuinely what\'s freshest',
-      'New "Preferred Split" setting: Full Body, Upper/Lower, Push/Pull/Legs, Arnold Split, or PPL Arnold — picks up on what you\'re already doing from your real history if you\'ve never set it explicitly, but your own choice always wins once set',
-      'Named splits now warn when the rotation hasn\'t reached a whole muscle group (e.g. no Pull day) in 3+ weeks, instead of only tracking freshness within the split itself',
-      'Fixed a floating-point rounding bug that could show a suggested weight like 9.600000000000001kg',
-      'Fixed the session preview miscounting sets/reps/weight by including warm-up sets in the total',
-      'Dead Bug and Ab Wheel Rollout no longer show up as core "backbone" exercises outside travel mode — no real external-load progression path, so they weren\'t a fair substitute for a loadable core exercise',
-      'Fixed the rest-timer glycogen readout vanishing mid-value (it topped out around 75-94% rather than reaching 100%) and no longer resetting if you background the app mid-rest',
-      'Fixed the live Session Stimulus badge carrying over numbers from your last workout before you\'d logged a single set in the new one',
-      'Morning briefing now only generates/notifies once a day — was re-firing on every Apple Health sync — and the auto-popup no longer reappears repeatedly if the app gets reloaded in the background after you\'ve already seen it',
-      'Set-type button: tap now toggles Warm-up/Working directly, hold for Drop Set — removed Failure as a separate set type',
-    ],
-  },
-  {
-    version: '0.19',
-    date: '2026-07-20',
-    features: [
-      'Apple Health sync (Shortcuts) now actually works — fixed a body-shape mismatch that silently dropped every field, made syncing robust to how Shortcuts really serializes Health data, fixed unrounded HRV/RHR/HR/SpO2/wrist-temp display and a steps unit bug that showed 1,702,000 instead of 1,702',
-      'Each account now gets its own personal Apple Health sync link, so a second person\'s data no longer lands in the wrong account',
-      'Muscle recovery times recalibrated to real research (quads dropped from 72h to 24h, several others from 72h to 48h) — fatigue readings should now clear faster and more accurately for large muscle groups',
-      'Fixed the "Browse by Muscle" exercise picker going blank after picking a muscle group',
-      'Fixed the home-screen Recovery number getting clipped in its box on some screen sizes',
-      'Fixed occasional "Gemini returned invalid JSON" errors on briefings/newscasts/reviews',
-      'Nutrition logging can now be done by just describing what you ate, no photo required',
-    ],
-  },
-  {
-    version: '0.18',
-    date: '2026-07-19',
-    features: [
-      'Home screen no longer suggests a whole-week "recovery week" once several muscles get fatigued — it now names exactly which muscle(s) are over the fatigue ceiling and says to leave those alone, since this program never runs on a scheduled deload anyway',
-      'Full-body auto-generated sessions no longer pair up two exercises that do the same job on the same muscle (e.g. Barbell Overhead Press + Machine Shoulder Press) — a second exercise for the same muscle only shows up now if it\'s genuinely different work',
-      'Home screen panels and Recovery tabs can now be reordered and hidden from Settings',
-      'Disabled pinch-to-zoom so the app behaves more like a native app rather than a zoomable page',
-      'Fixed the mid-day and evening report both being generatable at once in the evening — only the report matching the actual time of day shows now',
-    ],
-  },
-  {
-    version: '0.17',
-    date: '2026-07-18',
-    features: [
-      'Fixed sections sometimes staying invisible after the loading screen dismissed — a scroll-reveal effect stopped re-attaching once the loading screen delayed when the page actually mounted',
-      'Weight suggestions and progress trends now account for switching gyms/machine brands — logging the same exercise on a different brand no longer reads as a strength change once you\'ve logged it on both close enough in time to compare',
-      'Adaptation tab now defaults to a colored body diagram by current stimulus level (red = atrophying, green = actively adapting), not just tap-to-select',
-      'Exercise selection now correctly recognizes a lot more of your real logged history — imported exercise names that didn\'t exactly match the database (e.g. "Bench Press (Barbell)") were silently being treated as novel; ~140 known real aliases are now wired into exercise selection, not just the ranking system',
-      'Exercises you log regularly (10+ sessions) are now protected as "staples" — no longer rotated away from for variety',
-      'Any imported workout history referencing an exercise not in the database now auto-saves it as a custom exercise, from any import source',
-      'New "Merge Exercises" tool in Settings, for folding two entries that are really the same exercise into one',
-      'New onboarding step: split, usual sets/reps, favorite exercises, and experience level — gives session planning a real starting point before you\'ve logged anything',
-      'Beginners (self-tagged at onboarding) get Easy/Medium/Failure effort logging instead of numeric RPE',
-      'New Wiki page (Settings → Learn): plain-language training concepts and a searchable exercise reference',
-      'Exercise search now understands muscle-group terms like "back," "legs," and "delts," not just individual muscle names',
-      'Renamed Niggles to Injuries',
-      'New plate calculator in the workout logger',
-      'Machine/cable entry is now a brand dropdown instead of free text, with a single/double-pulley option for cables',
-      'Exercises are now tagged by muscle group, movement pattern, and movement family (e.g. Bench Press → Barbell/Dumbbell × Flat/Incline/Decline) — new "Browse by Muscle" picker in the workout logger lets you drill down to an exercise instead of only searching by name',
-    ],
-  },
-  {
-    version: '0.16',
-    date: '2026-07-18',
-    features: [
-      'Fixed the Atlas post-session summary and Personal Journalist chat sometimes getting cut off mid-sentence — Gemini\'s "thinking" pass was silently eating into the same token budget as the visible reply; now detected and retried with more room instead of quietly returning the cut-off text',
-      'New rep-range callout: flags it live while logging once most hard sets in a session are running 3 reps or under (the training ethos biases toward 8-9), and Atlas will mention it after the session too if it never got worked back up',
-    ],
-  },
-  {
-    version: '0.15',
-    date: '2026-07-18',
-    features: [
-      'Replaced the flat "hard sets this session ÷ 4" Stimulus score with a continuous per-muscle adaptation model: each session contributes a rise-and-decay curve peaking 48h later, and curves from different sessions stack — a frequency-first week of small sessions can now correctly read as fully dosed, instead of every individual session looking under-dosed in isolation',
-      'New Adaptation tab (Recovery section): a per-muscle chart of that stacked curve, plus a dashed projection of where it heads with no further training — the projected decay rate calibrates automatically from your own real training gaps where there\'s enough history, with a manual override',
-      'The live "Session Stimulus" badge while logging a workout now shows a projected peak (recent history + this session so far) instead of a flat this-session-only dose',
-    ],
-  },
-  {
-    version: '0.14',
-    date: '2026-07-18',
-    features: [
-      'Added Dark Mode — toggle it in Settings → Profile, syncs across logins/devices',
-      'Fixed a gap where a failed /summary request could silently defeat the loading screen and briefly show empty data instead',
-      'Rest timer now shows live glycogen replenishment (half-life 45s) instead of a plain time countdown',
-      'Fatigue Types (Structural/Metabolic/CNS) now shown as a plain percentage',
-      'Session Stimulus no longer credits a secondary/assistor muscle (e.g. biceps on a row) the same as the actual primary target — secondary muscles now count at half weight',
-    ],
-  },
-  {
-    version: '0.13',
-    date: '2026-07-18',
-    features: [
-      'Exercise selection now heavily favors whatever you\'ve actually done before over something novel, whether picking a backbone lift or an accessory',
-      'Big disincentive against isometric holds (Plank, Pallof Press, Side Plank, ...) in favor of exercises with a normal, progressively-loadable range of motion — mechanical tension through full ROM is the primary driver of strength stimulus',
-      'Obscure/novel exercises (like the Pallof Press) are now scored down hard as accessories, and were already excluded from backbone picks entirely',
-    ],
-  },
-  {
-    version: '0.12',
-    date: '2026-07-18',
-    features: [
-      'Exercise search now also matches muscle, equipment, and category — searching "lats" finds every pulldown/row variant, not just exercises with "lats" literally in the name',
-      'Full-body auto-picked sessions now give 2 exercises per muscle group instead of 1, with the split between compound and isolation work following whichever you\'ve actually favored over your last 90 days of training',
-      'Fixed the Strength Level panel (All-Time Bests) never appearing on mobile — a scroll-reveal effect required 35% of the section on-screen at once, which a long PR list can never reach on a phone-sized viewport',
-      'App now shows a proper loading screen on open instead of the full page appearing with every section empty for a few seconds while data loads',
-      'Moved What\'s New to the bottom of Settings, out of the way of the settings you actually came to change',
-    ],
-  },
-  {
-    version: '0.11',
-    date: '2026-07-18',
-    features: [
-      'Fixed the Ranking legend showing no color at all for 5 of its 6 tiers (Beginner through Elite) — a key mismatch left every dot but Untrained blank',
-      'Ranking tier colors now run grey → green → blue → purple → orange → gold as you climb, ending Elite on literal gold, instead of an arbitrary hue per tier',
-    ],
-  },
-  {
-    version: '0.10',
-    date: '2026-07-16',
-    features: [
-      'Soreness logging now has a body diagram picker, matching Fatigue and Ranking — tap a muscle on the diagram instead of hunting through a 31-button grid (muscles without a diagram region still list separately below it)',
+      'Training gained a Load score (0-100, how hard a session was against your own recent average) and a Form line (a 30-day CTL/ATL/TSB-style fitness/fatigue trend with a lighter-week suggestion if it stays deeply negative) — Workout History later got Load on every past session too.',
+      'Plan Ahead went through several fixes in quick succession: a trailing-7-day cap so a mid-week start can\'t chain two weeks into a run with zero rest, per-day duration overrides, quick "Mark Busy" from the panel itself, and — twice — a pacing fix so sessions space out across the week (~7/target days apart) instead of front-loading, including a week-boundary edge case where the pacing gap reset every Monday.',
+      'Fixed Recovery Forecast, Today\'s Limiting Factor, and Weekly Volume Pace being silently broken for every account — all three depended on a weekly plan that nothing in the app actually triggered. "Fatigue" was renamed to "Recent Load" throughout.',
+      'Lose Fat now actually changes your plan — guaranteed cardio sessions, a calorie deficit sized to your goal\'s target date, and running recommendations weighted toward Zone 2 aerobic work.',
+      'Weekly session/cardio targets are now derived from Training Days/Week plus your Activities\' priority tiers, replacing the old Training Priority toggle; Tracking Level and Muscle Focus were both simplified to fewer, clearer controls.',
+      'Added crash/bug reporting (a "Report This" button on any load failure, plus Report Bug/Contact Us links in Settings), and fixed an app-wide load crash caused by an orphaned swim/bike effect.',
+      'Swim/bike fatigue now feeds the same unified fatigue ceiling lifting and running already share, and micronutrient tracking (barcode-scanned or AI-estimated) was added alongside calories/macros.',
+      'Added an Evidence tab to the Wiki (real citations behind Press\'s own models) and Rate Exercises to All-Time Bests (an on-demand version of the post-workout comparison prompt).',
+      'Today\'s Limiting Factor no longer reports muscles you\'ve deliberately set to Avoid, error messages show the actual failure reason instead of a generic one, and several walkthrough/mobile-layout bugs were fixed.',
     ],
   },
   {
     version: '0.9',
-    date: '2026-07-16',
+    date: '2026-08-07',
     features: [
-      'Added a real home-screen icon (a bold serif "P" on the app\'s own paper/ink colours) plus a web app manifest, so "Add to Home Screen" no longer falls back to a screenshot — also fixes push notifications, which were already referencing an icon file that never existed',
+      'Added a real home-screen icon and install manifest, and a new Running panel — daily readiness, session prescription, pace/HR zones, and an 8-week VO₂max forecast.',
+      'Diet Goal became Macro Targets: presets (later reworked to High Carb/Low Carb/High Protein) plus a Custom split editor, with Calorie Target as its own separate control.',
+      'Added Cycling and Swimming panels — Cycling with real power-meter physiology (FTP, Coggan zones, TSS, power-based VO₂max) where available, Swimming on heart-rate zones and pace — plus Sport and Aerobic panels sharing one computation off any other logged Strava activity, and a self-calculated VO₂max fallback for accounts with no watch or test data. New Cardio Score in Personal Records.',
+      'Activities replaced the old Hybrid/Team Sports/Endurance/CrossFit options with Cycling/Swimming/Sport/Aerobic — one choice per real weekly-target bucket instead of overlapping presets.',
+      'Cycle panel became a monthly calendar (logged periods solid, predicted window outlined) and can log a past period directly instead of only "starting now".',
+      'Strength Level ranking gets adductors, rhomboids, and mid-traps scored from EMG-weighted blends of the exercises that actually train them.',
+      'The interactive walkthrough now covers every panel plus Settings, and a mobile bug losing track of the spotlighted element after a forced restart was fixed.',
     ],
   },
   {
     version: '0.8',
-    date: '2026-07-16',
+    date: '2026-08-07',
     features: [
-      'Freestyle-logged exercises now suggest a set count and a descending RIR target per set (e.g. "3 sets · RIR 2→1→0"), matching the same guidance a pre-planned session already gets for free',
+      'Freestyle-logged sets now suggest a set count and descending RIR target, matching a planned session\'s guidance.',
+      'Lose Fat gained real deficit limits — a 20% warning and a 30% hard cap against your estimated maintenance calories — and Restart Setup now prefills every step from your existing data instead of a blank form.',
+      'Added Cycle-Aware Recovery (opt-in): log period start/end, and Press extends recovery time during menstruation and shortens it again around the midpoint, refining its own estimate over time from how training actually went each cycle. New Cycle panel holds the log.',
+      'Added a Sync button (mobile header) that launches your Apple Health Shortcut and refreshes the dashboard, with a Settings guide that grew a device picker (Apple Watch generation, Whoop, Oura) linking to the right Shortcut and covering Blood Oxygen/Wrist Temperature per device.',
+      'Tried and reverted an auto-return-to-Press behavior after running the Shortcut — it broke the Shortcut itself on at least one real device, so both Sync buttons went back to the plain, confirmed-working link.',
+      'Fixed the Goals panel not having its own Edit button, and the desktop section-nav dots lighting up more than one at once.',
     ],
   },
   {
     version: '0.7',
-    date: '2026-07-16',
+    date: '2026-08-06',
     features: [
-      'New "Session Stimulus" readout while logging a workout: 100% = optimal hard-set dose for a muscle this session, above 100% means you\'ve gone past the useful dose into diminishing returns',
+      'Session Stimulus (a live 100%-of-optimal-dose readout while logging) shipped, and the desktop dashboard gained wide 2-3 column panel spans, 9 optional micro-widgets, and one-click layout presets (Review/Dense/Retrospective).',
+      'Onboarding rebuilt: a real multi-goal picker (rank each goal, optionally set a concrete target/date), an Activities step, goal-informed sleep/water/training-day suggestions, and a "returning after a break" experience option.',
+      'Desktop dashboard became a freeform drag-and-resize grid with a Columns setting, replacing the auto-packed layout.',
+      'Added Plan Ahead — a 7/30-day forward calendar that solves each day\'s actual recommended session from real fatigue, with constraints layered on top (days off, holiday windows, weekly session target, split-day anchors) — replacing both the old weekly-guidance advisory block and the What If sandbox.',
+      'Favorite exercises became a real ranked order, refined by post-workout "which do you prefer?" comparison prompts instead of a flat unordered list.',
+      'Weekly Review became a structured brief (Goal Check with a hit-your-target-by projection, What\'s Working/Needs Attention, Fatigue Trend) instead of just a narrative.',
+      'Added Social as a front-page section with an activity feed, swipeable mobile section navigation, an interactive first-visit walkthrough for Dispatch/Training/Recovery, and fixed several grids overflowing the screen width on narrow phones.',
+      'Settings reorganized into a wiki-style page (table of contents plus continuous scroll) with dedicated Training Goals/Activities editors and a fixed Diet Goal save bug.',
     ],
   },
   {
     version: '0.6',
-    date: '2026-07-16',
+    date: '2026-08-04',
     features: [
-      'Fixed muscle fatigue reading far too low after a real session — the fatigue denominator was an unbounded all-time peak, so one old specialization day (e.g. 4 quad exercises stacked in one leg day) could permanently suppress that muscle\'s fatigue% forever, even years later',
+      'Fixed muscle fatigue reading permanently too low after an old specialization day, by uncapping the fatigue denominator.',
+      'Press/Row/Fly/Curl/Extension/Leg Curl/Hyperextension all became buildable via one EMG-backed angle picker, each sharing one tracked exercise identity per pattern+equipment with angle as a per-set attribute; auto-generated sessions can recommend them directly.',
+      'Desktop dashboard switched to masonry-style panel packing with collapsible/wide panels, and Dispatch now leads with Today\'s Limiting Factor — the single biggest thing constraining today\'s session, with the specific mitigation the planner is already applying.',
+      'Added a Detail Level setting (Beginner/Intermediate/Sport Scientist) that only changes how much reasoning is shown, never the underlying recommendation; weekly guidance gained a "Why This" explanation block.',
+      'Added Recovery Forecast (when each muscle clears the fatigue ceiling), What If (preview a candidate session\'s real fatigue effect before committing), Other Ways (30-min / CNS-sparing / bodyweight-only alternatives with real cost deltas), and Train A Muscle (best fresh exercise for a chosen muscle, later expanded to the whole body).',
+      'Muscle priorities split Ignore into Lower (deprioritized but still modeled) and Avoid (excluded outright), and workouts now record their real logged time so same-day fatigue timing is accurate instead of anchoring to midnight.',
+      'Added a Timeline (chronological history) and a Patterns tab tracking fatigue by movement pattern (pressing/hinging/rowing/squatting), not just by muscle; the adaptation model gained a second, faster recovery phase and real EMG-weighted secondary-muscle crediting.',
+      'Fixed Add to Calendar never actually working in any browser (a server-only method had leaked into the frontend bundle), and added a build check to catch that class of bug again.',
     ],
   },
   {
     version: '0.5',
-    date: '2026-07-16',
+    date: '2026-07-28',
     features: [
-      'Nutrition log entries can now carry a free-text description/note, editable regardless of whether it came from a photo scan — shown in the meal log table, Recent Foods, and CSV export',
-      'Fixed Recent Foods always showing empty (it was matching on a field no nutrition entry actually has)',
+      'Nutrition entries can carry a free-text note, and Recent Foods (previously always empty) was fixed.',
+      'Every account now needs a username (separate from display name), unlocking a new Social section in Settings: search, follow requests, profile views, and per-category visibility toggles.',
+      'Added Compare (per-muscle strength and training-stimulus comparison between mutual follows) and Group Session (log a shared workout with up to 4 people, later folded directly into the normal workout logger as a tab strip).',
+      'Gym equipment presets: location-based gym detection offers the right machine-brand list automatically, with a Model field for the exact machine.',
+      'EMG-curated fatigue profiles extended to shrugs and the Kelso Shrug family; loaded carries and one tibialis-raise variant were removed outright since no EMG literature supports curating them.',
+      'Build Press/Row now also builds Fly, with an EMG-backed angle and an informational lower/mid/upper-pec breakdown.',
     ],
   },
   {
     version: '0.4',
-    date: '2026-07-16',
+    date: '2026-07-28',
     features: [
-      'Fixed Hevy live-sync webhook responding before the workout was actually saved, so a sync could silently fail to update anything (fatigue included) despite Hevy reporting success',
+      'Fixed the Hevy live-sync webhook responding before the workout actually saved, silently leaving fatigue stale despite Hevy reporting success.',
+      'Added "Build Press/Row" — an exercise builder with an EMG-backed angle picker that becomes its own tracked exercise with a real per-muscle weighted fatigue profile, plus a cross-calibrated target-weight suggestion for new angles and an informational chest lower/mid/upper-pec split.',
+      'Weighted EMG fatigue attribution rolled out across the exercise database — squats, hinges, presses, rows, curls, extensions, and more — replacing flat full-credit fatigue with literature-backed per-muscle percentages for 200+ of 212 exercises.',
+      'Settings reorganized into 7 collapsible categories with a Restart Setup option, and the name field got an explicit Save button with visible success/error states.',
+      'Fixed invisible text in Dark Mode — Settings\' close button, the briefing edition label, and the trained-day label were all hardcoded to a color meant for the opposite theme.',
     ],
   },
   {
     version: '0.3',
-    date: '2026-07-16',
+    date: '2026-07-27',
     features: [
-      'Strength Level bars now fill toward the next numbered sub-level instead of a flat 0-100',
-      'Wide-range time estimate to your next strength level, shown only when you have a real, sustained progression trend behind it',
+      'Strength Level bars now fill toward the next numbered sub-level with a time-to-next-level estimate, and Muscle Focus (Focus/Ignore per muscle) arrived as an onboarding step.',
+      'Onboarding hardened: fixed it silently swallowing save failures, fixed it re-appearing on a new device for an already-set-up account, and Settings gained the ability to edit everything Onboarding originally collected.',
+      'Added a bottom dock for phone-width navigation (Dispatch/Sleep/Training/Nutrition/Recovery/Body/Records).',
+      'Nutrition fixes: meal name/description no longer duplicate each other, portion buttons no longer overlap their labels, and logged meals can be crossed off with a 7-day History tab.',
+      'Fixed the home-screen "Train X Today" headline naming the 2nd-most-fatigued muscle instead of the actual top pick, and the Max Length slider updating live instead of only after Refresh Guidance.',
     ],
   },
   {
     version: '0.2',
-    date: '2026-07-16',
+    date: '2026-07-24',
     features: [
-      'Strength ranks simplified back to the original 5, each split into 3 numbered sub-levels (e.g. Beginner 1/2/3) instead of separate invented names',
+      'Strength ranks simplified to 5 tiers with numbered sub-levels.',
+      'Full-body auto-generated sessions dropped the fixed Push/Pull/Legs/Core bucket in favor of ranking every muscle by real freshness, plus a new Preferred Split setting (Full Body, Upper/Lower, Push/Pull/Legs, Arnold Split, PPL Arnold) and a staleness warning when a named split hasn\'t reached a whole muscle group in 3+ weeks.',
+      'Instant cache-backed loading via the service worker, and fixed "Freshest Right Now" generating bloated 20+-exercise sessions by picking multi-muscle compounds first.',
+      'Added a Compound/Isolation preference slider, and a Max Length slider that trims auto-generated sessions by dropping exercises for already-fresh muscles first.',
+      'Hevy import fixed to keep warm-up sets (tagged, not lumped into working sets) and to merge newly-available sets into an already-imported session instead of skipping it.',
+      'Personal Journalist gained persistent cross-conversation memory, and nutrition logging got a barcode-scan fix and a meal-time editor plus Small/Medium/Large portion estimates.',
     ],
   },
   {
     version: '0.1',
-    date: '2026-07-15',
+    date: '2026-07-20',
     features: [
-      'Session CNS-load badge no longer misreads row-heavy sessions as "Light"',
-      'Warmup sets no longer flagged "Short of target"',
-      'A set that lands a new e1RM PR no longer flagged "Short of target"',
-      'Live "PR pace" hint shows the rep range needed to beat your PR as you enter a weight',
-      'Machine/technique tag suggests real UK commercial-gym equipment brands',
-      'In-progress sessions now survive backgrounding the app (no more lost workouts)',
-      'Removed a duplicate progression note and fixed truncated AI coaching cues',
-      'Ranking tab body diagram no longer shows stale colors from previous data',
-      'Ranking tab diagram colors now correctly match the legend key',
-      'Finer strength ranks added between the original 5, plus an open-ended "Ultra Elite" tier above 100',
+      'Session/ranking polish: fixed the CNS-load badge misreading row-heavy sessions, warm-up/PR sets wrongly flagged "Short of target", a live PR-pace hint, UK gym-equipment brand tags, and the ranking-tab diagram colors not matching its own legend.',
+      'Added a body-diagram picker for soreness logging, and fixed the ranking legend/tier colors (now grey → green → blue → purple → orange → gold).',
+      'Exercise search now matches muscle/equipment/category terms, favors your real training history over novel picks, and downranks isometric holds and obscure accessories; full-body sessions give 2 exercises per muscle group.',
+      'Added Dark Mode, then replaced the flat stimulus score with a continuous per-muscle adaptation model (rise-and-decay curves stacking across sessions) and its own Adaptation tab.',
+      'Major exercise-database pass: ~140 imported-name aliases recognized, staple exercises protected from rotation, unknown imports auto-saved as custom exercises, a Merge Exercises tool, a plate calculator, machine/cable brand dropdowns, and a first onboarding step (split, sets/reps, favorites, experience level).',
+      'Apple Health sync fixed end-to-end (per-account links, correct field parsing, recalibrated muscle recovery times against real research) and nutrition logging by text description, no photo required.',
     ],
   },
 ];
