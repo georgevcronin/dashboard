@@ -19,6 +19,7 @@ import machineBrandsPkg from '../functions/machineBrands.js';
 import machineModelsPkg from '../functions/machineModels.js';
 import resistanceCurvesPkg from '../functions/resistanceCurves.js';
 import adaptationPkg from '../functions/adaptation.js';
+import sessionLoadPkg from '../functions/sessionLoad.js';
 import plateCalculatorPkg from '../functions/plateCalculator.js';
 import progressionPkg from '../functions/progression.js';
 import identityPkg from '../functions/identity.js';
@@ -63,6 +64,7 @@ const {
   sessionStimulusScore, adaptationCurve, ADAPTATION_PEAK_H, computeStimulusContributions, computeAdaptationLevel,
   computeAdaptationSeries, estimateAtrophyRate, DEFAULT_ATROPHY_RATE, secondaryMuscleRatio, DEFAULT_RIR,
 } = adaptationPkg;
+const { sessionLoadScore } = sessionLoadPkg;
 const { platesForWeight, STANDARD_PLATES_KG } = plateCalculatorPkg;
 const { DEFAULT_WARMUP_SCHEME, WARMUP_SCHEME_PRESETS } = progressionPkg;
 const { validateUsername, validateDisplayName, normalizeUsername, USERNAME_MAX, canChangeUsername, usernameChangeAvailableAt } = identityPkg;
@@ -1052,6 +1054,13 @@ const glycogenPct = (elapsedS, totalS) => {
 // instead of the list. v0.1 is the first tracked release, not literally the
 // app's first version — everything before this had no changelog at all.
 const CHANGELOG = [
+  {
+    version: '1.25',
+    date: '2026-08-08',
+    features: [
+      'Workout History now shows each past session\'s Load score (how hard it was, 0-100) next to its duration, instead of that number only ever being visible for your most recent session on Training.',
+    ],
+  },
   {
     version: '1.24',
     date: '2026-08-08',
@@ -4632,12 +4641,14 @@ function WorkoutHistory({ s, onClose, refresh }) {
         {workouts.map((w, i) => {
           const isOpen = expanded === i;
           const exercises = getExerciseSummary(w.date);
+          const load = sessionLoadScore(lifts.filter(l => l.date === w.date));
           return (
             <div key={i} className="hist-row" onClick={() => setExpanded(isOpen ? null : i)}>
               <div className="hist-row-hdr">
                 <span className="hist-date">{w.date}</span>
                 <span className="hist-name">{w.name || 'Session'}</span>
                 {w.duration && <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)' }}>{w.duration}min</span>}
+                {load != null && <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'var(--dim)' }}>Load {load}</span>}
                 <span style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }} onClick={e => e.stopPropagation()}>
                   {confirmDeleteDate === w.date ? (
                     <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, letterSpacing: '.1em' }}>
