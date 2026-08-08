@@ -1055,6 +1055,13 @@ const glycogenPct = (elapsedS, totalS) => {
 // app's first version — everything before this had no changelog at all.
 const CHANGELOG = [
   {
+    version: '1.27',
+    date: '2026-08-08',
+    features: [
+      "Today's Limiting Factor no longer reports muscles you've set to Avoid in Muscle Priorities — that's a standing preference, not something today's session is fighting against, and it was permanently outranking every real, day-to-day constraint (CNS fatigue, sleep, soreness) the panel exists to surface.",
+    ],
+  },
+  {
     version: '1.26',
     date: '2026-08-08',
     features: [

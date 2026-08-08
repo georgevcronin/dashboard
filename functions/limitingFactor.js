@@ -51,11 +51,10 @@ const SEVERITY_RANK = { high: 3, moderate: 2, low: 1 };
 // Tie-break within a severity tier. Deliberately not `magnitude`: those values
 // are in different units (a count of injured muscles, a 0-100 fatigue score,
 // hours of sleep debt) and ordering across them would be meaningless. This
-// ranks by how directly the factor constrains the session — an avoid-list
-// exclusion is absolute, an injury floors specific muscles, CNS and metabolic
-// fatigue change what gets selected and how many sets it gets, and
-// recovery/sleep act indirectly by scaling CNS.
-const CODE_ORDER = ['excluded', 'injury', 'cns-high', 'metabolic-high', 'structural', 'cns-moderate', 'metabolic-moderate', 'recovery', 'sleep'];
+// ranks by how directly the factor constrains the session — an injury floors
+// specific muscles, CNS and metabolic fatigue change what gets selected and
+// how many sets it gets, and recovery/sleep act indirectly by scaling CNS.
+const CODE_ORDER = ['injury', 'cns-high', 'metabolic-high', 'structural', 'cns-moderate', 'metabolic-moderate', 'recovery', 'sleep'];
 
 const pct = n => Math.round(n);
 
@@ -164,28 +163,14 @@ function identifyLimitingFactors({
 } = {}) {
   const factors = [];
 
-  // Two genuinely different mechanisms, kept apart because they behave
-  // differently in the engine and conflating them would misstate both.
-  //
-  // offlineMuscles is the avoid list (profile.muscleFocus 'ignore'), which
-  // index.js passes to computeMusclePriority as a hard -1 exclusion.
-  if (offlineMuscles.length) {
-    factors.push({
-      code: 'excluded',
-      severity: 'high',
-      headline: 'Muscles set to avoid',
-      detail: `${nameList(offlineMuscles)} ${offlineMuscles.length === 1 ? 'is' : 'are'} set to avoid in your muscle priorities.`,
-      effect: 'They are excluded from exercise selection outright, and any exercise that loads them as a prime mover is skipped.',
-      mitigation: 'Change them from Avoid in Settings → Muscle Priorities to bring them back in.',
-      magnitude: offlineMuscles.length,
-      muscles: [...offlineMuscles],
-      explanations: {
-        beginner: `You've asked Press to leave ${nameList(offlineMuscles)} alone, so today's session is built around ${offlineMuscles.length === 1 ? 'it' : 'them'}.`,
-        intermediate: `${nameList(offlineMuscles)} ${offlineMuscles.length === 1 ? 'is' : 'are'} on your avoid list, so ${offlineMuscles.length === 1 ? 'it is' : 'they are'} excluded from selection and any exercise driving ${offlineMuscles.length === 1 ? 'it' : 'them'} as a prime mover is skipped.`,
-        scientist: `Avoid list (profile.muscleFocus 'ignore') enters computeMusclePriority as a hard -1 exclusion, ahead of any freshness or staleness term.`,
-      },
-    });
-  }
+  // Muscles set to ignore (profile.muscleFocus 'ignore') are a standing
+  // preference the athlete set once, not something today's session is
+  // fighting against, so they are never reported as a limiting factor here.
+  // offlineMuscles still does one job below: the alreadyExplained filter
+  // keeps these same muscles from resurfacing under structural fatigue,
+  // where a permanently-avoided muscle sitting above the ceiling would read
+  // as "not selected because it's fatigued" when it's really just excluded
+  // outright, regardless of fatigue.
 
   // An injury is not an exclusion. applyInjuryTaper floors the affected
   // muscles' fatigue at a healing penalty, so they only drop out of selection

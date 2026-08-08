@@ -88,12 +88,14 @@ test('the stated recovery multiplier is the one computeCNSFatigue applies', () =
 // Ranking
 // ---------------------------------------------------------------------------
 
-test('an avoid-list exclusion outranks every other high-severity factor', () => {
-  const result = todaysLimitingFactor({
+test('muscles set to ignore are never reported as a limiting factor', () => {
+  const inputs = {
     cnsFatigue: 95, metabolicFatigue: 95, offlineMuscles: ['erectors'],
     currentFatigue: { quads: 90, glutes: 90, hamstrings: 90, calves: 90 }, recoveryScore: 10,
-  });
-  assert.equal(result.primary.code, 'excluded');
+  };
+  assert.ok(!codes(inputs).includes('excluded'));
+  // A real, time-varying factor should still win the ranking.
+  assert.equal(todaysLimitingFactor(inputs).primary.code, 'cns-high');
 });
 
 test('a high-severity factor outranks a moderate one regardless of raw magnitude', () => {
@@ -105,10 +107,10 @@ test('a high-severity factor outranks a moderate one regardless of raw magnitude
   assert.ok(result.others.some(o => o.code === 'cns-moderate'));
 });
 
-test('an avoided muscle is not also reported as structurally fatigued', () => {
+test('an ignored muscle is reported neither as excluded nor as structurally fatigued', () => {
   const c = codes({ ...FRESH, offlineMuscles: ['quads'], currentFatigue: { quads: 95 } });
-  assert.ok(c.includes('excluded'));
-  assert.ok(!c.includes('structural'), 'quads counted twice');
+  assert.ok(!c.includes('excluded'));
+  assert.ok(!c.includes('structural'), 'a permanently-ignored muscle should not read as fatigue-limited');
 });
 
 // applyInjuryTaper floors an injured muscle's fatigue rather than excluding
@@ -272,17 +274,19 @@ test('metabolic fatigue is relevant to any session, since it caps every exercise
 });
 
 test('severity still outranks relevance', () => {
-  // A high-severity factor about muscles today ignores must still beat a
-  // moderate one it trains — an exclusion is absolute regardless of the day.
+  // A high-severity factor with zero relevance to today's session must still
+  // beat a moderate one that's fully relevant — severity is the primary sort
+  // key and relevance only breaks ties within a tier, never overrides it.
   const result = todaysLimitingFactor({
-    offlineMuscles: ['lats'],
+    cnsFatigue: 85,
     metabolicFatigue: 45,
     currentFatigue: { chest: 10 },
     recoveryScore: 70,
-    session: [{ name: 'back squat' }],
+    session: [{ name: 'bicep curl (dumbbell)' }],
   });
   assert.equal(result.primary.severity, 'high');
-  assert.equal(result.primary.code, 'excluded');
+  assert.equal(result.primary.code, 'cns-high');
+  assert.equal(result.primary.relevance, 0);
   assert.equal(result.sessionAware, true);
 });
 
