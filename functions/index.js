@@ -335,14 +335,19 @@ app.post("/health", async (req, res) => {
         if (pt.rem != null) db.metrics[k].rem_sleep_min = Math.round(pt.rem * 60);
         if (pt.core != null) db.metrics[k].light_sleep_min = Math.round(pt.core * 60);
         if (pt.awake != null) db.metrics[k].waso_min = Math.round(pt.awake * 60);
-      } else if (pt.qty != null) {
-        db.metrics[k][name] = pt.qty;
-        if (name === "body_mass") db.weight[k] = pt.qty;
+      } else if (pt.qty != null && pt.qty !== '' && Number.isFinite(+pt.qty)) {
+        // Health Auto Export occasionally sends qty: "" for a metric with no
+        // reading that day instead of omitting it -- != null lets that through,
+        // and it then reads as present-but-blank everywhere downstream that
+        // isn't already filtering falsy values (e.g. today.hrv on /summary).
+        const qty = +pt.qty;
+        db.metrics[k][name] = qty;
+        if (name === "body_mass") db.weight[k] = qty;
         if (name.startsWith("dietary_")) {
           db.nutrition = db.nutrition || {};
           db.nutrition[k] = db.nutrition[k] || {};
           const nmap = { dietary_protein: "protein", dietary_carbohydrates: "carbs", dietary_fat_total: "fat", dietary_energy_consumed: "calories" };
-          if (nmap[name]) db.nutrition[k][nmap[name]] = pt.qty;
+          if (nmap[name]) db.nutrition[k][nmap[name]] = qty;
         }
       } else if (pt.avg != null) db.metrics[k][name] = pt.avg;
       saved++;
@@ -1009,7 +1014,7 @@ app.get("/summary", async (req, res) => {
   res.json({
     profile: db.profile, hydrationCurve, hydrationNow: hydrationCurve.at(-1) ?? null,
     liftVolume,
-    today: { recovery, hrv: today.heart_rate_variability ?? null, rhr: today.resting_heart_rate ?? null, sleepH: today.sleep_hours ?? null, sleepEff: today.sleep_eff ?? null, steps: today.step_count ?? null, wristTemp: today.wrist_temperature ?? null, hr: today.heart_rate ?? null, spo2: today.blood_oxygen ?? null, wakeTimeMs: today.wake_time_ms ?? null },
+    today: { recovery, hrv: today.heart_rate_variability === '' ? null : today.heart_rate_variability ?? null, rhr: today.resting_heart_rate === '' ? null : today.resting_heart_rate ?? null, sleepH: today.sleep_hours ?? null, sleepEff: today.sleep_eff ?? null, steps: today.step_count ?? null, wristTemp: today.wrist_temperature ?? null, hr: today.heart_rate ?? null, spo2: today.blood_oxygen ?? null, wakeTimeMs: today.wake_time_ms ?? null },
     sleepTarget: sleep.target, sleepTargetLearned: sleep.learned,
     sleepDebtH: Math.round(sleepDebtH * 10) / 10,
     sleepScore, sleepScoreTrend,
