@@ -1055,22 +1055,6 @@ const glycogenPct = (elapsedS, totalS) => {
 // app's first version — everything before this had no changelog at all.
 const CHANGELOG = [
   {
-    version: '1.2',
-    date: '2026-08-08',
-    features: [
-      'Plan Ahead can now mark a day Cardio or Sport instead of only Mark Busy — the forward calendar skips guessing a lift session for that day and shows it as planned instead.',
-      'Added manual logging for runs, rides, swims, and other sport sessions (Running/Cycling/Swimming/Sport/Aerobic each gained a "+ Log" button) — previously the only way any of those got into Press at all was a Strava sync.',
-      'Calorie Target now defaults to Auto: calculated from your weight, training days, and — if you have one — your Lose Fat goal\'s target and date, recalculating itself every time you open the dashboard rather than sitting at a fixed number. Switch to Manual anytime in Settings to set your own calories and macro split instead.',
-    ],
-  },
-  {
-    version: '1.1',
-    date: '2026-08-08',
-    features: [
-      "The very first load after signing in now gets one silent automatic retry before showing an error — most \"the page won't load\" reports were a transient blip (a cold server, a moment where the sign-in token wasn't quite ready yet) that a manual page refresh already fixed, so Press now just does that retry itself first instead of making you do it.",
-    ],
-  },
-  {
     version: '1.0',
     date: '2026-08-08',
     features: [
@@ -1084,6 +1068,10 @@ const CHANGELOG = [
       'Added an Evidence tab to the Wiki (real citations behind Press\'s own models) and Rate Exercises to All-Time Bests (an on-demand version of the post-workout comparison prompt).',
       'Today\'s Limiting Factor no longer reports muscles you\'ve deliberately set to Avoid, error messages show the actual failure reason instead of a generic one, and several walkthrough/mobile-layout bugs were fixed.',
       'Fixed brand-new accounts hitting a server error on the very first onboarding screen and never getting any further — the weekly plan Press generates automatically on first load couldn\'t be saved for an account with zero logged workouts yet, blocking every new signup while existing accounts were unaffected.',
+      "The very first load after signing in now gets one silent automatic retry before showing an error — most \"the page won't load\" reports were a transient blip (a cold server, a moment where the sign-in token wasn't quite ready yet) that a manual page refresh already fixed, so Press now just does that retry itself first instead of making you do it.",
+      'Plan Ahead can now mark a day Cardio or Sport instead of only Mark Busy — the forward calendar skips guessing a lift session for that day and shows it as planned instead.',
+      'Added manual logging for runs, rides, swims, and other sport sessions (Running/Cycling/Swimming/Sport/Aerobic each gained a "+ Log" button) — previously the only way any of those got into Press at all was a Strava sync.',
+      'Calorie Target now defaults to Auto: calculated from your weight, training days, and — if you have one — your Lose Fat goal\'s target and date, recalculating itself every time you open the dashboard rather than sitting at a fixed number. Switch to Manual anytime in Settings to set your own calories and macro split instead.',
     ],
   },
   {
